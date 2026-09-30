@@ -67,7 +67,7 @@ def create_organization(
         VALUES (%s, %s, %s, %s)
         RETURNING *
         """,
-        (req.name.strip(), slug, req.cac_rc, req.sector),
+        (req.name.strip(), slug, req.cac_rc, req.sector or "Technology"),
     )
 
     execute_one(
