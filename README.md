@@ -1,56 +1,128 @@
-# CYPHWARD — Cyber Defense, Layer by Layer
+# CYPHWARD — Sovereign Attack Surface Management
 
-An investor-demo-quality frontend for an AI-powered African cybersecurity &
-compliance SaaS. React + TypeScript, **mock data only** — no backend, no real
-API calls, no auth server. Visual system: **STRATA** (warm paper / ink /
-oxide-red hairline design, Fraunces + Space Grotesk + IBM Plex Mono, light &
-dark themes, command palette, live ticker).
+External security posture platform: continuous attack-surface discovery, security
+scoring (0–100), findings lifecycle, remediation tasks, and executive reports.
 
-## Stack
+- **Frontend:** Vite · React 18 · TypeScript · Tailwind · react-router
+- **Backend:** FastAPI (Python) · PostgreSQL (Supabase) · Supabase Auth · Inngest workflows
+- **Auth:** Supabase Auth only — JWT bearer tokens, org membership verified
+  server-side via `X-Organization-Id` (fail-closed, no fallback org), roles
+  `owner | admin | member`.
 
-Vite · React 18 · TypeScript · Tailwind CSS · react-router-dom · lucide-react · recharts
+## Repository layout
 
-## Quick start
+```
+backend/app/
+  main.py           # FastAPI app, routers, Inngest serve (/api/inngest)
+  api/              # REST routers (domains, findings, scans, assets, AI, …)
+  core/             # config, database, auth (JWT + RBAC + audit)
+  risk/             # 0-100 security scoring engine
+  scanner/          # DNS/HTTP/TLS probes, normalizer, nuclei runner
+  ai/               # LLM providers + privacy sanitizer
+  services/         # notifications, transactional email
+  workflows/        # Inngest scan pipeline + daily scan cron
+  db/               # seed scripts
+backend/tests/      # pytest suite (no DB required — in-memory fake)
+frontend/src/       # React app (pages, components, lib/api, lib/auth)
+supabase/migrations # SQL schema
+```
 
-Requires Node 18+.
+## Prerequisites
+
+- Node 18+
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/) (used to run the server)
+- A Supabase project (auth + Postgres)
+- Inngest CLI (`npm i -g inngest-cli`) for local workflow execution
+
+## Environment
+
+Copy the examples and fill in real values:
 
 ```bash
-npm install
-npm run dev
+cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 ```
 
-Then open the URL Vite prints (usually `http://localhost:5173`).
+Required:
 
-## Demo flow
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `.env` / `backend/.env` | Postgres connection string |
+| `SUPABASE_URL` | `.env` | Supabase project URL |
+| `SUPABASE_JWT_SECRET` | `.env` | HS256 secret for verifying access tokens (**required at runtime**) |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | `frontend/.env` | Browser auth client |
 
-1. **Login** (`/login`) — any email/password signs you in (mock, ~400ms).
-2. You land on the **Dashboard** (`/`): 742/1000 score ring, sub-scores,
-   compliance 14/18, training 92%, live threat ticker.
-3. Sidebar routes (all live): `/comply`, `/detect`, `/score`, `/academy`, `/copilot`.
-4. Press **⌘K / Ctrl·K** anywhere for the command palette.
-5. Theme toggle (sun/moon) switches the STRATA paper/ink themes.
+The JWT secret is found in Supabase → Project Settings → API → JWT Secret.
 
-## Scripts
+## Database migrations
 
-| Command           | What it does                    |
-| ----------------- | ------------------------------- |
-| `npm run dev`     | Start the dev server            |
-| `npm run build`   | Type-check and build for prod   |
-| `npm run preview` | Preview the production build    |
+Apply migrations in order (Supabase CLI or SQL editor):
 
-## Structure
-
-```
-src/
-  main.tsx, App.tsx        # entry, router + shell
-  index.css                # STRATA design tokens + component styles
-  data/mock.ts             # ALL mock data in one module
-  lib/api.ts               # async wrappers over mock (TODO markers for real endpoints)
-  lib/auth.tsx, theme.ts, hooks.ts, format.ts
-  components/              # Sidebar, Topbar, ScoreRing, DataTable, ThreatTicker, …
-  pages/                   # Login, Dashboard, Comply, Detect, Score, Academy, Copilot
+```bash
+supabase db push
+# or apply supabase/migrations/*.sql manually, ending with:
+# 20260922120000_mvp_spec_alignment.sql
 ```
 
-All numbers and labels come from `src/data/mock.ts`. To go real, replace the
-bodies of the functions in `src/lib/api.ts` — the pages never touch mock data
-directly.
+Optionally seed demo tenants:
+
+```bash
+python -m backend.app.db.seed_mvp
+```
+
+## Development
+
+```bash
+npm install          # root convenience scripts
+cd frontend && npm install
+
+npm run start        # API (:8000) + Inngest dev + Vite dev (:5173)
+```
+
+Individually:
+
+| Command | What it runs |
+| --- | --- |
+| `npm run server` | FastAPI via uvicorn (`backend.app.main:app`, :8000) |
+| `npm run inngest` | Inngest dev server, signed to `/api/inngest` |
+| `npm run dev` | Vite dev server (:5173) |
+| `npm test` | Backend pytest suite |
+| `npm run build` | Frontend type-check + production build |
+
+API docs: `http://localhost:8000/docs`
+
+## Tests & CI
+
+```bash
+npm test             # backend: auth chain, RBAC, cross-tenant, units
+cd frontend && npm run build   # tsc + vite
+```
+
+The backend suite runs offline: `backend/tests/conftest.py` seeds an in-memory
+tenant store and patches `get_db`, so tests exercise the **real** JWT →
+membership → RBAC path with no Postgres. GitHub Actions (`.github/workflows/ci.yml`)
+runs both jobs on every push/PR.
+
+## API conventions
+
+- All authenticated requests: `Authorization: Bearer <Supabase access token>`
+- Tenant selection: `X-Organization-Id: <org uuid or slug>` — verified against
+  `organization_members`; requests for a non-member org return `403`.
+- No API keys. Mutations require `admin`/`owner`; owner-only actions require
+  `owner`.
+- Findings statuses: `open | acknowledged | in_progress | resolved`
+  (severities lowercase: `critical | high | medium | low | info`).
+
+## Scanning & workflows
+
+- Scans may only target **verified** domains; the backend resolves scope.
+- The Inngest pipeline (`backend/app/workflows/inngest_workflow.py`) runs
+  discovery → probes → nuclei → normalize/upsert → score → notify.
+- A daily cron (`0 6 * * *`) queues scans for verified domains without an
+  active scan.
+
+## Out of scope (intentionally removed)
+
+Compliance modules, Academy, Detect/alerts, Copilot, threat ticker, SSO
+(SAML/OIDC), API-key auth, and analytics — see git history if needed.

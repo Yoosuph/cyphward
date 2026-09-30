@@ -2,27 +2,12 @@
   "name": "cyphward",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "lucide-react": "^0.454.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2",
-    "recharts": "^2.12.7"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.11",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.2",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
-    "typescript": "^5.6.3",
-    "vite": "^5.4.8"
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "server": "uv run --with fastapi --with uvicorn --with 'psycopg[binary]' --with psycopg-pool --with pydantic --with python-dotenv --with httpx --with dnspython --with inngest --with pyjwt --with email-validator uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "inngest": "inngest dev -u http://127.0.0.1:8000/api/inngest",
+    "test": "uv run --with pytest --with fastapi --with 'psycopg[binary]' --with psycopg-pool --with pydantic --with python-dotenv --with httpx --with dnspython --with inngest --with pyjwt --with email-validator python -m pytest backend/tests -q",
+    "start": "npm run server & npm run inngest & npm run dev"
   }
 }

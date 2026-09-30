@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cyphward — Security Scoring for African Enterprises</title>
+  <meta name="description" content="Cyphward gives your organization a simple 0–100 security score across network, web apps, encryption, and exposure — with findings, fix guides, and board-ready reports. Built for NDPA 2023." />
+  <meta name="theme-color" content="#E5532B" />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="canonical" href="https://cyphward.com/" />
+
+  <!-- Icons -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon.ico" sizes="32x32" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="/favicon-16x16.png" type="image/png" sizes="16x16" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Cyphward" />
+  <meta property="og:title" content="Cyphward — Security Scoring for African Enterprises" />
+  <meta property="og:description" content="A simple 0–100 security score across network, web apps, encryption, and exposure — findings, fix guides, and board-ready reports. NDPA 2023 ready." />
+  <meta property="og:url" content="https://cyphward.com/" />
+  <meta property="og:image" content="https://cyphward.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Cyphward shield logo" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Cyphward — Security Scoring for African Enterprises" />
+  <meta name="twitter:description" content="A simple 0–100 security score across network, web apps, encryption, and exposure — findings, fix guides, and board-ready reports." />
+  <meta name="twitter:image" content="https://cyphward.com/og-image.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* Hide body until theme is applied to prevent flash */
+    html:not([data-theme]) body { opacity: 0; }
+    html[data-theme] body { opacity: 1; transition: opacity 0.05s; }
+  </style>
+  <script>
+    /* Blocking script: apply saved theme BEFORE first paint */
+    (function() {
+      try {
+        var t = sessionStorage.getItem('cyphward-theme') || localStorage.getItem('cyphward-theme');
+        if (!t && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+        if (!t) t = 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

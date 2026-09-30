@@ -1,0 +1,4 @@
+Contact: mailto:security@cyphward.com
+Expires: 2027-09-30T00:00:00.000Z
+Preferred-Languages: en
+Policy: https://cyphward.com/security.txt

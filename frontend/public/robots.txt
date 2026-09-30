@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /onboarding/
+Disallow: /settings
+Disallow: /api/
+
+Sitemap: https://cyphward.com/sitemap.xml
