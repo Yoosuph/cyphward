@@ -31,3 +31,7 @@ dist-ssr
 .env.test.local
 .env.production.local
 *.tsbuildinfo
+
+# Python cache
+__pycache__/
+*.pyc

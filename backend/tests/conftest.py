@@ -309,6 +309,37 @@ class FakeStore:
             rows.sort(key=lambda r: r["created_at"], reverse=True)
             return rows
 
+        # --- scanner worker endpoints (spec §14) -------------------------
+        # claim: atomic UPDATE ... FOR UPDATE SKIP LOCKED ... RETURNING id
+        if "FOR UPDATE OF s SKIP LOCKED" in s:
+            scanner_id = params[1]
+            for sc in self.scans:
+                if sc.get("status") == "queued":
+                    sc["status"] = "running"
+                    sc["claimed_by"] = scanner_id
+                    sc["current_stage"] = "discovery"
+                    sc["lease_expires_at"] = "2026-09-30T12:00:00"
+                    return [{"id": sc["id"]}]
+            return []
+
+        # claim follow-up: ScanJob payload select
+        if "s.lease_expires_at, d.domain" in s:
+            scan_id = params[0]
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc:
+                return []
+            dom = next((d for d in self.domains if d["id"] == sc.get("domain_id")), None)
+            return [{
+                **sc,
+                "domain": (dom or {}).get("domain", "example.test"),
+                "lease_expires_at": "2026-09-30T12:00:00",
+            }]
+
+        # _held_job lease ownership check
+        if s.startswith("SELECT id, status, claimed_by, lease_expires_at FROM scans"):
+            scan_id = params[0]
+            return [x for x in self.scans if x["id"] == scan_id]
+
         # Unknown statement: behave like an empty result set.
         return []
 

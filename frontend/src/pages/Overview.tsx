@@ -447,7 +447,7 @@ export default function Overview() {
                     </td>
                     <td className="py-3">
                       <div className="flex items-center gap-1">
-                        {['discovery', 'dns', 'http', 'security_checks', 'nuclei', 'normalization', 'scoring', 'ai_analysis'].map((st, i) => {
+                        {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map((st, i) => {
                           const stageData = (scan.stage_progress as any)?.[st];
                           const isDone = stageData?.status === 'completed';
                           const isRunning = stageData?.status === 'running';

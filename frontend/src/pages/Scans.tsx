@@ -133,11 +133,13 @@ export default function Scans() {
     { key: 'discovery', label: '1. Discovery', desc: 'Subfinder & Passive CT Logs' },
     { key: 'dns', label: '2. DNS Resolution', desc: 'A, MX, TXT, SPF, DMARC' },
     { key: 'http', label: '3. HTTP Probing', desc: 'Go httpx / Python httpx' },
-    { key: 'security_checks', label: '4. Security Checks', desc: 'Headers, DMARC, TLS Certs' },
-    { key: 'nuclei', label: '5. Nuclei Scan', desc: '9000+ Vulnerability Templates' },
-    { key: 'normalization', label: '6. Normalization', desc: 'Evidence Standardization' },
-    { key: 'scoring', label: '7. Security Score', desc: 'Simple 0–100 score' },
-    { key: 'ai_analysis', label: '8. AI Analysis', desc: 'Explanations & Executive Report' },
+    { key: 'ports', label: '4. Port Discovery', desc: 'Naabu · Top 100 TCP ports' },
+    { key: 'tls', label: '5. TLS Analysis', desc: 'SSLyze · Certs & ciphers' },
+    { key: 'nuclei', label: '6. Nuclei Scan', desc: '9000+ Vulnerability Templates' },
+    { key: 'security_checks', label: '7. Security Checks', desc: 'Headers, DMARC, TLS Certs' },
+    { key: 'normalization', label: '8. Normalization', desc: 'Evidence Standardization' },
+    { key: 'scoring', label: '9. Security Score', desc: 'Simple 0–100 score' },
+    { key: 'ai_analysis', label: '10. AI Analysis', desc: 'Explanations & Executive Report' },
   ];
 
   if (loading && scans.length === 0) {
@@ -354,7 +356,7 @@ export default function Scans() {
 
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        {['discovery', 'dns', 'http', 'security_checks', 'nuclei', 'normalization', 'scoring', 'ai_analysis'].map(st => {
+                        {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map(st => {
                           const sData = (scan.stage_progress as any)?.[st];
                           const isDone = sData?.status === 'completed';
                           const isRunning = sData?.status === 'running';

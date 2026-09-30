@@ -9,8 +9,10 @@ from typing import List, Dict, Any, Optional
 import json
 
 from backend.app.core.database import execute_one, execute_query
+from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from shared.contracts import empty_stage_progress
 import inngest
 
 router = APIRouter(prefix="/api/v1/scans", tags=["Scans"])
@@ -114,16 +116,7 @@ async def launch_scan(
             detail=f"Domain {domain['domain']} is not verified. Please verify DNS TXT ownership before initiating scans.",
         )
 
-    stage_progress = {
-        "discovery": {"status": "queued", "items": 0, "duration_ms": 0},
-        "dns": {"status": "queued", "items": 0, "duration_ms": 0},
-        "http": {"status": "queued", "items": 0, "duration_ms": 0},
-        "security_checks": {"status": "queued", "items": 0, "duration_ms": 0},
-        "nuclei": {"status": "queued", "items": 0, "duration_ms": 0},
-        "normalization": {"status": "queued", "items": 0, "duration_ms": 0},
-        "scoring": {"status": "queued", "score": None, "duration_ms": 0},
-        "ai_analysis": {"status": "queued", "items": 0, "duration_ms": 0},
-    }
+    stage_progress = empty_stage_progress()
 
     new_scan = execute_one("""
         INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)
@@ -133,8 +126,12 @@ async def launch_scan(
 
     scan_id = str(new_scan["id"])
 
-    # Exactly-once dispatch: prefer Inngest; fall back to a local background task
-    # only when the event gateway is unavailable (never both).
+    # Exactly-once dispatch: the queued row is always the job record.
+    # local:  Inngest event, with a local background task only as fallback
+    #         when the event gateway is unavailable (never both).
+    # remote: the scanner worker claims the row over outbound HTTPS — never
+    #         run recon in-process; the Inngest event is informational only.
+    remote = SCANNER_MODE == "remote"
     dispatched = False
     try:
         await inngest_client.send(inngest.Event(name="scan.requested", data={
@@ -147,21 +144,26 @@ async def launch_scan(
     except Exception as e:
         import logging
         logging.getLogger("cyphward.scans").warning(
-            f"Inngest dispatch failed for scan {scan_id}, falling back to local task: {e}"
+            f"Inngest dispatch failed for scan {scan_id}: {e}"
         )
         dispatched = False
 
-    if not dispatched:
+    if remote:
+        dispatch_kind = "scanner_queue"
+    elif not dispatched:
         background_tasks.add_task(execute_scan_pipeline, scan_id)
+        dispatch_kind = "local"
+    else:
+        dispatch_kind = "inngest"
 
     log_audit(org_id, org.get("current_user_id"), "scan.started", "scan", scan_id,
-              {"domain": domain["domain"], "dispatch": "inngest" if dispatched else "local"})
+              {"domain": domain["domain"], "dispatch": dispatch_kind})
 
     return {
         "message": f"Scan queued for {domain['domain']}.",
         "scan": new_scan,
         "domain": domain["domain"],
-        "dispatch": "inngest" if dispatched else "local",
+        "dispatch": dispatch_kind,
     }
 
 

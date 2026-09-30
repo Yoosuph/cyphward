@@ -5,8 +5,11 @@ Falls back gracefully if the naabu binary is not installed.
 """
 import asyncio
 import json
+import logging
 import shutil
 from typing import Any, Dict, List
+
+logger = logging.getLogger("cyphward.scanner.naabu")
 
 
 async def run_naabu(
@@ -27,7 +30,7 @@ async def run_naabu(
         naabu_path,
         "-host", hostname,
         "-top-ports", str(top_ports),
-        "-connect",
+        "-scan-type", "CONNECT",
         "-rate", str(rate),
         "-silent",
         "-json",
@@ -42,8 +45,12 @@ async def run_naabu(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if proc.returncode not in (0, None):
+            err = (stderr or b"").decode(errors="replace").strip()[:300]
+            logger.warning("naabu %s exited %s: %s", hostname, proc.returncode, err)
 
+        seen_ports = set()
         for line in stdout.decode(errors="replace").splitlines():
             line = line.strip()
             if not line:
@@ -55,16 +62,20 @@ async def run_naabu(
             port = data.get("port")
             if not port:
                 continue
+            port = int(port)
+            if port in seen_ports:
+                continue
+            seen_ports.add(port)
             findings.append({
                 "hostname": hostname,
                 "ip": data.get("ip"),
-                "port": int(port),
+                "port": port,
                 "protocol": data.get("protocol") or "tcp",
             })
     except asyncio.TimeoutError:
-        pass
-    except Exception:
-        pass
+        logger.warning("naabu %s timed out after %ss", hostname, timeout)
+    except Exception as e:
+        logger.warning("naabu %s failed: %s", hostname, e)
     finally:
         if proc and proc.returncode is None:
             try:

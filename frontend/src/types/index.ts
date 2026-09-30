@@ -91,19 +91,24 @@ export interface Finding {
 }
 
 export interface StageInfo {
-  status: 'queued' | 'pending' | 'running' | 'completed' | 'failed';
+  status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   items?: number;
   duration_ms?: number;
   score?: number | null;
+  error?: string;
 }
 
 export interface ScanStageProgress {
   discovery: StageInfo;
   dns: StageInfo;
   http: StageInfo;
+  ports?: StageInfo;
+  tls?: StageInfo;
+  nuclei?: StageInfo;
   security_checks: StageInfo;
   normalization: StageInfo;
   scoring: StageInfo;
+  ai_analysis?: StageInfo;
 }
 
 export interface Scan {

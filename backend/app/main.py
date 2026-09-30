@@ -19,6 +19,7 @@ from backend.app.api import (
     remediation,
     dashboard,
     notifications,
+    scanner_jobs,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -93,6 +94,7 @@ app.include_router(settings.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
 app.include_router(health.router)
+app.include_router(scanner_jobs.router)
 
 if __name__ == "__main__":
     import uvicorn

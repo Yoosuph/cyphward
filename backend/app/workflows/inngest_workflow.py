@@ -1,20 +1,44 @@
 """
-Cyphward Inngest Scan Pipeline & Asynchronous Execution Engine
-Implements the multi-stage scanning pipeline:
-Discovery -> DNS -> HTTP -> Security Checks -> Nuclei -> Normalization -> Risk Scoring -> AI Analysis
+Cyphward Scan Pipeline & Asynchronous Execution Engine
+
+Two-phase pipeline (spec §14/§21):
+
+  Phase 1 — recon:      discovery → dns → http → ports → tls → nuclei
+                        Writes raw observations to scan_results (stage rows).
+                        Runs either in-process (SCANNER_MODE=local) or on the
+                        Azure scanner worker via the scanner_jobs API (remote).
+
+  Phase 2 — finalize:   security_checks → inventory → normalization → scoring
+                        → AI analysis. Always runs in Core: loads observations
+                        from scan_results, normalizes/diffs/risk-scores them.
+                        Invoked by execute_scan_pipeline (local mode) or by
+                        the /scanner/jobs/{id}/complete handler (remote mode).
+
 Also hosts the daily scheduled-scan cron for verified domains.
 """
-import time
-import json
 import asyncio
-from typing import Dict, Any, List, Optional
+import json
+import logging
+import shutil
+import time
+from typing import Any, Dict, List
+
 import inngest
 
-from backend.app.core.database import execute_one, execute_query, execute_many, get_db
+from backend.app.core.config import (
+    SCANNER_MODE,
+    SCANNER_NUCLEI_CONCURRENCY,
+    SCANNER_NUCLEI_MAX_HOSTS,
+    SCANNER_MAX_PORTS,
+    SCANNER_STAGE_TIMEOUT_SECONDS,
+)
+from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
 from backend.app.scanner.discovery import discover_subdomains
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
+from backend.app.scanner.naabu_runner import run_naabu_batch
+from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
@@ -22,31 +46,71 @@ from backend.app.risk.engine import compute_risk_score
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
+from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress
 
 import os
 
+logger = logging.getLogger("cyphward.scan")
+
 is_prod = os.getenv("INNGEST_IS_PRODUCTION", "false").lower() in ("true", "1")
 signing_key = os.getenv("INNGEST_SIGNING_KEY")
+event_key = os.getenv("INNGEST_EVENT_KEY")
 inngest_client = inngest.Inngest(
     app_id="cyphward",
     is_production=is_prod if signing_key else False,
-    signing_key=signing_key
+    signing_key=signing_key or None,
+    event_key=event_key or None,
 )
 
 DNS_HOST_CAP = 40
+# TLS analysis is expensive — hard cap independent of discovery breadth.
+TLS_HOST_CAP = 25
+# Port-scan concurrency within the ports stage (one stage at a time, §16).
+PORTS_STAGE_CONCURRENCY = 4
+TLS_STAGE_CONCURRENCY = 2
 
 
 def _queued_stage_progress() -> Dict[str, Any]:
-    return {
-        "discovery": {"status": "queued", "items": 0, "duration_ms": 0},
-        "dns": {"status": "queued", "items": 0, "duration_ms": 0},
-        "http": {"status": "queued", "items": 0, "duration_ms": 0},
-        "security_checks": {"status": "queued", "items": 0, "duration_ms": 0},
-        "nuclei": {"status": "queued", "items": 0, "duration_ms": 0},
-        "normalization": {"status": "queued", "items": 0, "duration_ms": 0},
-        "scoring": {"status": "queued", "score": None, "duration_ms": 0},
-        "ai_analysis": {"status": "queued", "items": 0, "duration_ms": 0},
-    }
+    """Initial stage_progress for a newly queued scan row (all stages queued)."""
+    return empty_stage_progress()
+
+
+def _tool_available(binary: str) -> bool:
+    return shutil.which(binary) is not None
+
+
+def _store_observation(scan_id: str, stage: str, data: Dict[str, Any]) -> None:
+    """Idempotent observation write (replaces a previous row for the stage)."""
+    execute_query("DELETE FROM scan_results WHERE scan_id = %s AND stage = %s", (scan_id, stage))
+    execute_query(
+        "INSERT INTO scan_results (scan_id, stage, raw_data) VALUES (%s, %s, %s::jsonb)",
+        (scan_id, stage, json.dumps(data)),
+    )
+
+
+def _save_progress(scan_id: str, progress: Dict[str, Any], current_stage: str = None) -> None:
+    if current_stage:
+        execute_query(
+            "UPDATE scans SET stage_progress = %s::jsonb, current_stage = %s WHERE id = %s",
+            (json.dumps(progress), current_stage, scan_id),
+        )
+    else:
+        execute_query(
+            "UPDATE scans SET stage_progress = %s::jsonb WHERE id = %s",
+            (json.dumps(progress), scan_id),
+        )
+
+
+def _load_observations(scan_id: str) -> Dict[str, Any]:
+    """Stage → raw_data map (later rows win; worker replaces per stage)."""
+    rows = execute_query(
+        "SELECT stage, raw_data FROM scan_results WHERE scan_id = %s ORDER BY created_at ASC",
+        (scan_id,),
+    ) or []
+    observations: Dict[str, Any] = {}
+    for row in rows:
+        observations[row["stage"]] = row["raw_data"]
+    return observations
 
 
 async def _email_org_members(org_id: str, subject: str, html: str, text: str) -> None:
@@ -101,11 +165,196 @@ def _finding_email_html(
 </body></html>"""
 
 
-async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
+# ===========================================================================
+# PHASE 1 — RECON (local fallback; the remote worker performs the same stages
+# via its own runner and submits observations to Core over HTTPS).
+# ===========================================================================
+async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
     """
-    Execute the end-to-end 6-stage security scanning pipeline for a scan record.
-    Tracks live stage progress, records raw scan results, populates assets,
-    normalizes findings (upsert by org/asset/title), and updates the 0-100 score.
+    Run recon stages in-process: discovery → dns → http → ports → tls → nuclei.
+    Writes one observation row per stage. Foundational stages (discovery/dns/
+    http) fail the scan on error; ports/tls/nuclei degrade gracefully (§23).
+    """
+    scan = execute_one("""
+        SELECT s.*, d.domain, d.org_id
+        FROM scans s
+        JOIN domains d ON s.domain_id = d.id
+        WHERE s.id = %s
+    """, (scan_id,))
+
+    if not scan:
+        raise ValueError(f"Scan {scan_id} not found.")
+
+    domain = scan["domain"]
+
+    progress = empty_stage_progress()
+    progress["discovery"]["status"] = "running"
+    execute_query("""
+        UPDATE scans
+        SET status = 'running', current_stage = 'discovery', started_at = now(), stage_progress = %s::jsonb
+        WHERE id = %s
+    """, (json.dumps(progress), scan_id))
+
+    try:
+        # ---------------------------------------------------------------------
+        # STAGE 1: Passive Subdomain Discovery
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        discovered_hosts = await discover_subdomains(domain)
+        d_dur = int((time.time() - t0) * 1000)
+
+        progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
+        progress["dns"]["status"] = "running"
+        _save_progress(scan_id, progress, "dns")
+        _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts})
+
+        # ---------------------------------------------------------------------
+        # STAGE 2: DNS Resolution
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        dns_tasks = [resolve_host_dns(h) for h in discovered_hosts[:DNS_HOST_CAP]]
+        dns_results = await asyncio.gather(*dns_tasks, return_exceptions=True)
+        valid_dns = [r for r in dns_results if isinstance(r, dict)]
+        dns_dur = int((time.time() - t0) * 1000)
+
+        progress["dns"] = {"status": "completed", "items": len(valid_dns), "duration_ms": dns_dur}
+        progress["http"]["status"] = "running"
+        _save_progress(scan_id, progress, "http")
+        _store_observation(scan_id, "dns", {"dns_records": valid_dns})
+
+        # ---------------------------------------------------------------------
+        # STAGE 3: HTTP/HTTPS Probing
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        http_tasks = [probe_http_service(h["hostname"]) for h in valid_dns]
+        http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
+        valid_http = [r for r in http_results if isinstance(r, dict)]
+        http_dur = int((time.time() - t0) * 1000)
+
+        progress["http"] = {"status": "completed", "items": len(valid_http), "duration_ms": http_dur}
+        progress["ports"]["status"] = "running"
+        _save_progress(scan_id, progress, "ports")
+        _store_observation(scan_id, "http", {"http_probes": valid_http})
+
+        # ---------------------------------------------------------------------
+        # STAGE 4: TCP Port Discovery (naabu) — optional, degrades gracefully
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        if not _tool_available("naabu"):
+            progress["ports"] = {"status": "skipped", "items": 0, "duration_ms": 0,
+                                 "error": "naabu not installed"}
+        else:
+            try:
+                port_targets = [h["hostname"] for h in valid_dns]
+                open_ports = await run_naabu_batch(
+                    port_targets,
+                    top_ports=SCANNER_MAX_PORTS,
+                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
+                    concurrency=PORTS_STAGE_CONCURRENCY,
+                )
+                ports_dur = int((time.time() - t0) * 1000)
+                progress["ports"] = {"status": "completed", "items": len(open_ports),
+                                     "duration_ms": ports_dur}
+                _store_observation(scan_id, "ports", {"open_ports": open_ports})
+            except Exception as ports_err:
+                ports_dur = int((time.time() - t0) * 1000)
+                progress["ports"] = {"status": "failed", "items": 0, "duration_ms": ports_dur,
+                                     "error": str(ports_err)[:500]}
+
+        progress["tls"]["status"] = "running"
+        _save_progress(scan_id, progress, "tls")
+
+        # ---------------------------------------------------------------------
+        # STAGE 5: TLS Analysis (sslyze) — optional, degrades gracefully
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        if not _tool_available("sslyze"):
+            progress["tls"] = {"status": "skipped", "items": 0, "duration_ms": 0,
+                               "error": "sslyze not installed"}
+        else:
+            try:
+                tls_targets = [
+                    h["hostname"] for h in valid_http
+                    if h.get("http_status") and str(h.get("url", "")).startswith("https")
+                ][:TLS_HOST_CAP]
+                tls_profiles = await run_sslyze_batch(
+                    tls_targets,
+                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
+                    concurrency=TLS_STAGE_CONCURRENCY,
+                )
+                tls_dur = int((time.time() - t0) * 1000)
+                progress["tls"] = {"status": "completed", "items": len(tls_profiles),
+                                   "duration_ms": tls_dur}
+                _store_observation(scan_id, "tls", {"tls_profiles": tls_profiles})
+            except Exception as tls_err:
+                tls_dur = int((time.time() - t0) * 1000)
+                progress["tls"] = {"status": "failed", "items": 0, "duration_ms": tls_dur,
+                                   "error": str(tls_err)[:500]}
+
+        progress["nuclei"]["status"] = "running"
+        _save_progress(scan_id, progress, "nuclei")
+
+        # ---------------------------------------------------------------------
+        # STAGE 6: Nuclei Deep Vulnerability Scanning — optional (§23)
+        # ---------------------------------------------------------------------
+        t0 = time.time()
+        if not _tool_available("nuclei"):
+            progress["nuclei"] = {"status": "skipped", "items": 0, "duration_ms": 0,
+                                  "error": "nuclei not installed"}
+        else:
+            try:
+                active_hosts = [h["hostname"] for h in valid_dns if any(
+                    hp.get("hostname") == h["hostname"] and hp.get("http_status")
+                    for hp in valid_http
+                )][:SCANNER_NUCLEI_MAX_HOSTS]
+                nuclei_findings = await run_nuclei_batch(
+                    active_hosts,
+                    concurrency=SCANNER_NUCLEI_CONCURRENCY,
+                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
+                )
+                for nf in nuclei_findings:
+                    if not nf.get("_hostname"):
+                        nf["_hostname"] = nf.get("evidence", {}).get("host") or domain
+                nuclei_dur = int((time.time() - t0) * 1000)
+                progress["nuclei"] = {"status": "completed", "items": len(nuclei_findings),
+                                      "duration_ms": nuclei_dur}
+                _store_observation(scan_id, "nuclei", {"nuclei_findings": nuclei_findings})
+            except Exception as nuclei_err:
+                nuclei_dur = int((time.time() - t0) * 1000)
+                progress["nuclei"] = {"status": "failed", "items": 0, "duration_ms": nuclei_dur,
+                                      "error": str(nuclei_err)[:500]}
+
+        _save_progress(scan_id, progress)
+
+        return {
+            "scan_id": scan_id,
+            "discovered": len(discovered_hosts),
+            "dns": len(valid_dns),
+            "http": len(valid_http),
+            "ports": progress["ports"].get("items", 0),
+            "tls": progress["tls"].get("items", 0),
+            "nuclei": progress["nuclei"].get("items", 0),
+        }
+
+    except Exception as exc:
+        progress["error"] = str(exc)
+        execute_query("""
+            UPDATE scans
+            SET status = 'failed', error_message = %s, stage_progress = %s::jsonb, completed_at = now()
+            WHERE id = %s
+        """, (str(exc), json.dumps(progress), scan_id))
+        raise
+
+
+# ===========================================================================
+# PHASE 2 — FINALIZE (always Core). Reads observations produced by Phase 1 —
+# in-process (local mode) or by the scanner worker (remote mode).
+# ===========================================================================
+async def finalize_scan(scan_id: str) -> Dict[str, Any]:
+    """
+    Core-side finalize: security checks → asset inventory → normalization/
+    baseline diff → 0-100 risk scoring → AI analysis. Loads recon observations
+    from scan_results, so it is independent of where Phase 1 ran.
     """
     scan = execute_one("""
         SELECT s.*, d.domain, d.org_id
@@ -124,96 +373,35 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
     org_row = execute_one("SELECT name FROM organizations WHERE id = %s", (org_id,))
     org_name = org_row["name"] if org_row else "Your organization"
 
-    progress = {
-        "discovery": {"status": "running", "items": 0, "duration_ms": 0},
-        "dns": {"status": "pending", "items": 0, "duration_ms": 0},
-        "http": {"status": "pending", "items": 0, "duration_ms": 0},
-        "security_checks": {"status": "pending", "items": 0, "duration_ms": 0},
-        "nuclei": {"status": "pending", "items": 0, "duration_ms": 0},
-        "normalization": {"status": "pending", "items": 0, "duration_ms": 0},
-        "scoring": {"status": "pending", "score": None, "duration_ms": 0},
-        "ai_analysis": {"status": "pending", "items": 0, "duration_ms": 0}
-    }
+    # Continue the worker's stage_progress (recon rows already completed).
+    progress: Dict[str, Any] = scan.get("stage_progress") or {}
+    if not isinstance(progress, dict):
+        progress = {}
+    for key, val in empty_stage_progress().items():
+        progress.setdefault(key, val)
 
+    observations = _load_observations(scan_id)
+    discovered_hosts = (observations.get("discovery") or {}).get("discovered_hosts") or []
+    valid_dns = (observations.get("dns") or {}).get("dns_records") or []
+    valid_http = (observations.get("http") or {}).get("http_probes") or []
+    nuclei_findings = (observations.get("nuclei") or {}).get("nuclei_findings") or []
+
+    progress[STAGE_SECURITY_CHECKS]["status"] = "running"
     execute_query("""
         UPDATE scans
-        SET status = 'running', current_stage = 'discovery', started_at = now(), stage_progress = %s::jsonb
+        SET status = 'running', current_stage = %s, stage_progress = %s::jsonb
         WHERE id = %s
-    """, (json.dumps(progress), scan_id))
+    """, (STAGE_SECURITY_CHECKS, json.dumps(progress), scan_id))
 
     email_jobs: List[Dict[str, Any]] = []
 
     try:
         # ---------------------------------------------------------------------
-        # STAGE 1: Passive Subdomain Discovery
+        # Asset inventory (per-scan targets + org asset upsert)
         # ---------------------------------------------------------------------
-        t0 = time.time()
-        discovered_hosts = await discover_subdomains(domain)
-        d_dur = int((time.time() - t0) * 1000)
-
-        progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
-        progress["dns"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'dns', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
-
-        execute_query("""
-            INSERT INTO scan_results (scan_id, stage, raw_data)
-            VALUES (%s, 'discovery', %s::jsonb)
-        """, (scan_id, json.dumps({"discovered_hosts": discovered_hosts})))
-
-        # ---------------------------------------------------------------------
-        # STAGE 2: DNS Resolution
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        dns_tasks = [resolve_host_dns(h) for h in discovered_hosts[:DNS_HOST_CAP]]
-        dns_results = await asyncio.gather(*dns_tasks, return_exceptions=True)
-        valid_dns = [r for r in dns_results if isinstance(r, dict)]
-        dns_dur = int((time.time() - t0) * 1000)
-
-        progress["dns"] = {"status": "completed", "items": len(valid_dns), "duration_ms": dns_dur}
-        progress["http"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'http', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
-
-        execute_query("""
-            INSERT INTO scan_results (scan_id, stage, raw_data)
-            VALUES (%s, 'dns', %s::jsonb)
-        """, (scan_id, json.dumps({"dns_records": valid_dns})))
-
-        # ---------------------------------------------------------------------
-        # STAGE 3: HTTP/HTTPS Probing
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        http_tasks = [probe_http_service(h["hostname"]) for h in valid_dns]
-        http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
-        valid_http = [r for r in http_results if isinstance(r, dict)]
-        http_dur = int((time.time() - t0) * 1000)
-
-        progress["http"] = {"status": "completed", "items": len(valid_http), "duration_ms": http_dur}
-        progress["security_checks"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'security_checks', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
-
-        execute_query("""
-            INSERT INTO scan_results (scan_id, stage, raw_data)
-            VALUES (%s, 'http', %s::jsonb)
-        """, (scan_id, json.dumps({"http_probes": valid_http})))
-
-        # Populate per-scan target inventory
         dns_by_host = {d["hostname"]: d for d in valid_dns}
         http_by_host = {h["hostname"]: h for h in valid_http}
+
         target_rows = []
         for hname in discovered_hosts:
             dns_item = dns_by_host.get(hname)
@@ -242,7 +430,6 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
                     meta = EXCLUDED.meta
             """, target_rows)
 
-        # Upsert discovered assets into the inventory
         asset_id_map = {}
         for dns_item in valid_dns:
             hname = dns_item["hostname"]
@@ -293,7 +480,7 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
                     )
 
         # ---------------------------------------------------------------------
-        # STAGE 4: Security Checks + Nuclei Vulnerability Scanning
+        # STAGE: Security Checks (pure-Python checks + worker nuclei findings)
         # ---------------------------------------------------------------------
         t0 = time.time()
         check_tasks = []
@@ -313,39 +500,16 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
                     cr["_hostname"] = hname
                 raw_check_findings.extend(chk_results)
 
-        sec_dur = int((time.time() - t0) * 1000)
-        progress["security_checks"] = {"status": "completed", "items": len(raw_check_findings), "duration_ms": sec_dur}
-        progress["nuclei"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'nuclei', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
-
-        # ---------------------------------------------------------------------
-        # STAGE 4b: Nuclei Deep Vulnerability Scanning
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        active_hosts = [h["hostname"] for h in valid_dns if any(
-            hp.get("hostname") == h["hostname"] and hp.get("http_status")
-            for hp in valid_http
-        )]
-        nuclei_findings = await run_nuclei_batch(active_hosts, concurrency=10, timeout=300)
         for nf in nuclei_findings:
             if not nf.get("_hostname"):
                 nf["_hostname"] = nf.get("evidence", {}).get("host") or domain
         raw_check_findings.extend(nuclei_findings)
-        nuclei_dur = int((time.time() - t0) * 1000)
 
-        progress["nuclei"] = {"status": "completed", "items": len(nuclei_findings), "duration_ms": nuclei_dur}
+        sec_dur = int((time.time() - t0) * 1000)
+        progress["security_checks"] = {"status": "completed", "items": len(raw_check_findings),
+                                       "duration_ms": sec_dur}
         progress["normalization"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'normalization', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
+        _save_progress(scan_id, progress, "normalization")
 
         execute_query("""
             INSERT INTO scan_results (scan_id, stage, raw_data)
@@ -353,7 +517,7 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
         """, (scan_id, json.dumps({"findings_count": len(raw_check_findings)})))
 
         # ---------------------------------------------------------------------
-        # STAGE 5: Finding Normalization, Upsert, Baseline Diff, Evidence
+        # STAGE: Finding Normalization, Upsert, Baseline Diff, Evidence
         # ---------------------------------------------------------------------
         t0 = time.time()
         normalized_all = []
@@ -557,15 +721,10 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
         norm_dur = int((time.time() - t0) * 1000)
         progress["normalization"] = {"status": "completed", "items": len(normalized_all), "duration_ms": norm_dur}
         progress["scoring"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'scoring', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
+        _save_progress(scan_id, progress, "scoring")
 
         # ---------------------------------------------------------------------
-        # STAGE 6: Deterministic Risk Scoring
+        # STAGE: Deterministic Risk Scoring
         # ---------------------------------------------------------------------
         t0 = time.time()
         score_result = compute_risk_score(normalized_all)
@@ -595,16 +754,11 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
         )
 
         # ---------------------------------------------------------------------
-        # STAGE 7: AI Security Analysis
+        # STAGE: AI Security Analysis
         # ---------------------------------------------------------------------
         t0 = time.time()
         progress["ai_analysis"]["status"] = "running"
-
-        execute_query("""
-            UPDATE scans
-            SET current_stage = 'ai_analysis', stage_progress = %s::jsonb
-            WHERE id = %s
-        """, (json.dumps(progress), scan_id))
+        _save_progress(scan_id, progress, "ai_analysis")
 
         ai_explanations: List[Dict[str, Any]] = []
         try:
@@ -681,16 +835,30 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
         raise
 
 
-# Define Inngest Function definition for Inngest dev server / cloud
+async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
+    """
+    Local-mode end-to-end pipeline: recon in-process, then Core finalize.
+    In remote mode the worker replaces Phase 1; Core only runs finalize_scan.
+    """
+    await execute_recon_local(scan_id)
+    return await finalize_scan(scan_id)
+
+
+# ===========================================================================
+# Inngest function definitions (event bus + cron; no compute in remote mode)
+# ===========================================================================
 @inngest_client.create_function(
     fn_id="cyphward-scan-pipeline",
     trigger=inngest.TriggerEvent(event="scan.requested")
 )
 async def inngest_scan_pipeline_fn(ctx: inngest.Context) -> Dict[str, Any]:
-    """Inngest Multi-Step Workflow function."""
+    """Inngest event handler. Remote mode: the scans row IS the queue — the
+    worker claims it over outbound HTTPS; this function only acknowledges."""
     scan_id = ctx.event.data.get("scan_id")
     if not scan_id:
         raise ValueError("Missing scan_id in event data.")
+    if SCANNER_MODE == "remote":
+        return {"scan_id": scan_id, "dispatch": "remote_scanner"}
     return await execute_scan_pipeline(scan_id)
 
 
@@ -741,16 +909,20 @@ async def inngest_daily_scan_cron(ctx: inngest.Context) -> Dict[str, Any]:
                 "domain_id": str(row["domain_id"]),
                 "trigger": "cron",
             }))
-        except Exception:
-            # Event gateway unavailable — run inline so the schedule still fires
-            try:
-                await execute_scan_pipeline(scan_id)
-            except Exception as inline_err:
-                execute_query(
-                    "UPDATE scans SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s",
-                    (str(inline_err), scan_id),
-                )
-                continue
+        except Exception as e:
+            if SCANNER_MODE == "remote":
+                # The queued row is the dispatch — the worker claims it.
+                logger.warning("Inngest dispatch failed for cron scan %s (remote mode, worker polls): %s", scan_id, e)
+            else:
+                # Event gateway unavailable — run inline so the schedule still fires
+                try:
+                    await execute_scan_pipeline(scan_id)
+                except Exception as inline_err:
+                    execute_query(
+                        "UPDATE scans SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s",
+                        (str(inline_err), scan_id),
+                    )
+                    continue
 
         scheduled += 1
         log_audit(row["org_id"], None, "scan.scheduled", "scan", scan_id, {
