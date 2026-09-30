@@ -40,7 +40,7 @@ def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[
     findings = execute_query(
         "SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'", (org_id,)
     ) or []
-    resolved_recent = execute_query(
+    resolved_recent = execute_one(
         """
         SELECT COUNT(*) AS count FROM findings
         WHERE org_id = %s AND status = 'resolved' AND resolved_at > now() - interval '30 days'
