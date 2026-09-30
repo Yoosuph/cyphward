@@ -2,6 +2,9 @@
   "name": "cyphward",
   "private": true,
   "version": "0.1.0",
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
     "dev": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
