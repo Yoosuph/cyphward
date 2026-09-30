@@ -179,7 +179,7 @@ async def send_executive_report_email(
     high_count = data["high_count"]
     medium_count = data["medium_count"]
 
-    subject = req.subject or f"[CONFIDENTIAL] CYPHWARD Sovereign Executive Security Assessment — {org_name}"
+    subject = req.subject or f"Your security report for {org_name} — score {score_val}/100"
 
     html_content = generate_executive_report_html(
         org_name=org_name,

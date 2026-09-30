@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import smtplib
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, Any, List, Optional
@@ -40,45 +41,47 @@ def generate_executive_report_html(
     drivers: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
-    Renders an authoritative, pixel-perfect HTML email template
-    reflecting Cyphward's dark sovereign defense aesthetic.
+    Renders a clean, light-themed HTML security report email in plain English.
     Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
     """
-    score_color = "#E5532B" if score < 70 else ("#D97706" if score < 85 else "#10B981")
+    score_color = "#DC2626" if score < 70 else ("#D97706" if score < 85 else "#059669")
+    report_ref = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    score_width = max(2, min(100, int(score)))
 
     if not summary_text:
         summary_text = (
-            f"{org_name}'s security score is {score} out of 100 (Grade {grade} — {posture_label}). "
-            f"TLS 1.3 is active on public endpoints and no database ports are exposed. "
-            f"However, weak email authentication (DMARC p=none) and a missing HSTS header "
-            f"leave the domain open to spoofing and downgrade attacks. Fix steps are included below."
+            f"We checked {domain} and gave {org_name} a security score of {score} out of 100 "
+            f"(grade {grade} — {posture_label}). The good news: your site is reachable and mostly healthy. "
+            f"The issues below are the quickest wins — each takes a few minutes to fix and will raise your "
+            f"score right away. Step-by-step guides are inside your dashboard."
         )
 
     if not drivers:
         drivers = [
             {
                 "impact": "-8 pts",
-                "badge_bg": "#451A03",
-                "badge_color": "#F97316",
-                "title": "Weak email DMARC policy (p=none)",
-                "desc": "Receiving mail servers accept spoofed emails without quarantining or rejecting them.",
-                "remedy": "Set TXT record to v=DMARC1; p=reject; rua=mailto:dmarc@datagrid-ng.com.",
+                "badge_bg": "#FFF3EC",
+                "badge_color": "#C2410C",
+                "title": "Anyone can send fake emails as you",
+                "desc": "Without a strict DMARC rule, scammers can send emails that look like they come from your domain — which hurts your customers' trust.",
+                "remedy": "Set DMARC to reject unknown senders. Your dashboard shows the exact record to paste.",
             },
             {
                 "impact": "-8 pts",
-                "badge_bg": "#451A03",
-                "badge_color": "#F97316",
-                "title": "HSTS header missing",
-                "desc": "Subdomains still allow plain HTTP, which can be downgraded by attackers.",
-                "remedy": "Add header Strict-Transport-Security: max-age=63072000; includeSubDomains; preload.",
+                "badge_bg": "#FFF3EC",
+                "badge_color": "#C2410C",
+                "title": "Some pages can load without encryption",
+                "desc": "A visitor could accidentally reach an unencrypted version of your site, which is easier for anyone on the same network to snoop on.",
+                "remedy": "Turn on HSTS (one switch) so every visit stays encrypted.",
             },
             {
                 "impact": "+5 pts",
-                "badge_bg": "#064E3B",
-                "badge_color": "#34D399",
-                "title": "Strong encryption (TLS 1.3) is active",
-                "desc": "Modern ciphers protect connections to your public endpoints.",
-                "remedy": "Keep as is. Continuous checks stay enabled.",
+                "badge_bg": "#EAF9F1",
+                "badge_color": "#0B7A53",
+                "title": "Strong encryption is working",
+                "desc": "Data between your visitors and your servers is securely encrypted.",
+                "remedy": "Nothing to do — we keep watching it for you.",
             },
         ]
 
@@ -86,23 +89,23 @@ def generate_executive_report_html(
     for d in drivers:
         drivers_html += f"""
         <tr>
-          <td style="padding: 12px 14px; border-bottom: 1px solid #231E18; background-color: #14120E;">
+          <td style="padding: 13px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF;">
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
-                <td style="vertical-align: top; width: 68px;">
-                  <span style="display: inline-block; padding: 3px 7px; background-color: {d.get('badge_bg', '#332415')}; color: {d.get('badge_color', '#F97316')}; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; border-radius: 4px; letter-spacing: 0.5px;">
+                <td style="vertical-align: top; width: 66px;">
+                  <span style="display: inline-block; padding: 3px 8px; background-color: {d.get('badge_bg', '#F5F2EC')}; color: {d.get('badge_color', '#C2410C')}; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; border-radius: 10px; letter-spacing: 0.5px;">
                     {d.get('impact', '-')}
                   </span>
                 </td>
                 <td style="vertical-align: top; padding-left: 10px;">
-                  <div style="font-size: 13px; font-weight: 600; color: #F5F2EB; margin-bottom: 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    {d.get('title', 'Security Finding')}
+                  <div style="font-size: 14px; font-weight: 600; color: #1F1A14; margin-bottom: 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    {d.get('title', 'Security issue')}
                   </div>
-                  <div style="font-size: 12px; color: #A8A095; line-height: 1.5; margin-bottom: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                  <div style="font-size: 13px; color: #5D564B; line-height: 1.55; margin-bottom: 5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     {d.get('desc', '')}
                   </div>
-                  <div style="font-size: 11px; color: #E5532B; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">
-                    ↳ FIX: {d.get('remedy', '')}
+                  <div style="font-size: 12px; color: #C2410C; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    <strong>HOW TO FIX:</strong> {d.get('remedy', '')}
                   </div>
                 </td>
               </tr>
@@ -116,50 +119,59 @@ def generate_executive_report_html(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CYPHWARD Sovereign Executive Security Assessment</title>
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="format-detection" content="telephone=no">
+  <title>Cyphward Security Report</title>
   <style>
-    body {{ margin: 0; padding: 0; background-color: #0A0907; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+    html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
+    body {{ margin: 0; padding: 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-color-scheme: only light; -webkit-text-size-adjust: 100%; }}
     table {{ border-collapse: collapse; }}
   </style>
 </head>
-<body style="margin: 0; padding: 24px 0; background-color: #0A0907; color: #F5F2EB;">
+<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-color-scheme: only light;" bgcolor="#F3F1EC">
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F3F1EC;">
+    {org_name} security report — score {score}/100, grade {grade}. {critical_count} urgent issues need attention. Open your dashboard for details.
+  </div>
   <center>
-    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 620px; margin: 0 auto; background-color: #12100C; border: 1px solid #2D271F; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
-      
-      <!-- Top Sovereign Accent Bar -->
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 620px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
+
+      <!-- Amber Accent Bar -->
       <tr>
         <td style="height: 4px; background: linear-gradient(90deg, #B33614, #E5532B, #FF8F6B, #E5532B); font-size: 0; line-height: 0;">&nbsp;</td>
       </tr>
 
-      <!-- Header Section with Logo and Sovereign Defense Brand -->
+      <!-- Header: Logo + Brand -->
       <tr>
-        <td style="padding: 24px 28px 18px; border-bottom: 1px solid #231E18; background-color: #16130F;">
+        <td style="padding: 22px 28px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
               <td style="vertical-align: middle;">
                 <table cellpadding="0" cellspacing="0" border="0">
                   <tr>
-                    <!-- Cyphward Sovereign Shield SVG Mark -->
-                    <td style="vertical-align: middle; padding-right: 12px;">
-                      <img src="https://cyphward.com/shield-amber.png" alt="Cyphward Shield" width="34" height="34" style="display: block; border: 0;" />
-                      <div style="width: 32px; height: 32px; border-radius: 6px; background-color: #26160E; border: 1px solid #E5532B; text-align: center; line-height: 30px; font-size: 16px; color: #E5532B; font-weight: bold;">
-                        ⬡
-                      </div>
+                    <td style="vertical-align: middle; padding-right: 13px;">
+                      <table cellpadding="0" cellspacing="0" border="0" bgcolor="#16130F" style="background-color: #16130F; border-radius: 10px;">
+                        <tr>
+                          <td style="padding: 6px 8px; font-size: 0; line-height: 0; text-align: center;">
+                            <img src="https://cyphward.com/apple-touch-icon.png" alt="Cyphward" width="32" height="32" style="display: block; border: 0;" />
+                          </td>
+                        </tr>
+                      </table>
                     </td>
                     <td style="vertical-align: middle;">
-                      <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #F5F2EB;">
+                      <div style="font-size: 18px; font-weight: 800; letter-spacing: 1.5px; color: #16130F;">
                         CYPH<span style="color: #E5532B;">WARD</span>
                       </div>
-                      <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 9px; letter-spacing: 1.5px; color: #A8A095; text-transform: uppercase;">
-                        SOVEREIGN DEFENSE & RISK ENGINE
+                      <div style="font-size: 10px; letter-spacing: 1.2px; color: #8A8377; text-transform: uppercase; margin-top: 2px;">
+                        Security monitoring, made simple
                       </div>
                     </td>
                   </tr>
                 </table>
               </td>
               <td style="vertical-align: middle; text-align: right;">
-                <span style="display: inline-block; padding: 4px 8px; background-color: #1F1B15; border: 1px solid #332B20; border-radius: 4px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #10B981; letter-spacing: 0.5px;">
-                  ● ENCLAVE LIVE
+                <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
+                  &#9679; Monitoring active
                 </span>
               </td>
             </tr>
@@ -167,137 +179,154 @@ def generate_executive_report_html(
         </td>
       </tr>
 
-      <!-- Classification & Target Strip -->
+      <!-- Report Meta Strip -->
       <tr>
-        <td style="padding: 12px 28px; background-color: #0E0C09; border-bottom: 1px solid #231E18;">
+        <td style="padding: 11px 28px; background-color: #FAF9F6; border-bottom: 1px solid #EFECE5;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
-              <td style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #E5532B; font-weight: bold; letter-spacing: 1px;">
-                CONFIDENTIAL // L00 BOARD ASSESSMENT
+              <td style="font-size: 11px; color: #C2410C; font-weight: 700; letter-spacing: 1px;">
+                CONFIDENTIAL · SECURITY REPORT
               </td>
-              <td style="text-align: right; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #8C8477;">
-                TARGET: <strong style="color: #F5F2EB;">{domain}</strong>
+              <td style="text-align: right; font-size: 11px; color: #8A8377;">
+                Website: <strong style="color: #1F1A14;">{domain}</strong>
+                &nbsp;·&nbsp; Ref: <strong style="color: #8A8377;">CW-{report_ref}</strong>
               </td>
             </tr>
           </table>
         </td>
       </tr>
 
-      <!-- Executive Score & Posture Banner -->
+      <!-- Score Banner -->
       <tr>
-        <td style="padding: 24px 28px; background-color: #14120E;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #1A1712; border: 1px solid #2F2820; border-radius: 8px; padding: 18px 20px;">
+        <td style="padding: 22px 28px 6px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #FAF9F6; border: 1px solid #E6E2DA; border-radius: 10px; padding: 18px 20px;">
             <tr>
               <td style="vertical-align: middle;">
-                <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #A8A095; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px;">
-                  ORGANIZATION ENCLAVE
+                <div style="font-size: 10px; color: #8A8377; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; font-weight: 600;">
+                  Organization
                 </div>
-                <div style="font-size: 20px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.3px; margin-bottom: 4px;">
+                <div style="font-size: 21px; font-weight: 700; color: #16130F; letter-spacing: -0.3px; margin-bottom: 4px;">
                   {org_name}
                 </div>
-                <div style="font-size: 12px; color: #8C8477; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                  Security score based on DNS, web apps, encryption, and exposure
+                <div style="font-size: 13px; color: #6B6459; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                  How safe your public-facing systems are right now
                 </div>
               </td>
-              <td style="vertical-align: middle; text-align: right; width: 140px;">
-                <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #A8A095; letter-spacing: 1px; margin-bottom: 2px;">
+              <td style="vertical-align: middle; text-align: right; width: 150px;">
+                <div style="font-size: 10px; color: #8A8377; letter-spacing: 1px; margin-bottom: 2px; font-weight: 600;">
                   SECURITY SCORE
                 </div>
-                <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 32px; font-weight: 800; color: {score_color}; line-height: 1;">
-                  {score}<span style="font-size: 14px; color: #8C8477; font-weight: 400;">/100</span>
+                <div style="font-size: 36px; font-weight: 800; color: {score_color}; line-height: 1; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">
+                  {score}<span style="font-size: 15px; color: #8A8377; font-weight: 400;">/100</span>
                 </div>
-                <div style="margin-top: 5px;">
-                  <span style="display: inline-block; padding: 2px 7px; background-color: #26160E; border: 1px solid #E5532B; border-radius: 4px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; font-weight: bold; color: #FF7A50;">
-                    GRADE {grade} · {posture_label.upper()}
+                <div style="margin-top: 7px;">
+                  <span style="display: inline-block; padding: 3px 9px; background-color: #FFFFFF; border: 1px solid {score_color}; border-radius: 12px; font-size: 11px; font-weight: 700; color: {score_color};">
+                    Grade {grade} · {posture_label}
                   </span>
                 </div>
               </td>
             </tr>
-          </table>
-        </td>
-      </tr>
-
-      <!-- Key Metrics Row (4 Pillars) -->
-      <tr>
-        <td style="padding: 0 28px 20px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
-              <td width="25%" style="padding: 10px 8px; background-color: #181510; border: 1px solid #262018; border-radius: 6px; text-align: center;">
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 9px; color: #8C8477; text-transform: uppercase;">MONITORED ASSETS</div>
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 16px; font-weight: 700; color: #F5F2EB; margin-top: 3px;">{assets_count}</div>
-              </td>
-              <td width="2%" style="font-size: 0;">&nbsp;</td>
-              <td width="23%" style="padding: 10px 8px; background-color: #181510; border: 1px solid #262018; border-radius: 6px; text-align: center;">
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 9px; color: #8C8477; text-transform: uppercase;">CRITICAL RISKS</div>
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 16px; font-weight: 700; color: {'#EF4444' if critical_count > 0 else '#10B981'}; margin-top: 3px;">{critical_count}</div>
-              </td>
-              <td width="2%" style="font-size: 0;">&nbsp;</td>
-              <td width="23%" style="padding: 10px 8px; background-color: #181510; border: 1px solid #262018; border-radius: 6px; text-align: center;">
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 9px; color: #8C8477; text-transform: uppercase;">HIGH FINDINGS</div>
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 16px; font-weight: 700; color: #F97316; margin-top: 3px;">{high_count}</div>
-              </td>
-              <td width="2%" style="font-size: 0;">&nbsp;</td>
-              <td width="23%" style="padding: 10px 8px; background-color: #181510; border: 1px solid #262018; border-radius: 6px; text-align: center;">
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 9px; color: #8C8477; text-transform: uppercase;">NDPA 2023 SEC 39</div>
-                <div style="font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; font-weight: 700; color: #10B981; margin-top: 5px;">COMPLIANT</div>
+              <td colspan="2" style="padding-top: 15px;">
+                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #ECE9E3; border-radius: 4px;">
+                  <tr>
+                    <td width="{score_width}%" style="background-color: {score_color}; border-radius: 4px; font-size: 0; line-height: 0;">&nbsp;</td>
+                    <td style="font-size: 0; line-height: 0;">&nbsp;</td>
+                  </tr>
+                </table>
               </td>
             </tr>
           </table>
         </td>
       </tr>
 
-      <!-- Executive AI Narrative -->
+      <!-- Key Numbers Row -->
       <tr>
-        <td style="padding: 0 28px 24px;">
-          <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; color: #A8A095; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
-            ✦ WHAT TO FIX FIRST
+        <td style="padding: 16px 28px 18px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td width="25%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Systems checked</div>
+                <div style="font-size: 17px; font-weight: 700; color: #1F1A14; margin-top: 4px;">{assets_count}</div>
+              </td>
+              <td width="2%" style="font-size: 0;">&nbsp;</td>
+              <td width="23%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Urgent issues</div>
+                <div style="font-size: 17px; font-weight: 700; color: {'#DC2626' if critical_count > 0 else '#059669'}; margin-top: 4px;">{critical_count}</div>
+              </td>
+              <td width="2%" style="font-size: 0;">&nbsp;</td>
+              <td width="23%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Serious issues</div>
+                <div style="font-size: 17px; font-weight: 700; color: {'#D97706' if high_count > 0 else '#059669'}; margin-top: 4px;">{high_count}</div>
+              </td>
+              <td width="2%" style="font-size: 0;">&nbsp;</td>
+              <td width="23%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">NDPA compliance</div>
+                <div style="font-size: 13px; font-weight: 700; color: #059669; margin-top: 6px;">COMPLIANT</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Plain-English Summary -->
+      <tr>
+        <td style="padding: 0 28px 22px;">
+          <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
+            What we found
           </div>
-          <div style="padding: 16px; background-color: #16130E; border: 1px solid #282119; border-left: 3px solid #E5532B; border-radius: 6px; font-size: 13px; color: #DDD7CD; line-height: 1.65; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+          <div style="padding: 16px 18px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-left: 3px solid #E5532B; border-radius: 8px; font-size: 14px; color: #3A352D; line-height: 1.65; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
             {summary_text}
           </div>
         </td>
       </tr>
 
-      <!-- Prioritized Remediation Drivers -->
+      <!-- Steps To Improve -->
       <tr>
         <td style="padding: 0 28px 24px;">
-          <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; color: #A8A095; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
+          <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
             HOW TO IMPROVE YOUR SCORE
           </div>
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #282119; border-radius: 6px; overflow: hidden;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #EFECE5; border-radius: 8px; overflow: hidden;">
             {drivers_html}
           </table>
         </td>
       </tr>
 
-      <!-- Primary Action CTA Button -->
+      <!-- CTA Button -->
       <tr>
-        <td style="padding: 0 28px 30px; text-align: center;">
+        <td style="padding: 0 28px 8px; text-align: center;">
           <table cellpadding="0" cellspacing="0" border="0" align="center">
             <tr>
-              <td style="background-color: #E5532B; border-radius: 6px; text-align: center;">
-                <a href="https://cyphward.com/findings" target="_blank" style="display: inline-block; padding: 12px 28px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; font-weight: bold; color: #FFFFFF; text-decoration: none; letter-spacing: 1px; text-transform: uppercase;">
-                  ACCESS COMMAND ENCLAVE →
+              <td style="background-color: #E5532B; border-radius: 8px; text-align: center;">
+                <a href="https://cyphward.com/" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
+                  Open your dashboard →
                 </a>
               </td>
             </tr>
           </table>
         </td>
       </tr>
-
-      <!-- Statutory Disclaimer & Footer -->
       <tr>
-        <td style="padding: 20px 28px; background-color: #0D0B08; border-top: 1px solid #231E18; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 10px; color: #736B5E; line-height: 1.6;">
+        <td style="padding: 0 28px 26px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #6B6459; line-height: 1.5;">
+          See every detail, track your fixes, and re-check your site any time.
+        </td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td style="padding: 18px 28px; background-color: #FAF9F6; border-top: 1px solid #EFECE5; font-size: 11px; color: #8A8377; line-height: 1.65;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
               <td>
-                <strong style="color: #A8A095;">CYPHWARD SOVEREIGN DEFENSE PLATFORM</strong><br />
-                Deterministic Attack Surface Management & Statutory Cyber Resilience Engine.<br />
-                Licensed under Nigerian Data Protection Act (NDPA 2023) & Central Bank of Nigeria (CBN) Risk Framework.<br />
-                Enclave Telemetry Digest // Generated via Brevo Relay Dispatch.
+                <strong style="color: #5D564B;">CYPHWARD — SECURITY MONITORING, MADE SIMPLE</strong><br />
+                Continuous checks for your website, emails, and data protection.<br />
+                Prepared for the Nigerian Data Protection Act (NDPA 2023) &amp; CBN risk standards.<br />
+                Report <span style="color: #C2410C;">CW-{report_ref}</span> · Generated {generated_at} UTC.<br />
+                You received this report because you manage <strong style="color: #5D564B;">{org_name}</strong>.
               </td>
               <td style="text-align: right; vertical-align: bottom;">
-                <span style="color: #E5532B;">SEC-ENC-2026</span>
+                <a href="https://cyphward.com/" target="_blank" style="color: #C2410C; text-decoration: underline;">cyphward.com</a>
               </td>
             </tr>
           </table>
@@ -349,6 +378,7 @@ async def send_email_async(
                 "subject": subject,
                 "htmlContent": html_content,
                 "textContent": text_content,
+                "tracking": {"enabled": False, "opens": False, "clicks": False},
             }
 
             async with httpx.AsyncClient(timeout=12.0) as client:
