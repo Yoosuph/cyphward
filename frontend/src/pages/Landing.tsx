@@ -143,7 +143,6 @@ const CALCULATOR_SECTORS = [
 
 export default function Landing() {
   const nav = useNavigate();
-  const { signIn } = useAuth();
   const toast = useToast();
   const [theme, setTheme] = useState(getTheme());
   const [activeLayer, setActiveLayer] = useState(0);
@@ -158,15 +157,9 @@ export default function Landing() {
     setTheme(getTheme());
   };
 
-  const handleLaunchDemo = () => {
-    signIn({
-      name: 'DataGrid Africa',
-      plan: 'Enterprise Defense',
-      region: 'ng-lagos',
-      email: 'security@datagrid-ng.com',
-    });
-    toast('Authenticated into Cyphward Sovereign Console.');
-    nav('/', { replace: true });
+  const handleGetStarted = () => {
+    // Real flow only: no mock sessions. Send visitors to create a real account.
+    nav('/signup', { replace: true });
   };
 
   return (
@@ -203,8 +196,8 @@ export default function Landing() {
               SIGN IN
             </Link>
 
-            <button className="btn btn-solid btn-mini hover-lift text-[11px] py-1.5 px-3 flex-none" onClick={handleLaunchDemo}>
-              <span className="hidden sm:inline">LAUNCH </span>DEMO <ArrowRight size={11} className="ml-1 inline" />
+            <button className="btn btn-solid btn-mini hover-lift text-[11px] py-1.5 px-3 flex-none" onClick={handleGetStarted}>
+              <span className="hidden sm:inline">GET </span>STARTED <ArrowRight size={11} className="ml-1 inline" />
             </button>
 
             <button
@@ -267,10 +260,10 @@ export default function Landing() {
                 className="btn btn-solid text-xs justify-center py-2"
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  handleLaunchDemo();
+                  handleGetStarted();
                 }}
               >
-                LIVE DEMO ↗
+                GET STARTED ↗
               </button>
             </div>
           </div>
@@ -298,8 +291,8 @@ export default function Landing() {
           </p>
 
           <div className="hero-ctas">
-            <button className="btn btn-solid text-sm py-3.5 px-6 hover-lift" onClick={handleLaunchDemo}>
-              ENTER LIVE COMMAND CONSOLE <ArrowRight size={14} />
+            <button className="btn btn-solid text-sm py-3.5 px-6 hover-lift" onClick={handleGetStarted}>
+              CREATE YOUR ACCOUNT <ArrowRight size={14} />
             </button>
             <Link to="/signup" className="btn btn-ghost text-sm py-3.5 px-6 hover-lift">
               PROVISION ENTERPRISE TENANT
@@ -432,8 +425,8 @@ export default function Landing() {
               <span className="text-xs mono text-soft flex items-center gap-2">
                 <Terminal size={13} className="text-accent" /> ENTERPRISE HARDWARE ENCLAVE · READY FOR AUDIT
               </span>
-              <button className="stat-link text-xs" onClick={handleLaunchDemo}>
-                LAUNCH INTERACTIVE WORKBENCH <ArrowRight size={12} />
+              <button className="stat-link text-xs" onClick={handleGetStarted}>
+                GET STARTED <ArrowRight size={12} />
               </button>
             </div>
           </div>
@@ -507,8 +500,8 @@ export default function Landing() {
                   ))}
                 </div>
 
-                <button className="btn btn-solid btn-mini" onClick={handleLaunchDemo}>
-                  TEST LAYER {LAYERS[activeLayer].idx} IN LIVE DEMO <ArrowRight size={12} />
+                <button className="btn btn-solid btn-mini" onClick={handleGetStarted}>
+                  TEST LAYER {LAYERS[activeLayer].idx} ON YOUR DOMAIN <ArrowRight size={12} />
                 </button>
               </div>
 
@@ -626,9 +619,9 @@ export default function Landing() {
 
                 <button
                   className="btn btn-solid w-full justify-center mt-5 text-xs py-2.5"
-                  onClick={handleLaunchDemo}
+                  onClick={handleGetStarted}
                 >
-                  RUN LIVE COMPLIANCE SIMULATION <ArrowRight size={13} />
+                  RUN A REAL COMPLIANCE SCAN <ArrowRight size={13} />
                 </button>
               </div>
             </div>
@@ -658,8 +651,8 @@ export default function Landing() {
                 <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Continuous external attack-surface scanning</li>
                 <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Daily threat intelligence updates</li>
               </ul>
-              <button className="btn btn-ghost w-full justify-center" onClick={handleLaunchDemo}>
-                LAUNCH GROWTH DEMO
+              <button className="btn btn-ghost w-full justify-center" onClick={handleGetStarted}>
+                START WITH GROWTH
               </button>
             </div>
 
@@ -679,8 +672,8 @@ export default function Landing() {
                 <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> All 5 African language models</li>
                 <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> &lt; 15 min SLA dedicated security officer</li>
               </ul>
-              <button className="btn btn-solid w-full justify-center" onClick={handleLaunchDemo}>
-                LAUNCH SCALE DEMO
+              <button className="btn btn-solid w-full justify-center" onClick={handleGetStarted}>
+                START WITH SCALE
               </button>
             </div>
 
@@ -730,14 +723,14 @@ export default function Landing() {
             Test your sovereign defense posture right now.
           </h2>
           <p className="text-sm mono text-soft max-w-lg mx-auto mb-8">
-            Access the full CYPHWARD command suite with realistic mock telemetry, compliance dossiers, and live threat streams.
+            Create your account, add your domain, and run a real scan — scored findings, compliance dossiers, and remediation steps included.
           </p>
           <div className="flex justify-center gap-4 flex-wrap">
-            <button className="btn btn-solid py-3 px-8 text-sm" onClick={handleLaunchDemo}>
-              LAUNCH LIVE DEMO CONSOLE <ArrowRight size={14} />
-            </button>
-            <Link to="/signup" className="btn btn-ghost py-3 px-8 text-sm">
-              PROVISION CUSTOM ENCLAVE
+            <Link to="/signup" className="btn btn-solid py-3 px-8 text-sm">
+              CREATE YOUR ACCOUNT <ArrowRight size={14} />
+            </Link>
+            <Link to="/login" className="btn btn-ghost py-3 px-8 text-sm">
+              SIGN IN
             </Link>
           </div>
         </section>

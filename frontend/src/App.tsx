@@ -48,7 +48,7 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
 };
 
 function AppShell() {
-  const { tenant, loading } = useAuth();
+  const { tenant, loading, onboardingStep } = useAuth();
   const location = useLocation();
   const [palOpen, setPalOpen] = useState(false);
   const [cyphBotOpen, setCyphBotOpen] = useState(false);
@@ -112,6 +112,12 @@ function AppShell() {
   }
 
   if (!tenant) return <Navigate to="/login" replace />;
+
+  // Real onboarding gate: a signed-in user without a completed setup never
+  // reaches the dashboard (and can't be shown mock data instead).
+  if (onboardingStep === 'create_org' || onboardingStep === 'add_domain' || onboardingStep === 'verify_domain') {
+    return <Navigate to="/onboarding" replace />;
+  }
 
   const section = SECTION_BY_PATH[location.pathname] ?? { idx: '01', label: 'OVERVIEW' };
 

@@ -1,57 +1,29 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, ShieldCheck, KeyRound, Sparkles, Lock,
+  ArrowRight, ShieldCheck, KeyRound, Lock,
   Eye, EyeOff, Sun, Moon, Check, Globe, Server, CheckCircle2,
   Radio, ShieldAlert, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import CyphwardLogo from '../components/CyphwardLogo';
-
-const DEMO_PERSONAS = [
-  {
-    role: 'Lead Security Officer',
-    shortRole: 'SEC',
-    name: 'Security Team',
-    org: 'DataGrid Africa',
-    email: 'security@datagrid-ng.com',
-    plan: 'Enterprise Defense',
-    jurisdiction: 'Nigeria (Lagos Enclave)',
-  },
-  {
-    role: 'Chief Compliance & DPO',
-    shortRole: 'COMPLIANCE',
-    name: 'Folake Adeyemi',
-    org: 'Lagos Core Switch Ltd',
-    email: 'compliance@switch.lagos',
-    plan: 'Scale',
-    jurisdiction: 'Nigeria (Lagos Hub)',
-  },
-  {
-    role: 'SecOps Analyst (Tier 2)',
-    shortRole: 'SECOPS',
-    name: 'Tariro Moyo',
-    org: 'PanBank Africa',
-    email: 'soc@panbank.africa',
-    plan: 'Sovereign',
-    jurisdiction: 'South Africa (Joburg)',
-  },
-];
 
 export default function Login() {
   const { tenant, signInWithCredentials, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
-  const [selectedPersona, setSelectedPersona] = useState<number | null>(0);
-  const [email, setEmail] = useState('security@datagrid-ng.com');
-  const [pw, setPw] = useState('cyphward-enclave-2026');
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
   const [remember, setRemember] = useState(true);
   const [theme, setTheme] = useState(getTheme());
 
@@ -73,38 +45,45 @@ export default function Login() {
     if (busy) return;
     setBusy(true);
     setError('');
+    setNeedsVerify(false);
 
-    const persona = selectedPersona !== null ? DEMO_PERSONAS[selectedPersona] : null;
-    const result = await signInWithCredentials(
-      persona ? persona.email : email,
-      persona ? 'cyphward-enclave-2026' : pw
-    );
+    const result = await signInWithCredentials(email, pw);
 
     if (!result.ok) {
       setBusy(false);
-      setError(result.error || 'Invalid credentials. Please try again.');
+      const msg = result.error || 'Invalid credentials. Please try again.';
+      if (/not confirmed|confirm/i.test(msg)) {
+        setNeedsVerify(true);
+        setError('Please verify your email first — open the confirmation link we sent you, then sign in.');
+      } else {
+        setError(msg);
+      }
       return;
     }
 
-    if (persona) {
-      toast(`Enclave session authenticated: ${persona.role} (${persona.org || 'DataGrid Africa'})`);
-    } else {
-      const first = (result.name || email.split('@')[0] || '').split(' ')[0];
-      toast(`Welcome back${first ? `, ${first}` : ''}!`);
-    }
-    if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
+    const first = (result.name || email.split('@')[0] || '').split(' ')[0];
+    toast(`Welcome back${first ? `, ${first}` : ''}!`);
+
+    // Navigate from the server-resolved onboarding step (no stale state).
+    if (result.onboarding && result.onboarding !== 'complete' && result.onboarding !== 'none') {
       nav('/onboarding', { replace: true });
     } else {
       nav('/', { replace: true });
     }
   };
 
-  const selectPersona = (idx: number) => {
-    const p = DEMO_PERSONAS[idx];
-    setSelectedPersona(idx);
-    setEmail(p.email);
-    setPw('cyphward-enclave-2026');
-    setError('');
+  const resendVerification = async () => {
+    if (resendBusy || !isSupabaseConfigured || !email) return;
+    setResendBusy(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({ email, type: 'signup' });
+      if (resendError) throw resendError;
+      toast('Verification email sent.');
+    } catch (err: any) {
+      toast(err?.message || 'Could not send verification email.');
+    } finally {
+      setResendBusy(false);
+    }
   };
 
   return (
@@ -269,38 +248,6 @@ export default function Login() {
               </div>
 
               <form onSubmit={submit}>
-                  {/* Persona Fast Selector */}
-                  <div className="mb-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="eyebrow text-[10px] flex items-center gap-1.5">
-                        <Sparkles size={11} className="text-accent" /> QUICK DEMO PERSONAS
-                      </span>
-                      <span className="text-[9.5px] mono text-soft">CLICK TO AUTOFILL</span>
-                    </div>
-
-                    <div className="login-persona-grid">
-                      {DEMO_PERSONAS.map((p, idx) => {
-                        const isSel = selectedPersona === idx;
-                        return (
-                          <button
-                            key={p.shortRole}
-                            type="button"
-                            className={`login-persona-card ${isSel ? 'selected' : ''}`}
-                            onClick={() => selectPersona(idx)}
-                            title={`Sign in as ${p.name} (${p.role})`}
-                          >
-                            <div className="flex items-center justify-between w-full">
-                              <span className="p-badge">{p.shortRole}</span>
-                              {isSel && <Check size={11} className="text-accent" />}
-                            </div>
-                            <span className="p-name truncate">{p.name}</span>
-                            <span className="p-org truncate">{p.org}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   {/* Email Field */}
                   <div className="field">
                     <label htmlFor="email">WORK ENCLAVE EMAIL</label>
@@ -309,10 +256,7 @@ export default function Login() {
                       type="email"
                       placeholder="ciso@acmetraders.ng"
                       value={email}
-                      onChange={e => {
-                        setEmail(e.target.value);
-                        setSelectedPersona(null);
-                      }}
+                      onChange={e => setEmail(e.target.value)}
                       autoComplete="username"
                       required
                     />
@@ -333,10 +277,7 @@ export default function Login() {
                         type={showPw ? 'text' : 'password'}
                         placeholder="••••••••••••••"
                         value={pw}
-                        onChange={e => {
-                          setPw(e.target.value);
-                          setSelectedPersona(null);
-                        }}
+                        onChange={e => setPw(e.target.value)}
                         autoComplete="current-password"
                         required
                       />
@@ -371,6 +312,16 @@ export default function Login() {
                       <AlertCircle size={14} className="flex-none mt-0.5" />
                       <span>{error}</span>
                     </div>
+                  )}
+                  {needsVerify && (
+                    <button
+                      type="button"
+                      className="w-full mb-4 py-2 text-xs mono border border-line rounded text-soft hover:text-ink hover:border-line-strong transition-colors"
+                      onClick={resendVerification}
+                      disabled={resendBusy}
+                    >
+                      {resendBusy ? 'SENDING…' : 'RESEND VERIFICATION EMAIL'}
+                    </button>
                   )}
 
                   {/* Submit Button */}

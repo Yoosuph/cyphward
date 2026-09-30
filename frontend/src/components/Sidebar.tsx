@@ -74,7 +74,7 @@ export default function Sidebar({
     }
   };
 
-  const tenantName = tenant?.name || 'DataGrid Africa';
+  const tenantName = tenant?.name || 'Your Workspace';
   const tenantInitials = tenantName
     .split(' ')
     .map(w => w[0])

@@ -25,14 +25,6 @@ function maybeSendWelcome(userId?: string) {
   }
 }
 
-const DEFAULT_TENANT: Tenant = {
-  id: 'a0000000-0000-0000-0000-000000000001',
-  slug: 'datagrid-africa',
-  name: 'DataGrid Africa',
-  plan: 'Enterprise Defense',
-  region: 'ng-lagos',
-};
-
 interface Organization {
   id: string;
   name: string;
@@ -60,9 +52,15 @@ interface Auth {
   organization: Organization | null;
   primaryDomain: Domain | null;
   onboardingStep: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
-  signIn: (t: Tenant) => void;
-  signInWithCredentials: (email: string, password: string) => Promise<{ ok: boolean; error?: string; name?: string }>;
-  signUpWithCredentials: (email: string, password: string, name: string) => Promise<{ ok: boolean; error?: string; needsOnboarding?: boolean }>;
+  signInWithCredentials: (
+    email: string,
+    password: string
+  ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete' }>;
+  signUpWithCredentials: (
+    email: string,
+    password: string,
+    name: string
+  ) => Promise<{ ok: boolean; error?: string; needsOnboarding?: boolean; needsVerification?: boolean }>;
   signOut: () => Promise<void>;
   createOrganization: (name: string, plan: string) => Promise<{ ok: boolean; error?: string }>;
   addPrimaryDomain: (domain: string) => Promise<{ ok: boolean; error?: string }>;
@@ -78,9 +76,8 @@ const Ctx = createContext<Auth>({
   organization: null,
   primaryDomain: null,
   onboardingStep: 'none',
-  signIn: () => {},
-  signInWithCredentials: async () => ({ ok: false }),
-  signUpWithCredentials: async () => ({ ok: false }),
+  signInWithCredentials: async () => ({ ok: false, error: 'Authentication is not configured.' }),
+  signUpWithCredentials: async () => ({ ok: false, error: 'Authentication is not configured.' }),
   signOut: async () => {},
   createOrganization: async () => ({ ok: false }),
   addPrimaryDomain: async () => ({ ok: false }),
@@ -101,17 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined' && localStorage.getItem(SIGNOUT_KEY) === 'true') {
         return null;
       }
-      // When Supabase is configured, only use persisted tenant from a real session
-      if (isSupabaseConfigured) {
-        const raw = localStorage.getItem(KEY) || sessionStorage.getItem(KEY);
-        return raw ? (JSON.parse(raw) as Tenant) : null;
-      }
-      // Demo mode: use DEFAULT_TENANT
+      // Only a previously persisted real-session tenant may bootstrap the UI.
       const raw = localStorage.getItem(KEY) || sessionStorage.getItem(KEY);
-      if (raw) return JSON.parse(raw) as Tenant;
-      return DEFAULT_TENANT;
+      return raw ? (JSON.parse(raw) as Tenant) : null;
     } catch {
-      return isSupabaseConfigured ? null : DEFAULT_TENANT;
+      return null;
     }
   });
 
@@ -162,10 +153,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const checkOrganization = async (userId: string, authUser?: User | null) => {
+  type OnboardingStep = 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
+
+  const savedOnboardingStep = (): OnboardingStep => {
+    const saved = localStorage.getItem(ONBOARDING_KEY);
+    return saved && ['create_org', 'add_domain', 'verify_domain', 'complete'].includes(saved)
+      ? (saved as OnboardingStep)
+      : 'create_org';
+  };
+
+  // Resolves the caller's real state from the database and returns which
+  // onboarding step they are on (so login/signup can navigate without stale
+  // component state).
+  const checkOrganization = async (userId: string, authUser?: User | null): Promise<OnboardingStep> => {
     if (!isSupabaseConfigured) {
       setLoading(false);
-      return;
+      return 'none';
     }
 
     try {
@@ -183,12 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (membershipError || !membership?.org_id) {
         setOrganization(null);
         setPrimaryDomain(null);
-        const savedStep = localStorage.getItem(ONBOARDING_KEY);
-        if (savedStep && ['create_org', 'add_domain', 'verify_domain', 'complete'].includes(savedStep)) {
-          setOnboardingStep(savedStep as any);
-        } else {
-          setOnboardingStep('create_org');
-        }
+        const step = savedOnboardingStep();
+        setOnboardingStep(step);
         const tempTenant: Tenant = {
           name: 'New Organization',
           plan: 'Growth',
@@ -198,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTenant(tempTenant);
         persistTenant(tempTenant);
         setLoading(false);
-        return;
+        return step;
       }
 
       const { data: org, error: orgError } = await supabase
@@ -209,7 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (orgError || !org) {
         setLoading(false);
-        return;
+        return 'none';
       }
 
       setOrganization(org as Organization);
@@ -232,20 +231,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .order('created_at', { ascending: false })
         .limit(1);
 
+      let step: OnboardingStep;
       if (domains && domains.length > 0) {
         setPrimaryDomain(domains[0]);
         if (domains[0].verification_status === 'verified') {
-          setOnboardingStep('complete');
+          step = 'complete';
           localStorage.removeItem(ONBOARDING_KEY);
         } else {
-          setOnboardingStep('verify_domain');
+          step = 'verify_domain';
         }
       } else {
         setPrimaryDomain(null);
-        setOnboardingStep('add_domain');
+        step = 'add_domain';
       }
+      setOnboardingStep(step);
+      return step;
     } catch (e) {
       console.warn('Failed to check organization:', e);
+      // Transient lookup failure: report 'none' so callers don't route into
+      // onboarding (or the dashboard) based on guessed state.
+      return 'none';
     } finally {
       setLoading(false);
     }
@@ -291,12 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingStep('none');
   };
 
-  const signIn = (t: Tenant) => {
-    persistTenant(t, t.id);
-    setTenant(t);
-  };
-
-  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string; name?: string }> => {
+  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete' }> => {
     const cleanEmail = (email || '').trim().toLowerCase();
 
     localStorage.removeItem(SIGNOUT_KEY);
@@ -306,50 +306,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!error && data.user) {
         setUser(data.user);
         setSession(data.session);
-        await checkOrganization(data.user.id, data.user);
+        const onboarding = await checkOrganization(data.user.id, data.user);
         maybeSendWelcome(data.user.id);
         const meta = (data.user.user_metadata || {}) as Record<string, unknown>;
         const name =
           String(meta.full_name || meta.name || '').trim() ||
           (data.user.email || '').split('@')[0] ||
           '';
-        return { ok: true, name };
+        return { ok: true, name, onboarding };
       }
       return { ok: false, error: error?.message || 'Invalid credentials. Please try again.' };
     }
 
-    // Demo mode without Supabase (local development only)
-    const t: Tenant = {
-      name: email.split('@')[0] || 'Sovereign Enclave',
-      plan: 'Scale',
-      region: 'ng-lagos',
-      email: cleanEmail,
-    };
-    setTenant(t);
-    persistTenant(t);
-    setOnboardingStep('complete');
-    return { ok: true };
+    return { ok: false, error: 'Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' };
   };
 
   const signUpWithCredentials = async (
     email: string,
     password: string,
     name: string
-  ): Promise<{ ok: boolean; error?: string; needsOnboarding?: boolean }> => {
+  ): Promise<{ ok: boolean; error?: string; needsOnboarding?: boolean; needsVerification?: boolean }> => {
     if (!isSupabaseConfigured) {
-      // Demo mode - create local session
-      const newTenant: Tenant = {
-        name: name || 'New Organization',
-        plan: 'Growth',
-        region: 'ng-lagos',
-        email,
-      };
-      setTenant(newTenant);
-      persistTenant(newTenant);
-      setOnboardingStep('create_org');
-      localStorage.setItem(ONBOARDING_KEY, 'create_org');
-      localStorage.removeItem(SIGNOUT_KEY);
-      return { ok: true, needsOnboarding: true };
+      return { ok: false, error: 'Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' };
     }
 
     localStorage.removeItem(SIGNOUT_KEY);
@@ -368,7 +346,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: error.message };
     }
 
-    if (data.user) {
+    if (data.user && !data.session) {
+      // Email confirmations are enabled on the Supabase project: the account
+      // exists but there is NO session yet. Never fake a login — tell the
+      // caller to verify first.
+      return { ok: true, needsVerification: true };
+    }
+
+    if (data.user && data.session) {
       setUser(data.user);
       setSession(data.session);
       maybeSendWelcome(data.user.id);
@@ -404,22 +389,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const createOrganization = async (name: string, plan: string): Promise<{ ok: boolean; error?: string }> => {
-    if (!isSupabaseConfigured) {
-      // Demo mode
-      const org: Organization = {
-        id: 'org_demo_' + Date.now(),
-        name,
-        slug: name.toLowerCase().replace(/\s+/g, '-'),
-        plan,
-        created_at: new Date().toISOString(),
-      };
-      setOrganization(org);
-      const t: Tenant = { name, plan, region: 'ng-lagos', email: user?.email };
-      setTenant(t);
-      persistTenant(t, org.id);
-      setOnboardingStep('add_domain');
-      localStorage.setItem(ONBOARDING_KEY, 'add_domain');
-      return { ok: true };
+    if (!isSupabaseConfigured || !session) {
+      return { ok: false, error: 'You must be signed in to create an organization.' };
     }
 
     try {
@@ -451,22 +422,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const addPrimaryDomain = async (domain: string): Promise<{ ok: boolean; error?: string }> => {
     if (!isSupabaseConfigured || !organization) {
-      // Demo / offline mode
-      const tokenBytes = new Uint8Array(8);
-      crypto.getRandomValues(tokenBytes);
-      const tokenHex = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-      const dom: Domain = {
-        id: 'dom_demo_' + Date.now(),
-        domain,
-        org_id: organization?.id || 'a0000000-0000-0000-0000-000000000001',
-        verification_status: 'pending',
-        verification_token: `cyphward-verify-${tokenHex}`,
-        created_at: new Date().toISOString(),
-      };
-      setPrimaryDomain(dom);
-      setOnboardingStep('verify_domain');
-      localStorage.setItem(ONBOARDING_KEY, 'verify_domain');
-      return { ok: true };
+      return { ok: false, error: 'Create your organization first, then add a domain.' };
     }
 
     try {
@@ -490,7 +446,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       // 1. Check via real backend DNS TXT verification API
-      const apiResult = await verifyDomainApi(primaryDomain.id, false);
+      const apiResult = await verifyDomainApi(primaryDomain.id);
       if (apiResult && apiResult.status === 'verified') {
         const verifiedDom: Domain = {
           ...primaryDomain,
@@ -534,7 +490,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organization,
         primaryDomain,
         onboardingStep,
-        signIn,
         signInWithCredentials,
         signUpWithCredentials,
         signOut,

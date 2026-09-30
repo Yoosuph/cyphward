@@ -62,7 +62,9 @@ export default function Overview() {
   const loadData = async () => {
     try {
       const [overviewData, domainsList] = await Promise.all([getOverview(), getDomains()]);
-      setData(overviewData);
+      // Keep the last good snapshot on transient API failures instead of
+      // blanking the dashboard (stale-but-real beats fabricated).
+      if (overviewData) setData(overviewData);
       setDomains(domainsList);
       if (domainsList.length > 0 && !selectedDomain) {
         setSelectedDomain(domainsList[0].id);
@@ -102,49 +104,42 @@ export default function Overview() {
       if (sum) {
         setExecSummary(sum);
       } else {
-        // Use fallback data if API returns null
-        setExecSummary({
-          org_name: organization.name,
-          score: score,
-          grade: grade,
-          posture_label: posture_label,
-          executive_headline: `Security Score for ${organization.name}: ${score}/100 (Grade ${grade} — ${posture_label})`,
-          board_summary: `${organization.name}'s security score is ${score} out of 100 (Grade ${grade} — ${posture_label}). We checked DNS, public web apps, email security, and encryption.`,
-          key_strengths: [
-            'Modern TLS 1.3 cryptographic suites enforced across primary public endpoints',
-            'Zero open administrative database ports exposed directly to the public internet',
-            'Consistent reverse-proxy deployment shielding backend application runtimes',
-          ],
-          critical_action_items: [
-            { priority: 'P0 - Immediate', title: 'Enforce Strict DMARC Policy (p=reject)', impact: 'Eliminates brand spoofing and executive phishing impersonation.', owner: 'IT Infrastructure & Security' },
-            { priority: 'P1 - High', title: 'Deploy Comprehensive HSTS with includeSubDomains', impact: 'Prevents SSL-stripping and credential interception on corporate subdomains.', owner: 'Web Operations Team' },
-          ],
-          compliance_verdict: 'Partial Compliance. Immediate remediation of DMARC and HSTS is required to satisfy NDPA 2023 Part V technical safeguards.',
-          generated_at: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-        });
+        // Honest failure — never fabricate board-level findings.
+        setSummaryModalOpen(false);
+        toast('Executive summary is unavailable right now. Please try again shortly.');
       }
     } catch (err) {
       console.error('Executive summary error:', err);
-      // Still show modal with fallback data
-      setExecSummary({
-        org_name: organization.name,
-        score: score,
-        grade: grade,
-        posture_label: posture_label,
-        executive_headline: `Executive Security Assessment: ${organization.name}`,
-        board_summary: 'Unable to generate executive summary at this time. Please try again later.',
-        key_strengths: [],
-        critical_action_items: [],
-        compliance_verdict: 'Unable to determine compliance status.',
-        generated_at: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-      });
+      setSummaryModalOpen(false);
+      toast('Executive summary is unavailable right now. Please try again shortly.');
     } finally {
       setSummaryLoading(false);
     }
   };
 
-  if (loading || !data) {
+  if (loading && !data) {
     return <OverviewSkeleton />;
+  }
+
+  if (!data) {
+    return (
+      <div className="max-w-7xl mx-auto pb-16 content-fade-in">
+        <div className="bg-inset border border-line rounded p-10 text-center space-y-3">
+          <AlertTriangle size={22} className="mx-auto text-accent" />
+          <p className="text-sm mono">We couldn't load your security overview.</p>
+          <p className="text-xs mono text-soft max-w-md mx-auto">
+            The API didn't respond. Your data is safe — retry below, or this view will
+            refresh automatically every few seconds.
+          </p>
+          <button
+            className="btn btn-solid btn-mini hover-lift"
+            onClick={() => { setLoading(true); loadData(); }}
+          >
+            <RefreshCw size={12} className="mr-1" /> RETRY
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const { score, max_score, grade, posture_label, trend, counts, subscores, factors, recent_scans, organization } = data;

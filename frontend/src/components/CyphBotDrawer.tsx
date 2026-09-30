@@ -201,7 +201,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
 
-  const orgName = tenant?.name || 'DataGrid Africa';
+  const orgName = tenant?.name || 'your workspace';
 
   const [messages, setMessages] = useState<ChatEntry[]>([
     {

@@ -5,7 +5,6 @@ import {
   Key,
   RefreshCw,
   Plus,
-  ShieldCheck,
   Sparkles,
   Check,
 } from 'lucide-react';
@@ -16,7 +15,7 @@ import { SettingsSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 import BoardReportModal from '../components/BoardReportModal';
 
-type SettingsTab = 'general' | 'team' | 'auth' | 'security';
+type SettingsTab = 'general' | 'team' | 'auth';
 
 export default function Settings() {
   const [data, setData] = useState<SettingsData | null>(null);
@@ -26,12 +25,7 @@ export default function Settings() {
   const [companyName, setCompanyName] = useState('');
   const [cacRc, setCacRc] = useState('');
   const [sector, setSector] = useState('');
-  const [alertEmail, setAlertEmail] = useState('');
   const [savingCompany, setSavingCompany] = useState(false);
-
-  const [scanFrequency, setScanFrequency] = useState('daily');
-  const [alertThreshold, setAlertThreshold] = useState('high');
-  const [savingPrefs, setSavingPrefs] = useState(false);
 
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
@@ -54,7 +48,6 @@ export default function Settings() {
       setCompanyName(res.organization.name);
       setCacRc(res.organization.cac_rc || '');
       setSector(res.organization.sector || '');
-      setAlertEmail(res.organization.email || 'security@' + (res.organization.slug || 'enclave') + '.ng');
     } catch {
       toast('Failed to load settings');
     } finally {
@@ -82,15 +75,6 @@ export default function Settings() {
     } finally {
       setSavingCompany(false);
     }
-  };
-
-  const handleSaveSecurityPrefs = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingPrefs(true);
-    setTimeout(() => {
-      setSavingPrefs(false);
-      toast('Security preferences saved to enclave');
-    }, 600);
   };
 
   const handleAddMember = async (e: React.FormEvent) => {
@@ -203,17 +187,6 @@ export default function Settings() {
           <Key size={14} />
           <span>AUTHENTICATION</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('security')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
-            activeTab === 'security' ? 'border-accent text-ink font-semibold' : 'border-transparent text-soft hover:text-ink'
-          }`}
-        >
-          <ShieldCheck size={14} />
-          <span>SECURITY</span>
-        </button>
       </div>
 
       {activeTab === 'general' && (
@@ -255,16 +228,6 @@ export default function Settings() {
                     value={sector}
                     onChange={e => setSector(e.target.value)}
                     placeholder="e.g. Fintech & Digital Commerce"
-                    className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">PRIMARY SECURITY EMAIL</label>
-                  <input
-                    type="email"
-                    value={alertEmail}
-                    onChange={e => setAlertEmail(e.target.value)}
                     className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
                 </div>
@@ -401,54 +364,6 @@ export default function Settings() {
               </li>
             </ul>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'security' && (
-        <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
-          <div className="flex items-center gap-2 pb-3 border-b border-line">
-            <ShieldCheck size={16} className="text-accent" />
-            <h3 className="mono font-semibold text-ink text-sm">SECURITY PREFERENCES</h3>
-          </div>
-
-          <form onSubmit={handleSaveSecurityPrefs} className="space-y-5 text-xs">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="mono text-soft text-[11px]">SCAN CADENCE</label>
-                <select
-                  value={scanFrequency}
-                  onChange={e => setScanFrequency(e.target.value)}
-                  className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
-                >
-                  <option value="daily">Daily deterministic risk re-scoring</option>
-                  <option value="weekly">Weekly comprehensive attack surface audit</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="mono text-soft text-[11px]">ALERT DISPATCH THRESHOLD</label>
-                <select
-                  value={alertThreshold}
-                  onChange={e => setAlertThreshold(e.target.value)}
-                  className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
-                >
-                  <option value="critical">Critical findings only</option>
-                  <option value="high">Critical + high severity</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="submit"
-                disabled={savingPrefs}
-                className="btn-tactile px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
-              >
-                {savingPrefs ? <RefreshCw size={13} className="animate-spin" /> : null}
-                Save Security Preferences
-              </button>
-            </div>
-          </form>
         </div>
       )}
 

@@ -76,11 +76,10 @@ export default function Domains() {
     }
   };
 
-  const handleVerify = async (domain: Domain, forceSimulate: boolean = false) => {
+  const handleVerify = async (domain: Domain) => {
     setVerifyingId(domain.id);
     try {
-      const isDemo = domain.domain.includes('acmetraders.ng') || domain.domain.includes('demo') || domain.domain.includes('test');
-      const res = await verifyDomain(domain.id, forceSimulate || isDemo);
+      const res = await verifyDomain(domain.id);
       if (res.status === 'verified') {
         toast(`Domain ${domain.domain} verified successfully!`);
       } else {

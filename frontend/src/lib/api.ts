@@ -67,73 +67,19 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T |
 // ============================================================================
 // 1. Overview & Posture
 // ============================================================================
-export async function getOverview(): Promise<OverviewData> {
-  const data = await apiFetch<OverviewData>('/overview');
-  if (data) return data;
-
-  return {
-    organization: {
-      id: 'a0000000-0000-0000-0000-000000000001',
-      name: 'DataGrid Africa',
-      slug: 'datagrid-africa',
-      cac_rc: 'RC-1928341',
-      sector: 'Digital Infrastructure & Cloud Services',
-      plan: 'Enterprise Defense',
-      primary_domain: 'datagrid-ng.com',
-      domains_count: 1,
-      verified_domains_count: 1,
-    },
-    score: 76,
-    max_score: 100,
-    grade: 'B',
-    posture_label: 'Good',
-    status_color: 'ok',
-    trend: 0,
-    counts: {
-      total_assets: 10,
-      total_findings: 13,
-      critical: 0,
-      high: 3,
-      medium: 0,
-      low: 1,
-      info: 9,
-    },
-    subscores: [
-      { name: 'Network & DNS', score: 17, max: 25, pct: 68, status: 'OK' },
-      { name: 'Web & Apps', score: 20, max: 35, pct: 57, status: 'Needs work' },
-      { name: 'Encryption', score: 25, max: 25, pct: 100, status: 'Good' },
-      { name: 'Exposure', score: 15, max: 15, pct: 100, status: 'Good' },
-    ],
-    factors: [
-      { impact: '-8', type: 'negative', label: 'Weak email DMARC policy (p=none)' },
-      { impact: '-8', type: 'negative', label: 'HSTS header missing' },
-      { impact: '+5', type: 'positive', label: 'Strong encryption (TLS 1.3) is active' },
-      { impact: '+3', type: 'positive', label: 'Very little sensitive data exposed publicly' },
-    ],
-    recent_scans: [],
-  };
+export async function getOverview(): Promise<OverviewData | null> {
+  // No mock fallback: a failed/forbidden call must surface as null so the UI
+  // shows an honest loading/empty state instead of fabricated tenant data.
+  return await apiFetch<OverviewData>('/overview');
 }
 
 // ============================================================================
 // 2. Domains
 // ============================================================================
 export async function getDomains(): Promise<Domain[]> {
+  // Empty list on failure — never invent domains for the tenant.
   const data = await apiFetch<Domain[]>('/domains');
-  if (data) return data;
-
-  return [
-    {
-      id: 'cd636083-b6a6-43f1-b236-25c5483e8789',
-      org_id: 'a0000000-0000-0000-0000-000000000001',
-      domain: 'datagrid-ng.com',
-      verification_status: 'verified',
-      verification_token: 'cyphward-verify-d9999dd34b88cb09',
-      verified_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      asset_count: 10,
-      scan_count: 7,
-    },
-  ];
+  return data ?? [];
 }
 
 export async function addDomain(domain: string): Promise<{ domain: Domain; dns_instructions: any }> {
@@ -141,41 +87,17 @@ export async function addDomain(domain: string): Promise<{ domain: Domain; dns_i
     method: 'POST',
     body: JSON.stringify({ domain }),
   });
-  if (data) return data;
-
-  const mockToken = `cyphward-verify-${Math.random().toString(16).slice(2, 10)}`;
-  return {
-    domain: {
-      id: `d-${Date.now()}`,
-      org_id: 'a0000000-0000-0000-0000-000000000001',
-      domain,
-      verification_status: 'pending',
-      verification_token: mockToken,
-      created_at: new Date().toISOString(),
-      asset_count: 0,
-      scan_count: 0,
-    },
-    dns_instructions: {
-      record_type: 'TXT',
-      host: `@ or ${domain}`,
-      value: `cyphward-verification=${mockToken}`,
-      ttl: 300,
-    },
-  };
+  if (!data) throw new Error('Failed to add domain. Ensure you are signed in.');
+  return data;
 }
 
-export async function verifyDomain(domainId: string, simulateSuccess: boolean = false): Promise<{ status: string; message: string; details: any }> {
+export async function verifyDomain(domainId: string): Promise<{ status: string; message: string; details: any }> {
   const data = await apiFetch<{ status: string; message: string; details: any }>(`/domains/${domainId}/verify`, {
     method: 'POST',
-    body: JSON.stringify({ simulate_success: simulateSuccess }),
+    body: JSON.stringify({}),
   });
-  if (data) return data;
-
-  return {
-    status: 'verified',
-    message: 'Domain ownership verified successfully via DNS TXT record.',
-    details: { verified: true },
-  };
+  if (!data) throw new Error('Domain verification request failed. Please try again.');
+  return data;
 }
 
 export async function deleteDomain(domainId: string): Promise<boolean> {
@@ -325,32 +247,12 @@ export async function getRemediation(findingId?: string, targetStack: string = '
   };
 }
 
-export async function getExecutiveSummary(): Promise<ExecutiveSummary> {
-  const data = await apiFetch<ExecutiveSummary>('/ai/executive-summary', {
+export async function getExecutiveSummary(): Promise<ExecutiveSummary | null> {
+  // No fabricated summary when the API fails — caller shows an honest error.
+  return await apiFetch<ExecutiveSummary>('/ai/executive-summary', {
     method: 'POST',
     body: JSON.stringify({}),
   });
-  if (data) return data;
-
-  return {
-    org_name: 'DataGrid Africa',
-    score: 76,
-    grade: 'B',
-    posture_label: 'Good',
-    executive_headline: `Security Score for DataGrid Africa: 76/100 (Grade B — Good)`,
-    board_summary: `DataGrid Africa's security score is 76 out of 100 (Grade B — Good). We checked DNS, public web apps, email security, and encryption. Weak spots are email authentication (DMARC) and the missing HSTS header, which can lead to spoofing or connection downgrades.`,
-    key_strengths: [
-      'Modern TLS 1.3 cryptographic suites enforced across primary public endpoints',
-      'Zero open administrative database ports exposed directly to the public internet',
-      'Consistent reverse-proxy deployment shielding backend application runtimes',
-    ],
-    critical_action_items: [
-      { priority: 'P0 - Immediate', title: 'Enforce Strict DMARC Policy (p=reject)', impact: 'Eliminates brand spoofing and executive phishing impersonation.', owner: 'IT Infrastructure & Security' },
-      { priority: 'P1 - High', title: 'Deploy Comprehensive HSTS with includeSubDomains', impact: 'Prevents SSL-stripping and credential interception on corporate subdomains.', owner: 'Web Operations Team' },
-    ],
-    compliance_verdict: 'Partial Compliance. Immediate remediation of DMARC and HSTS is required to satisfy NDPA 2023 Part V technical safeguards.',
-    generated_at: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-  };
 }
 
 // ============================================================================

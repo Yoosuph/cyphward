@@ -6,6 +6,7 @@ import {
   Radio, ShieldAlert, AlertCircle, User
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
@@ -22,6 +23,8 @@ export default function Signup() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
   const [remember, setRemember] = useState(true);
   const [theme, setTheme] = useState(getTheme());
 
@@ -52,12 +55,35 @@ export default function Signup() {
       return;
     }
 
+    if (result.needsVerification) {
+      // Supabase email confirmations are on: wait for verification instead of
+      // pretending the user is logged in.
+      setBusy(false);
+      setNeedsVerification(true);
+      setError('');
+      return;
+    }
+
     const first = (name || '').trim().split(' ')[0] || email.split('@')[0];
     toast(`Welcome to Cyphward${first ? `, ${first}` : ''}! Check your inbox for your welcome email.`);
     if (result.needsOnboarding) {
       nav('/onboarding', { replace: true });
     } else {
       nav('/', { replace: true });
+    }
+  };
+
+  const resendVerification = async () => {
+    if (resendBusy || !email) return;
+    setResendBusy(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({ email, type: 'signup' });
+      if (resendError) throw resendError;
+      toast('Verification email sent.');
+    } catch (err: any) {
+      toast(err?.message || 'Could not send verification email.');
+    } finally {
+      setResendBusy(false);
     }
   };
 
@@ -223,6 +249,39 @@ export default function Signup() {
               </div>
 
               <form onSubmit={submit}>
+                  {needsVerification ? (
+                    /* Account created, but email confirmation is enabled on the
+                       Supabase project: never fake a session — wait it out. */
+                    <div className="text-center py-6">
+                      <CheckCircle2 size={36} className="text-accent mx-auto mb-4" />
+                      <h2 className="text-lg font-bold text-ink mb-2">Verify your email</h2>
+                      <p className="text-sm text-soft leading-relaxed mb-1">
+                        We sent a confirmation link to
+                        <span className="text-ink font-semibold"> {email || 'your inbox'}</span>.
+                      </p>
+                      <p className="text-sm text-soft leading-relaxed mb-5">
+                        Open it to activate your account, then come back and sign in.
+                      </p>
+                      <div className="flex flex-col gap-2.5">
+                        <button
+                          type="button"
+                          className="btn btn-solid w-full justify-center"
+                          onClick={() => nav('/login', { replace: true })}
+                        >
+                          GO TO SIGN IN
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full py-2 text-xs mono border border-line rounded text-soft hover:text-ink hover:border-line-strong transition-colors"
+                          onClick={resendVerification}
+                          disabled={resendBusy}
+                        >
+                          {resendBusy ? 'SENDING…' : 'RESEND VERIFICATION EMAIL'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                  <>
                   {/* Full Name Field */}
                   <div className="field">
                     <label htmlFor="fullName">FULL NAME</label>
@@ -322,6 +381,8 @@ export default function Signup() {
                       </Link>
                     </span>
                   </div>
+                  </>
+                  )}
               </form>
 
               {/* Hardware attestation footer */}
@@ -338,7 +399,7 @@ export default function Signup() {
         {/* Global Metadata Footer */}
         <div className="mt-10 pt-6 border-t border-line">
           <dl className="meta-row">
-            <div><dt>DEFAULT TENANT</dt><dd>ACME TRADERS LTD (KANO)</dd></div>
+            <div><dt>TENANT MODEL</dt><dd>ISOLATED WORKSPACES PER ORGANIZATION</dd></div>
             <div><dt>REGULATORY REGIME</dt><dd>NDPA 2023 · CBN REGULATED</dd></div>
             <div><dt>DATA RESIDENCY</dt><dd>LAGOS AWS LOCAL ZONE · NAIROBI</dd></div>
             <div><dt>SECURITY LEVEL</dt><dd className="text-ok font-medium">SOVEREIGN ENCLAVE ACTIVE</dd></div>
