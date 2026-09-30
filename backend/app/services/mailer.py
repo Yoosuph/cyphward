@@ -341,6 +341,187 @@ def generate_executive_report_html(
     return html
 
 
+def generate_welcome_email_html(user_name: str, login_email: str) -> str:
+    """
+    Renders the plain-English welcome email sent after signup or first login.
+    Light theme, matches the executive report template.
+    """
+    first_name = (user_name or "").strip().split(" ")[0] or "there"
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    steps = [
+        ("Create your organization", "Tell us your company or team name — this takes a few seconds."),
+        ("Add and verify your domain", "Paste one DNS record so we can confirm your site belongs to you."),
+        ("Run your first scan", "We check encryption, email security, headers, and exposure — then score it."),
+    ]
+
+    steps_html = ""
+    for i, (title, desc) in enumerate(steps, start=1):
+        steps_html += f"""
+        <tr>
+          <td style="padding: 14px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF; width: 44px; vertical-align: top;">
+            <span style="display: inline-block; width: 26px; height: 26px; border-radius: 50%; background-color: #FFF3EC; border: 1px solid #F5D6C0; color: #C2410C; font-size: 13px; font-weight: 700; text-align: center; line-height: 26px;">{i}</span>
+          </td>
+          <td style="padding: 14px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF;">
+            <div style="font-size: 14px; font-weight: 600; color: #1F1A14; margin-bottom: 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">{title}</div>
+            <div style="font-size: 13px; color: #5D564B; line-height: 1.55; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">{desc}</div>
+          </td>
+        </tr>"""
+
+    html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="format-detection" content="telephone=no">
+  <title>Welcome to Cyphward</title>
+  <style>
+    html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
+    body {{ margin: 0; padding: 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-text-size-adjust: 100%; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-color-scheme: only light;" bgcolor="#F3F1EC">
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F3F1EC;">
+    Hi {first_name} — your Cyphward account is ready. Create your organization, verify your domain, and run your first scan.
+  </div>
+  <center>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 620px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
+
+      <!-- Amber Accent Bar -->
+      <tr>
+        <td style="height: 4px; background: linear-gradient(90deg, #B33614, #E5532B, #FF8F6B, #E5532B); font-size: 0; line-height: 0;">&nbsp;</td>
+      </tr>
+
+      <!-- Header: Logo + Brand -->
+      <tr>
+        <td style="padding: 22px 28px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td style="vertical-align: middle;">
+                <table cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="vertical-align: middle; padding-right: 13px;">
+                      <table cellpadding="0" cellspacing="0" border="0" bgcolor="#16130F" style="background-color: #16130F; border-radius: 10px;">
+                        <tr>
+                          <td style="padding: 6px 8px; font-size: 0; line-height: 0; text-align: center;">
+                            <img src="https://cyphward.com/apple-touch-icon.png" alt="Cyphward" width="32" height="32" style="display: block; border: 0;" />
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                    <td style="vertical-align: middle;">
+                      <div style="font-size: 18px; font-weight: 800; letter-spacing: 1.5px; color: #16130F;">
+                        CYPH<span style="color: #E5532B;">WARD</span>
+                      </div>
+                      <div style="font-size: 10px; letter-spacing: 1.2px; color: #8A8377; text-transform: uppercase; margin-top: 2px;">
+                        Security monitoring, made simple
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+              <td style="vertical-align: middle; text-align: right;">
+                <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
+                  &#9679; Account active
+                </span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Greeting -->
+      <tr>
+        <td style="padding: 26px 28px 6px;">
+          <div style="font-size: 22px; font-weight: 700; color: #16130F; letter-spacing: -0.3px; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Welcome, {first_name}.
+          </div>
+          <div style="font-size: 14px; color: #3A352D; line-height: 1.65; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Your Cyphward account is ready. In the next few minutes you can set up your organization,
+            verify your domain, and get your first security score — no agents to install, nothing to configure.
+          </div>
+        </td>
+      </tr>
+
+      <!-- Steps -->
+      <tr>
+        <td style="padding: 16px 28px 4px;">
+          <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
+            Get started in 3 steps
+          </div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #EFECE5; border-radius: 8px; overflow: hidden;">
+            {steps_html}
+          </table>
+        </td>
+      </tr>
+
+      <!-- CTA Button -->
+      <tr>
+        <td style="padding: 18px 28px 6px; text-align: center;">
+          <table cellpadding="0" cellspacing="0" border="0" align="center">
+            <tr>
+              <td style="background-color: #E5532B; border-radius: 8px; text-align: center;">
+                <a href="https://cyphward.com/" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
+                  Open your dashboard →
+                </a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 0 28px 26px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #6B6459; line-height: 1.5;">
+          Questions? Just reply to this email — a real person reads them.
+        </td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td style="padding: 18px 28px; background-color: #FAF9F6; border-top: 1px solid #EFECE5; font-size: 11px; color: #8A8377; line-height: 1.65;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td>
+                <strong style="color: #5D564B;">CYPHWARD — SECURITY MONITORING, MADE SIMPLE</strong><br />
+                Continuous checks for your website, emails, and data protection.<br />
+                You received this because an account was created for <strong style="color: #5D564B;">{login_email}</strong>.<br />
+                Generated {generated_at} UTC.
+              </td>
+              <td style="text-align: right; vertical-align: bottom;">
+                <a href="https://cyphward.com/" target="_blank" style="color: #C2410C; text-decoration: underline;">cyphward.com</a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+    </table>
+  </center>
+</body>
+</html>
+"""
+    return html
+
+
+def generate_welcome_email_text(user_name: str, login_email: str) -> str:
+    first_name = (user_name or "").strip().split(" ")[0] or "there"
+    return (
+        f"Hi {first_name},\n\n"
+        "Welcome to Cyphward — your account is ready.\n\n"
+        "Get started in 3 steps:\n"
+        "1. Create your organization — tell us your company or team name.\n"
+        "2. Add and verify your domain — paste one DNS record so we can confirm your site.\n"
+        "3. Run your first scan — encryption, email security, headers, and exposure, scored.\n\n"
+        "Open your dashboard: https://cyphward.com/\n\n"
+        "Questions? Just reply to this email — a real person reads them.\n\n"
+        "— Cyphward\n"
+        "Security monitoring, made simple\n\n"
+        f"You received this because an account was created for {login_email}."
+    )
+
+
 async def send_email_async(
     to_email: str,
     subject: str,

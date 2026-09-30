@@ -19,6 +19,7 @@ import { OverviewSkeleton } from '../components/Skeleton';
 import BoardReportModal from '../components/BoardReportModal';
 import Modal from '../components/Modal';
 import { getOverview, launchScan, getDomains, getExecutiveSummary } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 
@@ -32,9 +33,31 @@ export default function Overview() {
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [greeting, setGreeting] = useState<string | null>(null);
 
+  const { user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+
+  // One friendly, time-aware greeting per browser session (login process).
+  useEffect(() => {
+    if (!user) return;
+    try {
+      if (sessionStorage.getItem('cyphward-greeted') === '1') return;
+      const meta = (user.user_metadata || {}) as Record<string, unknown>;
+      const first =
+        String(meta.full_name || meta.name || '').trim().split(' ')[0] ||
+        (user.email || '').split('@')[0] ||
+        '';
+      if (!first) return;
+      const hour = new Date().getHours();
+      const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+      setGreeting(`${part}, ${first} — welcome back.`);
+      sessionStorage.setItem('cyphward-greeted', '1');
+    } catch {
+      /* greeting is best-effort */
+    }
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -131,6 +154,9 @@ export default function Overview() {
       {/* Header Banner & Quick Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
         <div>
+          {greeting && (
+            <p className="text-xs mono text-soft mb-1.5">{greeting}</p>
+          )}
           <div className="flex items-center gap-2">
             <span className="live-dot" />
             <p className="eyebrow text-accent">COMMAND ENCLAVE · {organization.cac_rc || 'CAC REGISTERED'}</p>

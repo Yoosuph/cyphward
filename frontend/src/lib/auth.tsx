@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { verifyDomain as verifyDomainApi, createOrganization as createOrganizationApi, addDomain } from './api';
+import { verifyDomain as verifyDomainApi, createOrganization as createOrganizationApi, addDomain, sendWelcomeEmail } from './api';
 import type { Tenant } from '../types';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -8,6 +8,22 @@ const KEY = 'cyphward-tenant';
 const SIGNOUT_KEY = 'cyphward-signed-out';
 const ONBOARDING_KEY = 'cyphward-onboarding';
 const ORG_ID_KEY = 'cyphward-org-id';
+const WELCOME_SENT_KEY = 'cyphward-welcome-sent';
+
+// Fire-and-forget: queue one welcome email per account (server enforces its
+// own cooldown too). Only safe once a real Supabase session exists.
+function maybeSendWelcome(userId?: string) {
+  if (!isSupabaseConfigured || !userId) return;
+  try {
+    if (localStorage.getItem(WELCOME_SENT_KEY) === userId) return;
+    localStorage.setItem(WELCOME_SENT_KEY, userId);
+    sendWelcomeEmail().then((ok) => {
+      if (!ok) localStorage.removeItem(WELCOME_SENT_KEY);
+    });
+  } catch {
+    /* never block auth flow on welcome mail */
+  }
+}
 
 const DEFAULT_TENANT: Tenant = {
   id: 'a0000000-0000-0000-0000-000000000001',
@@ -45,7 +61,7 @@ interface Auth {
   primaryDomain: Domain | null;
   onboardingStep: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
   signIn: (t: Tenant) => void;
-  signInWithCredentials: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  signInWithCredentials: (email: string, password: string) => Promise<{ ok: boolean; error?: string; name?: string }>;
   signUpWithCredentials: (email: string, password: string, name: string) => Promise<{ ok: boolean; error?: string; needsOnboarding?: boolean }>;
   signOut: () => Promise<void>;
   createOrganization: (name: string, plan: string) => Promise<{ ok: boolean; error?: string }>;
@@ -280,7 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTenant(t);
   };
 
-  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string; name?: string }> => {
     const cleanEmail = (email || '').trim().toLowerCase();
 
     localStorage.removeItem(SIGNOUT_KEY);
@@ -291,7 +307,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setSession(data.session);
         await checkOrganization(data.user.id, data.user);
-        return { ok: true };
+        maybeSendWelcome(data.user.id);
+        const meta = (data.user.user_metadata || {}) as Record<string, unknown>;
+        const name =
+          String(meta.full_name || meta.name || '').trim() ||
+          (data.user.email || '').split('@')[0] ||
+          '';
+        return { ok: true, name };
       }
       return { ok: false, error: error?.message || 'Invalid credentials. Please try again.' };
     }
@@ -349,6 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.user) {
       setUser(data.user);
       setSession(data.session);
+      maybeSendWelcome(data.user.id);
 
       // Backend creates the profile row on first authenticated request.
       // Keep a light local profile upsert for immediate display name.

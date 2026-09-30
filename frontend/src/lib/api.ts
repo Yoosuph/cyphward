@@ -672,3 +672,11 @@ export async function sendReportEmail(payload: {
   return res;
 }
 
+
+// ============================================================================
+// Auth lifecycle (welcome mail after signup / first login)
+// ============================================================================
+export async function sendWelcomeEmail(): Promise<boolean> {
+  const res = await apiFetch<{ sent: boolean }>('/auth/welcome', { method: 'POST' });
+  return !!res?.sent;
+}

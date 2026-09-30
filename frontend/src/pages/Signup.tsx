@@ -52,7 +52,8 @@ export default function Signup() {
       return;
     }
 
-    toast('Account created successfully!');
+    const first = (name || '').trim().split(' ')[0] || email.split('@')[0];
+    toast(`Welcome to Cyphward${first ? `, ${first}` : ''}! Check your inbox for your welcome email.`);
     if (result.needsOnboarding) {
       nav('/onboarding', { replace: true });
     } else {

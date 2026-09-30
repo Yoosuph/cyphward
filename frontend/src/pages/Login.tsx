@@ -86,7 +86,12 @@ export default function Login() {
       return;
     }
 
-    toast(`Enclave session authenticated: ${persona?.role || 'Operator'} (${persona?.org || 'DataGrid Africa'})`);
+    if (persona) {
+      toast(`Enclave session authenticated: ${persona.role} (${persona.org || 'DataGrid Africa'})`);
+    } else {
+      const first = (result.name || email.split('@')[0] || '').split(' ')[0];
+      toast(`Welcome back${first ? `, ${first}` : ''}!`);
+    }
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       nav('/onboarding', { replace: true });
     } else {
