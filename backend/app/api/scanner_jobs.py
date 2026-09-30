@@ -32,8 +32,9 @@ from backend.app.core.config import (
     SCANNER_NUCLEI_MAX_HOSTS,
     SCANNER_STAGE_TIMEOUT_SECONDS,
 )
-from backend.app.core.database import execute_one
+from backend.app.core.database import execute_one, execute_query
 from shared.contracts import (
+    CORE_STAGES,
     JobComplete,
     JobFail,
     ObservationSubmit,
@@ -103,11 +104,43 @@ def _held_job(scan_id: str, scanner_id: str) -> Dict[str, Any]:
 
 
 @router.post("/claim")
-def claim_job(scanner_id: str = Depends(require_scanner)) -> Any:
+def claim_job(
+    background_tasks: BackgroundTasks,
+    scanner_id: str = Depends(require_scanner),
+) -> Any:
     """
     Atomically claim the next authorized queued scan (or a running scan whose
     lease expired — crash recovery). Returns 204 when the queue is empty.
     """
+    # ------------------------------------------------------------------
+    # Core-finalize crash recovery. finalize_scan runs as a background task;
+    # if the process dies mid-run (restart/OOM/deploy) the scan would stay
+    # 'running' forever. Re-claim those (atomically) and re-trigger finalize.
+    # Must run BEFORE the worker claim below so the worker's lease-expired
+    # branch never steals a core-stage scan.
+    # ------------------------------------------------------------------
+    stuck_rows = execute_query(
+        """
+        UPDATE scans
+        SET claimed_by = 'core-recovery',
+            lease_expires_at = now() + make_interval(secs => 900)
+        WHERE status = 'running'
+          AND current_stage = ANY(%s)
+          AND COALESCE(started_at, created_at) < now() - make_interval(mins => 15)
+          AND (claimed_by IS NULL
+               OR (claimed_by = 'core-recovery'
+                   AND lease_expires_at IS NOT NULL AND lease_expires_at < now()))
+        RETURNING id
+        """,
+        (CORE_STAGES,),
+    ) or []
+    if stuck_rows:
+        from backend.app.workflows.inngest_workflow import finalize_scan
+
+        for row in stuck_rows:
+            logger.warning("scan=%s finalize interrupted — recovery re-trigger", row["id"])
+            background_tasks.add_task(finalize_scan, str(row["id"]))
+
     job_row = execute_one(
         """
         UPDATE scans
@@ -250,9 +283,13 @@ def complete_job(
     """
     _held_job(scan_id, scanner_id)
 
+    # Hand ownership to Core under a finalize lease: the worker no longer
+    # holds the job, and the claim-endpoint sweeper can re-trigger finalize
+    # (after lease expiry) if this process dies mid-run.
     execute_one(
         """
-        UPDATE scans SET claimed_by = NULL, lease_expires_at = NULL
+        UPDATE scans SET claimed_by = 'core-recovery',
+                         lease_expires_at = now() + make_interval(secs => 900)
         WHERE id = %s AND claimed_by = %s
         """,
         (scan_id, scanner_id),

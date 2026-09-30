@@ -735,7 +735,9 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
 
         execute_query("""
             UPDATE scans
-            SET status = 'completed', current_stage = 'completed', score = %s, stage_progress = %s::jsonb, completed_at = now()
+            SET status = 'completed', current_stage = 'completed', score = %s,
+                stage_progress = %s::jsonb, completed_at = now(),
+                claimed_by = NULL, lease_expires_at = NULL
             WHERE id = %s
         """, (final_score, json.dumps(progress), scan_id))
 
@@ -829,7 +831,8 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         progress["error"] = str(exc)
         execute_query("""
             UPDATE scans
-            SET status = 'failed', error_message = %s, stage_progress = %s::jsonb, completed_at = now()
+            SET status = 'failed', error_message = %s, stage_progress = %s::jsonb,
+                completed_at = now(), claimed_by = NULL, lease_expires_at = NULL
             WHERE id = %s
         """, (str(exc), json.dumps(progress), scan_id))
         raise

@@ -4,6 +4,7 @@ Sends executive security assessments, perimeter alerts, and board briefings.
 Dual-layer delivery: Brevo REST API v3 (primary) + SMTP Relay (failover).
 """
 import os
+import asyncio
 import json
 import logging
 import smtplib
@@ -363,6 +364,21 @@ async def send_email_async(
                         "recipient": to_email,
                     }
                 else:
+                    if response.status_code == 401:
+                        # Auth/IP failure — the SMTP and Campaign tiers use the
+                        # same egress IP, so failing over would only burn the
+                        # 15s SMTP timeout on every recipient.
+                        logger.warning(
+                            f"Brevo REST API 401 for {to_email}: {response.text}. "
+                            "Skipping SMTP/Campaign failover (same egress IP would be rejected)."
+                        )
+                        return {
+                            "success": False,
+                            "method": "brevo_api",
+                            "status_code": 401,
+                            "recipient": to_email,
+                            "error": "unauthorised_ip",
+                        }
                     logger.warning(f"Brevo REST API returned status {response.status_code}: {response.text}. Attempting SMTP failover...")
         except Exception as api_err:
             logger.warning(f"Brevo REST API call failed: {api_err}. Attempting SMTP failover...")
@@ -380,12 +396,17 @@ async def send_email_async(
         msg.attach(part1)
         msg.attach(part2)
 
-        with smtplib.SMTP(BREVO_SMTP_SERVER, BREVO_SMTP_PORT, timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD)
-            server.sendmail(BREVO_SENDER_EMAIL, [to_email], msg.as_string())
+        def _smtp_send() -> None:
+            # smtplib is blocking: run it off the event loop so a slow mail
+            # server can never freeze /health or hang the ASGI worker.
+            with smtplib.SMTP(BREVO_SMTP_SERVER, BREVO_SMTP_PORT, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD)
+                server.sendmail(BREVO_SENDER_EMAIL, [to_email], msg.as_string())
+
+        await asyncio.to_thread(_smtp_send)
 
         logger.info(f"Email successfully dispatched via Brevo SMTP relay to {to_email}")
         return {
