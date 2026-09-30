@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
-    "server": "uv run --with fastapi --with uvicorn --with 'psycopg[binary]' --with psycopg-pool --with pydantic --with python-dotenv --with httpx --with dnspython --with inngest --with pyjwt --with email-validator uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "server": "uv run --with fastapi --with uvicorn --with 'psycopg[binary]' --with psycopg-pool --with pydantic --with python-dotenv --with httpx --with dnspython --with inngest --with pyjwt --with cryptography --with email-validator uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload",
     "inngest": "inngest dev -u http://127.0.0.1:8000/api/inngest",
     "test": "uv run --with pytest --with fastapi --with 'psycopg[binary]' --with psycopg-pool --with pydantic --with python-dotenv --with httpx --with dnspython --with inngest --with pyjwt --with email-validator python -m pytest backend/tests -q",
     "start": "npm run server & npm run inngest & npm run dev"
