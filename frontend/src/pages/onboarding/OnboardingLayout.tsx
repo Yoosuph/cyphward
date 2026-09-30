@@ -1,10 +1,11 @@
 import { Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { ShieldCheck, Building, Globe, CheckCircle2, Radar } from 'lucide-react';
+import { ShieldCheck, Building, Globe, CheckCircle2, Radar, MailCheck } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import StrataField from '../../components/StrataField';
 import CyphwardLogo from '../../components/CyphwardLogo';
 
 const STEPS = [
+  { key: 'verify_email', label: 'Verify Email', icon: MailCheck },
   { key: 'create_org', label: 'Create Organization', icon: Building },
   { key: 'add_domain', label: 'Add Domain', icon: Globe },
   { key: 'verify_domain', label: 'Verify Domain', icon: CheckCircle2 },
@@ -36,6 +37,10 @@ export default function OnboardingLayout() {
 
   if (onboardingStep === 'complete' && !location.pathname.endsWith('/complete')) {
     return <Navigate to="/" replace />;
+  }
+
+  if (onboardingStep === 'verify_email' && !location.pathname.endsWith('/verify-email')) {
+    return <Navigate to="/onboarding/verify-email" replace />;
   }
 
   const currentStepIdx = STEPS.findIndex(s => s.key === onboardingStep);

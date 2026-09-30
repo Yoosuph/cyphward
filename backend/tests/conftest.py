@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("SUPABASE_JWT_SECRET", "cyphward-test-secret-not-for-prod")
 
@@ -139,6 +140,7 @@ class FakeStore:
         self.snapshots: list = []
         self.evidence: list = []
         self.audit: list = []
+        self.email_otps: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -153,6 +155,56 @@ class FakeStore:
         if "INSERT INTO audit_log" in s:
             self.audit.append({"id": len(self.audit) + 1, "params": params})
             return [{"id": len(self.audit)}]
+
+        # --- email OTP (Brevo verification) -------------------------------
+        if s.startswith("DELETE FROM email_otps"):
+            uid = params[0]
+            self.email_otps = [r for r in self.email_otps if r["user_id"] != uid]
+            return []
+
+        if s.startswith("INSERT INTO email_otps"):
+            uid, code_hash, _ttl = params
+            now = datetime.now(timezone.utc)
+            self.email_otps.append({
+                "id": str(uuid.uuid4()),
+                "user_id": uid,
+                "code_hash": code_hash,
+                "attempts": 0,
+                "created_at": now,
+                # the real SQL computes now() + ttl; mirror it in the fake
+                "expires_at": now + timedelta(seconds=600),
+            })
+            return []
+
+        if s.startswith("SELECT created_at FROM email_otps"):
+            uid = params[0]
+            rows = [r for r in self.email_otps if r["user_id"] == uid]
+            if not rows:
+                return []
+            return [{"created_at": max(r["created_at"] for r in rows)}]
+
+        if s.startswith("SELECT id, code_hash, attempts, expires_at") and "email_otps" in s:
+            uid = params[0]
+            rows = sorted(
+                [r for r in self.email_otps if r["user_id"] == uid],
+                key=lambda r: r["created_at"],
+                reverse=True,
+            )
+            return [rows[0]] if rows else []
+
+        if s.startswith("UPDATE email_otps SET attempts"):
+            row_id = params[0]
+            for r in self.email_otps:
+                if r["id"] == row_id:
+                    r["attempts"] += 1
+            return []
+
+        if s.startswith("UPDATE profiles SET email_verified_at"):
+            uid = params[0]
+            prof = self.profiles.get(uid)
+            if prof is not None:
+                prof["email_verified_at"] = datetime.now(timezone.utc)
+            return []
 
         if "SELECT id FROM organizations WHERE slug" in s:
             return [{"id": o["id"]} for o in self.organizations.values() if o["slug"] == params[0]]
@@ -447,11 +499,12 @@ class FakeStore:
             },
         ]
         self.snapshots = [
-            {"org_id": ORG_A, "score": 70, "created_at": "2026-03-01T00:10:00"},
-            {"org_id": ORG_A, "score": 75, "created_at": "2026-03-08T00:10:00"},
+            {"org_id": ORG_A, "score": 70, "created_at": "2026-09-01T00:10:00"},
+            {"org_id": ORG_A, "score": 75, "created_at": "2026-09-08T00:10:00"},
         ]
         self.profiles = {}
         self.audit = []
+        self.email_otps = []
 
 
 # ---------------------------------------------------------------------------

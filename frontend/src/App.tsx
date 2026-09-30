@@ -17,6 +17,7 @@ import ForgotPassword from './pages/ForgotPassword';
 
 // Onboarding Pages
 import OnboardingLayout from './pages/onboarding/OnboardingLayout';
+import VerifyEmail from './pages/onboarding/VerifyEmail';
 import CreateOrganization from './pages/onboarding/CreateOrganization';
 import AddDomain from './pages/onboarding/AddDomain';
 import VerifyDomain from './pages/onboarding/VerifyDomain';
@@ -115,7 +116,7 @@ function AppShell() {
 
   // Real onboarding gate: a signed-in user without a completed setup never
   // reaches the dashboard (and can't be shown mock data instead).
-  if (onboardingStep === 'create_org' || onboardingStep === 'add_domain' || onboardingStep === 'verify_domain') {
+  if (onboardingStep === 'create_org' || onboardingStep === 'verify_email' || onboardingStep === 'add_domain' || onboardingStep === 'verify_domain') {
     return <Navigate to="/onboarding" replace />;
   }
 
@@ -190,6 +191,7 @@ export default function App() {
             {/* Onboarding Routes */}
             <Route path="/onboarding" element={<OnboardingLayout />}>
               <Route index element={<Navigate to="/onboarding/create-org" replace />} />
+              <Route path="verify-email" element={<VerifyEmail />} />
               <Route path="create-org" element={<CreateOrganization />} />
               <Route path="add-domain" element={<AddDomain />} />
               <Route path="verify-domain" element={<VerifyDomain />} />

@@ -54,6 +54,9 @@ def create_organization(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Create an organization; the caller becomes its OWNER (spec §8, §9)."""
+    if not user.get("email_verified_at"):
+        raise HTTPException(status_code=403, detail="Verify your email address first.")
+
     base_slug = slugify(req.slug or req.name)
     slug = base_slug
     suffix = 1

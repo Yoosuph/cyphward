@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { verifyDomain as verifyDomainApi, createOrganization as createOrganizationApi, addDomain, sendWelcomeEmail } from './api';
+import { verifyDomain as verifyDomainApi, createOrganization as createOrganizationApi, addDomain, sendWelcomeEmail, getVerificationStatus } from './api';
+
+type OnboardingStepValue = 'none' | 'verify_email' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
 import type { Tenant } from '../types';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -51,11 +53,11 @@ interface Auth {
   loading: boolean;
   organization: Organization | null;
   primaryDomain: Domain | null;
-  onboardingStep: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
+  onboardingStep: OnboardingStepValue;
   signInWithCredentials: (
     email: string,
     password: string
-  ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete' }>;
+  ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }>;
   signUpWithCredentials: (
     email: string,
     password: string,
@@ -66,6 +68,7 @@ interface Auth {
   addPrimaryDomain: (domain: string) => Promise<{ ok: boolean; error?: string }>;
   verifyDomain: () => Promise<{ ok: boolean; verified: boolean; error?: string }>;
   completeOnboarding: () => void;
+  refreshOnboarding: () => Promise<OnboardingStepValue>;
 }
 
 const Ctx = createContext<Auth>({
@@ -83,6 +86,7 @@ const Ctx = createContext<Auth>({
   addPrimaryDomain: async () => ({ ok: false }),
   verifyDomain: async () => ({ ok: false, verified: false }),
   completeOnboarding: () => {},
+  refreshOnboarding: async () => 'none',
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -91,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [primaryDomain, setPrimaryDomain] = useState<Domain | null>(null);
-  const [onboardingStep, setOnboardingStep] = useState<'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete'>('none');
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStepValue>('none');
 
   const [tenant, setTenant] = useState<Tenant | null>(() => {
     try {
@@ -153,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  type OnboardingStep = 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
+  type OnboardingStep = OnboardingStepValue;
 
   const savedOnboardingStep = (): OnboardingStep => {
     const saved = localStorage.getItem(ONBOARDING_KEY);
@@ -173,6 +177,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const userEmail = authUser?.email || user?.email || '';
+
+      // Email verification (Brevo OTP) gates all other routing. Fail-open on
+      // network errors: the create-org endpoint enforces the same rule
+      // server-side (403), so a flaky status call can't grant access.
+      const verification = await getVerificationStatus().catch(() => null);
+      if (verification && !verification.verified) {
+        setOrganization(null);
+        setPrimaryDomain(null);
+        const tempTenant: Tenant = {
+          name: 'New Organization',
+          plan: 'Growth',
+          region: 'ng-lagos',
+          email: userEmail,
+        };
+        setTenant(tempTenant);
+        persistTenant(tempTenant);
+        setOnboardingStep('verify_email');
+        setLoading(false);
+        return 'verify_email';
+      }
 
       // memberships were renamed to organization_members in the MVP migration
       const { data: membership, error: membershipError } = await supabase
@@ -256,6 +280,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Re-resolves the onboarding state after a step completes (e.g. email OTP
+  // verified) so callers get the next route instead of stale step state.
+  const refreshOnboarding = async (): Promise<OnboardingStep> => {
+    if (!user?.id) return 'none';
+    return checkOrganization(user.id, user);
+  };
+
   const persistTenant = (t: Tenant | null, orgId?: string) => {
     try {
       if (t) {
@@ -296,7 +327,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingStep('none');
   };
 
-  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: 'none' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete' }> => {
+  const signInWithCredentials = async (email: string, password: string): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
     const cleanEmail = (email || '').trim().toLowerCase();
 
     localStorage.removeItem(SIGNOUT_KEY);
@@ -497,6 +528,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addPrimaryDomain,
         verifyDomain,
         completeOnboarding,
+        refreshOnboarding,
       }}
     >
       {children}

@@ -39,7 +39,11 @@ export async function getAccessToken(): Promise<string | null> {
   }
 }
 
-async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+async function apiFetch<T>(
+  endpoint: string,
+  options?: RequestInit,
+  throwOnError = false,
+): Promise<T | null> {
   try {
     const orgId = getActiveOrgId();
     const token = await getAccessToken();
@@ -59,6 +63,9 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T |
     }
     return (await res.json()) as T;
   } catch (err) {
+    // Callers that must surface the exact server detail (OTP invalid/attempts,
+    // resend cooldowns) opt in via throwOnError; everything else degrades to null.
+    if (throwOnError) throw err;
     console.warn(`API call ${endpoint} fallback:`, err);
     return null;
   }
@@ -581,4 +588,42 @@ export async function sendReportEmail(payload: {
 export async function sendWelcomeEmail(): Promise<boolean> {
   const res = await apiFetch<{ sent: boolean }>('/auth/welcome', { method: 'POST' });
   return !!res?.sent;
+}
+
+// ============================================================================
+// Email verification (Brevo OTP)
+// ============================================================================
+export interface VerificationStatus {
+  email: string;
+  verified: boolean;
+}
+
+export interface OtpSendResult {
+  sent: boolean;
+  reason?: string;
+  expires_in?: number;
+  resend_after?: number;
+}
+
+export async function getVerificationStatus(): Promise<VerificationStatus | null> {
+  return await apiFetch<VerificationStatus>('/auth/verification');
+}
+
+export async function sendVerificationOtp(): Promise<OtpSendResult> {
+  // Throws (429 detail) on resend cooldown so the UI can show the window.
+  const res = await apiFetch<OtpSendResult>('/auth/otp/send', { method: 'POST' }, true);
+  if (!res) throw new Error('Could not send the code. Please try again.');
+  return res;
+}
+
+export async function verifyEmailOtp(code: string): Promise<{ verified: boolean }> {
+  // Throws with server detail (invalid code, attempts left, expired) so the
+  // page can display the exact reason.
+  const res = await apiFetch<{ verified: boolean }>(
+    '/auth/otp/verify',
+    { method: 'POST', body: JSON.stringify({ code }) },
+    true,
+  );
+  if (!res) throw new Error('Verification failed. Please try again.');
+  return res;
 }

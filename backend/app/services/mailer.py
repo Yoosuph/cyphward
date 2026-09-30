@@ -522,6 +522,82 @@ def generate_welcome_email_text(user_name: str, login_email: str) -> str:
     )
 
 
+def generate_otp_email_html(user_name: str, code: str, minutes: int = 10) -> str:
+    """
+    Light-theme 6-digit verification code email (Brevo, plain English).
+    Same visual language as the welcome/report templates.
+    """
+    first_name = (user_name or "").strip().split(" ")[0] or "there"
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="format-detection" content="telephone=no">
+  <title>Your Cyphward verification code</title>
+  <style>
+    html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
+    body {{ margin: 0; padding: 24px 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-text-size-adjust: 100%; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-text-size-adjust: 100%;" bgcolor="#F3F1EC">
+  <div style="display:none; max-height:0; overflow:hidden; font-size:1px; line-height:1px; color:#F3F1EC;">
+    Your Cyphward verification code is {code}. It expires in {minutes} minutes.
+  </div>
+  <center>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 520px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
+      <tr>
+        <td style="height: 4px; background: linear-gradient(90deg, #B33614, #E5532B, #FF8F6B, #E5532B); font-size: 0; line-height: 0;">&nbsp;</td>
+      </tr>
+      <tr>
+        <td style="padding: 26px 28px 30px;">
+          <div style="font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: #8A8377; font-weight: 700; margin-bottom: 16px;">
+            CYPH<span style="color: #E5532B;">WARD</span> &middot; EMAIL VERIFICATION
+          </div>
+          <div style="font-size: 15px; color: #1F1A14; line-height: 1.6; margin-bottom: 22px;">
+            Hi {first_name}, enter this 6-digit code to verify your email address:
+          </div>
+          <div style="text-align: center; margin: 4px 0 24px;">
+            <span style="display: inline-block; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 38px; font-weight: 700; letter-spacing: 12px; color: #16130F; background-color: #FFF7F2; border: 1px dashed #F0C9B4; border-radius: 10px; padding: 14px 6px 14px 18px;">{code}</span>
+          </div>
+          <div style="font-size: 13px; color: #5D564B; line-height: 1.6;">
+            The code expires in {minutes} minutes. If the verification screen is open, the code
+            fills the boxes automatically — the last digit submits it for you.
+          </div>
+          <div style="font-size: 13px; color: #5D564B; line-height: 1.6; margin-top: 12px;">
+            Didn't request this? Ignore this email — nobody can access your account without it.
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 14px 28px; border-top: 1px solid #EFECE5; background-color: #FBFAF7; font-size: 11px; color: #8A8377;">
+          &mdash; Cyphward &middot; Security monitoring, made simple
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>
+"""
+
+
+def generate_otp_email_text(user_name: str, code: str, minutes: int = 10) -> str:
+    first_name = (user_name or "").strip().split(" ")[0] or "there"
+    return (
+        f"Hi {first_name},\n\n"
+        f"Your Cyphward verification code is: {code}\n\n"
+        f"It expires in {minutes} minutes. Enter it on the verification screen — "
+        "the last digit submits automatically.\n\n"
+        "Didn't request this? Ignore this email; nobody can get in without it.\n\n"
+        "— Cyphward\n"
+        "Security monitoring, made simple"
+    )
+
+
 async def send_email_async(
     to_email: str,
     subject: str,
