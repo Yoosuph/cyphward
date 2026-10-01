@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AUTH_JWT_SECRET: ci-only-test-secret
+      GOOGLE_CLIENT_ID: ci-test-client.apps.googleusercontent.com
     steps:
       - uses: actions/checkout@v4
 
