@@ -310,7 +310,10 @@ def test_google_client_id_is_public(client, monkeypatch):
     assert client.get("/api/v1/auth/google/client-id").json() == {"client_id": None}
 
 
-def test_one_tap_rejects_malformed_credential(client):
+def test_one_tap_rejects_malformed_credential(client, monkeypatch):
+    # Configure Google explicitly so the config guard (503) can't mask the
+    # malformed-credential path — CI runners have no .env to supply it.
+    monkeypatch.setattr(google_mod, "GOOGLE_CLIENT_ID", "ci-test-client.apps.googleusercontent.com")
     resp = client.post("/api/v1/auth/google/one-tap", json={"credential": "garbage"})
     assert resp.status_code == 401
     assert "could not be verified" in resp.json()["detail"]
