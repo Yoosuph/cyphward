@@ -198,8 +198,12 @@ async def run_security_checks(
     # -------------------------------------------------------------------------
     # 8. SSL / TLS Certificate Status
     # -------------------------------------------------------------------------
+    # Only claim anything about a certificate when one was actually observed.
+    # A failed handshake (host down / NXDOMAIN) yields issuer=None,
+    # valid_to=None, valid=False — that is "unreachable", not "expired".
     days_rem = tls_info.get("days_remaining", 90)
-    if days_rem < 0 or not tls_info.get("valid", True):
+    cert_observed = bool(tls_info.get("valid_to") or tls_info.get("issuer"))
+    if cert_observed and (days_rem < 0 or not tls_info.get("valid", True)):
         findings.append({
             "title": "SSL/TLS Certificate Expired or Invalid",
             "description": f"The TLS certificate presented by https://{hostname} is invalid or has expired. All inbound HTTPS traffic will encounter critical browser security blocks.",
@@ -212,7 +216,7 @@ async def run_security_checks(
             },
             "remediation": "Immediately reissue and deploy a valid certificate via Let's Encrypt or your commercial Certificate Authority."
         })
-    elif days_rem <= 30:
+    elif cert_observed and days_rem <= 30:
         findings.append({
             "title": f"SSL/TLS Certificate Expiring within {days_rem} Days",
             "description": f"The TLS certificate on {hostname} will expire in {days_rem} days ({tls_info.get('valid_to')}). Failure to renew will result in service outage and user warnings.",

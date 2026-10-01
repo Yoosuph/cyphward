@@ -137,26 +137,13 @@ async def resolve_host_dns(hostname: str) -> Dict[str, Any]:
             if not primary_ip and doh_records["A"]:
                 primary_ip = doh_records["A"][0]
 
-    # If this is a demo or mock address and still unresolved, provide deterministic mock IP and records for reliability
-    if not primary_ip and not records["A"]:
-        import hashlib
-        h = int(hashlib.md5(hostname.encode()).hexdigest()[:6], 16)
-        mock_ip = f"102.134.{(h >> 8) % 250 + 1}.{(h % 250) + 1}"
-        primary_ip = mock_ip
-        records["A"].append(mock_ip)
-
-        if "acmetraders.ng" in hostname or "demo" in hostname:
-            if hostname == "acmetraders.ng":
-                records["SPF"] = "v=spf1 include:_spf.google.com ~all"
-                records["DMARC"] = "v=DMARC1; p=none; sp=none; rua=mailto:dmarc@acmetraders.ng"
-                records["TXT"] = ["v=spf1 include:_spf.google.com ~all"]
-                records["MX"] = ["10 mail.acmetraders.ng"]
-            elif "mail." in hostname:
-                records["MX"] = ["10 mail.acmetraders.ng"]
+    # Unresolved hosts stay unresolved: primary_ip stays None so later
+    # stages can skip them. (This spot previously minted deterministic
+    # mock 102.134.x.x addresses, which invented assets for NXDOMAIN names.)
 
     return {
         "hostname": hostname,
-        "primary_ip": primary_ip or (records["A"][0] if records["A"] else "127.0.0.1"),
+        "primary_ip": primary_ip or (records["A"][0] if records["A"] else None),
         "records": records,
         "has_spf": records["SPF"] is not None,
         "has_dmarc": records["DMARC"] is not None,

@@ -108,10 +108,10 @@ async def discover_subdomains(domain: str) -> List[str]:
         if isinstance(res, set):
             discovered.update(res)
 
-    # If few or zero passive entries (e.g. internal or demo domain), add standard operational endpoints
-    if len(discovered) <= 1:
-        for prefix in ["www", "api", "mail", "app", "auth", "vpn", "admin.internal"]:
-            discovered.add(f"{prefix}.{domain}")
+    # Passive sources only — never invent hostnames. A fabricated wordlist
+    # (www/api/auth/vpn/…) previously appeared here as a "fallback" when
+    # crt.sh was down, which produced phantom assets for every real domain.
+    # If discovery found nothing beyond the apex, that IS the answer.
 
     # Return sorted list
     return sorted(list(discovered))

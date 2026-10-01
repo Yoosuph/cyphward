@@ -223,10 +223,11 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         _store_observation(scan_id, "dns", {"dns_records": valid_dns})
 
         # ---------------------------------------------------------------------
-        # STAGE 3: HTTP/HTTPS Probing
+        # STAGE 3: HTTP/HTTPS Probing — resolved hosts only; probing an
+        # unresolved name only manufactures null/error observations.
         # ---------------------------------------------------------------------
         t0 = time.time()
-        http_tasks = [probe_http_service(h["hostname"]) for h in valid_dns]
+        http_tasks = [probe_http_service(h["hostname"]) for h in valid_dns if h.get("primary_ip")]
         http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
         valid_http = [r for r in http_results if isinstance(r, dict)]
         http_dur = int((time.time() - t0) * 1000)
@@ -245,7 +246,7 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                                  "error": "naabu not installed"}
         else:
             try:
-                port_targets = [h["hostname"] for h in valid_dns]
+                port_targets = [h["hostname"] for h in valid_dns if h.get("primary_ip")]
                 open_ports = await run_naabu_batch(
                     port_targets,
                     top_ports=SCANNER_MAX_PORTS,
@@ -453,9 +454,12 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                 (org_id, hname),
             )
 
+            # 'active' only when we observed it responding or at least
+            # resolved it; a name with neither is inventory, not a live host.
+            asset_status = "active" if (http_status or ip) else "discovered"
             res = execute_one("""
                 INSERT INTO assets (org_id, domain_id, hostname, ip_address, asset_type, status, http_status, technologies, tls_info, dns_records, last_seen)
-                VALUES (%s, %s, %s, %s, %s, 'active', %s, %s::jsonb, %s::jsonb, %s::jsonb, now())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, now())
                 ON CONFLICT (org_id, hostname)
                 DO UPDATE SET
                     ip_address = EXCLUDED.ip_address,
@@ -465,7 +469,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                     dns_records = EXCLUDED.dns_records,
                     last_seen = now()
                 RETURNING id;
-            """, (org_id, domain_id, hname, ip, atype, http_status, json.dumps(techs), json.dumps(tls), json.dumps(records)))
+            """, (org_id, domain_id, hname, ip, atype, asset_status, http_status, json.dumps(techs), json.dumps(tls), json.dumps(records)))
 
             if res:
                 asset_id_map[hname] = res["id"]
