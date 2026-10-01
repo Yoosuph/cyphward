@@ -346,13 +346,13 @@ export default function Settings() {
           </div>
           <div className="space-y-3 text-xs text-soft mono leading-relaxed">
             <p className="text-ink">
-              Sign-in is handled by <span className="text-accent">Supabase Auth</span>.
-              This version does not use API keys.
+              Sign-in is handled by <span className="text-accent">Cyphward accounts</span>
+              (email + password, or Google). This version does not use API keys.
             </p>
             <ul className="space-y-2">
               <li className="flex items-start gap-2">
                 <Check size={14} className="text-ok mt-0.5" />
-                Authorization: Bearer &lt;Supabase access token&gt;
+                Authorization: Bearer &lt;access token&gt;
               </li>
               <li className="flex items-start gap-2">
                 <Check size={14} className="text-ok mt-0.5" />
@@ -387,7 +387,7 @@ export default function Settings() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="mono text-soft">EMAIL (must match Supabase Auth account)</label>
+            <label className="mono text-soft">EMAIL (they'll get an invite link)</label>
             <input
               type="email"
               placeholder="name@organization.ng"

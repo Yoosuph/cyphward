@@ -6,7 +6,7 @@ import {
   Radio, ShieldAlert, AlertCircle, User
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { startGoogleOneTap } from '../lib/googleOneTap';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
@@ -14,7 +14,7 @@ import CyphwardLogo from '../components/CyphwardLogo';
 import { checkPasswordStrength } from '../lib/password';
 
 export default function Signup() {
-  const { tenant, signUpWithCredentials, onboardingStep } = useAuth();
+  const { tenant, signUpWithCredentials, completeExternalLogin, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -25,8 +25,6 @@ export default function Signup() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [needsVerification, setNeedsVerification] = useState(false);
-  const [resendBusy, setResendBusy] = useState(false);
   const [remember, setRemember] = useState(true);
   const [theme, setTheme] = useState(getTheme());
 
@@ -35,6 +33,39 @@ export default function Signup() {
     window.addEventListener('cyphward:theme', onThemeChange);
     return () => window.removeEventListener('cyphward:theme', onThemeChange);
   }, []);
+
+  // Google One Tap — the small side prompt, verified by our own backend.
+  useEffect(() => {
+    if (tenant) return;
+    let cancelled = false;
+    let stop: (() => void) | null = null;
+    startGoogleOneTap({
+      onSuccess: async tokens => {
+        try {
+          const step = await completeExternalLogin(tokens);
+          if (step && step !== 'complete' && step !== 'none') {
+            nav('/onboarding', { replace: true });
+          } else if (step === 'none') {
+            setError('Your session could not be restored. Please try again.');
+          } else {
+            nav('/', { replace: true });
+          }
+        } catch {
+          setError('Google sign-in failed. Please try again.');
+        }
+      },
+      onError: msg => {
+        if (!cancelled) setError(msg);
+      },
+    }).then(cleanup => {
+      if (cancelled) cleanup?.();
+      else stop = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [tenant]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const strength = checkPasswordStrength(password);
   const mismatch = confirm.length > 0 && confirm !== password;
@@ -61,15 +92,6 @@ export default function Signup() {
       return;
     }
 
-    if (result.needsVerification) {
-      // Supabase email confirmations are on: wait for verification instead of
-      // pretending the user is logged in.
-      setBusy(false);
-      setNeedsVerification(true);
-      setError('');
-      return;
-    }
-
     const first = (name || '').trim().split(' ')[0] || email.split('@')[0];
     toast(`Welcome to Cyphward${first ? `, ${first}` : ''}! Check your inbox for your welcome email.`);
     if (result.needsOnboarding) {
@@ -79,18 +101,10 @@ export default function Signup() {
     }
   };
 
-  const resendVerification = async () => {
-    if (resendBusy || !email) return;
-    setResendBusy(true);
-    try {
-      const { error: resendError } = await supabase.auth.resend({ email, type: 'signup' });
-      if (resendError) throw resendError;
-      toast('Verification email sent.');
-    } catch (err: any) {
-      toast(err?.message || 'Could not send verification email.');
-    } finally {
-      setResendBusy(false);
-    }
+  const signUpWithGoogle = () => {
+    // Full-page redirect to our own backend OAuth flow; the callback lands
+    // on /auth/callback with a one-time code.
+    window.location.href = '/api/v1/auth/google';
   };
 
   return (
@@ -255,38 +269,6 @@ export default function Signup() {
               </div>
 
               <form onSubmit={submit}>
-                  {needsVerification ? (
-                    /* Account created, but email confirmation is enabled on the
-                       Supabase project: never fake a session — wait it out. */
-                    <div className="text-center py-6">
-                      <CheckCircle2 size={36} className="text-accent mx-auto mb-4" />
-                      <h2 className="text-lg font-bold text-ink mb-2">Verify your email</h2>
-                      <p className="text-sm text-soft leading-relaxed mb-1">
-                        We sent a confirmation link to
-                        <span className="text-ink font-semibold"> {email || 'your inbox'}</span>.
-                      </p>
-                      <p className="text-sm text-soft leading-relaxed mb-5">
-                        Open it to activate your account, then come back and sign in.
-                      </p>
-                      <div className="flex flex-col gap-2.5">
-                        <button
-                          type="button"
-                          className="btn btn-solid w-full justify-center"
-                          onClick={() => nav('/login', { replace: true })}
-                        >
-                          GO TO SIGN IN
-                        </button>
-                        <button
-                          type="button"
-                          className="w-full py-2 text-xs mono border border-line rounded text-soft hover:text-ink hover:border-line-strong transition-colors"
-                          onClick={resendVerification}
-                          disabled={resendBusy}
-                        >
-                          {resendBusy ? 'SENDING…' : 'RESEND VERIFICATION EMAIL'}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
                   <>
                   {/* Full Name Field */}
                   <div className="field">
@@ -400,6 +382,13 @@ export default function Signup() {
                     </div>
                   )}
 
+                  {/* Consent to Terms + Privacy (also referenced during app review) */}
+                  <p className="mt-4 text-[10.5px] mono text-soft leading-relaxed text-center">
+                    By creating an account you agree to our{' '}
+                    <Link to="/terms" className="text-accent underline">Terms</Link> and{' '}
+                    <Link to="/privacy" className="text-accent underline">Privacy Policy</Link>.
+                  </p>
+
                   {/* Submit Button */}
                   <button className="btn btn-solid w-full justify-center mt-5" type="submit" disabled={busy || !formValid}>
                     {busy ? (
@@ -409,6 +398,27 @@ export default function Signup() {
                         CREATE ACCOUNT <ArrowRight size={14} className="ml-1" />
                       </>
                     )}
+                  </button>
+
+                  {/* Alternative: sign up with Google via our own OAuth flow */}
+                  <div className="flex items-center gap-3 my-4">
+                    <span className="h-px flex-1 bg-line" />
+                    <span className="text-[9.5px] mono text-soft tracking-widest">OR</span>
+                    <span className="h-px flex-1 bg-line" />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost w-full justify-center"
+                    onClick={signUpWithGoogle}
+                    disabled={busy}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 48 48" aria-hidden="true" className="mr-2">
+                      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.2 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.2-.1-2.4-.4-3.5z"/>
+                      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.2 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+                      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+                      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C36.9 39.7 44 34.5 44 24c0-1.2-.1-2.4-.4-3.5z"/>
+                    </svg>
+                    CONTINUE WITH GOOGLE
                   </button>
 
                   {/* Dedicated Login Link */}
@@ -421,7 +431,6 @@ export default function Signup() {
                     </span>
                   </div>
                   </>
-                  )}
               </form>
 
               {/* Hardware attestation footer */}

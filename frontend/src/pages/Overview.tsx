@@ -44,9 +44,8 @@ export default function Overview() {
     if (!user) return;
     try {
       if (sessionStorage.getItem('cyphward-greeted') === '1') return;
-      const meta = (user.user_metadata || {}) as Record<string, unknown>;
       const first =
-        String(meta.full_name || meta.name || '').trim().split(' ')[0] ||
+        String(user.full_name || '').trim().split(' ')[0] ||
         (user.email || '').split('@')[0] ||
         '';
       if (!first) return;

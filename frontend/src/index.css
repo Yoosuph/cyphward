@@ -13,6 +13,7 @@
   --line: #E2DCCE; --line-rgb: 226, 220, 206;
   --line-strong: #C8BEA7; --line-strong-rgb: 200, 190, 167;
   --accent: #C63A14; --accent-rgb: 198, 58, 20;
+  --accent-deep: #A02E0F;
   --accent-soft: rgba(198, 58, 20, 0.08);
   --ok: #1E6B37; --ok-rgb: 30, 107, 55;
   --warn: #A16A16; --warn-rgb: 161, 106, 22;
@@ -32,6 +33,7 @@
   --line: #24211A; --line-rgb: 36, 33, 26;
   --line-strong: #383328; --line-strong-rgb: 56, 51, 40;
   --accent: #E5532B; --accent-rgb: 229, 83, 43;
+  --accent-deep: #C2441F;
   --accent-soft: rgba(229, 83, 43, 0.14);
   --ok: #34D399; --ok-rgb: 52, 211, 153;
   --warn: #FBBF24; --warn-rgb: 251, 191, 36;
@@ -332,8 +334,13 @@ body{
 }
 .btn:active{ transform: scale(0.97); }
 .btn svg{width:14px; height:14px}
-.btn-solid{background:var(--ink); color:var(--bg)}
-.btn-solid:hover{background:var(--accent); border-color:var(--accent); color:#FCF9F0; box-shadow:0 4px 16px -2px rgba(198,58,20,0.25)}
+.btn-solid{background:var(--accent); border-color:var(--accent); color:#FCF9F0}
+.btn-solid:hover{background:var(--accent-deep); border-color:var(--accent-deep); color:#FCF9F0; box-shadow:0 4px 16px -2px rgba(198,58,20,0.35)}
+/* Combined with .btn-mini (defined lower), keep the cream label on the orange
+   fill — .btn-mini alone would repaint the text with var(--soft). */
+.btn.btn-solid, .btn.btn-solid:hover, .btn.btn-solid:active{color:#FCF9F0}
+.btn.btn-solid{background:var(--accent); border-color:var(--accent)}
+.btn.btn-solid:hover{background:var(--accent-deep); border-color:var(--accent-deep)}
 .btn-solid:disabled{opacity:.6; cursor:default}
 .btn-ghost{border-color:var(--line-strong); color:var(--soft); background:transparent}
 .btn-ghost:hover{border-color:var(--ink); color:var(--ink); background:var(--inset)}
@@ -341,6 +348,26 @@ body{
 .btn-mini:active{ transform: scale(0.96); }
 .btn-mini svg{width:12px; height:12px}
 .btn-mini:hover{border-color:var(--ink); color:var(--ink)}
+
+.cookie-banner{
+  position:fixed; left:16px; bottom:16px; z-index:92;
+  max-width:400px; padding:16px 18px;
+  background:var(--raised); border:1px solid var(--line-strong); border-radius:4px;
+  box-shadow:0 14px 44px -10px rgba(0,0,0,.4);
+  animation:cookieIn .22s cubic-bezier(0.16,1,0.3,1);
+}
+.cookie-banner p{margin:0; font-size:11.5px; line-height:1.65; color:var(--soft); font-family:var(--font-sans, sans-serif)}
+.cookie-banner-title{
+  display:block; font-family:var(--font-mono); font-size:10.5px;
+  letter-spacing:.16em; color:var(--ink); margin-bottom:6px;
+}
+.cookie-banner a{color:var(--accent); text-decoration:none; font-family:var(--font-mono); font-size:10px; letter-spacing:.08em}
+.cookie-banner a:hover{text-decoration:underline}
+.cookie-banner-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:14px}
+@keyframes cookieIn{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
+@media (max-width:480px){
+  .cookie-banner{left:10px; right:10px; max-width:none; bottom:10px}
+}
 
 .chip{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.1em; padding:8px 12px; border:1px solid var(--line-strong); border-radius:3px; color:var(--soft); display:inline-flex; gap:8px; align-items:center; transition:all .16s cubic-bezier(0.16,1,0.3,1); cursor:pointer; background:transparent}
 .chip:active{ transform: scale(0.96); }

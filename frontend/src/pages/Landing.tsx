@@ -785,8 +785,12 @@ export default function Landing() {
             <div>
               © 2026 CYPHWARD TECHNOLOGIES LTD · ALL RIGHTS RESERVED · PLATFORM v0.2.0
             </div>
-            <div className="flex items-center gap-2">
-              <span className="live-dot" /> SYSTEM STATUS: OPERATIONAL
+            <div className="flex items-center gap-4">
+              <Link to="/terms" className="hover:text-ink transition-colors">TERMS</Link>
+              <Link to="/privacy" className="hover:text-ink transition-colors">PRIVACY</Link>
+              <span className="flex items-center gap-2">
+                <span className="live-dot" /> SYSTEM STATUS: OPERATIONAL
+              </span>
             </div>
           </div>
         </div>

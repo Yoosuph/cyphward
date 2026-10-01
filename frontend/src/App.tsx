@@ -7,6 +7,7 @@ import Topbar from './components/Topbar';
 import CommandPalette from './components/CommandPalette';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
+import CookieBanner from './components/CookieBanner';
 import ButtonPlate from './components/ButtonPlate';
 
 // Public / Auth Pages
@@ -14,6 +15,10 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import AuthCallback from './pages/AuthCallback';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 
 // Onboarding Pages
 import OnboardingLayout from './pages/onboarding/OnboardingLayout';
@@ -181,12 +186,18 @@ export default function App() {
         <BrowserRouter>
           {/* Custom precision branded cursor active throughout application */}
           <BrandedCursor />
+          {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
+          <CookieBanner />
           <Routes>
             {/* Public and Dedicated Auth Routes */}
             <Route path="/landing" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
 
             {/* Onboarding Routes */}
             <Route path="/onboarding" element={<OnboardingLayout />}>

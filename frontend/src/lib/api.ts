@@ -5,7 +5,13 @@
    Remediation, Reports, Settings, AI assistance.
    ———————————————————————————————————————————————— */
 
-import { supabase, isSupabaseConfigured } from './supabase';
+import {
+  ensureFreshAccessToken,
+  getAccessTokenSync,
+  refreshSession,
+  type AuthTokens,
+  type SessionUser,
+} from './session';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
   Scan, FindingExplanation, RemediationGuide, ExecutiveSummary, SettingsData,
@@ -30,13 +36,7 @@ export function getActiveOrgId(): string | null {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
-  } catch {
-    return null;
-  }
+  return ensureFreshAccessToken();
 }
 
 async function apiFetch<T>(
@@ -44,19 +44,30 @@ async function apiFetch<T>(
   options?: RequestInit,
   throwOnError = false,
 ): Promise<T | null> {
-  try {
+  const attempt = async (token: string | null): Promise<Response> => {
     const orgId = getActiveOrgId();
-    const token = await getAccessToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(orgId ? { 'X-Organization-Id': orgId } : {}),
       ...((options?.headers as Record<string, string>) || {}),
     };
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    return fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+  };
+
+  try {
+    let token = await ensureFreshAccessToken();
+    let res = await attempt(token);
+
+    // One-shot recovery: rotate the refresh token and replay the request.
+    if (res.status === 401 && getAccessTokenSync()) {
+      const rotated = await refreshSession();
+      if (rotated) {
+        token = rotated.access_token;
+        res = await attempt(token);
+      }
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || `Request failed with status ${res.status}`);
@@ -626,4 +637,73 @@ export async function verifyEmailOtp(code: string): Promise<{ verified: boolean 
   );
   if (!res) throw new Error('Verification failed. Please try again.');
   return res;
+}
+
+// ============================================================================
+// Auth (our own backend — register/login/sessions, all emails via Brevo)
+// ============================================================================
+export interface BootstrapMembership {
+  org: { id: string; name: string; slug: string; plan?: string; created_at?: string; [k: string]: unknown };
+  role: string;
+  domains: Domain[];
+}
+
+export interface BootstrapData {
+  user: SessionUser;
+  email_verified: boolean;
+  memberships: BootstrapMembership[];
+}
+
+async function authPost<T>(endpoint: string, payload: unknown): Promise<T> {
+  const res = await apiFetch<T>(endpoint, { method: 'POST', body: JSON.stringify(payload) }, true);
+  if (!res) throw new Error('Authentication failed. Please try again.');
+  return res;
+}
+
+export async function loginRequest(email: string, password: string): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/login', { email, password });
+}
+
+export async function registerRequest(
+  email: string,
+  password: string,
+  fullName: string,
+): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/register', { email, password, full_name: fullName });
+}
+
+export async function exchangeOtp(otc: string): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/exchange', { otc });
+}
+
+export async function logoutRequest(refreshToken: string): Promise<void> {
+  try {
+    await apiFetch('/auth/logout', { method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }) });
+  } catch {
+    /* best-effort — the local session is cleared regardless */
+  }
+}
+
+export async function forgotPasswordRequest(email: string): Promise<{ ok: boolean }> {
+  return authPost<{ ok: boolean }>('/auth/forgot-password', { email });
+}
+
+export async function resetPasswordRequest(token: string, password: string): Promise<{ ok: boolean }> {
+  return authPost<{ ok: boolean }>('/auth/reset-password', { token, password });
+}
+
+export async function getBootstrap(): Promise<BootstrapData> {
+  const data = await apiFetch<BootstrapData>('/auth/bootstrap', {}, true);
+  if (!data) throw new Error('Could not load your account.');
+  return data;
+}
+
+export async function getGoogleClientId(): Promise<{ client_id: string | null }> {
+  const res = await apiFetch<{ client_id: string | null }>('/auth/google/client-id', {}, true);
+  if (!res) throw new Error('Could not reach Google sign-in.');
+  return res;
+}
+
+export async function oneTapLogin(credential: string): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/google/one-tap', { credential });
 }
