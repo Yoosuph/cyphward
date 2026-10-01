@@ -219,11 +219,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const domains = [...(first.domains || [])].sort((a, b) =>
       (b.created_at || '').localeCompare(a.created_at || '')
     );
+    // Setup is complete once ANY domain is verified. Domains sort newest-first,
+    // so a pending domain added after setup used to sit at domains[0] and
+    // re-route every login (email or Google) back to the verify screen.
+    // Pending domains are managed from the Domains page instead.
+    const verified = domains.filter((d) => d.verification_status === 'verified');
 
     let step: OnboardingStepValue;
     if (domains.length > 0) {
-      setPrimaryDomain(domains[0]);
-      if (domains[0].verification_status === 'verified') {
+      // Onboarding screens should reference a verified domain when one
+      // exists; otherwise the newest pending one (what needs verifying).
+      setPrimaryDomain(verified[0] ?? domains[0]);
+      if (verified.length > 0) {
         step = 'complete';
         localStorage.removeItem(ONBOARDING_KEY);
       } else {
