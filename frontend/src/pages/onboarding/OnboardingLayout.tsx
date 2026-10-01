@@ -43,6 +43,15 @@ export default function OnboardingLayout() {
     return <Navigate to="/onboarding/verify-email" replace />;
   }
 
+  // The index route points at create-org; if state says a later step (fresh
+  // load at /onboarding, or a stale URL), bounce to the matching route so the
+  // form and the progress stepper never disagree.
+  const stepPath = STEPS.find(s => s.key === onboardingStep)?.key;
+  const stepRoute = stepPath && stepPath !== 'complete' ? `/onboarding/${stepPath.replace(/_/g, '-')}` : null;
+  if (stepRoute && !location.pathname.startsWith(stepRoute)) {
+    return <Navigate to={stepRoute} replace />;
+  }
+
   const currentStepIdx = STEPS.findIndex(s => s.key === onboardingStep);
 
   return (

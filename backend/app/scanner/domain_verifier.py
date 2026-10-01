@@ -19,7 +19,8 @@ def generate_verification_token() -> str:
 async def verify_domain_dns_txt(domain: str, expected_token: str) -> dict:
     """
     Verify ownership of a domain by querying its DNS TXT records.
-    Checks both apex domain and '_cyphward.{domain}' host.
+    Checks apex, '_cyphward.{domain}', and the common double-appended
+    '_cyphward.{domain}.{domain}' mistake made by registrar panels.
     Checks for 'cyphward-verification=<token>', 'cyphward-verify=<token>', 'cyphward=<token>', or direct token match.
     Uses dnspython primary resolver, with DoH (Cloudflare / Google) fallback.
     """
@@ -36,6 +37,11 @@ async def verify_domain_dns_txt(domain: str, expected_token: str) -> dict:
     hosts_to_query = [domain]
     if not domain.startswith("_cyphward."):
         hosts_to_query.append(f"_cyphward.{domain}")
+        # Panels like Namecheap append the domain to whatever is typed in the
+        # Host field — users who paste the full record name end up with
+        # _cyphward.<domain>.<domain>. Accept that too so one wrong paste
+        # doesn't block an otherwise valid record.
+        hosts_to_query.append(f"_cyphward.{domain}.{domain}")
 
     for host in hosts_to_query:
         # 1. Try dnspython resolver

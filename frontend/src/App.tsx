@@ -120,9 +120,17 @@ function AppShell() {
   if (!tenant) return <Navigate to="/login" replace />;
 
   // Real onboarding gate: a signed-in user without a completed setup never
-  // reaches the dashboard (and can't be shown mock data instead).
-  if (onboardingStep === 'create_org' || onboardingStep === 'verify_email' || onboardingStep === 'add_domain' || onboardingStep === 'verify_domain') {
-    return <Navigate to="/onboarding" replace />;
+  // reaches the dashboard (and can't be shown mock data instead). Send them
+  // to the route of *their* step — the bare /onboarding index always lands
+  // on create-org, which silently skipped verify-domain on reload.
+  const onboardingRoute: Record<string, string> = {
+    verify_email: '/onboarding/verify-email',
+    create_org: '/onboarding/create-org',
+    add_domain: '/onboarding/add-domain',
+    verify_domain: '/onboarding/verify-domain',
+  };
+  if (onboardingStep in onboardingRoute) {
+    return <Navigate to={onboardingRoute[onboardingStep]} replace />;
   }
 
   const section = SECTION_BY_PATH[location.pathname] ?? { idx: '01', label: 'OVERVIEW' };

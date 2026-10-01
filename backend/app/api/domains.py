@@ -70,7 +70,9 @@ def add_domain(
         "domain": created,
         "dns_instructions": {
             "record_type": "TXT",
-            "host": f"_cyphward.{domain_clean}",
+            # Bare host only: registrar panels append the domain themselves,
+            # so showing the FQDN here caused "_cyphward.x.com.x.com".
+            "host": "_cyphward",
             "value": f"cyphward-verification={token}",
             "ttl": 300,
         }

@@ -18,8 +18,9 @@ export default function VerifyDomain() {
 
   const domain = primaryDomain.domain;
   const token = primaryDomain.verification_token || primaryDomain.id;
-  const txtHost = `@ or _cyphward`;
-  const txtName = `_cyphward.${domain}`;
+  // Bare host only — panels like Namecheap/GoDaddy append the domain
+  // themselves; showing the full name here made users double-append it.
+  const txtName = '_cyphward';
   const txtValue = token.startsWith('cyphward-verification=') ? token : `cyphward-verification=${token}`;
 
   const handleCopy = async () => {
@@ -113,8 +114,11 @@ export default function VerifyDomain() {
 
       <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft">
         <p>
-          Add this TXT record where you manage your DNS (e.g. Cloudflare, GoDaddy). It can take a
-          few minutes to appear. Once it's saved, click Verify domain.
+          Enter only <span className="mono text-ink">_cyphward</span> as the Name/Host — your DNS
+          panel (Cloudflare, Namecheap, GoDaddy) adds <span className="mono text-ink">.{domain}</span>{' '}
+          itself, so the record ends up at{' '}
+          <span className="mono text-ink break-all">_cyphward.{domain}</span>. It can take a few
+          minutes to appear. Once it's saved, click Verify domain.
         </p>
       </div>
 

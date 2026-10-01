@@ -228,6 +228,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(ONBOARDING_KEY);
       } else {
         step = 'verify_domain';
+        // A duplicate/late refresh (e.g. StrictMode's second boot fetch, or a
+        // slow response) must not bounce someone who just skipped back to the
+        // verify screen — only a fresh load (prev is 'none') may re-derive it.
+        setOnboardingStep(prev => (prev === 'complete' ? 'complete' : 'verify_domain'));
+        return 'verify_domain';
       }
     } else {
       setPrimaryDomain(null);

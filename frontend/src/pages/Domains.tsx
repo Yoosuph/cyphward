@@ -413,19 +413,19 @@ export default function Domains() {
               <li>Save, then give it a few minutes to go live.</li>
             </ol>
 
-            <div className="p-3.5 rounded bg-black text-emerald-400 font-mono text-[11px] space-y-2 border border-line">
+            <div className="p-3.5 rounded bg-inset border border-line font-mono text-[11px] space-y-2">
               <div className="flex justify-between">
                 <span className="text-soft">Record type</span>
-                <span className="text-white font-bold">TXT</span>
+                <span className="text-ink font-bold">TXT</span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-soft">Name / Host</span>
-                <span className="text-white font-bold break-all">_cyphward.{instructionModal.domain}</span>
+                <span className="text-ink font-bold break-all">_cyphward</span>
               </div>
-              <div className="flex flex-col gap-1 pt-1 border-t border-line/50">
+              <div className="flex flex-col gap-1 pt-1 border-t border-line">
                 <span className="text-soft">Value</span>
-                <div className="p-2 bg-inset/80 rounded flex items-center justify-between gap-2 text-ink">
-                  <code className="text-emerald-300 break-all">
+                <div className="p-2 bg-raised rounded border border-line flex items-center justify-between gap-2 text-ink">
+                  <code className="text-accent break-all">
                     cyphward-verification={instructionModal.verification_token}
                   </code>
                   <button
@@ -441,8 +441,9 @@ export default function Domains() {
                   </button>
                 </div>
               </div>
-              <p className="text-soft text-[10px] pt-1 border-t border-line/50">
-                Some providers want only "_cyphward" as the name — they'll add the domain for you.
+              <p className="text-soft text-[10px] pt-1 border-t border-line">
+                Enter only "_cyphward" in the Name/Host field — your DNS panel adds the domain
+                itself, so the record resolves at _cyphward.{instructionModal.domain}.
               </p>
             </div>
 
