@@ -4,8 +4,9 @@ GET    /members
 POST   /members/invite
 PATCH  /members/{user_id}
 
-MVP uses Supabase Auth — invitations link an existing Supabase account (by email)
-to the organization with a role: owner | admin | member.
+Invitations link an existing account (matched by email) to the organization
+with a role: owner | admin | member. Invitees without a profile get a row now;
+/auth/register adopts that row on signup so the membership survives.
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
@@ -60,8 +61,8 @@ def invite_member(
     email_clean = req.email.strip().lower()
     user = execute_one("SELECT id FROM profiles WHERE email = %s", (email_clean,))
     if not user:
-        # Profile row is created now; the person still registers via Supabase Auth
-        # with this email and is linked on login via email match (upsert path in auth).
+        # Profile row is created now; when this email registers via
+        # /auth/register the row is adopted (same id → membership intact).
         user = execute_one(
             "INSERT INTO profiles (email, full_name, role) VALUES (%s, %s, %s) RETURNING id",
             (email_clean, req.full_name.strip(), req.full_name.strip()),

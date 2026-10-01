@@ -2,74 +2,58 @@
 Cyphward Authentication & Tenant Authorization (spec §6, §7, §8, §35).
 
 Flow:
-    Authorization: Bearer <Supabase access token>
-        -> verify JWT (HS256 secret or Supabase JWKS)
-        -> upsert profile (id = auth sub)
+    Authorization: Bearer <Cyphward access token>
+        -> verify our own HS256 JWT (AUTH_JWT_SECRET)
+        -> load/create the profile (id = token sub)
         -> resolve organization membership (server-derived, never trusted from client)
         -> optional X-Organization-Id selects among the user's memberships (verified)
         -> role (owner/admin/member) available for RBAC checks
 
 There is NO fallback organization. Requests without a valid membership fail closed.
 """
+import time
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional
 
 import jwt
 from fastapi import Depends, Header, HTTPException, Query
-from jwt import PyJWKClient
 
-from backend.app.core.config import SUPABASE_JWT_SECRET, SUPABASE_URL
+from backend.app.core.config import ACCESS_TOKEN_TTL_SECONDS, AUTH_JWT_SECRET
 from backend.app.core.database import execute_one
 
-_JWKS_CLIENT: Optional[PyJWKClient] = None
+
+def issue_access_token(profile: Dict[str, Any]) -> str:
+    """Mint a Cyphward access token for a profile row."""
+    now = int(time.time())
+    claims = {
+        "sub": str(profile["id"]),
+        "email": (profile.get("email") or "").strip().lower(),
+        "full_name": (profile.get("full_name") or "").strip(),
+        "iat": now,
+        "exp": now + ACCESS_TOKEN_TTL_SECONDS,
+    }
+    return jwt.encode(claims, AUTH_JWT_SECRET, algorithm="HS256")
 
 
 def _verify_token(token: str) -> Dict[str, Any]:
-    """Verify a Supabase Auth access token and return its claims."""
-    errors: List[str] = []
-
-    if SUPABASE_JWT_SECRET:
-        try:
-            return jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                audience="authenticated",
-                options={"require": ["exp", "sub"]},
-            )
-        except jwt.PyJWTError as exc:
-            errors.append(f"HS256: {exc}")
-
-    if SUPABASE_URL:
-        global _JWKS_CLIENT
-        try:
-            if _JWKS_CLIENT is None:
-                _JWKS_CLIENT = PyJWKClient(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json")
-            signing_key = _JWKS_CLIENT.get_signing_key_from_jwt(token)
-            return jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256", "ES256"],
-                audience="authenticated",
-                options={"require": ["exp", "sub"]},
-            )
-        except jwt.PyJWTError as exc:
-            errors.append(f"RS256: {exc}")
-        except Exception as exc:  # network / JWKS fetch failure
-            errors.append(f"JWKS: {exc}")
-
-    raise HTTPException(
-        status_code=401,
-        detail="Authentication is not configured on the server."
-        if not errors
-        else f"Invalid token ({'; '.join(errors)})",
-    )
+    """Verify a Cyphward access token and return its claims."""
+    if not AUTH_JWT_SECRET:
+        raise HTTPException(status_code=401, detail="Authentication is not configured on the server.")
+    try:
+        return jwt.decode(
+            token,
+            AUTH_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"require": ["exp", "sub"]},
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token ({exc})")
 
 
 def get_current_user(
     authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    """Verify the Supabase JWT and return (creating if needed) the caller's profile."""
+    """Verify the Cyphward JWT and return (creating if needed) the caller's profile."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
@@ -79,8 +63,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Token missing subject")
 
     email = (claims.get("email") or "").strip().lower()
-    meta = claims.get("user_metadata") or {}
-    full_name = (meta.get("full_name") or meta.get("name") or email or "Cyphward User").strip()
+    full_name = (claims.get("full_name") or email or "Cyphward User").strip()
 
     profile = execute_one(
         """

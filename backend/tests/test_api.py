@@ -35,13 +35,25 @@ def test_missing_token_returns_401(client):
     assert "token" in resp.json()["detail"].lower()
 
 
-def test_invalid_token_returns_401(client, monkeypatch):
-    import backend.app.core.auth as auth_mod
-    # Disable JWKS fallback so the test never touches the network.
-    monkeypatch.setattr(auth_mod, "SUPABASE_URL", "")
+def test_invalid_token_returns_401(client):
+    import jwt as pyjwt
+
+    # Malformed token
     resp = client.get(
         "/api/v1/organizations/current",
         headers={"Authorization": "Bearer not-a-jwt"},
+    )
+    assert resp.status_code == 401
+
+    # Well-formed token signed with the wrong secret
+    bogus = pyjwt.encode(
+        {"sub": "someone", "exp": 9999999999},
+        "wrong-secret-key-long-enough-for-hs256-1234",
+        algorithm="HS256",
+    )
+    resp = client.get(
+        "/api/v1/organizations/current",
+        headers={"Authorization": f"Bearer {bogus}"},
     )
     assert resp.status_code == 401
 

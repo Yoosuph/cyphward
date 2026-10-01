@@ -47,10 +47,8 @@ def test_welcome_requires_token(client):
     assert "token" in resp.json()["detail"].lower()
 
 
-def test_welcome_rejects_invalid_token(client, monkeypatch):
+def test_welcome_rejects_invalid_token(client):
     _clear_cooldown()
-    import backend.app.core.auth as core_auth
-    monkeypatch.setattr(core_auth, "SUPABASE_URL", "")
     resp = client.post(
         "/api/v1/auth/welcome",
         headers={"Authorization": "Bearer not-a-jwt"},

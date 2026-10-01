@@ -21,6 +21,7 @@ from backend.app.api import (
     notifications,
     scanner_jobs,
     auth,
+    auth_google,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -95,6 +96,7 @@ app.include_router(settings.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
 app.include_router(auth.router)
+app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)
 

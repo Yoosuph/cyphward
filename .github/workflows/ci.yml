@@ -10,7 +10,7 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     env:
-      SUPABASE_JWT_SECRET: ci-only-test-secret
+      AUTH_JWT_SECRET: ci-only-test-secret
     steps:
       - uses: actions/checkout@v4
 

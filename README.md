@@ -4,10 +4,12 @@ External security posture platform: continuous attack-surface discovery, securit
 scoring (0–100), findings lifecycle, remediation tasks, and executive reports.
 
 - **Frontend:** Vite · React 18 · TypeScript · Tailwind · react-router
-- **Backend:** FastAPI (Python) · PostgreSQL (Supabase) · Supabase Auth · Inngest workflows
-- **Auth:** Supabase Auth only — JWT bearer tokens, org membership verified
-  server-side via `X-Organization-Id` (fail-closed, no fallback org), roles
-  `owner | admin | member`.
+- **Backend:** FastAPI (Python) · PostgreSQL (Supabase) · built-in auth · Inngest workflows
+- **Auth:** Our own backend accounts — argon2 passwords, JWT access tokens with
+  rotating refresh sessions, email verification & password reset sent through
+  Brevo, optional Google sign-in (server-side OAuth flow). Org membership is
+  verified server-side via `X-Organization-Id` (fail-closed, no fallback org),
+  roles `owner | admin | member`.
 
 ## Repository layout
 
@@ -23,7 +25,7 @@ backend/app/
   workflows/        # Inngest scan pipeline + daily scan cron
   db/               # seed scripts
 backend/tests/      # pytest suite (no DB required — in-memory fake)
-frontend/src/       # React app (pages, components, lib/api, lib/auth)
+frontend/src/       # React app (pages, components, lib/api, lib/auth, lib/session)
 supabase/migrations # SQL schema
 ```
 
@@ -31,7 +33,8 @@ supabase/migrations # SQL schema
 
 - Node 18+
 - Python 3.11+ with [uv](https://docs.astral.sh/uv/) (used to run the server)
-- A Supabase project (auth + Postgres)
+- A Supabase project (Postgres only — auth is built into the backend)
+- Brevo account for outbound email (verification codes, password resets)
 - Inngest CLI (`npm i -g inngest-cli`) for local workflow execution
 
 ## Environment
@@ -41,7 +44,6 @@ Copy the examples and fill in real values:
 ```bash
 cp .env.example .env
 cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
 ```
 
 Required:
@@ -49,11 +51,21 @@ Required:
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | `.env` / `backend/.env` | Postgres connection string |
-| `SUPABASE_URL` | `.env` | Supabase project URL |
-| `SUPABASE_JWT_SECRET` | `.env` | HS256 secret for verifying access tokens (**required at runtime**) |
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | `frontend/.env` | Browser auth client |
+| `AUTH_JWT_SECRET` | `.env` | HS256 secret for signing/verifying access tokens (**required at runtime**) |
+| `FRONTEND_URL` | `.env` | Public frontend origin (password-reset links) |
+| `BREVO_*` | `.env` | Brevo SMTP/API credentials — all product email |
 
-The JWT secret is found in Supabase → Project Settings → API → JWT Secret.
+Optional:
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | `.env` | Google sign-in (OAuth 2.0 client) |
+
+Generate the JWT secret with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
 ## Database migrations
 
@@ -62,7 +74,7 @@ Apply migrations in order (Supabase CLI or SQL editor):
 ```bash
 supabase db push
 # or apply supabase/migrations/*.sql manually, ending with:
-# 20260922120000_mvp_spec_alignment.sql
+# 20261001120000_own_auth.sql
 ```
 
 Optionally seed demo tenants:
@@ -106,7 +118,7 @@ runs both jobs on every push/PR.
 
 ## API conventions
 
-- All authenticated requests: `Authorization: Bearer <Supabase access token>`
+- All authenticated requests: `Authorization: Bearer <access token>`
 - Tenant selection: `X-Organization-Id: <org uuid or slug>` — verified against
   `organization_members`; requests for a non-member org return `403`.
 - No API keys. Mutations require `admin`/`owner`; owner-only actions require
@@ -124,5 +136,5 @@ runs both jobs on every push/PR.
 
 ## Out of scope (intentionally removed)
 
-Compliance modules, Academy, Detect/alerts, Copilot, threat ticker, SSO
-(SAML/OIDC), API-key auth, and analytics — see git history if needed.
+Compliance modules, Academy, Detect/alerts, Copilot, threat ticker, SAML SSO,
+API-key auth, and analytics — see git history if needed.

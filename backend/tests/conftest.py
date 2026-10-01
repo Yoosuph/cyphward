@@ -2,7 +2,7 @@
 Cyphward test fixtures.
 
 Strategy:
-    - Set SUPABASE_JWT_SECRET before the app imports so HS256 verification works offline.
+    - Set AUTH_JWT_SECRET before the app imports so HS256 verification works offline.
     - Patch database.get_db (and overview's by-value import) with an in-memory fake that
       routes the exact SQL used by the routers to seeded tenant data. This exercises the
       REAL auth chain (JWT -> profile upsert -> membership resolution -> RBAC) with no
@@ -15,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-os.environ.setdefault("SUPABASE_JWT_SECRET", "cyphward-test-secret-not-for-prod")
+os.environ.setdefault("AUTH_JWT_SECRET", "cyphward-test-secret-not-for-prod")
 
 import jwt as pyjwt
 import pytest
@@ -49,16 +49,16 @@ DOM_A1 = "d1111111-0000-4000-8000-000000000001"
 
 
 def sign_token(user_id: str, email: str = "user@acme.test") -> str:
-    secret = config.SUPABASE_JWT_SECRET
+    """Mint a Cyphward access token exactly as the backend does in production."""
+    secret = config.AUTH_JWT_SECRET
     now = int(time.time())
     return pyjwt.encode(
         {
             "sub": user_id,
             "email": email,
-            "aud": "authenticated",
+            "full_name": email.split("@")[0].title(),
             "iat": now,
             "exp": now + 3600,
-            "user_metadata": {"full_name": email.split("@")[0].title()},
         },
         secret,
         algorithm="HS256",
@@ -141,6 +141,8 @@ class FakeStore:
         self.evidence: list = []
         self.audit: list = []
         self.email_otps: list = []
+        self.sessions: list = []
+        self.password_reset_tokens: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -148,6 +150,161 @@ class FakeStore:
 
         if "SELECT 1 as ok" in s:
             return [{"ok": 1}]
+
+        # --- own auth: credentials ---------------------------------------
+        if s.startswith("SELECT * FROM profiles WHERE email = %s"):
+            email = (params[0] or "").lower()
+            for p in self.profiles.values():
+                if (p.get("email") or "").lower() == email:
+                    return [p]
+            return []
+
+        if s.startswith("SELECT * FROM profiles WHERE id = %s"):
+            p = self.profiles.get(str(params[0]))
+            return [p] if p else []
+
+        if s.startswith("INSERT INTO profiles (id, email, full_name, role, password_hash, provider)"):
+            email, full_name, password_hash = params
+            prof = {
+                "id": str(uuid.uuid4()), "email": email, "full_name": full_name,
+                "role": "Member", "password_hash": password_hash, "provider": "email",
+                "email_verified_at": None,
+            }
+            self.profiles[prof["id"]] = prof
+            return [prof]
+
+        if s.startswith("INSERT INTO profiles (id, email, full_name, role, provider, email_verified_at)"):
+            email, full_name = params
+            prof = {
+                "id": str(uuid.uuid4()), "email": email, "full_name": full_name,
+                "role": "Member", "password_hash": None, "provider": "google",
+                "email_verified_at": datetime.now(timezone.utc),
+            }
+            self.profiles[prof["id"]] = prof
+            return [prof]
+
+        if s.startswith("UPDATE profiles SET password_hash = %s,") and "full_name = CASE" in s:
+            # register adopting an invited profile (matched by email beforehand)
+            password_hash, name, _name2, user_id = params
+            prof = self.profiles.get(str(user_id))
+            if not prof:
+                return []
+            prof["password_hash"] = password_hash
+            if name:
+                prof["full_name"] = name
+            if prof.get("provider") == "google":
+                prof["provider"] = "both"
+            return [prof]
+
+        if s.startswith("UPDATE profiles SET password_hash = %s, updated_at = now() WHERE id = %s"):
+            password_hash, user_id = params
+            prof = self.profiles.get(str(user_id))
+            if prof is not None:
+                prof["password_hash"] = password_hash
+            return [{"id": user_id}] if prof else []
+
+        if s.startswith("UPDATE profiles SET full_name = CASE WHEN full_name IS NULL"):
+            name, user_id = params
+            prof = self.profiles.get(str(user_id))
+            if not prof:
+                return []
+            if not prof.get("full_name"):
+                prof["full_name"] = name
+            if not prof.get("email_verified_at"):
+                prof["email_verified_at"] = datetime.now(timezone.utc)
+            if prof.get("provider") == "email":
+                prof["provider"] = "both"
+            return [prof]
+
+        # --- own auth: sessions ------------------------------------------
+        if s.startswith("INSERT INTO auth_sessions"):
+            if "otc_hash" in s:
+                uid, refresh_hash, otc_hash, ttl = params
+                otc_hash_val, otc_exp = otc_hash, datetime.now(timezone.utc) + timedelta(minutes=5)
+            else:
+                uid, refresh_hash, ttl = params
+                otc_hash_val, otc_exp = None, None
+            row = {
+                "id": str(uuid.uuid4()), "user_id": uid, "refresh_token_hash": refresh_hash,
+                "otc_hash": otc_hash_val, "otc_expires_at": otc_exp,
+                "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(seconds=int(ttl)),
+                "revoked_at": None, "last_used_at": None,
+            }
+            self.sessions.append(row)
+            return [{"id": row["id"]}]
+
+        if s.startswith("SELECT * FROM auth_sessions WHERE refresh_token_hash = %s"):
+            return [x for x in self.sessions if x["refresh_token_hash"] == params[0]][:1]
+
+        if s.startswith("SELECT * FROM auth_sessions WHERE otc_hash = %s AND revoked_at IS NULL"):
+            return [
+                x for x in self.sessions
+                if x["otc_hash"] == params[0] and x["revoked_at"] is None
+            ][:1]
+
+        if s.startswith("UPDATE auth_sessions SET refresh_token_hash = %s, last_used_at = now() WHERE id = %s"):
+            new_hash, sid = params
+            for x in self.sessions:
+                if x["id"] == sid:
+                    x["refresh_token_hash"] = new_hash
+                    x["last_used_at"] = datetime.now(timezone.utc)
+            return []
+
+        if s.startswith("UPDATE auth_sessions SET otc_hash = NULL"):
+            new_hash, sid = params
+            for x in self.sessions:
+                if x["id"] == sid:
+                    x["otc_hash"] = None
+                    x["otc_expires_at"] = None
+                    x["refresh_token_hash"] = new_hash
+            return []
+
+        if s.startswith("UPDATE auth_sessions SET revoked_at = now() WHERE refresh_token_hash"):
+            now = datetime.now(timezone.utc)
+            for x in self.sessions:
+                if x["refresh_token_hash"] == params[0] and x["revoked_at"] is None:
+                    x["revoked_at"] = now
+            return []
+
+        if s.startswith("UPDATE auth_sessions SET revoked_at = now() WHERE user_id"):
+            now = datetime.now(timezone.utc)
+            for x in self.sessions:
+                if str(x["user_id"]) == str(params[0]) and x["revoked_at"] is None:
+                    x["revoked_at"] = now
+            return []
+
+        # --- own auth: password reset tokens ------------------------------
+        if s.startswith("INSERT INTO password_reset_tokens"):
+            uid, token_hash, minutes = params
+            row = {
+                "id": str(uuid.uuid4()), "user_id": uid, "token_hash": token_hash,
+                "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=int(minutes)),
+                "used_at": None,
+            }
+            self.password_reset_tokens.append(row)
+            return [{"id": row["id"]}]
+
+        if s.startswith("SELECT id, user_id, expires_at FROM password_reset_tokens"):
+            rows = [
+                r for r in self.password_reset_tokens
+                if r["token_hash"] == params[0] and r["used_at"] is None
+            ]
+            rows.sort(key=lambda r: r["created_at"], reverse=True)
+            return rows[:1]
+
+        if s.startswith("UPDATE password_reset_tokens SET used_at"):
+            for r in self.password_reset_tokens:
+                if r["id"] == params[0]:
+                    r["used_at"] = datetime.now(timezone.utc)
+            return []
+
+        if s.startswith("DELETE FROM password_reset_tokens"):
+            self.password_reset_tokens = [
+                r for r in self.password_reset_tokens if str(r["user_id"]) != str(params[0])
+            ]
+            return []
 
         if s.startswith("INSERT INTO profiles"):
             return [self._upsert_profile(params)]
@@ -505,6 +662,8 @@ class FakeStore:
         self.profiles = {}
         self.audit = []
         self.email_otps = []
+        self.sessions = []
+        self.password_reset_tokens = []
 
 
 # ---------------------------------------------------------------------------

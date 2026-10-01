@@ -17,10 +17,19 @@ else:
 # Secrets are environment-only — never hardcode credentials in source.
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-# HS256 secret used to verify Supabase Auth access tokens (JWT) in the API.
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+# Cyphward Auth — our own JWT sessions (Supabase Auth is not used).
+AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "")
+ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", "86400"))
+REFRESH_TOKEN_TTL_SECONDS = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", "2592000"))
+# Where password-reset / OAuth links send the browser back to.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+# Google OAuth (sign-in with Google) — optional until configured.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback"
+)
 
 CORS_ORIGINS = [
     "http://localhost:5173",

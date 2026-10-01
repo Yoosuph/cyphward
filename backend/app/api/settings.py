@@ -1,7 +1,7 @@
 """
 Cyphward Settings API Router
 Organization profile settings. Team membership lives in /api/v1/members (spec §34).
-Auth is Supabase Auth only — no API keys (spec §6).
+Auth is handled by our own accounts (password + Google) — no API keys (spec §6).
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
