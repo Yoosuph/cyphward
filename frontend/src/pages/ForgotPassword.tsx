@@ -4,6 +4,7 @@ import { ArrowRight, ShieldAlert, Key, CheckCircle2, RefreshCw } from 'lucide-re
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { checkPasswordStrength } from '../lib/password';
 
 type Step = 'email' | 'sent' | 'newpass' | 'done';
 
@@ -99,41 +100,25 @@ export default function ForgotPassword() {
     }
   };
 
-  const calculateStrength = (p: string) => {
-    if (!p) return { pct: 0, text: 'ENTER PASSPHRASE', color: 'var(--soft)' };
-    let score = 0;
-    if (p.length >= 10) score += 25;
-    if (p.length >= 14) score += 25;
-    if (/[A-Z]/.test(p)) score += 15;
-    if (/[0-9]/.test(p)) score += 15;
-    if (/[^A-Za-z0-9]/.test(p)) score += 20;
-
-    if (score < 40) return { pct: score, text: 'WEAK — REGULATORY HAZARD', color: 'var(--accent)' };
-    if (score < 75) return { pct: score, text: 'MODERATE — ACCEPTABLE', color: 'var(--warn)' };
-    return { pct: score, text: 'STRONG — MILITARY / NDPA COMPLIANT', color: 'var(--ok)' };
-  };
-
-  const strength = calculateStrength(newPass);
+  const strength = checkPasswordStrength(newPass);
+  const mismatch = confirmPass.length > 0 && newPass !== confirmPass;
 
   const handlePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (newPass !== confirmPass) {
-      toast('Passphrases do not match.');
-      return;
-    }
+    if (newPass !== confirmPass) return;
     setBusy(true);
     try {
       const { error } = await supabase.auth.updateUser({ password: newPass });
       if (error) {
         const msg = error.message || '';
-        toast(msg || 'Could not update passphrase.');
+        toast(msg || 'Could not update the password.');
         if (/expired|jwt|session/i.test(msg)) setStep('email');
       } else {
         setStep('done');
       }
     } catch (err) {
       console.error('updateUser failed:', err);
-      toast('Could not update passphrase. Please try again.');
+      toast('Could not update the password. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -146,19 +131,19 @@ export default function ForgotPassword() {
       <div className="login-z w-full max-w-xl mx-auto my-auto px-4">
         <div className="flex items-center justify-between mb-4">
           <p className="eyebrow flex items-center gap-2">
-            <span className="live-dot" /> CYPHWARD — ENCLAVE KEY RECOVERY
+            <span className="live-dot" /> CYPHWARD — RESET YOUR PASSWORD
           </p>
           <Link to="/login" className="stat-link text-xs">
-            RETURN TO SIGN IN →
+            BACK TO SIGN IN →
           </Link>
         </div>
 
         <h1 className="display-h">
-          Cryptographic <em>credential recovery.</em>
+          Reset your <em>password.</em>
         </h1>
         <p className="login-sub">
-          We'll email you a secure, single-use link to set a new passphrase. The link
-          expires shortly after it's issued.
+          Enter your email address and we'll send you a link to set a new password.
+          The link works once and expires after a short time.
         </p>
 
         <div className="auth-card panel mt-6">
@@ -167,19 +152,19 @@ export default function ForgotPassword() {
               <div className="flex items-center gap-3 p-3 bg-inset border border-line rounded mb-5 text-xs mono text-soft">
                 <ShieldAlert size={18} className="text-warn flex-none" />
                 <span>
-                  Authorized security officers only. Recovery challenges are logged to the NDPA immutable audit trail.
+                  Only account owners can reset a password. Every request is recorded for safety.
                 </span>
               </div>
 
               {expired && (
                 <div className="flex items-center gap-3 p-3 bg-inset border border-accent/40 rounded mb-5 text-xs mono text-warn">
                   <ShieldAlert size={16} className="flex-none" />
-                  <span>That recovery link is invalid or has expired. Request a fresh one below.</span>
+                  <span>That link is invalid or has expired. Request a new one below.</span>
                 </div>
               )}
 
               <div className="field">
-                <label htmlFor="recEmail">WORK ENCLAVE EMAIL</label>
+                <label htmlFor="recEmail">WORK EMAIL</label>
                 <input
                   id="recEmail"
                   type="email"
@@ -192,12 +177,12 @@ export default function ForgotPassword() {
               </div>
 
               <button className="btn btn-solid" type="submit" disabled={busy}>
-                {busy ? 'DISPATCHING LINK…' : 'EMAIL ME A RECOVERY LINK'} <ArrowRight size={14} />
+                {busy ? 'SENDING…' : 'EMAIL ME A RESET LINK'} <ArrowRight size={14} />
               </button>
 
               <div className="mt-4 pt-3 border-t border-line text-center">
                 <span className="text-xs mono text-soft">
-                  Remembered your credentials?{' '}
+                  Remembered your password?{' '}
                   <Link to="/login" className="text-accent underline font-medium ml-1">
                     Sign in here
                   </Link>
@@ -211,17 +196,17 @@ export default function ForgotPassword() {
               <div className="inline-block p-4 rounded-full bg-ok/10 text-ok border border-ok/30 mb-4">
                 <CheckCircle2 size={36} />
               </div>
-              <h3 className="font-display text-2xl font-medium mb-2">Recovery link sent</h3>
+              <h3 className="font-display text-2xl font-medium mb-2">Reset link sent</h3>
               <p className="text-xs mono text-soft mb-6 max-w-sm mx-auto">
-                If an account exists for <span className="text-accent">{sentTo}</span>, a secure
-                reset link is on its way. It expires shortly — check spam if you don't see it.
+                If an account exists for <span className="text-accent">{sentTo}</span>, a reset
+                link is on its way. Check your spam folder if you don't see it.
               </p>
               <div className="space-y-3">
                 <button
                   className="btn btn-solid w-full justify-center"
                   onClick={() => setStep('email')}
                 >
-                  <RefreshCw size={13} className="mr-1" /> TRY A DIFFERENT EMAIL
+                  <RefreshCw size={13} className="mr-1" /> USE A DIFFERENT EMAIL
                 </button>
                 <Link to="/login" className="btn btn-ghost w-full justify-center block">
                   RETURN TO SIGN IN
@@ -234,26 +219,27 @@ export default function ForgotPassword() {
             <form onSubmit={handlePasswordSubmit}>
               <div className="flex items-center gap-2 mb-4">
                 <Key size={16} className="text-accent" />
-                <p className="eyebrow">SET NEW ENCLAVE PASSPHRASE</p>
+                <p className="eyebrow">SET A NEW PASSWORD</p>
               </div>
 
               <div className="field">
-                <label htmlFor="newPass">NEW PASSPHRASE</label>
+                <label htmlFor="newPass">NEW PASSWORD</label>
                 <input
                   id="newPass"
                   type="password"
-                  placeholder="Min 12 chars with symbol & number"
+                  placeholder="At least 8 characters"
                   value={newPass}
                   onChange={e => setNewPass(e.target.value)}
                   autoComplete="new-password"
+                  minLength={8}
                   required
                 />
               </div>
 
               <div className="mt-2">
                 <div className="flex justify-between text-[10px] mono mb-1">
-                  <span className="text-soft">ENTROPY STRENGTH</span>
-                  <span style={{ color: strength.color }}>{strength.text}</span>
+                  <span className="text-soft">PASSWORD STRENGTH</span>
+                  <span style={{ color: strength.color }}>{strength.label || 'ENTER A PASSWORD'}</span>
                 </div>
                 <div className="pwd-meter">
                   <div
@@ -261,14 +247,15 @@ export default function ForgotPassword() {
                     style={{ width: `${strength.pct}%`, backgroundColor: strength.color }}
                   />
                 </div>
+                {strength.hint && <p className="text-[10px] mono text-soft">{strength.hint}</p>}
               </div>
 
               <div className="field mt-3">
-                <label htmlFor="confirmPass">CONFIRM PASSPHRASE</label>
+                <label htmlFor="confirmPass">CONFIRM PASSWORD</label>
                 <input
                   id="confirmPass"
                   type="password"
-                  placeholder="Re-enter passphrase"
+                  placeholder="Type it again"
                   value={confirmPass}
                   onChange={e => setConfirmPass(e.target.value)}
                   autoComplete="new-password"
@@ -276,8 +263,18 @@ export default function ForgotPassword() {
                 />
               </div>
 
-              <button className="btn btn-solid" type="submit" disabled={busy || strength.pct < 40}>
-                {busy ? 'UPDATING…' : 'UPDATE PASSPHRASE'} <ArrowRight size={14} />
+              {mismatch && (
+                <div className="p-3 mt-3 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500">
+                  Passwords don't match.
+                </div>
+              )}
+
+              <button
+                className="btn btn-solid"
+                type="submit"
+                disabled={busy || !strength.ok || newPass !== confirmPass}
+              >
+                {busy ? 'SAVING…' : 'UPDATE PASSWORD'} <ArrowRight size={14} />
               </button>
             </form>
           )}
@@ -287,9 +284,9 @@ export default function ForgotPassword() {
               <div className="inline-block p-4 rounded-full bg-ok/10 text-ok border border-ok/30 mb-4">
                 <CheckCircle2 size={36} />
               </div>
-              <h3 className="font-display text-2xl font-medium mb-2">Passphrase updated</h3>
+              <h3 className="font-display text-2xl font-medium mb-2">Password updated</h3>
               <p className="text-xs mono text-soft mb-6 max-w-sm mx-auto">
-                Your passphrase has been changed. Use it the next time you sign in.
+                Your password has been changed. Use it the next time you sign in.
               </p>
               <button
                 className="btn btn-solid w-full justify-center"
@@ -302,9 +299,9 @@ export default function ForgotPassword() {
         </div>
 
         <dl className="meta-row mt-6">
-          <div><dt>SECURITY STANDARD</dt><dd>FIPS 140.2 LEVEL 3 HSM</dd></div>
-          <div><dt>AUDIT LOGGING</dt><dd>IMMUTABLE TELEMETRY</dd></div>
-          <div><dt>ENCLAVE</dt><dd>ZERO-TRUST WORKSTATION</dd></div>
+          <div><dt>PASSWORDS</dt><dd>NEVER STORED IN PLAIN TEXT</dd></div>
+          <div><dt>RESET LINKS</dt><dd>SINGLE-USE &amp; EXPIRING</dd></div>
+          <div><dt>YOUR DATA</dt><dd>ENCRYPTED IN TRANSIT</dd></div>
         </dl>
       </div>
     </div>

@@ -15,10 +15,10 @@ interface Props {
 }
 
 const NAV_ITEMS = [
-  { to: '/', label: 'CMD', full: 'Overview Command', idx: '01', icon: Activity, end: true },
-  { to: '/assets', label: 'ASSETS', full: 'Attack Surface Assets', idx: '02', icon: Server, end: false },
-  { to: '/findings', label: 'FINDINGS', full: 'Vulnerability Findings', idx: '03', icon: ShieldAlert, end: false, hasBadge: true },
-  { to: '/scans', label: 'SCANS', full: 'Recon & Scan Pipelines', idx: '04', icon: Radar, end: false },
+  { to: '/', label: 'CMD', full: 'Overview', idx: '01', icon: Activity, end: true },
+  { to: '/assets', label: 'ASSETS', full: 'Assets', idx: '02', icon: Server, end: false },
+  { to: '/findings', label: 'FINDINGS', full: 'Security findings', idx: '03', icon: ShieldAlert, end: false, hasBadge: true },
+  { to: '/scans', label: 'SCANS', full: 'Scans', idx: '04', icon: Radar, end: false },
 ];
 
 export default function ButtonPlate({
@@ -40,7 +40,7 @@ export default function ButtonPlate({
       {/* Smooth bottom gradient scrim so content gracefully fades behind the floating dock */}
       <div className="button-plate-scrim" aria-hidden="true" />
 
-      <nav className="button-plate-wrapper" aria-label="Mobile sovereign navigation dock">
+      <nav className="button-plate-wrapper" aria-label="Mobile navigation">
         <div className="button-plate">
           {NAV_ITEMS.map(item => {
             const active = isItemActive(item.to, item.end);
@@ -68,8 +68,8 @@ export default function ButtonPlate({
               type="button"
               className="plate-btn"
               onClick={onOpenMenu}
-              title="Open Navigation Menu — View All Modules"
-              aria-label="Open Navigation Menu"
+              title="Open menu — see all pages"
+              aria-label="Open menu"
             >
               <div className="relative flex items-center justify-center">
                 <Menu size={16} strokeWidth={1.8} />

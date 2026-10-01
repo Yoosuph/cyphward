@@ -17,8 +17,8 @@ export const CyphBotFloatingButton = memo(function CyphBotFloatingButton({
     <button
       onClick={onClick}
       className="fixed bottom-[74px] right-3.5 z-[80] md:hidden group flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-accent/40 hover:border-accent bg-raised/95 hover:bg-inset text-ink shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 select-none btn-tactile backdrop-blur-md"
-      title="Open CyphBot Sovereign AI (⌘J)"
-      aria-label="Open CyphBot Sovereign AI"
+      title="Open CyphBot (⌘J)"
+      aria-label="Open CyphBot"
     >
       <div className="relative flex items-center justify-center">
         <Sparkles

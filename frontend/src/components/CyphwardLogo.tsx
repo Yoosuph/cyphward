@@ -24,7 +24,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className="shrink-0 transition-transform duration-200 hover:scale-105"
-      aria-label="Cyphward Sovereign Shield"
+      aria-label="Cyphward shield"
     >
       <defs>
         {/* Sovereign Amber Copper Gradient */}
@@ -87,7 +87,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
 
   if (variant === 'mark') {
     return (
-      <div className={`inline-flex items-center justify-center ${className}`} title="CYPH — Sovereign Defense">
+      <div className={`inline-flex items-center justify-center ${className}`} title="CYPH — Security Platform">
         {markSvg}
       </div>
     );
@@ -95,7 +95,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
 
   if (variant === 'cyph' || variant === 'acronym') {
     return (
-      <div className={`inline-flex items-center gap-1.5 ${className}`} title="CYPH — Sovereign Defense">
+      <div className={`inline-flex items-center gap-1.5 ${className}`} title="CYPH — Security Platform">
         {markSvg}
         <span className="font-mono font-bold tracking-widest text-ink text-sm">
           CYPH
@@ -127,7 +127,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
         </div>
         {showSubtitle && (
           <span className="font-mono text-[9px] tracking-[0.2em] text-soft uppercase mt-1">
-            Sovereign Defense
+            Security Platform
           </span>
         )}
       </div>

@@ -25,7 +25,7 @@ export default function VerifyDomain() {
   const handleCopy = async () => {
     await navigator.clipboard.writeText(txtValue);
     setCopied(true);
-    toast('TXT value copied to clipboard');
+    toast('Record value copied.');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -38,13 +38,13 @@ export default function VerifyDomain() {
 
     if (!result.ok || !result.verified) {
       setBusy(false);
-      setError(result.error || 'Verification failed. Make sure the TXT record has been added and DNS has propagated.');
+      setError(result.error || "We couldn't verify it yet. Make sure the TXT record is saved — it can take a few minutes to appear.");
       return;
     }
 
     setBusy(false);
     setVerified(true);
-    toast('Domain verified successfully!');
+    toast('Domain verified!');
 
     setTimeout(() => {
       completeOnboarding();
@@ -67,7 +67,7 @@ export default function VerifyDomain() {
             <p className="text-xs text-soft mt-1">{domain} has been verified successfully.</p>
           </div>
         </div>
-        <p className="text-xs text-soft text-center">Configuring sovereign perimeter…</p>
+        <p className="text-xs text-soft text-center">Finishing setup…</p>
       </div>
     );
   }
@@ -76,7 +76,7 @@ export default function VerifyDomain() {
     <div className="space-y-5">
       <div>
         <h3 className="font-display text-lg font-medium text-ink mb-1">
-          Verify Domain Ownership
+          Verify your domain
         </h3>
         <p className="text-xs text-soft">
           Add a DNS TXT record to prove you own <span className="text-ink font-medium">{domain}</span>.
@@ -113,8 +113,8 @@ export default function VerifyDomain() {
 
       <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft">
         <p>
-          Add this TXT record to your DNS settings. Propagation may take a few minutes.
-          Once added, click "Verify Domain" to confirm ownership.
+          Add this TXT record where you manage your DNS (e.g. Cloudflare, GoDaddy). It can take a
+          few minutes to appear. Once it's saved, click Verify domain.
         </p>
       </div>
 

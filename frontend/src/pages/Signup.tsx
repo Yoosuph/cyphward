@@ -11,6 +11,7 @@ import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import CyphwardLogo from '../components/CyphwardLogo';
+import { checkPasswordStrength } from '../lib/password';
 
 export default function Signup() {
   const { tenant, signUpWithCredentials, onboardingStep } = useAuth();
@@ -20,6 +21,7 @@ export default function Signup() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -34,6 +36,10 @@ export default function Signup() {
     return () => window.removeEventListener('cyphward:theme', onThemeChange);
   }, []);
 
+  const strength = checkPasswordStrength(password);
+  const mismatch = confirm.length > 0 && confirm !== password;
+  const formValid = strength.ok && confirm.length > 0 && confirm === password;
+
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       return <Navigate to="/onboarding" replace />;
@@ -43,7 +49,7 @@ export default function Signup() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !formValid) return;
     setBusy(true);
     setError('');
 
@@ -100,7 +106,7 @@ export default function Signup() {
             </Link>
             <span className="text-line select-none">/</span>
             <div className="eyebrow flex items-center gap-1.5 text-[10px] hidden sm:flex">
-              <span className="live-dot" /> SOVEREIGN CLOUD ENCLAVE · L00 ACCESS
+              <span className="live-dot" /> CYPHWARD · SECURE WORKSPACE
             </div>
           </div>
 
@@ -120,7 +126,7 @@ export default function Signup() {
               className="stat-link text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all"
             >
               <Globe size={13} className="text-accent" />
-              <span>PLATFORM OVERVIEW ↗</span>
+              <span>VIEW WEBSITE ↗</span>
             </Link>
           </div>
         </div>
@@ -136,11 +142,11 @@ export default function Signup() {
               </div>
 
               <h1 className="display-h">
-                Deploy sovereign <em>cyber defense.</em>
+                Start securing your <em>online presence.</em>
               </h1>
 
               <p className="login-sub">
-                Create your enclave to secure your organization's digital perimeter with continuous NDPA 2023 compliance monitoring and localized African threat detection.
+                Create an account to monitor your websites and apps for security issues, stay on top of NDPA and CBN rules, and catch threats early.
               </p>
             </div>
 
@@ -149,7 +155,7 @@ export default function Signup() {
               <div className="flex items-center justify-between pb-3 mb-4 border-b border-line">
                 <div className="flex items-center gap-2">
                   <span className="live-dot" />
-                  <span className="eyebrow text-[10px] tracking-widest">LIVE ENCLAVE TELEMETRY</span>
+                  <span className="eyebrow text-[10px] tracking-widest">LIVE ACTIVITY</span>
                 </div>
                 <span className="mono text-[10px] text-soft">LATENCY: 24ms · HEALTH: 100%</span>
               </div>
@@ -159,12 +165,12 @@ export default function Signup() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Server size={14} className="text-accent flex-none" />
                     <div>
-                      <span className="font-semibold text-ink">USSD GATEWAY</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(KANO EDGE CLUSTER)</span>
+                      <span className="font-semibold text-ink">USSD payments</span>
+                      <span className="text-soft ml-1.5 hidden sm:inline">(Kano region)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">1,420 TX/MIN</span>
+                    <span className="text-soft text-[10px]">1,420 / min</span>
                     <span className="tag text-[9px] text-ok border-ok/30 bg-ok/10">NORMAL</span>
                   </div>
                 </div>
@@ -173,12 +179,12 @@ export default function Signup() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <ShieldAlert size={14} className="text-accent flex-none" />
                     <div>
-                      <span className="font-semibold text-ink">SIM-SWAP RADAR</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(LAGOS CORE SWITCH)</span>
+                      <span className="font-semibold text-ink">SIM-swap attempts</span>
+                      <span className="text-soft ml-1.5 hidden sm:inline">(Lagos network)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">3 INTERCEPTS</span>
+                    <span className="text-soft text-[10px]">3 blocked</span>
                     <span className="tag text-[9px] text-accent border-accent/30 bg-accent/10">BLOCKED</span>
                   </div>
                 </div>
@@ -187,12 +193,12 @@ export default function Signup() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <ShieldCheck size={14} className="text-ok flex-none" />
                     <div>
-                      <span className="font-semibold text-ink">NDPA 2023 BASELINE</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(CONTINUOUS AUDIT)</span>
+                      <span className="font-semibold text-ink">NDPA 2023 checks</span>
+                      <span className="text-soft ml-1.5 hidden sm:inline">(always on)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">14/18 CONTROLS</span>
+                    <span className="text-soft text-[10px]">14/18 controls</span>
                     <span className="tag text-[9px] text-ok border-ok/30 bg-ok/10">PASS</span>
                   </div>
                 </div>
@@ -202,14 +208,14 @@ export default function Signup() {
               <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-line text-center">
                 <div>
                   <div className="mono text-xs font-semibold text-ink">99.98%</div>
-                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">ENCLAVE UPTIME</div>
+                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">UPTIME</div>
                 </div>
                 <div>
                   <div className="mono text-xs font-semibold text-ink">&lt; 42ms</div>
-                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">TRIAGE LATENCY</div>
+                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">AVG. RESPONSE</div>
                 </div>
                 <div>
-                  <div className="mono text-xs font-semibold text-ink">3 NODES</div>
+                  <div className="mono text-xs font-semibold text-ink">3 REGIONS</div>
                   <div className="mono text-[9px] text-soft tracking-wider mt-0.5">WEST & EAST AFRICA</div>
                 </div>
               </div>
@@ -220,10 +226,10 @@ export default function Signup() {
                   <ShieldCheck size={12} className="text-accent" /> NDPA 2023 COMPLIANT
                 </span>
                 <span className="auth-trust-item">
-                  <Lock size={12} className="text-accent" /> CBN TIER-1 BANKING SPEC
+                  <Lock size={12} className="text-accent" /> BUILT FOR CBN RULES
                 </span>
                 <span className="auth-trust-item">
-                  <CheckCircle2 size={12} className="text-accent" /> FIDO2 / WEBAUTHN
+                  <CheckCircle2 size={12} className="text-accent" /> SECURE SIGN-IN
                 </span>
               </div>
             </div>
@@ -232,7 +238,7 @@ export default function Signup() {
             <div className="p-3.5 rounded border border-line bg-inset/60 text-xs text-soft leading-relaxed flex items-start gap-3">
               <span className="font-serif text-2xl text-accent leading-none select-none">"</span>
               <p>
-                <strong className="text-ink">CYPHWARD</strong> gives our Board continuous verification across Pan-African switches with zero compliance guesswork.
+                <strong className="text-ink">CYPHWARD</strong> gives our board a clear view of our security and compliance — no more guesswork.
                 <span className="block mt-1 text-[10.5px] mono text-soft">— Folake Adeyemi, Lead DPO, Lagos Core Switch</span>
               </p>
             </div>
@@ -244,7 +250,7 @@ export default function Signup() {
               {/* Card Tabs */}
               <div className="auth-tabs">
                 <button type="button" className="auth-tab active">
-                  <User size={13} className="inline mr-1.5" /> CREATE ENCLAVE
+                  <User size={13} className="inline mr-1.5" /> CREATE ACCOUNT
                 </button>
               </div>
 
@@ -298,7 +304,7 @@ export default function Signup() {
 
                   {/* Email Field */}
                   <div className="field mt-4">
-                    <label htmlFor="regEmail">WORK ENCLAVE EMAIL</label>
+                    <label htmlFor="regEmail">WORK EMAIL</label>
                     <input
                       id="regEmail"
                       type="email"
@@ -313,7 +319,7 @@ export default function Signup() {
                   {/* Password Field with Eye Toggle */}
                   <div className="field mt-4">
                     <div className="flex items-center justify-between mb-2">
-                      <label htmlFor="regPw" className="mb-0">HARDWARE PASSPHRASE</label>
+                      <label htmlFor="regPw" className="mb-0">PASSWORD</label>
                     </div>
 
                     <div className="pw-input-wrap">
@@ -331,13 +337,46 @@ export default function Signup() {
                         type="button"
                         className="pw-toggle-btn"
                         onClick={() => setShowPw(!showPw)}
-                        title={showPw ? 'Hide passphrase' : 'Show passphrase'}
-                        aria-label={showPw ? 'Hide passphrase' : 'Show passphrase'}
+                        title={showPw ? 'Hide password' : 'Show password'}
+                        aria-label={showPw ? 'Hide password' : 'Show password'}
                       >
                         {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                       </button>
                     </div>
-                    <p className="text-[10px] mono text-soft mt-1">Minimum 8 characters</p>
+
+                    {/* Password strength meter */}
+                    <div className="mt-2">
+                      <div className="flex justify-between text-[10px] mono mb-1">
+                        <span className="text-soft">PASSWORD STRENGTH</span>
+                        <span style={{ color: strength.color }}>{strength.label || 'ENTER A PASSWORD'}</span>
+                      </div>
+                      <div className="pwd-meter">
+                        <div
+                          className="pwd-meter-fill"
+                          style={{ width: `${strength.pct}%`, backgroundColor: strength.color }}
+                        />
+                      </div>
+                      {strength.hint && <p className="text-[10px] mono text-soft">{strength.hint}</p>}
+                    </div>
+                  </div>
+
+                  {/* Confirm Password Field */}
+                  <div className="field mt-4">
+                    <label htmlFor="confirmPw">CONFIRM PASSWORD</label>
+                    <div className="pw-input-wrap">
+                      <input
+                        id="confirmPw"
+                        type={showPw ? 'text' : 'password'}
+                        placeholder="Type it again"
+                        value={confirm}
+                        onChange={e => setConfirm(e.target.value)}
+                        autoComplete="new-password"
+                        required
+                      />
+                    </div>
+                    {mismatch && (
+                      <p className="text-[10px] mono text-red-500 mt-1.5">Passwords don't match.</p>
+                    )}
                   </div>
 
                   {/* Trust Enclave Checkbox */}
@@ -349,7 +388,7 @@ export default function Signup() {
                         onChange={e => setRemember(e.target.checked)}
                         className="accent-accent"
                       />
-                      <span>TRUST THIS HARDWARE ENCLAVE</span>
+                      <span>KEEP ME SIGNED IN ON THIS DEVICE</span>
                     </label>
                   </div>
 
@@ -362,12 +401,12 @@ export default function Signup() {
                   )}
 
                   {/* Submit Button */}
-                  <button className="btn btn-solid w-full justify-center mt-5" type="submit" disabled={busy}>
+                  <button className="btn btn-solid w-full justify-center mt-5" type="submit" disabled={busy || !formValid}>
                     {busy ? (
-                      <>PROVISIONING ENCLAVE SESSION…</>
+                      <>CREATING YOUR ACCOUNT…</>
                     ) : (
                       <>
-                        CREATE SOVEREIGN ENCLAVE <ArrowRight size={14} className="ml-1" />
+                        CREATE ACCOUNT <ArrowRight size={14} className="ml-1" />
                       </>
                     )}
                   </button>
@@ -388,9 +427,9 @@ export default function Signup() {
               {/* Hardware attestation footer */}
               <div className="mt-5 pt-3 border-t border-line/60 flex items-center justify-between text-[9.5px] mono text-soft">
                 <span className="flex items-center gap-1.5">
-                  <Lock size={11} className="text-accent" /> FIDO2 HARDWARE BACKED
+                  <Lock size={11} className="text-accent" /> PROTECTED CONNECTION
                 </span>
-                <span>SHA-256 HSM ATTESTED</span>
+                <span>DATA ENCRYPTED</span>
               </div>
             </div>
           </div>
@@ -399,10 +438,10 @@ export default function Signup() {
         {/* Global Metadata Footer */}
         <div className="mt-10 pt-6 border-t border-line">
           <dl className="meta-row">
-            <div><dt>TENANT MODEL</dt><dd>ISOLATED WORKSPACES PER ORGANIZATION</dd></div>
-            <div><dt>REGULATORY REGIME</dt><dd>NDPA 2023 · CBN REGULATED</dd></div>
-            <div><dt>DATA RESIDENCY</dt><dd>LAGOS AWS LOCAL ZONE · NAIROBI</dd></div>
-            <div><dt>SECURITY LEVEL</dt><dd className="text-ok font-medium">SOVEREIGN ENCLAVE ACTIVE</dd></div>
+            <div><dt>WORKSPACES</dt><dd>ONE PRIVATE WORKSPACE PER COMPANY</dd></div>
+            <div><dt>COMPLIANCE</dt><dd>NDPA 2023 · CBN</dd></div>
+            <div><dt>DATA LOCATION</dt><dd>LAGOS · NAIROBI</dd></div>
+            <div><dt>ACCOUNT STATUS</dt><dd className="text-ok font-medium">SECURE &amp; ACTIVE</dd></div>
           </dl>
         </div>
       </div>

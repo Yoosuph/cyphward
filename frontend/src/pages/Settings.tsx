@@ -83,7 +83,7 @@ export default function Settings() {
     setAddingMember(true);
     try {
       await addTeamMember(memberEmail.trim(), memberName.trim() || memberEmail.split('@')[0], memberRole);
-      toast(`Member ${memberEmail} enrolled!`);
+      toast(`Member ${memberEmail} added!`);
       setMemberModalOpen(false);
       setMemberEmail('');
       setMemberName('');
@@ -135,13 +135,13 @@ export default function Settings() {
         <div>
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">ENTERPRISE GOVERNANCE</p>
+            <p className="eyebrow text-accent">YOUR WORKSPACE</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
             Organization Settings
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Corporate profile, role-based access control, and authentication.
+            Company profile, team roles, and sign-in.
           </p>
         </div>
 
@@ -163,7 +163,7 @@ export default function Settings() {
           }`}
         >
           <Building size={14} />
-          <span>GENERAL & IDENTITY</span>
+          <span>GENERAL</span>
         </button>
 
         <button
@@ -174,7 +174,7 @@ export default function Settings() {
           }`}
         >
           <Users size={14} />
-          <span>TEAM & ACCESS ({data.members?.length || 0})</span>
+          <span>TEAM & ROLES ({data.members?.length || 0})</span>
         </button>
 
         <button
@@ -194,13 +194,13 @@ export default function Settings() {
           <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">
               <Building size={16} className="text-accent" />
-              <h3 className="mono font-semibold text-ink text-sm">CORPORATE PROFILE</h3>
+              <h3 className="mono font-semibold text-ink text-sm">COMPANY PROFILE</h3>
             </div>
 
             <form onSubmit={handleSaveCompany} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">LEGAL ENTITY NAME</label>
+                  <label className="mono text-soft text-[11px]">COMPANY NAME</label>
                   <input
                     type="text"
                     value={companyName}
@@ -241,10 +241,10 @@ export default function Settings() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">DEFENSE PLAN TIER</label>
+                  <label className="mono text-soft text-[11px]">YOUR PLAN</label>
                   <div className="flex items-center gap-2 p-2 rounded bg-inset/50 border border-line/60 mono text-soft">
                     <span className="text-ink font-semibold">{data.organization.plan || 'Enterprise Defense'}</span>
-                    <span className="tag ml-auto">CONTINUOUS</span>
+                    <span className="tag ml-auto">ALWAYS ON</span>
                   </div>
                 </div>
               </div>
@@ -269,7 +269,7 @@ export default function Settings() {
           <div className="flex items-center justify-between pb-3 border-b border-line">
             <div className="flex items-center gap-2">
               <Users size={16} className="text-accent" />
-              <h3 className="mono font-semibold text-ink text-sm">TEAM & ACCESS CONTROL</h3>
+              <h3 className="mono font-semibold text-ink text-sm">TEAM & ROLES</h3>
             </div>
             {canManageRoles && (
               <button
@@ -331,9 +331,9 @@ export default function Settings() {
           </div>
 
           <p className="text-[11px] text-soft mono">
-            Roles: <span className="text-ink">owner</span> (full admin + owner grants) ·{' '}
-            <span className="text-ink">admin</span> (manage scans, members) ·{' '}
-            <span className="text-ink">member</span> (read + triage)
+            Roles: <span className="text-ink">owner</span> (full control) ·{' '}
+            <span className="text-ink">admin</span> (manage scans and members) ·{' '}
+            <span className="text-ink">member</span> (view and review findings)
           </p>
         </div>
       )}
@@ -346,8 +346,8 @@ export default function Settings() {
           </div>
           <div className="space-y-3 text-xs text-soft mono leading-relaxed">
             <p className="text-ink">
-              Cyphward uses <span className="text-accent">Supabase Auth</span> exclusively.
-              API keys are not part of the MVP authentication model.
+              Sign-in is handled by <span className="text-accent">Supabase Auth</span>.
+              This version does not use API keys.
             </p>
             <ul className="space-y-2">
               <li className="flex items-start gap-2">
@@ -356,11 +356,11 @@ export default function Settings() {
               </li>
               <li className="flex items-start gap-2">
                 <Check size={14} className="text-ok mt-0.5" />
-                X-Organization-Id selects among your memberships (server-verified)
+                X-Organization-Id picks which organization to use (checked on the server)
               </li>
               <li className="flex items-start gap-2">
                 <Check size={14} className="text-ok mt-0.5" />
-                RBAC enforced server-side: owner / admin / member
+                Roles are checked on the server: owner / admin / member
               </li>
             </ul>
           </div>
@@ -405,7 +405,7 @@ export default function Settings() {
               onChange={e => setMemberRole(e.target.value)}
               className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
             >
-              <option value="member">member — read & triage</option>
+              <option value="member">member — view & review</option>
               <option value="admin">admin — manage scans & members</option>
               <option value="owner">owner — full control</option>
             </select>

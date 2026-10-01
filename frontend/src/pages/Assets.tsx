@@ -81,13 +81,13 @@ export default function Assets() {
         <div>
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">ATTACK SURFACE INVENTORY</p>
+            <p className="eyebrow text-accent">WHAT'S EXPOSED ONLINE</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            External Assets & Endpoints
+            Assets we found
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Passively discovered subdomains, IP bindings, network services, and active software footprints.
+            Subdomains, IP addresses, open services, and the software running on them.
           </p>
         </div>
 
@@ -97,7 +97,7 @@ export default function Assets() {
             <button
               onClick={() => setViewMode('table')}
               data-testid="view-mode-table"
-              aria-label="Table Inventory view"
+              aria-label="Table view"
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs mono transition-all btn-tactile ${
                 viewMode === 'table'
                   ? 'bg-accent text-white font-medium shadow-sm shadow-accent/20'
@@ -105,13 +105,13 @@ export default function Assets() {
               }`}
             >
               <Layers size={13} />
-              <span className="hidden xs:inline">Table Inventory</span>
+              <span className="hidden xs:inline">Table view</span>
               <span className="xs:hidden">Table</span>
             </button>
             <button
               onClick={() => setViewMode('topology')}
               data-testid="view-mode-topology"
-              aria-label="Topology Graph view"
+              aria-label="Topology view"
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs mono transition-all btn-tactile ${
                 viewMode === 'topology'
                   ? 'bg-accent text-white font-medium shadow-sm shadow-accent/20'
@@ -119,7 +119,7 @@ export default function Assets() {
               }`}
             >
               <Radio size={13} />
-              <span className="hidden xs:inline">Topology Graph</span>
+              <span className="hidden xs:inline">Topology view</span>
               <span className="xs:hidden">Topology</span>
             </button>
           </div>
@@ -183,9 +183,9 @@ export default function Assets() {
                 <th className="py-3 px-4 font-medium">IP ADDRESS</th>
                 <th className="py-3 px-4 font-medium">ASSET TYPE</th>
                 <th className="py-3 px-4 font-medium">HTTP STATUS</th>
-                <th className="py-3 px-4 font-medium">DETECTED TECH</th>
-                <th className="py-3 px-4 font-medium">TLS / CIPHER</th>
-                <th className="py-3 px-4 font-medium">RISKS</th>
+                <th className="py-3 px-4 font-medium">SOFTWARE FOUND</th>
+                <th className="py-3 px-4 font-medium">SSL/TLS</th>
+                <th className="py-3 px-4 font-medium">ISSUES</th>
                 <th className="py-3 px-4 font-medium text-right">ACTION</th>
               </tr>
             </thead>
@@ -200,7 +200,7 @@ export default function Assets() {
               ) : assets.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-soft mono">
-                    No assets found matching the selected filters.
+                    No assets match your search or filters.
                   </td>
                 </tr>
               ) : (
@@ -218,7 +218,7 @@ export default function Assets() {
                       </div>
                       {asset.parent_domain && asset.parent_domain !== asset.hostname && (
                         <span className="text-[10px] text-soft font-normal block pl-5">
-                          Zone: {asset.parent_domain}
+                          Domain: {asset.parent_domain}
                         </span>
                       )}
                     </td>
@@ -293,7 +293,7 @@ export default function Assets() {
                         </span>
                       ) : asset.findings_count && asset.findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                          {asset.findings_count} Risks
+                          {asset.findings_count} Issues
                         </span>
                       ) : (
                         <span className="text-ok text-[11px] flex items-center gap-1">
@@ -328,8 +328,8 @@ export default function Assets() {
         open={!!selectedAssetId}
         onClose={() => setSelectedAssetId(null)}
         size="xl"
-        eyebrow="ATTACK SURFACE"
-        title="ASSET TELEMETRY PROFILE"
+        eyebrow="ASSET DETAILS"
+        title="Asset details"
         icon={<Server size={16} />}
       >
         {detailLoading || !assetDetail ? (
@@ -348,14 +348,14 @@ export default function Assets() {
                 <div>IP: <span className="text-ink font-semibold">{assetDetail.asset.ip_address || '—'}</span></div>
                 <div>Type: <span className="text-ink">{assetDetail.asset.asset_type}</span></div>
                 <div>HTTP Status: <span className="text-ink font-semibold">{assetDetail.asset.http_status || '—'}</span></div>
-                <div>Zone: <span className="text-ink">{assetDetail.asset.parent_domain || '—'}</span></div>
+                <div>Domain: <span className="text-ink">{assetDetail.asset.parent_domain || '—'}</span></div>
               </div>
             </div>
 
             {/* Technology Footprint */}
             <div className="space-y-2">
               <h4 className="mono text-[11px] font-semibold text-soft uppercase tracking-wider">
-                Discovered Technologies
+                Software we found
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 {(assetDetail.asset.technologies || []).map((t, idx) => (
@@ -378,7 +378,7 @@ export default function Assets() {
             {assetDetail.asset.tls_info && (
               <div className="space-y-2">
                 <h4 className="mono text-[11px] font-semibold text-soft uppercase tracking-wider">
-                  SSL/TLS Certificate State
+                  SSL/TLS certificate
                 </h4>
                 <div className="p-3 rounded bg-inset border border-line space-y-2 mono text-[11px]">
                   <div className="flex justify-between">
@@ -407,13 +407,13 @@ export default function Assets() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h4 className="mono text-[11px] font-semibold text-soft uppercase tracking-wider">
-                  Associated Security Findings ({assetDetail.findings.length})
+                  Issues on this asset ({assetDetail.findings.length})
                 </h4>
               </div>
 
               {assetDetail.findings.length === 0 ? (
                 <div className="p-4 rounded bg-inset/40 border border-line text-center text-soft mono text-xs">
-                  No security vulnerabilities or misconfigurations discovered on this asset.
+                  No issues found on this asset. It looks good.
                 </div>
               ) : (
                 <div className="space-y-2">

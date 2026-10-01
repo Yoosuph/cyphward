@@ -28,19 +28,19 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
 
   const cmds: Cmd[] = useMemo(() => ([
     { label: 'Go to Overview', hint: '01', icon: <ArrowUpRight size={15} />, run: () => nav('/') },
-    { label: 'Go to Assets inventory', hint: '02', icon: <Server size={15} />, run: () => nav('/assets') },
-    { label: 'Go to Security findings', hint: '03', icon: <ShieldAlert size={15} />, run: () => nav('/findings') },
-    { label: 'Go to Inngest Scans tracker', hint: '04', icon: <Radar size={15} />, run: () => nav('/scans') },
-    { label: 'Go to Domain verification', hint: '05', icon: <Globe size={15} />, run: () => nav('/domains') },
-    { label: 'Go to Settings & credentials', hint: '06', icon: <Sliders size={15} />, run: () => nav('/settings') },
-    { label: 'Launch security scan', hint: 'inngest', icon: <Play size={15} />, run: () => nav('/scans') },
+    { label: 'Go to Assets', hint: '02', icon: <Server size={15} />, run: () => nav('/assets') },
+    { label: 'Go to Findings', hint: '03', icon: <ShieldAlert size={15} />, run: () => nav('/findings') },
+    { label: 'Go to Scans', hint: '04', icon: <Radar size={15} />, run: () => nav('/scans') },
+    { label: 'Go to Domains', hint: '05', icon: <Globe size={15} />, run: () => nav('/domains') },
+    { label: 'Go to Settings', hint: '06', icon: <Sliders size={15} />, run: () => nav('/settings') },
+    { label: 'Launch security scan', hint: 'quick action', icon: <Play size={15} />, run: () => nav('/scans') },
     { label: 'Toggle theme (Light / Dark)', hint: 'appearance', icon: <Moon size={15} />, run: toggleTheme },
     {
-      label: 'Copy build manifest', hint: 'clipboard', icon: <Copy size={15} />,
+      label: 'Copy app info', hint: 'clipboard', icon: <Copy size={15} />,
       run: () => {
         const m = { app: 'cyphward', version: '2.0.0', tenant: tenant?.name, region: 'ng-lagos' };
         navigator.clipboard?.writeText(JSON.stringify(m, null, 2));
-        toast('Build manifest copied to clipboard');
+        toast('App info copied to clipboard');
       },
     },
     {

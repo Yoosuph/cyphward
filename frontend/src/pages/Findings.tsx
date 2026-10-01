@@ -65,7 +65,7 @@ export default function Findings() {
         if (updated) setActiveFinding(updated);
       }
     } catch (err) {
-      toast('Failed to load findings');
+      toast('Failed to load issues');
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ export default function Findings() {
   const handleStatusChange = async (findingId: string, newStatus: FindingStatus) => {
     try {
       const updated = await updateFindingStatus(findingId, newStatus);
-      toast(`Finding marked as ${newStatus}`);
+      toast(`Issue marked as ${newStatus}`);
       setFindings(prev => prev.map(f => (f.id === findingId ? { ...f, status: newStatus } : f)));
       if (activeFinding && activeFinding.id === findingId) {
         setActiveFinding(prev => (prev ? { ...prev, status: newStatus } : null));
@@ -95,7 +95,7 @@ export default function Findings() {
       const exp = await explainFinding(finding.id, finding);
       setExplanation(exp);
     } catch (e) {
-      toast('AI Explanation synthesis failed');
+      toast('Could not load the explanation. Please try again.');
     } finally {
       setExplaining(false);
     }
@@ -109,7 +109,7 @@ export default function Findings() {
       const guide = await getRemediation(finding.id, stack, finding);
       setRemediationGuide(guide);
     } catch (e) {
-      toast('AI Remediation generation failed');
+      toast('Could not build the fix guide. Please try again.');
     } finally {
       setRemediating(false);
     }
@@ -140,13 +140,13 @@ export default function Findings() {
         <div>
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">SECURITY FINDINGS LEDGER</p>
+            <p className="eyebrow text-accent">YOUR SECURITY ISSUES</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Vulnerabilities & Posture Deficits
+            Security issues we found
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Prioritized risk observations with technical evidence and sovereign AI remediation guidance.
+            Issues ranked by severity, with the evidence behind them and clear steps to fix each one.
           </p>
         </div>
 
@@ -183,7 +183,7 @@ export default function Findings() {
           <Search size={13} className="absolute left-3 top-2.5 text-soft" />
           <input
             type="text"
-            placeholder="Search findings..."
+            placeholder="Search issues..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && loadFindings()}
@@ -201,8 +201,8 @@ export default function Findings() {
         ) : findings.length === 0 ? (
           <div className="p-12 text-center border border-line rounded-lg bg-raised">
             <CheckCircle2 size={24} className="text-ok mx-auto mb-2" />
-            <p className="text-xs mono text-ink font-semibold">No active findings in this scope.</p>
-            <p className="text-[11px] mono text-soft mt-1">Your perimeter exhibits solid defensive configuration.</p>
+            <p className="text-xs mono text-ink font-semibold">No issues found here.</p>
+            <p className="text-[11px] mono text-soft mt-1">Your setup looks good.</p>
           </div>
         ) : (
           findings.map((finding, idx) => (
@@ -262,24 +262,24 @@ export default function Findings() {
                 <button
                   onClick={() => handleTriggerExplain(finding)}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs mono border border-line bg-inset hover:border-accent text-ink transition-colors"
-                  title="Explain finding with AI"
+                  title="Ask CyphBot about this issue"
                 >
                   <Sparkles size={12} className="text-accent" />
-                  <span className="hidden sm:inline">Explain</span>
+                  <span className="hidden sm:inline">Ask CyphBot</span>
                 </button>
 
                 <button
                   onClick={() => handleTriggerRemediate(finding)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 transition-opacity"
                 >
-                  <span>Fix Guide</span>
+                  <span>How to fix</span>
                   <ArrowUpRight size={12} />
                 </button>
 
                 <button
                   onClick={() => setActiveFinding(finding)}
                   className="p-1.5 rounded border border-line bg-raised hover:bg-inset text-soft hover:text-ink"
-                  title="Open Evidence Drawer"
+                  title="Open issue details"
                 >
                   <Layers size={14} />
                 </button>
@@ -294,8 +294,8 @@ export default function Findings() {
         open={!!activeFinding}
         onClose={() => setActiveFinding(null)}
         size="2xl"
-        eyebrow="SIGNAL OBSERVATION"
-        title="TECHNICAL EVIDENCE DRAWER"
+        eyebrow="ISSUE DETAILS"
+        title="Issue details"
         icon={<Terminal size={16} />}
       >
         {activeFinding && (
@@ -325,8 +325,8 @@ export default function Findings() {
             {/* Target Asset Profile */}
             <div className="p-3 bg-inset rounded border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mono text-[11px]">
               <div className="truncate">
-                <span className="text-soft">TARGET HOST:</span>{' '}
-                <span className="font-bold text-ink">{activeFinding.hostname || 'Global Zone'}</span>
+                <span className="text-soft">HOST:</span>{' '}
+                <span className="font-bold text-ink">{activeFinding.hostname || 'All domains'}</span>
               </div>
               <div>
                 <span className="text-soft">IP:</span>{' '}
@@ -336,7 +336,7 @@ export default function Findings() {
 
             {/* Status Action Row */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded bg-inset/60 border border-line gap-2">
-              <span className="mono text-[11px] text-soft">Remediation Status:</span>
+              <span className="mono text-[11px] text-soft">Status:</span>
               <div className="flex flex-wrap items-center gap-1.5 mono text-[10px]">
                 <button
                   onClick={() => handleStatusChange(activeFinding.id, 'open')}
@@ -377,7 +377,7 @@ export default function Findings() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h4 className="mono text-[11px] font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
-                  <Code size={13} className="text-accent" /> Telemetry Observations & Evidence
+                  <Code size={13} className="text-accent" /> Evidence we collected
                 </h4>
                 {activeFinding.evidence?.curl_reproduction && (
                   <button
@@ -397,7 +397,7 @@ export default function Findings() {
             {/* Recommended Remediation Blueprint */}
             <div className="space-y-2">
               <h4 className="mono text-[11px] font-bold text-ink uppercase tracking-wider">
-                Recommended Remediation
+                How to fix this
               </h4>
               <div className="p-3.5 rounded bg-inset border border-line text-ink leading-relaxed">
                 {activeFinding.remediation}
@@ -411,14 +411,14 @@ export default function Findings() {
                 className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs mono font-medium border border-line bg-raised hover:border-accent text-ink transition-colors btn-tactile"
               >
                 <Sparkles size={13} className="text-accent" />
-                <span>Explain with AI</span>
+                <span>Ask CyphBot</span>
               </button>
 
               <button
                 onClick={() => handleTriggerRemediate(activeFinding)}
                 className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 transition-opacity btn-tactile"
               >
-                <span>Remediation Blueprint</span>
+                <span>How to fix</span>
                 <ArrowUpRight size={13} />
               </button>
             </div>
@@ -430,7 +430,7 @@ export default function Findings() {
       <Modal
         open={explainModalOpen}
         onClose={() => setExplainModalOpen(false)}
-        title="AI FINDING INTERPRETATION"
+        title="What this issue means"
         icon={<Sparkles size={16} />}
         maxWidth="max-w-xl"
       >
@@ -486,7 +486,7 @@ export default function Findings() {
             onClick={() => setExplainModalOpen(false)}
             className="px-4 py-1.5 rounded text-xs mono bg-accent text-white hover:opacity-90 btn-tactile"
           >
-            Close Explanation
+            Close
           </button>
         </div>
       </Modal>
@@ -496,14 +496,14 @@ export default function Findings() {
         open={remediationDrawerOpen}
         onClose={() => setRemediationDrawerOpen(false)}
         size="2xl"
-        eyebrow="TACTICAL REMEDIATION"
-        title="AI REMEDIATION ASSISTANT"
+        eyebrow="FIX GUIDE"
+        title="How to fix this"
         icon={<Sparkles size={16} />}
       >
         <div className="pt-2 space-y-4 text-xs">
           {/* Stack Selector */}
           <div className="space-y-1.5">
-            <span className="mono text-[11px] text-soft">CHOOSE TARGET TECHNOLOGY STACK:</span>
+            <span className="mono text-[11px] text-soft">CHOOSE YOUR SETUP:</span>
             <div className="grid grid-cols-4 gap-1.5 mono text-[11px]">
               {['nginx', 'apache', 'cloudflare', 'aws'].map(stack => (
                 <button
@@ -550,7 +550,7 @@ export default function Findings() {
 
               {/* Step-by-Step Instructions */}
               <div className="space-y-2">
-                <h5 className="mono font-semibold text-soft uppercase text-[11px]">Implementation Steps:</h5>
+                <h5 className="mono font-semibold text-soft uppercase text-[11px]">Steps to follow:</h5>
                 <ol className="space-y-2">
                   {remediationGuide.steps.map((step, idx) => (
                     <li key={idx} className="flex items-start gap-2 text-ink">
@@ -567,14 +567,14 @@ export default function Findings() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="mono text-[11px] font-semibold text-soft uppercase">
-                    Configuration Snippet ({selectedStack.toUpperCase()})
+                    Settings code ({selectedStack.toUpperCase()})
                   </span>
                   <button
                     onClick={() => copyToClipboard(remediationGuide.code_snippet, false)}
                     className="text-[10px] mono text-accent hover:underline flex items-center gap-1 btn-tactile"
                   >
                     {copiedCode ? <Check size={11} /> : <Copy size={11} />}
-                    {copiedCode ? 'Copied' : 'Copy Code'}
+                    {copiedCode ? 'Copied' : 'Copy'}
                   </button>
                 </div>
 
@@ -586,7 +586,7 @@ export default function Findings() {
               {/* Verification Command */}
               <div className="space-y-1.5">
                 <span className="mono text-[11px] font-semibold text-soft uppercase">
-                  Post-Deployment Verification Command
+                  Command to check it worked
                 </span>
                 <div className="p-2.5 bg-inset rounded border border-line font-mono text-[11px] text-ink flex items-center justify-between">
                   <code>{remediationGuide.verification_command}</code>

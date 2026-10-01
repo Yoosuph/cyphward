@@ -21,6 +21,16 @@ import { useToast } from '../components/Toast';
 import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 
+const STATUS_LABEL: Record<string, string> = {
+  verified: 'Verified',
+  pending: 'Waiting for DNS',
+  expired: 'Expired',
+  revoked: 'Revoked',
+  failed: 'Waiting for DNS',
+};
+
+const statusLabel = (status: string) => STATUS_LABEL[status] || status;
+
 export default function Domains() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,11 +40,9 @@ export default function Domains() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  // Verification instruction modal state
-  const [instructionModal, setInstructionModal] = useState<{
-    domain: Domain;
-    dns_instructions?: any;
-  } | null>(null);
+  // "How to verify" modal — DNS steps + inline check result
+  const [instructionModal, setInstructionModal] = useState<Domain | null>(null);
+  const [modalCheck, setModalCheck] = useState<'idle' | 'checking' | 'failed' | 'verified'>('idle');
 
   const toast = useToast();
 
@@ -61,13 +69,11 @@ export default function Domains() {
     setAdding(true);
     try {
       const res = await addDomain(newDomainInput.trim());
-      toast('Domain added! DNS TXT token generated.');
+      toast('Domain added. Follow the steps to verify it.');
       setAddModalOpen(false);
       setNewDomainInput('');
-      setInstructionModal({
-        domain: res.domain,
-        dns_instructions: res.dns_instructions,
-      });
+      setModalCheck('idle');
+      setInstructionModal(res.domain);
       await loadDomains();
     } catch (err: any) {
       toast(err.message || 'Failed to add domain');
@@ -76,28 +82,51 @@ export default function Domains() {
     }
   };
 
-  const handleVerify = async (domain: Domain) => {
+  const openInstructions = (dom: Domain) => {
+    setModalCheck('idle');
+    setInstructionModal(dom);
+  };
+
+  const handleVerify = async (domain: Domain, fromModal = false) => {
     setVerifyingId(domain.id);
+    if (fromModal) setModalCheck('checking');
     try {
       const res = await verifyDomain(domain.id);
       if (res.status === 'verified') {
-        toast(`Domain ${domain.domain} verified successfully!`);
+        toast(`${domain.domain} is verified.`);
+        if (fromModal) {
+          setModalCheck('verified');
+          window.setTimeout(() => {
+            setInstructionModal(null);
+            loadDomains();
+          }, 900);
+        } else {
+          await loadDomains();
+        }
       } else {
-        toast(`DNS TXT verification failed for ${domain.domain}. Expected record cyphward-verification=${domain.verification_token} not yet detected.`);
+        if (fromModal) {
+          setModalCheck('failed');
+        } else {
+          // Record not visible yet — send the user straight to the setup steps.
+          toast(`We can't find the DNS record for ${domain.domain} yet.`);
+          setModalCheck('failed');
+          setInstructionModal(domain);
+        }
+        await loadDomains();
       }
-      await loadDomains();
     } catch (err: any) {
-      toast(err.message || 'Verification error');
+      toast(err.message || 'Could not check right now. Please try again.');
+      if (fromModal) setModalCheck('failed');
     } finally {
       setVerifyingId(null);
     }
   };
 
   const handleDelete = async (domainId: string, name: string) => {
-    if (!confirm(`Are you sure you want to remove domain ${name}?`)) return;
+    if (!confirm(`Remove ${name}? We will stop scanning it.`)) return;
     try {
       await deleteDomain(domainId);
-      toast(`Domain ${name} removed`);
+      toast(`${name} removed.`);
       await loadDomains();
     } catch (e) {
       toast('Failed to delete domain');
@@ -108,7 +137,7 @@ export default function Domains() {
     navigator.clipboard.writeText(text);
     setCopiedToken(id);
     setTimeout(() => setCopiedToken(null), 2000);
-    toast('Token copied to clipboard');
+    toast('Record value copied.');
   };
 
   if (loading && domains.length === 0) {
@@ -122,13 +151,13 @@ export default function Domains() {
         <div>
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">INFRASTRUCTURE GOVERNANCE</p>
+            <p className="eyebrow text-accent">YOUR DOMAINS</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Domain Verification & Enclave Assets
+            Domains
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Prove authoritative ownership via DNS TXT cryptographic challenges before enabling attack surface scanning.
+            Add the domains you want to monitor, prove they're yours, and we'll start scanning them.
           </p>
         </div>
 
@@ -156,9 +185,9 @@ export default function Domains() {
         <div className="flex items-center gap-3">
           <ShieldCheck size={20} className="text-ok shrink-0" />
           <div>
-            <span className="font-bold text-ink">Zero-Trust Perimeter Rule:</span>
+            <span className="font-bold text-ink">We only scan domains you own.</span>
             <p className="text-soft text-[11.5px] mt-0.5">
-              To prevent unauthorized reconnaissance, scanning is only permitted on domains possessing a validated DNS TXT token.
+              Before we scan a site, you add a one-time DNS record to prove it's yours. This stops anyone — including us — from scanning domains you don't control.
             </p>
           </div>
         </div>
@@ -171,7 +200,7 @@ export default function Domains() {
       <div className="rounded-lg border border-line bg-raised overflow-hidden">
         <div className="p-4 border-b border-line bg-inset/30 flex items-center justify-between">
           <h3 className="mono text-xs font-bold text-ink uppercase tracking-wider">
-            REGISTERED DOMAIN LEDGER
+            YOUR DOMAINS
           </h3>
           <span className="text-[11px] mono text-soft">{domains.length} domains</span>
         </div>
@@ -181,10 +210,10 @@ export default function Domains() {
             <thead>
               <tr className="border-b border-line bg-inset/40 text-soft text-[11px]">
                 <th className="py-3 px-4 font-medium">DOMAIN NAME</th>
-                <th className="py-3 px-4 font-medium">VERIFICATION STATUS</th>
-                <th className="py-3 px-4 font-medium">DNS TXT TOKEN</th>
-                <th className="py-3 px-4 font-medium">VERIFIED AT</th>
-                <th className="py-3 px-4 font-medium">ASSETS</th>
+                <th className="py-3 px-4 font-medium">STATUS</th>
+                <th className="py-3 px-4 font-medium">VERIFICATION RECORD</th>
+                <th className="py-3 px-4 font-medium">VERIFIED ON</th>
+                <th className="py-3 px-4 font-medium">ASSETS FOUND</th>
                 <th className="py-3 px-4 font-medium text-right">ACTIONS</th>
               </tr>
             </thead>
@@ -199,7 +228,7 @@ export default function Domains() {
               ) : domains.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-soft mono">
-                    No domains configured. Click "ADD DOMAIN" above to begin.
+                    No domains yet. Click 'Add domain' to get started.
                   </td>
                 </tr>
               ) : (
@@ -231,7 +260,7 @@ export default function Domains() {
                         ) : (
                           <Clock size={11} />
                         )}
-                        {dom.verification_status}
+                        {statusLabel(dom.verification_status)}
                       </span>
                     </td>
 
@@ -257,11 +286,11 @@ export default function Domains() {
                             month: 'short',
                             year: 'numeric',
                           })
-                        : 'Unverified'}
+                        : 'Not yet'}
                     </td>
 
                     <td className="py-3 px-4 font-semibold text-ink">
-                      {dom.asset_count !== undefined ? `${dom.asset_count} hosts` : '—'}
+                      {dom.asset_count !== undefined ? `${dom.asset_count} assets` : '—'}
                     </td>
 
                     <td className="py-3 px-4 text-right space-x-2">
@@ -276,29 +305,19 @@ export default function Domains() {
                       >
                         {verifyingId === dom.id ? (
                           <span className="flex items-center gap-1">
-                            <RefreshCw size={10} className="animate-spin" /> Checking
+                            <RefreshCw size={10} className="animate-spin" /> Checking…
                           </span>
                         ) : dom.verification_status === 'verified' ? (
-                          'Re-verify'
+                          'Check again'
                         ) : (
-                          'Verify DNS'
+                          'Check now'
                         )}
                       </button>
 
                       <button
-                        onClick={() =>
-                          setInstructionModal({
-                            domain: dom,
-                            dns_instructions: {
-                              record_type: 'TXT',
-                              host: `@ or ${dom.domain}`,
-                              value: `cyphward-verification=${dom.verification_token}`,
-                              ttl: 300,
-                            },
-                          })
-                        }
+                        onClick={() => openInstructions(dom)}
                         className="btn-tactile p-1 rounded hover:bg-inset text-soft hover:text-ink"
-                        title="View Setup Instructions"
+                        title="How to verify"
                       >
                         <ExternalLink size={13} />
                       </button>
@@ -306,7 +325,7 @@ export default function Domains() {
                       <button
                         onClick={() => handleDelete(dom.id, dom.domain)}
                         className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent"
-                        title="Delete Domain"
+                        title="Remove domain"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -323,13 +342,13 @@ export default function Domains() {
       <Modal
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        title="ADD ENTERPRISE DOMAIN"
+        title="ADD A DOMAIN"
         icon={<Globe size={16} className="text-accent" />}
         maxWidth="max-w-md"
       >
         <form onSubmit={handleAddDomain} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs mono text-soft">ROOT APEX DOMAIN OR SUBDOMAIN</label>
+            <label className="text-xs mono text-soft">DOMAIN NAME</label>
             <input
               type="text"
               placeholder="e.g. acmetraders.ng or corp.company.com"
@@ -342,9 +361,9 @@ export default function Domains() {
           </div>
 
           <div className="p-3 bg-inset/50 rounded border border-line text-[11px] mono text-soft space-y-1">
-            <span className="font-semibold text-ink block">DNS Verification Required</span>
+            <span className="font-semibold text-ink block">You'll verify it next</span>
             <p>
-              A unique cryptographic TXT token will be generated. You must publish this record in your authoritative DNS zone to unlock automated scanning.
+              After adding the domain, we'll show you a one-time DNS record to publish. This proves the domain is yours before scanning starts.
             </p>
           </div>
 
@@ -366,47 +385,53 @@ export default function Domains() {
                   <RefreshCw size={13} className="animate-spin" /> Adding...
                 </>
               ) : (
-                'Generate Token'
+                'Add domain'
               )}
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* DNS Setup Instructions Modal */}
+      {/* How to verify — DNS steps + inline check */}
       <Modal
         open={Boolean(instructionModal)}
         onClose={() => setInstructionModal(null)}
-        title="DNS TXT VERIFICATION RECORD"
+        title="HOW TO VERIFY YOUR DOMAIN"
         icon={<ShieldCheck size={16} className="text-ok" />}
         maxWidth="max-w-lg"
       >
         {instructionModal && (
           <div className="space-y-4">
             <p className="text-xs text-soft leading-relaxed">
-              Add the following TXT record to your authoritative DNS zone (Cloudflare, Route 53, Namecheap, etc.) to prove ownership of{' '}
-              <strong className="text-ink">{instructionModal.domain.domain}</strong>:
+              Prove you own <strong className="text-ink">{instructionModal.domain}</strong> by adding
+              a TXT record in your DNS settings (Cloudflare, GoDaddy, Namecheap, etc.):
             </p>
+
+            <ol className="space-y-1.5 text-xs text-soft list-decimal list-inside">
+              <li>Open the DNS settings for {instructionModal.domain}.</li>
+              <li>Add a new TXT record with the values below.</li>
+              <li>Save, then give it a few minutes to go live.</li>
+            </ol>
 
             <div className="p-3.5 rounded bg-black text-emerald-400 font-mono text-[11px] space-y-2 border border-line">
               <div className="flex justify-between">
-                <span className="text-soft">Record Type:</span>
+                <span className="text-soft">Record type</span>
                 <span className="text-white font-bold">TXT</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-soft">Host / Name:</span>
-                <span className="text-white font-bold">@ (or {instructionModal.domain.domain})</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-soft">Name / Host</span>
+                <span className="text-white font-bold break-all">_cyphward.{instructionModal.domain}</span>
               </div>
               <div className="flex flex-col gap-1 pt-1 border-t border-line/50">
-                <span className="text-soft">TXT Value:</span>
+                <span className="text-soft">Value</span>
                 <div className="p-2 bg-inset/80 rounded flex items-center justify-between gap-2 text-ink">
                   <code className="text-emerald-300 break-all">
-                    cyphward-verification={instructionModal.domain.verification_token}
+                    cyphward-verification={instructionModal.verification_token}
                   </code>
                   <button
                     onClick={() =>
                       copyText(
-                        `cyphward-verification=${instructionModal.domain.verification_token}`,
+                        `cyphward-verification=${instructionModal.verification_token}`,
                         'modal'
                       )
                     }
@@ -416,11 +441,27 @@ export default function Domains() {
                   </button>
                 </div>
               </div>
-              <div className="flex justify-between pt-1">
-                <span className="text-soft">TTL:</span>
-                <span className="text-white font-bold">300 (or Auto)</span>
-              </div>
+              <p className="text-soft text-[10px] pt-1 border-t border-line/50">
+                Some providers want only "_cyphward" as the name — they'll add the domain for you.
+              </p>
             </div>
+
+            {modalCheck === 'failed' && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-500 flex items-start gap-2">
+                <AlertTriangle size={14} className="flex-none mt-0.5" />
+                <span>
+                  We can't see the record yet. If you just added it, wait a few minutes and check
+                  again — DNS changes sometimes take up to an hour.
+                </span>
+              </div>
+            )}
+
+            {modalCheck === 'verified' && (
+              <div className="p-3 bg-ok/10 border border-ok/30 rounded text-xs text-ok flex items-center gap-2">
+                <CheckCircle2 size={14} className="flex-none" />
+                <span>Domain verified! Updating your dashboard…</span>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-2">
               <button
@@ -430,14 +471,17 @@ export default function Domains() {
                 Close
               </button>
               <button
-                onClick={() => {
-                  const domToVerify = instructionModal.domain;
-                  setInstructionModal(null);
-                  handleVerify(domToVerify);
-                }}
-                className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90"
+                onClick={() => handleVerify(instructionModal, true)}
+                disabled={modalCheck === 'checking' || modalCheck === 'verified'}
+                className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
               >
-                Verify Now
+                {modalCheck === 'checking' ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" /> Checking…
+                  </>
+                ) : (
+                  'Check now'
+                )}
               </button>
             </div>
           </div>

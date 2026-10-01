@@ -84,14 +84,14 @@ export default function SecurityVelocityChart() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-            <span className="eyebrow text-[10.5px]">SECURITY SCORE OVER TIME</span>
+            <span className="eyebrow text-[10.5px]">SECURITY HEALTH</span>
           </div>
           <h2 className="text-base sm:text-lg font-bold tracking-tight text-ink flex items-center gap-2">
-            <span>Security Posture Velocity</span>
-            <span className="text-soft font-normal text-xs sm:text-sm">vs. Threat Beacons</span>
+            <span>Security score over time</span>
+            <span className="text-soft font-normal text-xs sm:text-sm">vs. blocked threats</span>
           </h2>
           <p className="text-xs text-soft mt-0.5 max-w-xl">
-            Continuous temporal tracking of sovereign perimeter resilience, blocked threat vectors, and mean time to remediation (MTTR).
+            How your security score, blocked threats, and fix times have changed.
           </p>
         </div>
 
@@ -106,10 +106,10 @@ export default function SecurityVelocityChart() {
                   ? 'bg-accent/15 border-accent/40 text-accent font-medium'
                   : 'bg-inset border-line text-soft opacity-60'
               }`}
-              title="Toggle Posture Score line"
+              title="Toggle score line"
             >
               {showScore ? <Eye size={11} /> : <EyeOff size={11} />}
-              <span>Posture</span>
+              <span>Score</span>
             </button>
             <button
               onClick={() => setShowThreats(!showThreats)}
@@ -118,7 +118,7 @@ export default function SecurityVelocityChart() {
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-ok font-medium'
                   : 'bg-inset border-line text-soft opacity-60'
               }`}
-              title="Toggle Threat Beacons line"
+              title="Toggle threats line"
             >
               {showThreats ? <Eye size={11} /> : <EyeOff size={11} />}
               <span>Threats</span>
@@ -148,7 +148,7 @@ export default function SecurityVelocityChart() {
       <div className="grid grid-cols-2 lg:grid-cols-4 border-b border-line bg-inset/40 text-xs mono divide-x divide-y lg:divide-y-0 divide-line">
         <div className="p-3.5 sm:p-4 space-y-1">
           <div className="flex items-center justify-between text-soft text-[10.5px]">
-            <span>SOVEREIGN SCORE</span>
+            <span>SECURITY SCORE</span>
             <TrendingUp size={13} className="text-accent" />
           </div>
           <div className="flex items-baseline gap-2">
@@ -160,13 +160,13 @@ export default function SecurityVelocityChart() {
             </span>
           </div>
           <div className="text-[10px] text-soft">
-            Top 4% of monitored African fintech enclaves
+            Top 4% of African fintech companies we monitor
           </div>
         </div>
 
         <div className="p-3.5 sm:p-4 space-y-1">
           <div className="flex items-center justify-between text-soft text-[10.5px]">
-            <span>INTERCEPTED BEACONS</span>
+            <span>THREATS BLOCKED</span>
             <ShieldAlert size={13} className="text-ok" />
           </div>
           <div className="flex items-baseline gap-2">
@@ -178,29 +178,29 @@ export default function SecurityVelocityChart() {
             </span>
           </div>
           <div className="text-[10px] text-soft">
-            Zero hostile telemetry escapes to public mesh
+            Every one blocked before it could reach you
           </div>
         </div>
 
         <div className="p-3.5 sm:p-4 space-y-1">
           <div className="flex items-center justify-between text-soft text-[10.5px]">
-            <span>REMEDIATION VELOCITY</span>
+            <span>FIX SPEED</span>
             <Clock size={13} className="text-amber-500" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-xl sm:text-2xl font-bold tracking-tight text-ink font-mono">
               {latestPoint.mttr}m
             </span>
-            <span className="text-[11px] text-ok font-bold">-64% MTTR</span>
+            <span className="text-[11px] text-ok font-bold">-64% faster</span>
           </div>
           <div className="text-[10px] text-soft">
-            Automated CyphBot guides cut turnaround
+            CyphBot guidance helps you fix faster
           </div>
         </div>
 
         <div className="p-3.5 sm:p-4 space-y-1">
           <div className="flex items-center justify-between text-soft text-[10.5px]">
-            <span>ATTACK SURFACE RISK</span>
+            <span>EXPOSURE RISK</span>
             <Zap size={13} className="text-accent" />
           </div>
           <div className="flex items-baseline gap-2">
@@ -212,7 +212,7 @@ export default function SecurityVelocityChart() {
             </span>
           </div>
           <div className="text-[10px] text-soft">
-            18 monitored subdomains, zero unmapped exposed ports
+            18 subdomains monitored, no unexpected open ports
           </div>
         </div>
       </div>
@@ -283,7 +283,7 @@ export default function SecurityVelocityChart() {
                       <div className="flex items-center justify-between border-b border-line pb-1.5">
                         <span className="font-bold text-ink">{label}</span>
                         <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-ok/15 text-ok border border-ok/30 font-semibold">
-                          SYNCHRONIZED
+                          UP TO DATE
                         </span>
                       </div>
 
@@ -302,7 +302,7 @@ export default function SecurityVelocityChart() {
                           <div className="flex items-center justify-between">
                             <span className="flex items-center gap-1.5 text-soft">
                               <span className="w-2 h-2 rounded-full bg-ok" />
-                              <span>Blocked Beacons:</span>
+                              <span>Blocked threats:</span>
                             </span>
                             <span className="font-bold text-ok">{threatsVal}</span>
                           </div>
@@ -312,7 +312,7 @@ export default function SecurityVelocityChart() {
                           <div className="flex items-center justify-between">
                             <span className="flex items-center gap-1.5 text-soft">
                               <span className="w-2 h-2 rounded-full bg-amber-500" />
-                              <span>Avg MTTR:</span>
+                              <span>Avg fix time:</span>
                             </span>
                             <span className="font-semibold text-ink">{dataPoint.mttr} mins</span>
                           </div>
@@ -329,7 +329,7 @@ export default function SecurityVelocityChart() {
                   yAxisId="left"
                   type="monotone"
                   dataKey="score"
-                  name="Posture Score"
+                  name="Security score"
                   stroke="var(--accent)"
                   strokeWidth={2.5}
                   fill="url(#scoreVelocityGrad)"
@@ -351,7 +351,7 @@ export default function SecurityVelocityChart() {
                   yAxisId="right"
                   type="monotone"
                   dataKey="threats"
-                  name="Blocked Beacons"
+                  name="Blocked threats"
                   stroke="var(--ok)"
                   strokeWidth={2}
                   strokeDasharray="4 4"
@@ -376,13 +376,13 @@ export default function SecurityVelocityChart() {
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-0.5 bg-accent inline-block rounded-full" />
-              <span className="text-ink font-medium">Sovereign Posture Score</span>
-              <span className="text-[10px] text-soft hidden xs:inline">(Left Scale: 50-95)</span>
+              <span className="text-ink font-medium">Security score</span>
+              <span className="text-[10px] text-soft hidden xs:inline">(left axis: 50-95)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-0.5 bg-ok inline-block rounded-full border-t border-dashed" />
-              <span className="text-ink font-medium">Threat Beacons Blocked</span>
-              <span className="text-[10px] text-soft hidden xs:inline">(Right Scale: 0-80)</span>
+              <span className="text-ink font-medium">Blocked threats</span>
+              <span className="text-[10px] text-soft hidden xs:inline">(right axis: 0-80)</span>
             </div>
           </div>
 

@@ -17,7 +17,7 @@ export default function OnboardingComplete() {
           You're All Set!
         </h3>
         <p className="text-xs text-soft">
-          Your security perimeter is configured and ready to monitor.
+          Your workspace is set up and ready to start monitoring.
         </p>
       </div>
 
@@ -41,7 +41,7 @@ export default function OnboardingComplete() {
         className="btn btn-solid w-full justify-center"
       >
         <Radar size={14} className="mr-2" />
-        LAUNCH FIRST SCAN
+        START FIRST SCAN
       </button>
 
       <button

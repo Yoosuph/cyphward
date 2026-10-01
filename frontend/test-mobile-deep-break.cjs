@@ -57,7 +57,7 @@ async function testMobileDeep() {
   await checkPageOverflow('Overview Default');
 
   // Open Launch Scan Modal
-  const launchBtn = await page.$('button ::-p-text(LAUNCH SCAN)');
+  const launchBtn = await page.$('button ::-p-text(START SCAN)');
   if (launchBtn) {
     await launchBtn.click();
     await new Promise(r => setTimeout(r, 400));
@@ -117,7 +117,7 @@ async function testMobileDeep() {
   await checkPageOverflow('Findings Default');
 
   // Click Fix Guide button
-  const fixBtn = await page.$('button ::-p-text(Fix Guide)');
+  const fixBtn = await page.$('button ::-p-text(How to fix)');
   if (fixBtn) {
     await fixBtn.click();
     await new Promise(r => setTimeout(r, 500));
@@ -128,7 +128,7 @@ async function testMobileDeep() {
   }
 
   // Click Explain button
-  const explainBtn = await page.$('button[title*="Explain finding"]');
+  const explainBtn = await page.$('button[title*="Ask CyphBot"]');
   if (explainBtn) {
     await explainBtn.click();
     await new Promise(r => setTimeout(r, 500));
@@ -172,7 +172,7 @@ async function testMobileDeep() {
   await checkPageOverflow('Settings General Tab');
 
   // Team tab
-  const teamTab = await page.$('button ::-p-text(TEAM & ACCESS)');
+  const teamTab = await page.$('button ::-p-text(TEAM & ROLES)');
   if (teamTab) {
     await teamTab.click();
     await new Promise(r => setTimeout(r, 400));

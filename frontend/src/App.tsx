@@ -106,7 +106,7 @@ function AppShell() {
         <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
         <div className="text-center p-8 z-10">
           <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">INITIALIZING SOVEREIGN ENCLAVE…</p>
+          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
         </div>
       </div>
     );

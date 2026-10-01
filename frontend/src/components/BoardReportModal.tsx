@@ -35,12 +35,12 @@ export default function BoardReportModal({
     try {
       const res = await sendReportEmail({
         to_email: emailTarget.trim(),
-        recipient_name: 'Security Board Enclave',
+        recipient_name: 'Board of Directors',
       });
-      toast(`Executive briefing dispatched to ${emailTarget.trim()}!`);
+      toast(`Report emailed to ${emailTarget.trim()}!`);
       setShowEmailInput(false);
     } catch (err: any) {
-      toast(`Dispatch failed: ${err.message || 'Brevo relay activation pending'}`);
+      toast(`Failed to send email: ${err.message || 'email service unavailable'}`);
     } finally {
       setSendingEmail(false);
     }
@@ -48,7 +48,7 @@ export default function BoardReportModal({
 
   const handlePrint = () => {
     if (!summary) {
-      toast('Please wait for the briefing to load before printing.');
+      toast('Please wait for the report to load before printing.');
       return;
     }
 
@@ -83,7 +83,7 @@ export default function BoardReportModal({
 <html>
 <head>
   <meta charset="utf-8">
-  <title>CYPHWARD Board Briefing — ${summary.org_name}</title>
+  <title>CYPHWARD Board Report — ${summary.org_name}</title>
   <style>
     @page {
       size: A4 portrait;
@@ -213,28 +213,28 @@ export default function BoardReportModal({
   const handleCopy = async () => {
     if (!summary) return;
     const text = `
-CYPHWARD EXECUTIVE SECURITY ASSESSMENT
+CYPHWARD SECURITY REPORT FOR THE BOARD
 Organization: ${summary.org_name}
 Security Score: ${summary.score}/100 (Grade ${summary.grade} — ${summary.posture_label})
 Date: ${summary.generated_at}
 
-EXECUTIVE SUMMARY:
+SUMMARY:
 ${summary.board_summary}
 
-KEY OBSERVED STRENGTHS:
+WHAT'S WORKING WELL:
 ${summary.key_strengths.map(s => `• ${s}`).join('\n')}
 
-CRITICAL BOARD ACTION ITEMS:
+WHAT THE BOARD SHOULD DO:
 ${summary.critical_action_items.map(a => `[${a.priority}] ${a.title} (Owner: ${a.owner})\n  Impact: ${a.impact}`).join('\n')}
 
-REGULATORY COMPLIANCE VERDICT:
+COMPLIANCE STATUS:
 ${summary.compliance_verdict}
     `.trim();
 
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      toast('Executive summary copied to clipboard');
+      toast('Report copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast('Failed to copy text');
@@ -247,8 +247,8 @@ ${summary.compliance_verdict}
       onClose={onClose}
       title={
         <>
-          <span className="hidden sm:inline">AI EXECUTIVE SECURITY ASSESSMENT (BOARD BRIEFING)</span>
-          <span className="sm:hidden">AI EXECUTIVE ASSESSMENT</span>
+          <span className="hidden sm:inline">AI SECURITY REPORT FOR THE BOARD</span>
+          <span className="sm:hidden">BOARD REPORT</span>
         </>
       }
       icon={<Sparkles size={16} className="text-accent" />}
@@ -261,7 +261,7 @@ ${summary.compliance_verdict}
         <div className="flex items-center gap-2">
           <span className="live-dot" />
           <span className="mono text-[10.5px] text-soft">
-            {loading ? 'SYNTHESIZING EXECUTIVE BRIEFING…' : 'BOARD-CERTIFIED A4 BRIEFING'}
+            {loading ? 'BUILDING YOUR REPORT…' : 'PRINT-READY A4 REPORT'}
           </span>
         </div>
         <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
@@ -274,7 +274,7 @@ ${summary.compliance_verdict}
                 ? 'bg-accent text-white border-accent'
                 : 'border-line bg-inset/40 hover:border-accent text-soft hover:text-ink'
             }`}
-            title="Email Executive Report via Brevo"
+            title="Email report"
           >
             <Mail size={13} className={showEmailInput ? 'text-white' : 'text-accent'} />
             <span>EMAIL REPORT</span>
@@ -317,12 +317,12 @@ ${summary.compliance_verdict}
               {sendingEmail ? (
                 <>
                   <Loader2 size={12} className="animate-spin" />
-                  <span>DISPATCHING…</span>
+                  <span>SENDING…</span>
                 </>
               ) : (
                 <>
                   <Send size={12} />
-                  <span>SEND VIA BREVO</span>
+                  <span>SEND EMAIL</span>
                 </>
               )}
             </button>
@@ -347,7 +347,7 @@ ${summary.compliance_verdict}
               <CyphwardLogo size={28} variant="compact" />
               <div className="border-l border-line pl-3">
                 <span className="text-[9px] mono font-bold tracking-widest text-accent uppercase block">
-                  BOARD DIRECTIVE · L00 ACCESS
+                  BOARD REPORT · CONFIDENTIAL
                 </span>
                 <span className="text-[10px] mono text-soft">
                   CONFIDENTIAL // FOR DIRECTORS ONLY
@@ -355,7 +355,7 @@ ${summary.compliance_verdict}
               </div>
             </div>
             <div className="text-right">
-              <span className="text-[10.5px] mono text-soft block">ASSESSMENT DATE</span>
+              <span className="text-[10.5px] mono text-soft block">REPORT DATE</span>
               <span className="text-xs mono font-semibold text-ink">{summary.generated_at}</span>
             </div>
           </div>
@@ -363,9 +363,9 @@ ${summary.compliance_verdict}
           {/* Org & Risk Score Banner */}
           <div className="p-3.5 bg-inset rounded border border-line flex items-center justify-between report-card">
             <div>
-              <span className="text-[10px] mono text-soft block">TARGET ENTITY</span>
+              <span className="text-[10px] mono text-soft block">ORGANIZATION</span>
               <h4 className="font-bold text-ink text-base">{summary.org_name}</h4>
-              <span className="text-[10px] mono text-soft">External security assessment</span>
+              <span className="text-[10px] mono text-soft">External security review</span>
             </div>
             <div className="text-right">
               <span className="text-[10px] mono text-soft block">SECURITY SCORE</span>
@@ -393,7 +393,7 @@ ${summary.compliance_verdict}
           {summary.key_strengths && summary.key_strengths.length > 0 && (
             <div>
               <h5 className="mono font-semibold text-soft uppercase text-[10.5px] tracking-wider mb-1.5">
-                OBSERVED DEFENSE STRENGTHS
+                STRENGTHS WE FOUND
               </h5>
               <div className="grid grid-cols-1 gap-1.5">
                 {summary.key_strengths.map((str, idx) => (
@@ -410,7 +410,7 @@ ${summary.compliance_verdict}
           {summary.critical_action_items && summary.critical_action_items.length > 0 && (
             <div>
               <h5 className="mono font-semibold text-soft uppercase text-[10.5px] tracking-wider mb-1.5">
-                PRIORITIZED BOARD REMEDIATION ACTIONS
+                ACTION ITEMS FOR THE BOARD
               </h5>
               <div className="space-y-1.5">
                 {summary.critical_action_items.map((act, idx) => (
@@ -438,7 +438,7 @@ ${summary.compliance_verdict}
             <div className="flex items-center gap-1.5 mb-1">
               <ShieldCheck size={13} className="text-accent" />
               <span className="font-bold mono text-accent uppercase text-[10.5px]">
-                NDPA 2023 & CBN STATUTORY VERDICT
+                NDPA 2023 & CBN COMPLIANCE STATUS
               </span>
             </div>
             <p className="text-ink leading-relaxed">{summary.compliance_verdict}</p>
@@ -447,7 +447,7 @@ ${summary.compliance_verdict}
           {/* Cryptographic Signature Footer */}
           <div className="pt-2 border-t border-line/60 flex items-center justify-between text-[9.5px] mono text-soft">
             <span>ISSUER: CYPHWARD SECURITY PLATFORM</span>
-            <span>VERIFICATION HASH: SHA256:{summary.org_name.slice(0, 3).toUpperCase()}-9841B-SOVEREIGN</span>
+            <span>VERIFICATION HASH: SHA256:{summary.org_name.slice(0, 3).toUpperCase()}-9841B-SECURE</span>
           </div>
         </div>
       )}

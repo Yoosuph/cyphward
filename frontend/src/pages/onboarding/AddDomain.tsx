@@ -54,7 +54,7 @@ export default function AddDomain() {
       )}
 
       <div className="field">
-        <label htmlFor="domain">PRIMARY DOMAIN</label>
+        <label htmlFor="domain">DOMAIN</label>
         <input
           id="domain"
           type="text"
@@ -69,7 +69,7 @@ export default function AddDomain() {
       <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft flex items-start gap-2">
         <Info size={14} className="text-accent flex-none mt-0.5" />
         <span>
-          You can add more domains later from the Domains page. This will be your primary domain for the initial security scan.
+          You can add more domains later. This one will be used for your first security scan.
         </span>
       </div>
 

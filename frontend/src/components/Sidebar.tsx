@@ -69,7 +69,7 @@ export default function Sidebar({
     try {
       await signOut();
     } finally {
-      toast('Session closed — see you on the next layer.');
+      toast('Signed out. See you next time!');
       nav('/login', { replace: true });
     }
   };
@@ -97,7 +97,7 @@ export default function Sidebar({
             to="/"
             className="flex items-center gap-2 hover:opacity-90 transition-opacity"
             onClick={onClose}
-            title="Cyphward — Sovereign Defense Platform"
+            title="Cyphward — Security Platform"
           >
             <CyphwardLogo
               variant={collapsed ? 'mark' : 'full'}
@@ -138,7 +138,7 @@ export default function Sidebar({
               end={n.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}
-              title={collapsed ? `LAYER ${n.idx} · ${n.label}` : undefined}
+              title={collapsed ? `SECTION ${n.idx} · ${n.label}` : undefined}
             >
               <n.icon size={15} strokeWidth={1.7} />
               <span className="idx">{n.idx}</span>
@@ -158,7 +158,7 @@ export default function Sidebar({
           </div>
 
           {/* Full Tenant detail visible in expanded mode */}
-          <p className="eyebrow">TENANT ENCLAVE</p>
+          <p className="eyebrow">YOUR WORKSPACE</p>
           <p className="side-tenant mono font-medium truncate">{tenantName}</p>
           <div className="side-plan-row">
             <span className="tag">{(tenant?.plan || 'GROWTH').toUpperCase()} PLAN</span>

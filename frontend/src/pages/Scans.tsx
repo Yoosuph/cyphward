@@ -66,7 +66,7 @@ export default function Scans() {
       setSelectedScanDetail(detail);
     } catch (err) {
       // Keep last known detail on transient errors — do not blank the tracker during polling.
-      if (!selectedScanDetail) toast('Failed to load scan tracker');
+      if (!selectedScanDetail) toast('Failed to load scan progress');
     } finally {
       setDetailLoading(false);
     }
@@ -103,7 +103,7 @@ export default function Scans() {
     setLaunching(true);
     try {
       const res = await launchScan(selectedDomainId);
-      toast(`Workflow started for ${res.domain}! Inngest pipeline initialized.`);
+      toast(`Scan started for ${res.domain}.`);
       setLaunchModalOpen(false);
       await loadScans();
       if (res.scan?.id) {
@@ -130,16 +130,16 @@ export default function Scans() {
   };
 
   const STAGES = [
-    { key: 'discovery', label: '1. Discovery', desc: 'Subfinder & Passive CT Logs' },
-    { key: 'dns', label: '2. DNS Resolution', desc: 'A, MX, TXT, SPF, DMARC' },
-    { key: 'http', label: '3. HTTP Probing', desc: 'Go httpx / Python httpx' },
-    { key: 'ports', label: '4. Port Discovery', desc: 'Naabu · Top 100 TCP ports' },
-    { key: 'tls', label: '5. TLS Analysis', desc: 'SSLyze · Certs & ciphers' },
-    { key: 'nuclei', label: '6. Nuclei Scan', desc: '9000+ Vulnerability Templates' },
-    { key: 'security_checks', label: '7. Security Checks', desc: 'Headers, DMARC, TLS Certs' },
-    { key: 'normalization', label: '8. Normalization', desc: 'Evidence Standardization' },
-    { key: 'scoring', label: '9. Security Score', desc: 'Simple 0–100 score' },
-    { key: 'ai_analysis', label: '10. AI Analysis', desc: 'Explanations & Executive Report' },
+    { key: 'discovery', label: '1. Find assets', desc: 'Public records & subdomains' },
+    { key: 'dns', label: '2. DNS check', desc: 'A, MX, TXT, SPF, DMARC records' },
+    { key: 'http', label: '3. Website check', desc: 'Response, headers & pages' },
+    { key: 'ports', label: '4. Open ports', desc: 'Top 100 TCP ports' },
+    { key: 'tls', label: '5. SSL/TLS check', desc: 'Certificates & encryption' },
+    { key: 'nuclei', label: '6. Vulnerability scan', desc: 'Checks against thousands of known issues' },
+    { key: 'security_checks', label: '7. Security checks', desc: 'Headers, DMARC, certificates' },
+    { key: 'normalization', label: '8. Tidy results', desc: 'Group and clean up the results' },
+    { key: 'scoring', label: '9. Security score', desc: 'Simple 0–100 score' },
+    { key: 'ai_analysis', label: '10. AI summary', desc: 'Plain-English explanation' },
   ];
 
   if (loading && scans.length === 0) {
@@ -155,13 +155,13 @@ export default function Scans() {
         <div>
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">MULTI-STAGE INNGEST WORKFLOW PIPELINE</p>
+            <p className="eyebrow text-accent">AUTOMATED SECURITY SCANS</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Security Scans & Live Execution Tracker
+            Scans
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Asynchronous orchestration: Discovery → DNS → HTTP → Security Checks → Nuclei → Normalization → Score → AI Analysis
+            Each scan runs these steps: find assets → check DNS → check your site → open ports → SSL/TLS → security checks → vulnerability scan → tidy results → security score → AI summary.
           </p>
         </div>
 
@@ -182,7 +182,7 @@ export default function Scans() {
             className="flex items-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all btn-tactile"
           >
             <Play size={13} fill="currentColor" />
-            <span>NEW SCAN</span>
+            <span>START SCAN</span>
           </button>
         </div>
       </div>
@@ -195,7 +195,7 @@ export default function Scans() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-line">
             <div>
               <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <span className="mono text-xs text-soft uppercase tracking-wider">ACTIVE WORKFLOW:</span>
+                <span className="mono text-xs text-soft uppercase tracking-wider">CURRENT SCAN:</span>
                 <span className="mono text-sm font-bold text-ink">{activeScan.domain}</span>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] mono uppercase font-bold ${
@@ -210,7 +210,7 @@ export default function Scans() {
                 </span>
               </div>
               <p className="text-[11px] mono text-soft mt-1 break-all">
-                Scan ID: {activeScan.id} · Initiated: {new Date(activeScan.created_at).toLocaleString()}
+                Scan ID: {activeScan.id} · Started: {new Date(activeScan.created_at).toLocaleString()}
               </p>
             </div>
 
@@ -243,7 +243,7 @@ export default function Scans() {
                 >
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] mono text-soft font-bold">STAGE 0{idx + 1}</span>
+                      <span className="text-[10px] mono text-soft font-bold">STEP 0{idx + 1}</span>
                       {isCompleted ? (
                         <CheckCircle2 size={14} className="text-ok" />
                       ) : isRunning ? (
@@ -277,7 +277,7 @@ export default function Scans() {
                 <summary className="px-4 py-2.5 text-xs mono text-soft font-semibold cursor-pointer hover:text-ink flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Code size={13} className="text-accent" />
-                    Inspect Raw Inngest Execution Telemetry & Observations ({selectedScanDetail.raw_results.length} stages recorded)
+                    Inspect raw scan data ({selectedScanDetail.raw_results.length} steps recorded)
                   </span>
                   <span className="text-[10px] mono text-accent group-open:rotate-90 transition-transform">▸</span>
                 </summary>
@@ -294,21 +294,21 @@ export default function Scans() {
       <div className="rounded-lg border border-line bg-raised overflow-hidden">
         <div className="p-4 border-b border-line bg-inset/30 flex items-center justify-between">
           <h3 className="mono text-xs font-bold text-ink uppercase tracking-wider">
-            HISTORICAL SCAN LEDGER
+            ALL SCANS
           </h3>
-          <span className="text-[11px] mono text-soft">{scans.length} total workflow runs</span>
+          <span className="text-[11px] mono text-soft">{scans.length} scans in total</span>
         </div>
 
         <div className="overflow-x-auto w-full max-w-full">
           <table className="w-full text-left text-xs mono min-w-[620px]">
             <thead>
               <tr className="border-b border-line bg-inset/40 text-soft text-[11px]">
-                <th className="py-3 px-4 font-medium">DOMAIN ZONE</th>
-                <th className="py-3 px-4 font-medium">RUN STATUS</th>
-                <th className="py-3 px-4 font-medium">STAGE PROGRESSION</th>
+                <th className="py-3 px-4 font-medium">DOMAIN</th>
+                <th className="py-3 px-4 font-medium">STATUS</th>
+                <th className="py-3 px-4 font-medium">PROGRESS</th>
                 <th className="py-3 px-4 font-medium">SCORE</th>
-                <th className="py-3 px-4 font-medium">FINDINGS</th>
-                <th className="py-3 px-4 font-medium">TIMESTAMP</th>
+                <th className="py-3 px-4 font-medium">ISSUES</th>
+                <th className="py-3 px-4 font-medium">STARTED</th>
                 <th className="py-3 px-4 font-medium text-right">ACTION</th>
               </tr>
             </thead>
@@ -323,7 +323,7 @@ export default function Scans() {
               ) : scans.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-soft mono">
-                    No scans found. Click "NEW SCAN" to launch your first Inngest workflow.
+                    Nothing here yet — click "Start scan" to run your first scan.
                   </td>
                 </tr>
               ) : (
@@ -381,7 +381,7 @@ export default function Scans() {
                     </td>
 
                     <td className="py-3 px-4 text-soft">
-                      {scan.findings_discovered !== undefined ? `${scan.findings_discovered} risks` : '—'}
+                      {scan.findings_discovered !== undefined ? `${scan.findings_discovered} issues` : '—'}
                     </td>
 
                     <td className="py-3 px-4 text-soft text-[11px]">
@@ -415,8 +415,8 @@ export default function Scans() {
           setScanDetailForModal(null);
         }}
         size="2xl"
-        eyebrow="SCAN INTELLIGENCE"
-        title="WORKFLOW EXECUTION DETAILS"
+        eyebrow="SCAN DETAILS"
+        title="Scan details"
         icon={<Radar size={16} className="text-accent" />}
       >
         {detailModalLoading || !scanDetailForModal ? (
@@ -455,7 +455,7 @@ export default function Scans() {
 
             {/* Stage Progress Grid */}
             <div>
-              <h4 className="mono text-xs font-semibold text-soft uppercase tracking-wider mb-3">PIPELINE STAGES</h4>
+              <h4 className="mono text-xs font-semibold text-soft uppercase tracking-wider mb-3">SCAN STEPS</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {STAGES.map((stage, idx) => {
                   const stageData = (scanDetailForModal.scan.stage_progress as any)?.[stage.key];
@@ -497,7 +497,7 @@ export default function Scans() {
               <div className="p-4 bg-accent-soft/20 rounded border border-accent/30">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles size={14} className="text-accent" />
-                  <h4 className="mono text-xs font-semibold text-accent uppercase tracking-wider">AI SECURITY ANALYSIS</h4>
+                  <h4 className="mono text-xs font-semibold text-accent uppercase tracking-wider">AI SUMMARY</h4>
                 </div>
                 {(() => {
                   const aiResult = scanDetailForModal.raw_results.find((r: any) => r.stage === 'ai_analysis');
@@ -521,7 +521,7 @@ export default function Scans() {
                         </div>
                       )}
                       <div className="text-soft">
-                        Analyzed {aiResult.raw_data?.explanations_count || 0} critical/high findings
+                        Reviewed {aiResult.raw_data?.explanations_count || 0} critical and high issues
                       </div>
                     </div>
                   );
@@ -535,7 +535,7 @@ export default function Scans() {
                 <summary className="px-4 py-2.5 text-xs mono text-soft font-semibold cursor-pointer hover:text-ink flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Code size={13} className="text-accent" />
-                    Raw Telemetry ({scanDetailForModal.raw_results.length} stages)
+                    Raw scan data ({scanDetailForModal.raw_results.length} steps)
                   </span>
                   <span className="text-[10px] mono text-accent group-open:rotate-90 transition-transform">▸</span>
                 </summary>
@@ -546,7 +546,7 @@ export default function Scans() {
             )}
           </div>
         ) : (
-          <div className="py-12 text-center text-soft mono text-xs">No scan data available</div>
+          <div className="py-12 text-center text-soft mono text-xs">No scan data yet</div>
         )}
       </Drawer>
 
@@ -554,17 +554,18 @@ export default function Scans() {
       <Modal
         open={launchModalOpen}
         onClose={() => setLaunchModalOpen(false)}
-        title="LAUNCH SECURITY WORKFLOW"
+        title="Start security scan"
         icon={<Play size={16} className="text-accent" />}
         maxWidth="max-w-md"
       >
         <div className="space-y-4">
           <p className="text-xs text-soft leading-relaxed">
-            Select verified domain to scan. The Inngest orchestrator will execute passive discovery, DNS resolution, HTTP inspection, security checks, Nuclei vulnerability scanning, finding normalization, risk scoring, and AI analysis.
+            Pick a verified domain to scan. We check its public records and settings, test the
+            website, look for known vulnerabilities, then score what we find and write a summary.
           </p>
 
           <div className="space-y-1.5">
-            <label className="text-xs mono text-soft">TARGET DOMAIN</label>
+            <label className="text-xs mono text-soft">DOMAIN TO SCAN</label>
             <select
               value={selectedDomainId}
               onChange={e => setSelectedDomainId(e.target.value)}
@@ -580,7 +581,7 @@ export default function Scans() {
 
           <div className="p-3 bg-inset/50 rounded border border-line text-[11px] mono text-soft flex items-center gap-2">
             <Lock size={12} className="text-ok" />
-            <span>Restricted to verified sovereign domains.</span>
+            <span>Only domains you've verified can be scanned.</span>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
@@ -601,7 +602,7 @@ export default function Scans() {
                 </>
               ) : (
                 <>
-                  <Play size={13} fill="currentColor" /> Start Pipeline
+                  <Play size={13} fill="currentColor" /> Start scan
                 </>
               )}
             </button>

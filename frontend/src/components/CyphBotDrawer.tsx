@@ -37,23 +37,23 @@ interface ChatEntry {
 const QUICK_PROMPTS = [
   {
     icon: ShieldAlert,
-    label: 'DMARC & Anti-Spoofing',
-    prompt: 'Explain our DMARC email spoofing vulnerability and how to enforce p=reject.',
+    label: 'Email spoofing (DMARC)',
+    prompt: 'How do we stop email spoofing with DMARC, and how do we turn on p=reject?',
   },
   {
     icon: ShieldCheck,
-    label: 'NDPA 2023 Part V Duties',
-    prompt: 'What are our statutory technical safeguard duties under NDPA 2023 Section 39?',
+    label: 'NDPA 2023 duties',
+    prompt: 'What does NDPA 2023 Section 39 require us to do to protect data?',
   },
   {
     icon: Terminal,
     label: 'Nginx HSTS & TLS 1.3',
-    prompt: 'Provide a production-ready Nginx configuration for HSTS, TLS 1.3, and security headers.',
+    prompt: 'Give me a ready-to-use Nginx config for HSTS, TLS 1.3, and security headers.',
   },
   {
     icon: FileText,
-    label: 'Board Security Briefing',
-    prompt: 'Draft an executive 3-point security briefing for our Board of Directors.',
+    label: 'Board security update',
+    prompt: 'Draft a 3-point security update for our Board of Directors.',
   },
 ];
 
@@ -207,14 +207,14 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
     {
       id: 'welcome',
       role: 'assistant',
-      text: `Hello! I'm **CyphBot**, your sovereign defense advisor for **${orgName}**.\n\nI explain perimeter findings, draft compliance briefs (NDPA 2023 / CBN Framework), and generate production-ready remediation configurations.\n\nAsk me anything or select a suggested briefing below.`,
+      text: `Hello! I'm **CyphBot**. Ask me about issues we found at **${orgName}**, what they mean, or how to fix them. I can also help with NDPA 2023 and CBN compliance questions.\n\nPick a suggested question below to get started.`,
       sources: [
-        { id: 'claude-ai', label: 'Claude Defense Intelligence' },
-        { id: 'enclave-telemetry', label: `${orgName} Telemetry` },
+        { id: 'claude-ai', label: 'Claude AI' },
+        { id: 'enclave-telemetry', label: `${orgName} live data` },
       ],
       actions: [
         { label: 'Review Findings', path: '/findings' },
-        { label: 'Run Pipeline', path: '/scans' },
+        { label: 'Start a scan', path: '/scans' },
       ],
       timestamp: 'Now',
     },
@@ -304,8 +304,8 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
                       ...msg,
                       isStreaming: false,
                       sources: meta.sources || [
-                        { id: 'claude', label: 'Claude Defense AI' },
-                        { id: 'org', label: `${orgName} Enclave` },
+                        { id: 'claude', label: 'Claude AI' },
+                        { id: 'org', label: `${orgName} workspace` },
                       ],
                       actions: meta.actions || [
                         { label: 'View Assets', path: '/assets' },
@@ -333,8 +333,8 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
                   text: fallback.answer,
                   isStreaming: false,
                   sources: fallback.sources || [
-                    { id: 'claude', label: 'Claude Defense AI' },
-                    { id: 'org', label: `${orgName} Enclave` },
+                    { id: 'claude', label: 'Claude AI' },
+                    { id: 'org', label: `${orgName} workspace` },
                   ],
                   actions: fallback.actions,
                 }
@@ -347,7 +347,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
             msg.id === botMsgId
               ? {
                   ...msg,
-                  text: 'Enclave telemetry error: unable to resolve AI response. Please ensure local backend is running.',
+                  text: 'Something went wrong getting a reply. Please check that the backend is running.',
                   isStreaming: false,
                 }
               : msg
@@ -371,14 +371,14 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
       {
         id: 'welcome',
         role: 'assistant',
-        text: `Conversation context cleared. How can I assist **${orgName}** defense posture now?`,
+        text: `Conversation cleared. What would you like to look at next for **${orgName}**?`,
         sources: [
-          { id: 'claude-ai', label: 'Claude Defense Intelligence' },
+          { id: 'claude-ai', label: 'Claude AI' },
         ],
         timestamp: 'Now',
       },
     ]);
-    toast('Conversation context cleared');
+    toast('Conversation cleared');
   };
 
   const handleActionClick = (action: { label: string; path?: string; toast?: string }) => {
@@ -406,7 +406,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
       <aside
         className="fixed right-3 bottom-[74px] w-[315px] max-w-[calc(100vw-24px)] h-[415px] max-h-[52vh] rounded-2xl md:fixed md:inset-y-0 md:right-0 md:bottom-0 md:top-0 md:w-[480px] md:max-w-[90vw] md:h-full md:max-h-full md:rounded-none md:border-l md:border-y-0 md:border-r-0 bg-raised border border-accent/40 md:border-line text-ink z-[1060] flex flex-col shadow-2xl backdrop-blur-2xl animate-in zoom-in-95 md:slide-in-from-right duration-200 overflow-hidden"
         role="dialog"
-        aria-label="CyphBot Sovereign AI Chatbot"
+        aria-label="CyphBot chat"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -427,7 +427,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
                 </span>
               </div>
               <p className="text-[9.5px] mono text-soft truncate">
-                Claude Defense AI
+                Claude AI
               </p>
             </div>
           </div>
@@ -547,7 +547,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
           {messages.length <= 2 && !loading && (
             <div className="claude-emerge pt-1.5 space-y-1.5">
               <p className="text-[9px] mono text-soft uppercase tracking-wider font-semibold px-0.5">
-                SUGGESTED DISCUSSIONS
+                SUGGESTED QUESTIONS
               </p>
               <div className="grid grid-cols-1 gap-1.5">
                 {QUICK_PROMPTS.map((qp, idx) => (

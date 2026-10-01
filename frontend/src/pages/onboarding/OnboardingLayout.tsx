@@ -24,7 +24,7 @@ export default function OnboardingLayout() {
         <div className="login-z w-full max-w-xl mx-auto my-auto px-4 text-center">
           <div className="animate-pulse">
             <ShieldCheck size={48} className="text-accent mx-auto mb-4" />
-            <p className="mono text-sm text-soft">Loading sovereign workspace…</p>
+            <p className="mono text-sm text-soft">Loading your workspace…</p>
           </div>
         </div>
       </div>
@@ -53,15 +53,15 @@ export default function OnboardingLayout() {
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-line">
           <CyphwardLogo variant="compact" size={19} />
           <p className="eyebrow flex items-center gap-2">
-            <span className="live-dot" /> SOVEREIGN ONBOARDING
+            <span className="live-dot" /> SETUP
           </p>
         </div>
 
         <h1 className="display-h text-center">
-          Set up your <em>security perimeter.</em>
+          Set up your <em>workspace.</em>
         </h1>
         <p className="login-sub text-center">
-          Complete these steps to start monitoring your organization's digital assets.
+          Verify your email, name your workspace, and add a domain to start monitoring.
         </p>
 
         {/* Progress Steps */}

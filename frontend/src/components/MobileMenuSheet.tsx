@@ -43,14 +43,14 @@ const EXTENDED_MODULES = [
     idx: '07',
     label: 'REPORTS',
     icon: Network,
-    badge: 'ASSESSMENTS',
+    badge: 'SUMMARIES',
   },
   {
     to: '/settings',
     idx: '08',
     label: 'SETTINGS',
     icon: Sliders,
-    badge: 'ORG & MEMBERS',
+    badge: 'COMPANY & TEAM',
   },
 ];
 
@@ -86,7 +86,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
     try {
       await signOut();
     } finally {
-      toast('Session closed — see you on the next layer.');
+      toast('Signed out. See you next time!');
       nav('/login', { replace: true });
     }
   };
@@ -104,7 +104,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
       <div
         className="fixed inset-x-3 bottom-[74px] max-w-[390px] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 overflow-hidden md:hidden"
         role="dialog"
-        aria-label="Extended Modules Menu"
+        aria-label="More pages menu"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -114,7 +114,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
             <CyphwardLogo variant="cyph" size={15} />
             <span className="text-line text-xs select-none">/</span>
             <span className="text-[10.5px] font-mono font-bold tracking-wider text-ink uppercase truncate">
-              EXTENDED MODULES (05–10)
+              MORE PAGES
             </span>
           </div>
 

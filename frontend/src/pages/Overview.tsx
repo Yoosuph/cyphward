@@ -86,7 +86,7 @@ export default function Overview() {
     setLaunching(true);
     try {
       const res = await launchScan(selectedDomain);
-      toast(`Scan launched for ${res.domain}! Telemetry worker active.`);
+      toast(`Scan started for ${res.domain}.`);
       setScanModalOpen(false);
       navigate('/scans');
     } catch (err: any) {
@@ -154,13 +154,13 @@ export default function Overview() {
           )}
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">COMMAND ENCLAVE · {organization.cac_rc || 'CAC REGISTERED'}</p>
+            <p className="eyebrow text-accent">COMMAND WORKSPACE · {organization.cac_rc || 'CAC REGISTERED'}</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
             {organization.name}
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            Autonomous Attack Surface Management & Deterministic Risk Posture
+            We watch what's exposed online and keep your security score up to date.
           </p>
         </div>
 
@@ -178,7 +178,7 @@ export default function Overview() {
             className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
           >
             <Play size={13} fill="currentColor" />
-            <span>LAUNCH SCAN</span>
+            <span>START SCAN</span>
           </button>
         </div>
       </div>
@@ -205,7 +205,7 @@ export default function Overview() {
               {posture_label}
             </div>
             <p className="text-xs mono text-soft mt-2">
-              7-Day Delta: <span className="text-ok font-medium">+{trend} pts</span> · Continuous Inngest Probing
+              7-Day Change: <span className="text-ok font-medium">+{trend} pts</span> · Checks run around the clock
             </p>
           </div>
         </div>
@@ -217,15 +217,15 @@ export default function Overview() {
             className="p-4 rounded-lg border border-line bg-raised hover:border-line-strong card-hover transition-all cursor-pointer flex flex-col justify-between group"
           >
             <div className="flex items-center justify-between text-soft">
-              <span className="text-[11px] mono uppercase">Active Assets</span>
+              <span className="text-[11px] mono uppercase">Assets Found</span>
               <Server size={15} className="group-hover:text-accent transition-colors" />
             </div>
             <div className="my-2">
               <div className="text-3xl font-bold mono text-ink">{counts.total_assets}</div>
-              <p className="text-[11px] text-soft">Across {organization.domains_count || 1} zones</p>
+              <p className="text-[11px] text-soft">Across {organization.domains_count || 1} domains</p>
             </div>
             <div className="text-[10px] mono text-accent flex items-center gap-1">
-              View inventory <ArrowUpRight size={10} />
+              View assets <ArrowUpRight size={10} />
             </div>
           </div>
 
@@ -239,10 +239,10 @@ export default function Overview() {
             </div>
             <div className="my-2">
               <div className="text-3xl font-bold mono text-ink">{organization.verified_domains_count || 1}</div>
-              <p className="text-[11px] text-soft">DNS TXT Proven</p>
+              <p className="text-[11px] text-soft">Confirmed with a DNS TXT record</p>
             </div>
             <div className="text-[10px] mono text-ok flex items-center gap-1">
-              Protected enclave <CheckCircle2 size={10} />
+              Verified and secure <CheckCircle2 size={10} />
             </div>
           </div>
 
@@ -251,7 +251,7 @@ export default function Overview() {
             className="p-4 rounded-lg border border-line bg-raised hover:border-accent card-hover transition-all cursor-pointer flex flex-col justify-between group"
           >
             <div className="flex items-center justify-between text-soft">
-              <span className="text-[11px] mono uppercase text-accent font-medium">Critical Risks</span>
+              <span className="text-[11px] mono uppercase text-accent font-medium">Critical Issues</span>
               <ShieldAlert size={15} className="text-accent" />
             </div>
             <div className="my-2">
@@ -259,7 +259,7 @@ export default function Overview() {
               <p className="text-[11px] text-soft">Requires immediate fix</p>
             </div>
             <div className="text-[10px] mono text-accent flex items-center gap-1">
-              Action drawer <ArrowUpRight size={10} />
+              Review issues <ArrowUpRight size={10} />
             </div>
           </div>
 
@@ -268,7 +268,7 @@ export default function Overview() {
             className="p-4 rounded-lg border border-line bg-raised hover:border-line-strong card-hover transition-all cursor-pointer flex flex-col justify-between group"
           >
             <div className="flex items-center justify-between text-soft">
-              <span className="text-[11px] mono uppercase">Total Findings</span>
+              <span className="text-[11px] mono uppercase">Total Issues</span>
               <AlertTriangle size={15} className="group-hover:text-accent transition-colors" />
             </div>
             <div className="my-2">
@@ -276,15 +276,15 @@ export default function Overview() {
               <p className="text-[11px] text-soft">{counts.high} High · {counts.medium} Med</p>
             </div>
             <div className="text-[10px] mono text-soft flex items-center gap-1">
-              All findings <ArrowUpRight size={10} />
+              All issues <ArrowUpRight size={10} />
             </div>
           </div>
 
           {/* Severity Breakdown Bar across all 4 columns */}
           <div className="col-span-2 md:col-span-4 p-4 rounded-lg border border-line bg-inset/50">
             <div className="flex items-center justify-between mb-2">
-              <span className="eyebrow">SEVERITY DISTRIBUTION</span>
-              <span className="text-xs mono text-soft">{counts.total_findings} Active Signals</span>
+              <span className="eyebrow">ISSUES BY SEVERITY</span>
+              <span className="text-xs mono text-soft">{counts.total_findings} open issues</span>
             </div>
             <div className="h-3 w-full bg-raised rounded-full overflow-hidden flex gap-0.5 p-0.5 border border-line">
               <div
@@ -380,7 +380,7 @@ export default function Overview() {
               <h3 className="mono text-xs font-semibold tracking-wider text-ink">
                 TOP ISSUES &amp; STRENGTHS
               </h3>
-              <span className="text-[10px] mono text-soft">WHY YOUR SCORE IS THIS</span>
+              <span className="text-[10px] mono text-soft">WHAT'S AFFECTING YOUR SCORE</span>
             </div>
 
             <div className="space-y-2.5">
@@ -407,7 +407,7 @@ export default function Overview() {
               onClick={() => navigate('/findings')}
               className="text-xs mono text-accent hover:underline inline-flex items-center gap-1"
             >
-              Examine complete finding ledger <ArrowUpRight size={11} />
+              See all issues <ArrowUpRight size={11} />
             </button>
           </div>
         </div>
@@ -419,19 +419,19 @@ export default function Overview() {
           <div className="flex items-center gap-2">
             <span className="live-dot" />
             <h3 className="mono text-xs font-semibold tracking-wider text-ink">
-              RECENT INNGEST WORKFLOW EXECUTIONS
+              RECENT SCANS
             </h3>
           </div>
           <button
             onClick={() => navigate('/scans')}
             className="text-xs mono text-accent hover:underline flex items-center gap-1"
           >
-            All scan runs <ArrowUpRight size={11} />
+            See all scans <ArrowUpRight size={11} />
           </button>
         </div>
 
         {recent_scans.length === 0 ? (
-          <p className="text-xs mono text-soft py-6 text-center">No scans executed yet. Click "Launch Scan" above.</p>
+          <p className="text-xs mono text-soft py-6 text-center">No scans yet. Click "Start scan" above.</p>
         ) : (
           <div className="overflow-x-auto w-full max-w-full">
             <table className="w-full text-left text-xs mono min-w-[560px]">
@@ -439,9 +439,9 @@ export default function Overview() {
                 <tr className="border-b border-line text-soft text-[11px]">
                   <th className="pb-2 font-medium">DOMAIN</th>
                   <th className="pb-2 font-medium">STATUS</th>
-                  <th className="pb-2 font-medium">STAGE TRACKER</th>
+                  <th className="pb-2 font-medium">PROGRESS</th>
                   <th className="pb-2 font-medium">SCORE</th>
-                  <th className="pb-2 font-medium">TIMESTAMP</th>
+                  <th className="pb-2 font-medium">STARTED</th>
                   <th className="pb-2 font-medium text-right">ACTION</th>
                 </tr>
               </thead>
@@ -513,16 +513,18 @@ export default function Overview() {
       <Modal
         open={scanModalOpen}
         onClose={() => setScanModalOpen(false)}
-        title="INITIATE INNGEST SECURITY SCAN"
+        title="Start security scan"
         icon={<Play size={16} />}
         maxWidth="max-w-md"
       >
         <p className="text-xs text-soft leading-relaxed">
-          This triggers the automated 8-stage defensive scan: Passive Discovery → DNS Resolution → HTTP Probing → Security Checks → Nuclei Vulnerability Scan → Normalization → Risk Scoring → AI Analysis.
+          This starts an automated security scan: public records → DNS settings → website
+          response → open ports → SSL/TLS → security checks → known vulnerabilities → tidy
+          up results → security score → AI summary.
         </p>
 
         <div className="space-y-1.5 pt-2">
-          <label className="text-xs mono text-soft">SELECT TARGET DOMAIN</label>
+          <label className="text-xs mono text-soft">CHOOSE A DOMAIN</label>
           <select
             value={selectedDomain}
             onChange={e => setSelectedDomain(e.target.value)}
@@ -538,9 +540,9 @@ export default function Overview() {
 
         <div className="p-3 bg-inset/50 rounded border border-line text-[11px] mono text-soft space-y-1">
           <div className="flex items-center gap-1.5 text-ink font-medium">
-            <Lock size={12} className="text-ok" /> Sovereign Scope Protection
+            <Lock size={12} className="text-ok" /> Only your verified domains
           </div>
-          <p>Scanning is restricted strictly to verified owned infrastructure per DNS TXT validation.</p>
+          <p>We only scan domains you own and have confirmed with a DNS TXT record.</p>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
@@ -561,7 +563,7 @@ export default function Overview() {
               </>
             ) : (
               <>
-                <Play size={13} fill="currentColor" /> Start Pipeline
+                <Play size={13} fill="currentColor" /> Start scan
               </>
             )}
           </button>

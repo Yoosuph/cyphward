@@ -87,7 +87,7 @@ async function run() {
   // Click Launch Scan button
   await page.evaluate(() => {
     const btn = Array.from(document.querySelectorAll('button')).find(b =>
-      b.textContent?.includes('LAUNCH SCAN')
+      b.textContent?.includes('START SCAN')
     );
     if (btn) btn.click();
   });

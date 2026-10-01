@@ -231,7 +231,7 @@ export async function explainFinding(findingId?: string, finding?: any): Promise
     why_it_matters: 'The identified security configuration gap exposes services to unauthorized access or communication hijacking.',
     evidence_analysis: 'Observation telemetry recorded from non-destructive probe handshake.',
     what_happens_if_ignored: 'Heightened risk of exploitation, data loss, and regulatory non-compliance.',
-    sovereign_advisory: 'Deploy recommended configuration in staging prior to production implementation.',
+    sovereign_advisory: 'Roll the recommended change out in a test environment first, then apply it in production.',
   };
 }
 
@@ -553,7 +553,7 @@ export async function askCyphBot(
       actions: data.actions || [{ label: 'View Findings', kind: 'solid', path: '/findings' }],
     };
   } catch (err) {
-    const naturalFallback = `Public perimeter endpoints must maintain strict transport encryption (TLS 1.3) and verified email authentication (DMARC p=reject).\n\nYou can inspect your active security posture and open findings directly in the **Findings** section. Would you like me to walk you through remediating your priority findings?`;
+    const naturalFallback = `Public sites should use HTTPS (TLS 1.3) and strict email authentication (DMARC p=reject).\n\nYou can see your open issues and security score in the **Findings** section. Would you like me to walk you through fixing your top issues?`;
     return {
       q: message,
       a: naturalFallback,

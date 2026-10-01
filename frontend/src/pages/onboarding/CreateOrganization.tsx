@@ -6,8 +6,8 @@ import { useToast } from '../../components/Toast';
 
 const PLANS = [
   { id: 'Growth', label: 'Growth', desc: 'Small teams, single region' },
-  { id: 'Scale', label: 'Scale', desc: 'Multi-region, advanced compliance' },
-  { id: 'Sovereign', label: 'Sovereign', desc: 'Enterprise, air-gapped deployment' },
+  { id: 'Scale', label: 'Scale', desc: 'Bigger teams, more regions' },
+  { id: 'Sovereign', label: 'Sovereign', desc: 'Large organizations, runs on your own servers' },
 ];
 
 export default function CreateOrganization() {
@@ -45,7 +45,7 @@ export default function CreateOrganization() {
           Create Your Organization
         </h3>
         <p className="text-xs text-soft">
-          This will be your organization's identity across the platform.
+          Your organization's name is shown across your workspace.
         </p>
       </div>
 
@@ -63,7 +63,7 @@ export default function CreateOrganization() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs mono text-soft">DEPLOYMENT TIER</label>
+        <label className="text-xs mono text-soft">PLAN</label>
         <div className="grid grid-cols-3 gap-2">
           {PLANS.map(p => (
             <button

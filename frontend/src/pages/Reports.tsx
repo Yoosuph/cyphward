@@ -44,7 +44,7 @@ export default function Reports() {
     try {
       const res = await createReport();
       if (res?.report) {
-        toast('Assessment report generated');
+        toast('Report generated');
         await load();
       } else {
         toast('Failed to generate report');
@@ -85,7 +85,7 @@ export default function Reports() {
       setEmailName('');
       setEmailNote('');
     } catch (err: any) {
-      toast(err.message || 'Email dispatch failed');
+      toast(err.message || 'Failed to send email');
     } finally {
       setSending(false);
     }
@@ -105,16 +105,16 @@ export default function Reports() {
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
-        eyebrow="LAYER 07 · REPORTS"
-        title="Assessment Reports"
-        note="Generate executive-ready security assessments from live posture data and dispatch them by email."
+        eyebrow="SECTION 07 · REPORTS"
+        title="Security Reports"
+        note="Create a report from your latest security score, then email it to your team or board."
         meta={
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <button
               onClick={() => setEmailOpen(true)}
               className="btn-tactile flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink"
             >
-              <Send size={13} className="text-accent" /> EMAIL BRIEFING
+              <Send size={13} className="text-accent" /> EMAIL REPORT
             </button>
             <button
               onClick={handleCreate}
@@ -129,12 +129,12 @@ export default function Reports() {
       />
 
       {loading ? (
-        <Loading label="REPORT ARCHIVE" />
+        <Loading label="SAVED REPORTS" />
       ) : reports.length === 0 ? (
         <div className="p-10 rounded-lg border border-line bg-raised text-center">
           <FileText size={28} className="mx-auto text-accent mb-3" />
           <p className="mono text-sm text-ink">No reports yet</p>
-          <p className="text-xs text-soft mt-1">Generate a report to capture the current external posture for stakeholders.</p>
+          <p className="text-xs text-soft mt-1">Generate a report to share your current security score with your team or board.</p>
         </div>
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
@@ -213,7 +213,7 @@ export default function Reports() {
       <Modal
         open={emailOpen}
         onClose={() => setEmailOpen(false)}
-        title="EMAIL EXECUTIVE BRIEFING"
+        title="SEND REPORT BY EMAIL"
         icon={<Send size={16} className="text-accent" />}
         maxWidth="max-w-md"
       >

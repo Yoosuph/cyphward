@@ -66,7 +66,7 @@ export default function Remediation() {
       const res = await getRemediationTasks(statusFilter ? { status: statusFilter } : undefined);
       setTasks(res.tasks);
     } catch (e: any) {
-      toast(e.message || 'Failed to load remediation tasks');
+      toast(e.message || 'Failed to load tasks');
     } finally {
       setLoading(false);
     }
@@ -98,7 +98,7 @@ export default function Remediation() {
         priority,
       });
       if (res?.task) {
-        toast('Remediation task created');
+        toast('Task created');
         setCreateOpen(false);
         setTitle('');
         setInstructions('');
@@ -167,9 +167,9 @@ export default function Remediation() {
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
-        eyebrow="LAYER 06 · REMEDIATION"
-        title="Remediation Workspace"
-        note="Track fix work, then verify against the live asset — Cyphward never blindly trusts a 'fixed' claim."
+        eyebrow="SECTION 06 · REMEDIATION"
+        title="Remediation"
+        note="Track each fix, then check it against the live asset — Cyphward never takes a 'fixed' claim at face value."
         meta={
           <div className="flex flex-wrap items-center gap-3 mt-3">
             <div className="flex items-center gap-1.5 tag"><ListTodo size={12} /> {tasks.length} TASKS</div>
@@ -216,8 +216,8 @@ export default function Remediation() {
       ) : tasks.length === 0 ? (
         <div className="p-10 rounded-lg border border-line bg-raised text-center">
           <ShieldCheck size={28} className="mx-auto text-accent mb-3" />
-          <p className="mono text-sm text-ink">No remediation tasks</p>
-          <p className="text-xs text-soft mt-1">Create a task from an open finding to start the fix → verify loop.</p>
+          <p className="mono text-sm text-ink">No tasks yet</p>
+          <p className="text-xs text-soft mt-1">Create a task from an open finding to start fixing and verifying.</p>
         </div>
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
@@ -290,7 +290,7 @@ export default function Remediation() {
       <Modal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        title="NEW REMEDIATION TASK"
+        title="NEW FIX TASK"
         icon={<Plus size={16} className="text-accent" />}
         maxWidth="max-w-lg"
       >

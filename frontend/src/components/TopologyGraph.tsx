@@ -757,15 +757,15 @@ export default function TopologyGraph() {
     setSelectedNode(null);
     setSearchQuery('');
     wakeUpPhysics();
-    toast('Topology camera and layout reset.');
+    toast('View reset.');
   };
 
   const handleIsolateNode = (node: TopologyNode) => {
-    toast(`Node ${node.id} isolated from core routing table.`);
+    toast(`Node ${node.id} isolated.`);
   };
 
   const handleDeepScan = (node: TopologyNode) => {
-    toast(`Dispatched deep packet forensic inspection on ${node.ip}…`);
+    toast(`Running a deep inspection on ${node.ip}…`);
   };
 
   return (
@@ -775,10 +775,10 @@ export default function TopologyGraph() {
         <div className="flex items-center gap-2">
           <span className="eyebrow text-[10px] flex items-center gap-1.5">
             <Radio size={12} className="text-accent animate-pulse" />
-            <span className="hidden sm:inline">INTERACTIVE FORCE GRAPH</span>
-            <span className="sm:hidden">FORCE GRAPH</span>
+            <span className="hidden sm:inline">ASSET NETWORK MAP</span>
+            <span className="sm:hidden">NETWORK MAP</span>
           </span>
-          <span className="tag text-[9px] hidden sm:inline-block">OBSIDIAN DAMPED PHYSICS</span>
+          <span className="tag text-[9px] hidden sm:inline-block">DRAG TO EXPLORE</span>
         </div>
 
         {/* Search Node Input */}
@@ -931,7 +931,7 @@ export default function TopologyGraph() {
                   <dd className="font-medium text-ink">{selectedNode.connections} Active</dd>
                 </div>
                 <div>
-                  <dt className="text-[10px] text-soft">ENCLAVE</dt>
+                  <dt className="text-[10px] text-soft">REGION</dt>
                   <dd className="font-medium text-ink">Kano-01</dd>
                 </div>
               </dl>
@@ -943,14 +943,14 @@ export default function TopologyGraph() {
                   className="btn btn-solid w-full justify-center text-xs py-2"
                   onClick={() => handleIsolateNode(selectedNode)}
                 >
-                  <ShieldAlert size={13} className="mr-1" /> ISOLATE FROM SWITCH
+                  <ShieldAlert size={13} className="mr-1" /> ISOLATE NODE
                 </button>
               )}
               <button
                 className="btn btn-ghost w-full justify-center text-xs py-2"
                 onClick={() => handleDeepScan(selectedNode)}
               >
-                <Zap size={13} className="mr-1 text-accent" /> DEEP PACKET SCAN
+                <Zap size={13} className="mr-1 text-accent" /> RUN DEEP SCAN
               </button>
             </div>
           </div>
@@ -958,9 +958,9 @@ export default function TopologyGraph() {
 
         {/* Canvas Instructions Hint */}
         <div className="absolute bottom-2.5 left-4 pointer-events-none text-[10.5px] mono text-soft hidden sm:flex items-center gap-3">
-          <span>● DRAG NODES WITH ELASTIC SPRINGS</span>
+          <span>● DRAG TO MOVE NODES</span>
           <span>● SCROLL TO ZOOM</span>
-          <span>● CLICK NODE FOR CONTROLS</span>
+          <span>● CLICK A NODE FOR ACTIONS</span>
         </div>
         <div className="absolute bottom-2 left-3 pointer-events-none text-[9.5px] mono text-soft sm:hidden flex items-center gap-2">
           <span>● DRAG NODES</span>

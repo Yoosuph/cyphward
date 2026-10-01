@@ -52,7 +52,7 @@ export default function Topbar({
     try {
       await signOut();
     } finally {
-      toast('Session closed — see you on the next layer.');
+      toast('Signed out. See you next time!');
       nav('/login', { replace: true });
     }
   };
@@ -85,25 +85,25 @@ export default function Topbar({
           </Link>
           <span className={`${sidebarCollapsed ? 'inline' : 'md:hidden inline'} text-line text-xs select-none`}>/</span>
           <p className="bar-sec truncate">
-            <span className="hidden sm:inline">LAYER {section.idx} · {section.label}</span>
-            <span className="sm:hidden text-[11px] mono">L{section.idx} · {section.label}</span>
+            <span className="hidden sm:inline">SECTION {section.idx} · {section.label}</span>
+            <span className="sm:hidden text-[11px] mono">SEC {section.idx} · {section.label}</span>
           </p>
-          <span className="flex items-center flex-none" title="Enclave Live Telemetry">
+          <span className="flex items-center flex-none" title="Live activity">
             <span className="live-dot" />
           </span>
         </div>
 
         {/* Action Tools */}
         <div className="bar-tools flex-none">
-          <span className="bar-live mono"><span className="live-dot" />ENCLAVE LIVE</span>
+          <span className="bar-live mono"><span className="live-dot" />LIVE</span>
           <span className="bar-clock mono">{time}</span>
 
           {handleAiClick && (
             <button
               className="hidden sm:inline-flex items-center gap-1.5 py-1 px-2.5 rounded border border-line bg-inset/40 hover:border-accent hover:text-ink text-soft text-xs mono transition-colors hover-lift"
               onClick={handleAiClick}
-              title="Open CyphBot Sovereign AI (Ctrl+J)"
-              aria-label="Open CyphBot Sovereign AI"
+              title="Open CyphBot (Ctrl+J)"
+              aria-label="Open CyphBot"
             >
               <Sparkles size={13} className="text-accent" />
               <span className="font-semibold">CYPHBOT</span>

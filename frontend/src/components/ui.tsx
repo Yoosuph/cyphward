@@ -22,7 +22,7 @@ export function Loading({ label }: { label: string }) {
     <div className="space-y-4 py-4 animate-fade-in w-full" aria-busy="true">
       <div className="flex items-center gap-2">
         <span className="live-dot" />
-        <p className="eyebrow text-accent">FETCHING TELEMETRY · {label}</p>
+        <p className="eyebrow text-accent">LOADING · {label}</p>
       </div>
       <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
         <Skeleton width="45%" height={24} />
