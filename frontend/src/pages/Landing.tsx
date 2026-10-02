@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, ShieldCheck, Radar, Gauge, GraduationCap, MessageSquare,
+  ArrowRight, ShieldCheck, Radar, Gauge, Wrench, MessageSquare,
   Activity, Lock, Globe, Check, AlertTriangle, Terminal, ChevronRight,
-  Sun, Moon, Laptop, Sparkles, Building2, Zap, Shield, Menu, X
+  Sun, Moon, Laptop, Sparkles, Building2, Zap, Shield, Menu, X,
+  Twitter, Instagram, Linkedin
 } from 'lucide-react';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
@@ -19,127 +20,129 @@ const LAYERS = [
     name: 'COMMAND',
     icon: Activity,
     tagline: 'One clear dashboard of your security health',
-    summary: 'A single 0–100 security score, updated continuously across four areas: Network, Web apps, Encryption, and Exposure.',
+    summary: 'A single 0–100 security score, updated after every scan across four areas: Network, Web apps, Encryption, and Exposure.',
     features: [
-      'Live data from cloud, on-premise, and payment switches',
-      'Live threat feed for major African financial centres',
-      'Instant reports for executives and boards',
+      'Daily automated scans of your verified domains',
+      'Four scored areas with a full breakdown',
+      'Board-ready AI summary after each scan',
     ],
-    metric: '74 / 100',
-    metricLabel: 'LIVE OVERALL SCORE',
+    metric: '79 / 100',
+    metricLabel: 'EXAMPLE OVERALL SCORE',
   },
   {
     idx: '02',
-    name: 'COMPLY',
-    icon: ShieldCheck,
-    tagline: 'Automatic NDPA, CBN, and PoPIA checks',
-    summary: 'Tracks compliance rules automatically against the Nigeria Data Protection Act (NDPA 2023), the CBN Cybersecurity Framework, and African Union rules.',
+    name: 'EXPOSE',
+    icon: Globe,
+    tagline: 'Your external footprint, mapped',
+    summary: 'We discover and watch everything the internet can see about you — subdomains, hosts, open ports, certificates and web technologies.',
     features: [
-      'Policy documents drafted for you, with one-click fixes',
-      'Evidence collected automatically for NDPC audits',
-      'Live scoring of compliance gaps with an estimate of possible fines',
+      'Asset discovery across your domains and subdomains',
+      'Open port and service inventory for public IPs',
+      'Certificate expiry tracking before outages happen',
     ],
-    metric: '14 / 18 PASS',
-    metricLabel: 'NDPA CHECKS PASSED',
+    metric: '5',
+    metricLabel: 'EXPOSURE SURFACES CHECKED',
   },
   {
     idx: '03',
-    name: 'DETECT',
+    name: 'ANALYZE',
     icon: Radar,
-    tagline: 'Threat radar built for Africa',
-    summary: 'Built for the problems African businesses actually face: USSD brute-force attacks, SIM-swap fraud, and phishing written in local languages.',
+    tagline: 'Automated checks that map to real rules',
+    summary: 'Every scan validates the controls regulators expect you to have — email authentication, TLS, security headers — and flags what is missing or weak.',
     features: [
-      'USSD gateway monitoring for unusual activity (T1566 / T1110)',
-      'Live map linking your core switches to payment routes',
-      'Automatic SIM-swap checks across telecom APIs',
+      'SPF, DKIM and DMARC email authentication checks',
+      'HSTS, CSP and clickjacking header checks',
+      'Known vulnerability scanning with Nuclei templates',
     ],
-    metric: '< 38ms',
-    metricLabel: 'TIME TO BLOCK A THREAT',
+    metric: 'DAILY',
+    metricLabel: 'AUTOMATED CHECK RUNS',
   },
   {
     idx: '04',
     name: 'SCORE',
     icon: Gauge,
     tagline: 'A security rating built for finance',
-    summary: 'A clear security score for insurers, underwriters and regulators. It looks at what is exposed online, live threats, and dark web mentions.',
+    summary: 'A clear security score your executives and insurers can read at a glance — built from what is actually exposed online, with history across every scan.',
     features: [
-      'Breakdown of your score, refreshed every hour',
-      'Compared with others in West and East African finance',
-      'Machine-readable REST API for cyber insurance underwriters',
+      'Breakdown across network, web apps, encryption and exposure',
+      'Score history tracked across every scan',
+      'Exportable reports for boards and stakeholders',
     ],
     metric: '+12 PTS',
-    metricLabel: 'MONTHLY SCORE CHANGE',
+    metricLabel: 'EXAMPLE SCORE IMPROVEMENT',
   },
   {
     idx: '05',
-    name: 'ACADEMY',
-    icon: GraduationCap,
-    tagline: 'Security training in the languages your staff use',
-    summary: 'Practice drills in English, Hausa, Yoruba, Pidgin, and Swahili. Your frontline staff become your strongest line of defence.',
+    name: 'REMEDIATE',
+    icon: Wrench,
+    tagline: 'From finding to fix, in order',
+    summary: 'Every finding arrives with evidence, a plain-English explanation and a step-by-step fix — queued so your team works on what matters first.',
     features: [
-      'Phishing practice messages over SMS and WhatsApp',
-      'Risk heatmaps by department and fun leaderboards',
-      'Short lessons made for mobile and branch staff',
+      'Prioritized fix queue ordered by severity',
+      'Step-by-step remediation guidance per finding',
+      'Evidence attached so you can verify every fix',
     ],
-    metric: '92% / 88%',
-    metricLabel: 'TRAINING / REPORT RATE',
+    metric: 'STEP-BY-STEP',
+    metricLabel: 'REMEDIATION FOR EVERY FINDING',
   },
   {
     idx: '06',
-    name: 'COPILOT',
+    name: 'CYPHBOT',
     icon: MessageSquare,
-    tagline: 'A security analyst who knows African rules',
-    summary: 'An AI assistant trained on African cyber laws, regulations and payment switch systems. It quotes the exact clause every time.',
+    tagline: 'An AI analyst that knows your data',
+    summary: 'A conversational AI assistant grounded in your live scan results. Ask about any finding in plain English and get answers from your own telemetry — not generic advice.',
     features: [
-      'Instant NDPA Section 24 and 41 checks, with the clause quoted',
-      'Ready-made response steps for NIBSS and payment switches',
-      'Run containment steps in one click',
+      'Answers grounded in your live scan data',
+      'Plain-English explanations of every finding',
+      'Streams responses right in the dashboard',
     ],
-    metric: '6 SECONDS',
-    metricLabel: 'AVERAGE TIME TO ASSESS',
+    metric: 'STREAMING',
+    metricLabel: 'AI ANSWERS FROM YOUR SCAN DATA',
   },
 ];
 
-const COMPARISON = [
+const CHECKS = [
   {
-    feature: 'Detection of USSD brute-force and session hijacking',
-    global: 'No — assumes HTTP/cloud APIs only',
-    cyphward: 'Yes — built for telco and VAS gateways',
+    check: 'DNS & email authentication',
+    detail: 'SPF, DKIM and DMARC records validated; permissive policies flagged before spoofers use them',
   },
   {
-    feature: 'Links SIM-swap fraud across telcos',
-    global: 'Needs complex custom rules',
-    cyphward: 'Automatic — pulls data straight from multiple telco APIs',
+    check: 'TLS certificates',
+    detail: 'Expiry, chain and cipher issues surfaced weeks before they break trust',
   },
   {
-    feature: 'Spots social engineering in Hausa, Pidgin and Yoruba',
-    global: 'Struggles with local phrasing and slang',
-    cyphward: 'Trained on scam messages from West and East Africa',
+    check: 'Exposed ports & services',
+    detail: 'Open ports on your public IPs, listed with the services actually running on them',
   },
   {
-    feature: 'Continuous NDPA 2023 and CBN security audits',
-    global: 'Only covers NIST/SOC2 — you do the gap work by hand',
-    cyphward: 'Automated NDPC reports ready from day one',
+    check: 'Web security headers',
+    detail: 'HSTS, CSP and X-Frame-Options checked against clickjacking and downgrade attacks',
   },
   {
-    feature: 'Payment switch live data (NIBSS, Paystack, M-Pesa)',
-    global: 'Generic syslog collection with no transaction context',
-    cyphward: 'Reads the protocols African payment switches actually use',
+    check: 'Known vulnerabilities',
+    detail: 'Nuclei templates scan your web apps for publicly known CVEs',
   },
   {
-    feature: 'Guarantee that your data stays in your country',
-    global: 'Routed through Europe or US data centers',
-    cyphward: '100% stored in-region (Lagos, Nairobi, Johannesburg)',
+    check: 'Exposure hygiene',
+    detail: 'Server banners, stack disclosures and robots.txt leaks flagged as findings',
   },
 ];
 
 const CALCULATOR_SECTORS = [
-  { name: 'Commercial Banking & Merchant Banks', baseExposure: '₦450M', controls: 24, recommended: 'Private Plan' },
-  { name: 'Fintech & Payment Gateway Switches', baseExposure: '₦180M', controls: 18, recommended: 'Scale Plan' },
-  { name: 'Telco VAS & Mobile Money Providers', baseExposure: '₦320M', controls: 22, recommended: 'Private Plan' },
-  { name: 'Logistics & Supply Chain Conglomerates', baseExposure: '₦65M', controls: 14, recommended: 'Growth Plan' },
-  { name: 'Healthcare & Healthtech Networks', baseExposure: '₦95M', controls: 16, recommended: 'Growth Plan' },
+  { name: 'Commercial Banking & Merchant Banks', baseExposure: '₦450M', recommended: 'Enterprise' },
+  { name: 'Fintech & Payment Gateway Switches', baseExposure: '₦180M', recommended: 'Scale' },
+  { name: 'Telco VAS & Mobile Money Providers', baseExposure: '₦320M', recommended: 'Enterprise' },
+  { name: 'Logistics & Supply Chain Conglomerates', baseExposure: '₦65M', recommended: 'Growth' },
+  { name: 'Healthcare & Healthtech Networks', baseExposure: '₦95M', recommended: 'Growth' },
 ];
+
+const COUNTRY_REGULATION: Record<string, string> = {
+  Nigeria: 'NDPA 2023 · CBN Cybersecurity Framework',
+  Kenya: 'Kenya DPA 2019 · CBK Cybersecurity Guidance',
+  'South Africa': 'PoPIA · FSCA Cyber Resilience Rules',
+  Ghana: 'Ghana DPA 2012 · BoG Cyber & Information Security Directive',
+  Egypt: 'Law 151 of 2020 · CBE Cybersecurity Framework',
+};
 
 export default function Landing() {
   const nav = useNavigate();
@@ -148,7 +151,7 @@ export default function Landing() {
   const [activeLayer, setActiveLayer] = useState(0);
   const [calcSector, setCalcSector] = useState(0);
   const [calcCountry, setCalcCountry] = useState('Nigeria');
-  const [previewTab, setPreviewTab] = useState<'telemetry' | 'ndpa' | 'ussd'>('telemetry');
+  const [previewTab, setPreviewTab] = useState<'telemetry' | 'findings' | 'fixes'>('telemetry');
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -170,14 +173,14 @@ export default function Landing() {
       {/* Fixed Floating Navigation Header */}
       <header className={`landing-nav ${mobileMenuOpen ? 'menu-open' : ''}`}>
         <div className="landing-nav-inner">
-          <Link to="/landing" className="landing-brand" onClick={() => setMobileMenuOpen(false)}>
+          <Link to="/" className="landing-brand" onClick={() => setMobileMenuOpen(false)}>
             <CyphwardLogo variant="compact" size={19} />
             <span className="!hidden lg:!inline-block tag text-[9px] ml-1">STRATA 2.0</span>
           </Link>
 
           <nav className="landing-links">
             <a href="#layers" className="landing-link">LAYERS</a>
-            <a href="#threat-matrix" className="landing-link">COMPARE</a>
+            <a href="#checks" className="landing-link">WHAT WE CHECK</a>
             <a href="#compliance" className="landing-link">REGULATION</a>
             <a href="#pricing" className="landing-link">PRICING</a>
           </nav>
@@ -223,11 +226,11 @@ export default function Landing() {
                 <ChevronRight size={13} className="text-soft" />
               </a>
               <a
-                href="#threat-matrix"
-                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
+                href="#checks"
+                className="py-2 px-2.5 rounded text-xs mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span>HOW WE COMPARE</span>
+                <span>WHAT WE CHECK</span>
                 <ChevronRight size={13} className="text-soft" />
               </a>
               <a
@@ -235,7 +238,7 @@ export default function Landing() {
                 className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span>NDPA / CBN REGULATION</span>
+                <span>PENALTY CALCULATOR</span>
                 <ChevronRight size={13} className="text-soft" />
               </a>
               <a
@@ -276,7 +279,7 @@ export default function Landing() {
           <div className="inline-block">
             <div className="telemetry-pill">
               <span className="live-dot" />
-              <span>LIVE DATA · 48 SENSORS · LAGOS · NAIROBI · JOHANNESBURG · KANO</span>
+              <span>LIVE DATA · DAILY SCANS · DNS · PORTS · TLS · WEB · EMAIL</span>
             </div>
           </div>
 
@@ -285,9 +288,10 @@ export default function Landing() {
           </h1>
 
           <p className="hero-desc">
-            Big global security tools weren't built for African networks. CYPHWARD keeps you
-            on top of NDPA and CBN rules, watches for USSD and SIM-swap fraud, and gives you
-            AI that understands local languages — all in one clear dashboard.
+            Big global security tools weren't built for African networks. CYPHWARD checks
+            what the internet can see about you — DNS, ports, TLS certificates, web apps and
+            email security — and turns it into a clear 0–100 score with plain-English findings,
+            fix guides and board-ready reports. Built with NDPA 2023 in mind.
           </p>
 
           <div className="hero-ctas">
@@ -317,16 +321,16 @@ export default function Landing() {
                   LIVE DATA
                 </button>
                 <button
-                  className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'ndpa' ? 'on' : ''}`}
-                  onClick={() => setPreviewTab('ndpa')}
+                  className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'findings' ? 'on' : ''}`}
+                  onClick={() => setPreviewTab('findings')}
                 >
-                  NDPA AUDIT
+                  FINDINGS
                 </button>
                 <button
-                  className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'ussd' ? 'on' : ''}`}
-                  onClick={() => setPreviewTab('ussd')}
+                  className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'fixes' ? 'on' : ''}`}
+                  onClick={() => setPreviewTab('fixes')}
                 >
-                  USSD THREATS
+                  FIX GUIDES
                 </button>
               </div>
             </div>
@@ -335,7 +339,7 @@ export default function Landing() {
               {previewTab === 'telemetry' && (
                 <>
                   <div className="lg:col-span-5 flex flex-col items-center justify-center py-2 border-b lg:border-b-0 lg:border-r border-line pr-0 lg:pr-6">
-                    <ScoreRing score={74} max={100} size={200} trend={1} />
+                    <ScoreRing score={79} max={100} size={200} trend={1} />
                     <p className="ring-note mt-3">SCORE OUT OF 100 · 4 AREAS</p>
                   </div>
                   <div className="lg:col-span-7 space-y-3">
@@ -358,64 +362,65 @@ export default function Landing() {
                       <span className="delta mono down">-3</span>
                     </div>
                     <div className="sub-row">
-                      <span className="sub-lbl mono">EXPOSED ONLINE</span>
-                      <span className="sub-val text-lg">9</span>
-                      <Meter pct={60} variant="bad" />
-                      <span className="delta mono down">-1</span>
+                      <span className="sub-lbl mono">ENCRYPTION</span>
+                      <span className="sub-val text-lg">22</span>
+                      <Meter pct={88} variant="ok" />
+                      <span className="delta mono up">+1</span>
                     </div>
                     <div className="sub-row">
-                      <span className="sub-lbl mono">EMAIL SECURITY</span>
-                      <span className="sub-val text-lg">7</span>
-                      <Meter pct={70} variant="ok" />
-                      <span className="delta mono up">+2</span>
+                      <span className="sub-lbl mono">EXPOSURE</span>
+                      <span className="sub-val text-lg">9</span>
+                      <Meter pct={60} variant="warn" />
+                      <span className="delta mono down">-1</span>
                     </div>
                   </div>
                 </>
               )}
 
-              {previewTab === 'ndpa' && (
+              {previewTab === 'findings' && (
                 <div className="col-span-12 py-3">
                   <div className="flex justify-between items-center mb-4">
                     <div>
-                      <h4 className="font-display text-lg font-medium">NDPA 2023 compliance check</h4>
-                      <p className="text-xs mono text-soft">Automatic tracking against the Nigeria Data Protection Act</p>
+                      <h4 className="font-display text-lg font-medium">Findings from your latest scan</h4>
+                      <p className="text-xs mono text-soft">Severity-ranked, with evidence attached to every item</p>
                     </div>
-                    <span className="tag ok">14 OF 18 COMPLIANT</span>
+                    <span className="tag acc">3 HIGH</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="p-3 bg-inset border border-line rounded">
-                      <div className="text-[10px] mono text-soft">SEC 24(1) · DATA MINIMIZATION</div>
-                      <div className="text-sm font-medium mt-1">FAILED — ACTION REQUIRED</div>
-                      <p className="text-[11px] mono text-accent mt-2">Customer logs kept beyond 90 days</p>
+                      <div className="text-[10px] mono text-soft">DNS &amp; EMAIL SECURITY</div>
+                      <div className="text-sm font-medium mt-1">Permissive Email DMARC Policy (p=none)</div>
+                      <p className="text-[11px] mono text-accent mt-2">Spoofed mail from your domain is accepted today</p>
                     </div>
                     <div className="p-3 bg-inset border border-line rounded">
-                      <div className="text-[10px] mono text-soft">SEC 41 · CROSS-BORDER TRANSFERS</div>
-                      <div className="text-sm font-medium mt-1 text-ok">COMPLIANT — VERIFIED</div>
-                      <p className="text-[11px] mono text-soft mt-2">All personal data stored in a Nigerian AWS Local Zone</p>
+                      <div className="text-[10px] mono text-soft">HTTP HEADERS</div>
+                      <div className="text-sm font-medium mt-1">Strict-Transport-Security (HSTS) Header Missing</div>
+                      <p className="text-[11px] mono text-soft mt-2">Browsers can be downgraded to plain HTTP</p>
                     </div>
                     <div className="p-3 bg-inset border border-line rounded">
-                      <div className="text-[10px] mono text-soft">SEC 34 · BREACH NOTIFICATION</div>
-                      <div className="text-sm font-medium mt-1 text-ok">COMPLIANT — AUTO-REPORTING</div>
-                      <p className="text-[11px] mono text-soft mt-2">NDPC notified automatically in under 72 hours</p>
+                      <div className="text-[10px] mono text-soft">TLS CERTIFICATES</div>
+                      <div className="text-sm font-medium mt-1">SSL/TLS Certificate Expiring within 22 Days</div>
+                      <p className="text-[11px] mono text-soft mt-2">Renew before visitors see trust warnings</p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {previewTab === 'ussd' && (
+              {previewTab === 'fixes' && (
                 <div className="col-span-12 py-3">
                   <div className="flex justify-between items-center mb-4">
                     <div>
-                      <h4 className="font-display text-lg font-medium">Unusual activity on USSD and payment gateways</h4>
-                      <p className="text-xs mono text-soft">Live detection of session hijacking and rapid PIN guessing</p>
+                      <h4 className="font-display text-lg font-medium">Fix guide: enforce DMARC</h4>
+                      <p className="text-xs mono text-soft">Step-by-step remediation, copy-paste ready</p>
                     </div>
-                    <span className="tag acc">THREAT BLOCKED</span>
+                    <span className="tag ok">STEP-BY-STEP</span>
                   </div>
                   <div className="p-4 bg-inset border border-line font-mono text-xs leading-relaxed overflow-x-auto">
-                    <div className="text-soft">// EVENT_ID: EVT_KAN_98412 — GATEWAY: ussd-gw-02.kano</div>
-                    <div className="text-ink mt-1">ANOMALY: Rapid PIN guessing against the core banking USSD switch (*901#)</div>
-                    <div className="text-accent mt-1">DETAIL: 1,420 session requests in 9.2s from 3 SIM-swap fraud groups</div>
-                    <div className="text-ok mt-1">ACTION: Rate limiter engaged · Telco fraud API notified · IP blocked</div>
+                    <div className="text-soft">// STEP 1 — Publish a restrictive DMARC record</div>
+                    <div className="text-ink mt-1">_dmarc.yourdomain.com  TXT  "v=DMARC1; p=quarantine; pct=100"</div>
+                    <div className="text-soft mt-3">// STEP 2 — Point reports at a mailbox you read</div>
+                    <div className="text-ink mt-1">rua=mailto:dmarc-reports@yourdomain.com</div>
+                    <div className="text-ok mt-3">// After publishing: re-run the scan to verify the fix</div>
                   </div>
                 </div>
               )}
@@ -423,7 +428,7 @@ export default function Landing() {
 
             <div className="px-6 py-3 border-t border-line bg-inset flex items-center justify-between">
               <span className="text-xs mono text-soft flex items-center gap-2">
-                <Terminal size={13} className="text-accent" /> ENTERPRISE HARDWARE WORKSPACE · READY FOR AUDIT
+                <Terminal size={13} className="text-accent" /> REAL SCAN WORKSPACE · EVIDENCE IN EVERY FINDING
               </span>
               <button className="stat-link text-xs" onClick={handleGetStarted}>
                 GET STARTED <ArrowRight size={12} />
@@ -435,20 +440,20 @@ export default function Landing() {
         {/* Pan-African Metrics Strip */}
         <section className="stat-matrix">
           <div className="stat-matrix-cell">
-            <div className="stat-matrix-val text-accent">₦4.8B+</div>
-            <div className="stat-matrix-lbl">FRAUD STOPPED AT PAYMENT SWITCHES</div>
+            <div className="stat-matrix-val text-accent">0–100</div>
+            <div className="stat-matrix-lbl">ONE SCORE ACROSS FOUR AREAS</div>
           </div>
           <div className="stat-matrix-cell">
-            <div className="stat-matrix-val text-ok">99.8%</div>
-            <div className="stat-matrix-lbl">NDPA & CBN AUDIT PASS RATE</div>
-          </div>
-          <div className="stat-matrix-cell">
-            <div className="stat-matrix-val">&lt; 38ms</div>
-            <div className="stat-matrix-lbl">TIME TO DETECT AND BLOCK A THREAT</div>
+            <div className="stat-matrix-val text-ok">DAILY</div>
+            <div className="stat-matrix-lbl">AUTOMATED SCANS PER VERIFIED DOMAIN</div>
           </div>
           <div className="stat-matrix-cell">
             <div className="stat-matrix-val">100%</div>
-            <div className="stat-matrix-lbl">DATA STORED IN-COUNTRY</div>
+            <div className="stat-matrix-lbl">OF FINDINGS SHIP WITH EVIDENCE &amp; A FIX</div>
+          </div>
+          <div className="stat-matrix-cell">
+            <div className="stat-matrix-val">5</div>
+            <div className="stat-matrix-lbl">CHECK FAMILIES: DNS, PORTS, TLS, WEB, EMAIL</div>
           </div>
         </section>
 
@@ -458,8 +463,9 @@ export default function Landing() {
             <p className="eyebrow">THE DEFENSE ARCHITECTURE</p>
             <h2>The 6 Layers of Strata Defense.</h2>
             <p className="sec-note">
-              Complete security coverage for African businesses — from a boardroom security score
-              to frontline staff training in local languages. Click through each layer to see what it does.
+              Complete security coverage for African businesses — from your public perimeter
+              to a prioritized fix queue, with an AI analyst on call. Click through each layer
+              to see what it does.
             </p>
           </div>
 
@@ -511,21 +517,21 @@ export default function Landing() {
                   {LAYERS[activeLayer].metric}
                 </p>
                 <p className="text-xs mono text-soft max-w-xs leading-relaxed">
-                  Live data sampled from servers in Nigeria, Kenya, and South Africa.
+                  Scans run from the internet edge — the same view an attacker has of your public surface.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* African Threat Matrix: Cyphward vs Global SIEMs */}
-        <section id="threat-matrix" className="py-16">
+        {/* What a scan checks: honest capability table */}
+        <section id="checks" className="py-16">
           <div className="sec-head">
-            <p className="eyebrow">REGIONAL ADVANTAGE</p>
-            <h2>Why global security tools leave African businesses exposed.</h2>
+            <p className="eyebrow">WHAT WE CHECK</p>
+            <h2>Everything a scan puts in front of you.</h2>
             <p className="sec-note">
-              Western tools are built for US and EU payment systems and English messages.
-              They miss the threats behind 84% of financial fraud in Africa.
+              Cyphward focuses on what you actually own — your public-facing domains, DNS,
+              certificates and web apps — checked automatically on every run.
             </p>
           </div>
 
@@ -533,19 +539,17 @@ export default function Landing() {
             <table className="ledger">
               <thead>
                 <tr>
-                  <th style={{ width: '40%' }}>THREATS & CAPABILITIES</th>
-                  <th style={{ width: '30%' }}>TYPICAL GLOBAL TOOLS</th>
-                  <th style={{ width: '30%' }}>CYPHWARD STRATA DEFENSE</th>
+                  <th style={{ width: '34%' }}>CHECK</th>
+                  <th>WHAT YOU GET</th>
                 </tr>
               </thead>
               <tbody>
-                {COMPARISON.map((row, i) => (
+                {CHECKS.map((row, i) => (
                   <tr key={i}>
-                    <td className="font-medium">{row.feature}</td>
-                    <td className="text-soft mono text-xs">{row.global}</td>
-                    <td className="text-ok mono text-xs font-medium">
+                    <td className="font-medium">{row.check}</td>
+                    <td className="text-soft mono text-xs">
                       <Check size={13} className="inline mr-1 text-ok" />
-                      {row.cyphward}
+                      {row.detail}
                     </td>
                   </tr>
                 ))}
@@ -561,7 +565,8 @@ export default function Landing() {
               <p className="eyebrow">WHAT NON-COMPLIANCE COSTS</p>
               <h2 className="text-2xl">See what breaking the rules could cost you</h2>
               <p className="sec-note">
-                Pick your industry and country to see what you could owe if you don't meet NDPA and CBN rules.
+                Pick your industry and country to see what non-compliance could cost you under
+                the data-protection rules that apply where you operate.
               </p>
             </div>
 
@@ -589,7 +594,7 @@ export default function Landing() {
                     <option value="Kenya">Kenya (Kenya DPA 2019 / CBK Guideline)</option>
                     <option value="South Africa">South Africa (PoPIA / FSCA)</option>
                     <option value="Ghana">Ghana (Ghana DPA 2012 / BoG Directives)</option>
-                    <option value="Egypt">Egypt (Law 151 / CBE Cybersecurity)</option>
+                    <option value="Egypt">Egypt (Law 151 of 2020 / CBE Cybersecurity)</option>
                   </select>
                 </div>
               </div>
@@ -597,19 +602,21 @@ export default function Landing() {
               <div className="lg:col-span-6 p-6 bg-inset border border-line rounded">
                 <div className="flex justify-between items-center mb-4">
                   <span className="eyebrow">ESTIMATED FINE IF YOU'RE NON-COMPLIANT</span>
-                  <span className="tag acc">MAXIMUM FINE</span>
+                  <span className="tag acc">ILLUSTRATIVE</span>
                 </div>
                 <div className="font-display text-4xl text-accent font-medium mb-1">
                   {CALCULATOR_SECTORS[calcSector].baseExposure}
                 </div>
                 <p className="text-xs mono text-soft mb-4">
-                  The law allows fines of up to 2% of annual turnover or ₦10M (NDPA Sec 48).
+                  Penalties are typically tied to turnover — NDPA 2023 Sec 48, for example,
+                  allows up to 2% of annual turnover or ₦10M. Figures shown assume a typical
+                  annual turnover for the selected sector.
                 </p>
 
                 <div className="space-y-2 border-t border-line pt-3 text-xs mono">
                   <div className="flex justify-between">
-                    <span className="text-soft">REQUIRED CHECKS:</span>
-                    <span>{CALCULATOR_SECTORS[calcSector].controls} technical and organisational checks</span>
+                    <span className="text-soft">APPLIES TO YOU:</span>
+                    <span>{COUNTRY_REGULATION[calcCountry]}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">RECOMMENDED PLAN:</span>
@@ -621,7 +628,7 @@ export default function Landing() {
                   className="btn btn-solid w-full justify-center mt-5 text-xs py-2.5"
                   onClick={handleGetStarted}
                 >
-                  RUN A REAL COMPLIANCE SCAN <ArrowRight size={13} />
+                  RUN A REAL SCAN ON YOUR DOMAIN <ArrowRight size={13} />
                 </button>
               </div>
             </div>
@@ -634,7 +641,7 @@ export default function Landing() {
             <p className="eyebrow">SIMPLE PLANS</p>
             <h2>Transparent pricing for every scale.</h2>
             <p className="sec-note">
-              From fast-growing African startups to central banks and critical payment networks.
+              For growing fintechs, banks, telcos and payment providers across Africa.
             </p>
           </div>
 
@@ -646,10 +653,10 @@ export default function Landing() {
               <p className="text-xs mono text-soft mb-4">For growing fintechs, logistics and tech ventures.</p>
               <div className="font-display text-3xl font-medium my-2">₦450,000 <span className="text-xs font-mono text-soft">/ month</span></div>
               <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Up to 500 employee devices</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Continuous NDPA 2023 audit</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Continuous scanning of what's exposed online</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Daily threat updates</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Daily automated scans of your domains</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Email &amp; TLS hardening checks (DMARC, SPF, HSTS)</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Findings prioritized with step-by-step fixes</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Board-ready AI report after every scan</li>
               </ul>
               <button className="btn btn-ghost w-full justify-center" onClick={handleGetStarted}>
                 START WITH GROWTH
@@ -666,11 +673,10 @@ export default function Landing() {
               <p className="text-xs mono text-soft mb-4">For national banks, telcos and payment switches.</p>
               <div className="font-display text-3xl font-medium my-2">₦1,850,000 <span className="text-xs font-mono text-soft">/ month</span></div>
               <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Unlimited devices and switches</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> USSD and SIM-swap monitoring built in</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> NDPA, CBN & ISO 27001 full suite</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Support for all 5 African languages</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Dedicated security officer, reply in under 15 min</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Everything in Growth, plus:</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Unlimited verified domains</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Dedicated onboarding with our team</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Priority support</li>
               </ul>
               <button className="btn btn-solid w-full justify-center" onClick={handleGetStarted}>
                 START WITH SCALE
@@ -679,39 +685,19 @@ export default function Landing() {
 
             {/* Tier 3 */}
             <div className="pricing-card">
-              <span className="tag w-fit mb-3">PRIVATE</span>
-              <h3 className="font-display text-2xl font-medium mb-1">Fully Air-Gapped</h3>
-              <p className="text-xs mono text-soft mb-4">For central banks and critical national infrastructure.</p>
+              <span className="tag w-fit mb-3">ENTERPRISE</span>
+              <h3 className="font-display text-2xl font-medium mb-1">Custom Plan</h3>
+              <p className="text-xs mono text-soft mb-4">For large institutions with bespoke requirements.</p>
               <div className="font-display text-3xl font-medium my-2">CUSTOM <span className="text-xs font-mono text-soft">/ annual</span></div>
               <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Runs on your own servers — fully air-gapped</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Connects to national payment switches</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Threat monitoring tuned for state-sponsored attacks</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> 24/7 security team in Lagos and Abuja</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Everything in Scale, plus:</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Multi-domain portfolios under one roof</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Reports formatted for regulators and boards</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Personalized rollout with our team</li>
               </ul>
               <Link to="/signup" className="btn btn-ghost w-full justify-center">
                 CONTACT OUR TEAM
               </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* CISO Testimonial Banner */}
-        <section className="my-16 p-8 panel border-accent/40 bg-raised relative overflow-hidden">
-          <div className="max-w-3xl">
-            <p className="eyebrow mb-2">CUSTOMER STORY</p>
-            <blockquote className="font-display text-2xl font-normal italic leading-relaxed mb-4">
-              "When our USSD gateways were hit with coordinated brute-force attacks during the Eid holiday,
-              our previous tool sent us nothing. CYPHWARD's Layer 03 pinpointed the SIM-swap fraud and alerted our security team in under 40 seconds."
-            </blockquote>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-inset border border-line flex items-center justify-center font-display font-medium text-accent">
-                AK
-              </div>
-              <div>
-                <p className="font-medium text-sm">Alhaji Kabir Danbaba</p>
-                <p className="text-xs mono text-soft">Chief Information Security Officer · Commercial Merchant Bank of West Africa</p>
-              </div>
             </div>
           </div>
         </section>
@@ -723,7 +709,7 @@ export default function Landing() {
             Check how secure you are right now.
           </h2>
           <p className="text-sm mono text-soft max-w-lg mx-auto mb-8">
-            Create your account, add your domain, and run a real scan — you get a security score, compliance reports, and clear steps to fix any issues.
+            Create your account, add your domain, and run a real scan — you get a security score, board-ready reports, and clear steps to fix any issues.
           </p>
           <div className="flex justify-center gap-4 flex-wrap">
             <Link to="/signup" className="btn btn-solid py-3 px-8 text-sm">
@@ -748,6 +734,35 @@ export default function Landing() {
                 African-built cyber security and compliance platform.
                 Layer by layer defense for the continent.
               </p>
+              <div className="flex items-center gap-2.5 mt-4">
+                <a
+                  href="https://x.com/cyphward"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Cyphward on X"
+                  className="w-8 h-8 rounded border border-line bg-inset flex items-center justify-center text-soft hover:text-ink hover:border-accent transition-colors"
+                >
+                  <Twitter size={14} />
+                </a>
+                <a
+                  href="https://www.instagram.com/cyphward_/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Cyphward on Instagram"
+                  className="w-8 h-8 rounded border border-line bg-inset flex items-center justify-center text-soft hover:text-ink hover:border-accent transition-colors"
+                >
+                  <Instagram size={14} />
+                </a>
+                <a
+                  href="https://www.linkedin.com/company/cyphward/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Cyphward on LinkedIn"
+                  className="w-8 h-8 rounded border border-line bg-inset flex items-center justify-center text-soft hover:text-ink hover:border-accent transition-colors"
+                >
+                  <Linkedin size={14} />
+                </a>
+              </div>
             </div>
 
             <div>
@@ -771,7 +786,7 @@ export default function Landing() {
             </div>
 
             <div>
-              <p className="eyebrow mb-3">REGULATIONS WE TRACK</p>
+              <p className="eyebrow mb-3">REGULATIONS WE BUILD FOR</p>
               <ul className="space-y-2 text-xs mono text-soft">
                 <li>NDPA 2023 (Nigeria)</li>
                 <li>CBN Cybersecurity Guidelines</li>
@@ -783,7 +798,7 @@ export default function Landing() {
 
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs mono text-soft">
             <div>
-              © 2026 CYPHWARD TECHNOLOGIES LTD · ALL RIGHTS RESERVED · PLATFORM v0.2.0
+              © 2026 CYPHWARD TECHNOLOGIES LTD · ALL RIGHTS RESERVED · PLATFORM v0.1.0
             </div>
             <div className="flex items-center gap-4">
               <Link to="/terms" className="hover:text-ink transition-colors">TERMS</Link>

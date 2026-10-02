@@ -53,6 +53,29 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/settings': { idx: '08', label: 'SETTINGS' },
 };
 
+/**
+ * Public homepage: the landing page for signed-out visitors, an automatic
+ * hand-off to /overview for signed-in users (search engines and first-time
+ * visitors both get the marketing page at / instead of a login wall).
+ */
+function HomeRoute() {
+  const { tenant, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="shell relative min-h-screen flex items-center justify-center">
+        <div className="text-center p-8 z-10">
+          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (tenant) return <Navigate to="/overview" replace />;
+  return <Landing />;
+}
+
 function AppShell() {
   const { tenant, loading, onboardingStep } = useAuth();
   const location = useLocation();
@@ -198,7 +221,8 @@ export default function App() {
           <CookieBanner />
           <Routes>
             {/* Public and Dedicated Auth Routes */}
-            <Route path="/landing" element={<Landing />} />
+            <Route path="/" element={<HomeRoute />} />
+            <Route path="/landing" element={<Navigate to="/" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -220,7 +244,6 @@ export default function App() {
             {/* Authenticated App Routes — Protected inside AppShell */}
             <Route element={<AppShell />}>
               {/* Core MVP Routes */}
-              <Route path="/" element={<Overview />} />
               <Route path="/overview" element={<Overview />} />
               <Route path="/assets" element={<Assets />} />
               <Route path="/findings" element={<Findings />} />
@@ -231,13 +254,13 @@ export default function App() {
               <Route path="/settings" element={<Settings />} />
 
               {/* Legacy alias redirects */}
-              <Route path="/analytics" element={<Navigate to="/" replace />} />
-              <Route path="/comply" element={<Navigate to="/" replace />} />
-              <Route path="/dashboard" element={<Navigate to="/" replace />} />
-              <Route path="/copilot" element={<Navigate to="/" replace />} />
+              <Route path="/analytics" element={<Navigate to="/overview" replace />} />
+              <Route path="/comply" element={<Navigate to="/overview" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
+              <Route path="/copilot" element={<Navigate to="/overview" replace />} />
               <Route path="/detect" element={<Navigate to="/scans" replace />} />
-              <Route path="/score" element={<Navigate to="/" replace />} />
-              <Route path="/academy" element={<Navigate to="/" replace />} />
+              <Route path="/score" element={<Navigate to="/overview" replace />} />
+              <Route path="/academy" element={<Navigate to="/overview" replace />} />
               <Route path="/sso" element={<Navigate to="/login" replace />} />
             </Route>
 

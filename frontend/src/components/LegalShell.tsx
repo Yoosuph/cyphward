@@ -36,7 +36,7 @@ export default function LegalShell({
       <header className="relative z-10 px-5 md:px-8 pt-5">
         <div className="landing-container flex items-center justify-between py-3 border-b border-line">
           <div className="flex items-center gap-3">
-            <Link to="/landing" className="flex items-center text-ink hover:opacity-85 transition-opacity">
+            <Link to="/" className="flex items-center text-ink hover:opacity-85 transition-opacity">
               <CyphwardLogo variant="compact" size={20} />
             </Link>
             <span className="text-line select-none hidden sm:inline">/</span>
@@ -52,7 +52,7 @@ export default function LegalShell({
             >
               {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            <Link to="/landing" className="stat-link text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all">
+            <Link to="/" className="stat-link text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all">
               <ArrowLeft size={13} className="text-accent" />
               <span>BACK TO HOME</span>
             </Link>

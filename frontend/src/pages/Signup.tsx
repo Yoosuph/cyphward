@@ -115,7 +115,7 @@ export default function Signup() {
         {/* Top Utility Bar */}
         <div className="flex items-center justify-between pb-6 mb-6 border-b border-line">
           <div className="flex items-center gap-3">
-            <Link to="/landing" className="flex items-center text-ink hover:opacity-85 transition-opacity">
+            <Link to="/" className="flex items-center text-ink hover:opacity-85 transition-opacity">
               <CyphwardLogo variant="compact" size={20} />
             </Link>
             <span className="text-line select-none">/</span>
@@ -136,7 +136,7 @@ export default function Signup() {
             </button>
 
             <Link
-              to="/landing"
+              to="/"
               className="stat-link text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all"
             >
               <Globe size={13} className="text-accent" />
