@@ -5,12 +5,15 @@ Seamlessly falls back to HeuristicAIProvider when API keys are unconfigured or e
 """
 import os
 import json
+import logging
 import time
 import httpx
 from typing import Dict, Any, List
 from backend.app.ai.base import AIProvider
 from backend.app.ai.privacy import sanitize_for_ai
 from backend.app.ai.heuristic_provider import HeuristicAIProvider
+
+logger = logging.getLogger("cyphward.ai")
 
 
 class CloudLLMProvider(AIProvider):
@@ -37,7 +40,7 @@ class CloudLLMProvider(AIProvider):
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 1024,
+                    "max_tokens": 4096,
                 }
                 headers = {
                     "Authorization": f"Bearer {self.openai_key}",
@@ -45,7 +48,7 @@ class CloudLLMProvider(AIProvider):
                     "HTTP-Referer": "https://cyphward.com",
                     "X-Title": "Cyphward Sovereign Security"
                 }
-                async with httpx.AsyncClient(timeout=8.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"].strip()
@@ -57,8 +60,9 @@ class CloudLLMProvider(AIProvider):
                                 lines = lines[:-1]
                             content = "\n".join(lines).strip()
                         return json.loads(content)
-            except Exception:
-                pass
+                    logger.warning("openrouter structured call failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("openrouter structured call error: %s", type(exc).__name__)
 
         # 2. Try Gemini if configured and not rate-limited
         now = time.time()
@@ -71,10 +75,10 @@ class CloudLLMProvider(AIProvider):
                     "generationConfig": {
                         "response_mime_type": "application/json",
                         "temperature": 0.2,
-                        "maxOutputTokens": 1024,
+                        "maxOutputTokens": 4096,
                     },
                 }
-                async with httpx.AsyncClient(timeout=3.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -90,11 +94,21 @@ class CloudLLMProvider(AIProvider):
                                     if lines and lines[-1].strip().startswith("```"):
                                         lines = lines[:-1]
                                     text = "\n".join(lines).strip()
-                                return json.loads(text)
+                                try:
+                                    return json.loads(text)
+                                except json.JSONDecodeError as exc:
+                                    finish = candidates[0].get("finishReason", "unknown")
+                                    logger.warning(
+                                        "gemini returned unparseable JSON (finish=%s, %d chars): %s",
+                                        finish, len(text), exc,
+                                    )
                     elif resp.status_code == 429:
-                        self._gemini_rate_limited_until = now + 86400.0
-            except Exception:
-                pass
+                        self._gemini_rate_limited_until = now + 65.0
+                        logger.warning("gemini rate-limited (429); backing off 65s")
+                    else:
+                        logger.warning("gemini structured call failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("gemini structured call error: %s", type(exc).__name__)
 
         # 3. Try standard OpenAI if configured
         if self.openai_key and not self.is_openrouter:
@@ -113,13 +127,14 @@ class CloudLLMProvider(AIProvider):
                     "Authorization": f"Bearer {self.openai_key}",
                     "Content-Type": "application/json"
                 }
-                async with httpx.AsyncClient(timeout=6.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"]
                         return json.loads(content.strip())
-            except Exception:
-                pass
+                    logger.warning("openai structured call failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("openai structured call error: %s", type(exc).__name__)
 
         return None
 
@@ -262,7 +277,7 @@ class CloudLLMProvider(AIProvider):
                     "HTTP-Referer": "https://cyphward.com",
                     "X-Title": "Cyphward Sovereign Security",
                 }
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -279,8 +294,9 @@ class CloudLLMProvider(AIProvider):
                                 {"label": "Inspect Assets", "kind": "ghost", "path": "/assets"},
                             ],
                         }
-            except Exception:
-                pass
+                    logger.warning("openrouter chat failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("openrouter chat error: %s", type(exc).__name__)
 
         # 2. Try Gemini if configured and not rate-limited
         now = time.time()
@@ -301,10 +317,10 @@ class CloudLLMProvider(AIProvider):
                     "contents": gemini_contents,
                     "generationConfig": {
                         "temperature": 0.25,
-                        "maxOutputTokens": 1024,
+                        "maxOutputTokens": 2048,
                     },
                 }
-                async with httpx.AsyncClient(timeout=3.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -326,9 +342,12 @@ class CloudLLMProvider(AIProvider):
                                     ],
                                 }
                     elif resp.status_code == 429:
-                        self._gemini_rate_limited_until = now + 86400.0
-            except Exception:
-                pass
+                        self._gemini_rate_limited_until = now + 65.0
+                        logger.warning("gemini chat rate-limited (429); backing off 65s")
+                    else:
+                        logger.warning("gemini chat failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("gemini chat error: %s", type(exc).__name__)
 
         # Fallback to heuristic
         return await self.heuristic.chat(message, history, context)
@@ -430,8 +449,79 @@ class CloudLLMProvider(AIProvider):
                                 ],
                             }
                             return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("openrouter stream error: %s", type(exc).__name__)
+
+        # 2. Stream from Gemini if configured and not rate-limited.
+        # (Without this branch, a Gemini-only deployment always fell back to
+        # the heuristic stream, so CyphBot never answered with the real model.)
+        now = time.time()
+        if self.gemini_key and now > self._gemini_rate_limited_until:
+            streamed = False
+            try:
+                contents = [
+                    {"role": "user", "parts": [{"text": f"System Context & Rules:\n{system_instruction}\n\nOrganization Context:\n{enclave_prompt}Please acknowledge in a friendly, conversational tone."}]},
+                    {"role": "model", "parts": [{"text": f"Hi! I'm CyphBot, your security assistant for {org_name}. I'm here to explain your perimeter findings in plain English and give you simple, step-by-step fix guides. What can I help you with today?"}]},
+                ]
+                for h in history[-6:]:
+                    content = h.get("content", "").strip()
+                    if content and content != message.strip():
+                        contents.append({
+                            "role": "user" if h.get("role") == "user" else "model",
+                            "parts": [{"text": content}],
+                        })
+                contents.append({"role": "user", "parts": [{"text": message}]})
+
+                url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}"
+                    f":streamGenerateContent?alt=sse&key={self.gemini_key}"
+                )
+                payload = {
+                    "contents": contents,
+                    "generationConfig": {"temperature": 0.25, "maxOutputTokens": 2048},
+                }
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    async with client.stream("POST", url, json=payload) as resp:
+                        if resp.status_code == 200:
+                            async for line in resp.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                try:
+                                    obj = json.loads(line[6:].strip())
+                                except json.JSONDecodeError:
+                                    continue
+                                candidates = obj.get("candidates", [])
+                                if not candidates or "content" not in candidates[0]:
+                                    continue
+                                parts = candidates[0]["content"].get("parts", [])
+                                if parts and parts[0].get("text"):
+                                    streamed = True
+                                    yield {"token": parts[0]["text"], "done": False}
+                            if streamed:
+                                yield {
+                                    "token": "",
+                                    "done": True,
+                                    "sources": [
+                                        {"id": "src_gemini", "label": "Google Gemini Sovereign AI"},
+                                        {"id": "src_enclave", "label": f"{org_name} Live Telemetry"},
+                                        {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                    ],
+                                    "actions": [
+                                        {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
+                                        {"label": "Inspect Assets", "kind": "ghost", "path": "/assets"},
+                                    ],
+                                }
+                                return
+                        elif resp.status_code == 429:
+                            self._gemini_rate_limited_until = now + 65.0
+                            logger.warning("gemini stream rate-limited (429); backing off 65s")
+                        else:
+                            logger.warning("gemini stream failed: HTTP %s", resp.status_code)
+            except Exception as exc:
+                logger.warning("gemini stream error: %s", type(exc).__name__)
+            if streamed:
+                yield {"token": "", "done": True, "sources": [], "actions": []}
+                return
 
         # Fallback to streaming heuristic
         async for chunk in self.heuristic.chat_stream(message, history, context):
