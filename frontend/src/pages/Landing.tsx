@@ -50,7 +50,7 @@ const LAYERS = [
     tagline: 'Automated checks that map to real rules',
     summary: 'Every scan validates the controls regulators expect you to have — email authentication, TLS, security headers — and flags what is missing or weak.',
     features: [
-      'SPF, DKIM and DMARC email authentication checks',
+      'SPF and DMARC email authentication checks',
       'HSTS, CSP and clickjacking header checks',
       'Known vulnerability scanning with Nuclei templates',
     ],
@@ -104,7 +104,7 @@ const LAYERS = [
 const CHECKS = [
   {
     check: 'DNS & email authentication',
-    detail: 'SPF, DKIM and DMARC records validated; permissive policies flagged before spoofers use them',
+    detail: 'SPF and DMARC records validated; permissive policies flagged before spoofers use them',
   },
   {
     check: 'TLS certificates',

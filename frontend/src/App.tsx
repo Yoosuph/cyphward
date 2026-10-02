@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ToastProvider } from './components/Toast';
@@ -10,33 +10,36 @@ import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
 import ButtonPlate from './components/ButtonPlate';
 
-// Public / Auth Pages
+// Public / prerendered pages — eager: built into the landing bundle.
 import Landing from './pages/Landing';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import AuthCallback from './pages/AuthCallback';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 
+// Route-split pages: loaded on demand so the public landing payload doesn't
+// ship the dashboard, auth screens and chart library (recharts).
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const AuthCallback = lazy(() => import('./pages/AuthCallback'));
+
 // Onboarding Pages
-import OnboardingLayout from './pages/onboarding/OnboardingLayout';
-import VerifyEmail from './pages/onboarding/VerifyEmail';
-import CreateOrganization from './pages/onboarding/CreateOrganization';
-import AddDomain from './pages/onboarding/AddDomain';
-import VerifyDomain from './pages/onboarding/VerifyDomain';
-import OnboardingComplete from './pages/onboarding/OnboardingComplete';
+const OnboardingLayout = lazy(() => import('./pages/onboarding/OnboardingLayout'));
+const VerifyEmail = lazy(() => import('./pages/onboarding/VerifyEmail'));
+const CreateOrganization = lazy(() => import('./pages/onboarding/CreateOrganization'));
+const AddDomain = lazy(() => import('./pages/onboarding/AddDomain'));
+const VerifyDomain = lazy(() => import('./pages/onboarding/VerifyDomain'));
+const OnboardingComplete = lazy(() => import('./pages/onboarding/OnboardingComplete'));
 
 // Core MVP Pages
-import Overview from './pages/Overview';
-import Assets from './pages/Assets';
-import Findings from './pages/Findings';
-import Scans from './pages/Scans';
-import Domains from './pages/Domains';
-import Settings from './pages/Settings';
-import Remediation from './pages/Remediation';
-import Reports from './pages/Reports';
+const Overview = lazy(() => import('./pages/Overview'));
+const Assets = lazy(() => import('./pages/Assets'));
+const Findings = lazy(() => import('./pages/Findings'));
+const Scans = lazy(() => import('./pages/Scans'));
+const Domains = lazy(() => import('./pages/Domains'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Remediation = lazy(() => import('./pages/Remediation'));
+const Reports = lazy(() => import('./pages/Reports'));
 import CyphBotDrawer from './components/CyphBotDrawer';
 import CyphBotFloatingButton from './components/CyphBotFloatingButton';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -52,6 +55,18 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/reports': { idx: '07', label: 'REPORTS' },
   '/settings': { idx: '08', label: 'SETTINGS' },
 };
+
+/** Fallback while a route-split page chunk downloads. */
+function RouteLoading() {
+  return (
+    <div className="shell relative min-h-screen flex items-center justify-center">
+      <div className="text-center p-8 z-10">
+        <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+        <p className="mono text-[11px] text-soft tracking-widest">LOADING…</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Public homepage: the landing page for signed-out visitors, an automatic
@@ -219,7 +234,8 @@ export default function App() {
           <BrandedCursor />
           {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
           <CookieBanner />
-          <Routes>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
             {/* Public and Dedicated Auth Routes */}
             <Route path="/" element={<HomeRoute />} />
             <Route path="/landing" element={<Navigate to="/" replace />} />
@@ -265,7 +281,8 @@ export default function App() {
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

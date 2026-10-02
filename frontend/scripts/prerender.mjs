@@ -37,6 +37,18 @@ try {
   const { render } = await vite.ssrLoadModule('/src/prerender-entry.tsx');
   const template = readFileSync(join(root, 'dist', 'index.html'), 'utf8');
 
+  // App shell: the pristine post-Vite HTML (asset tags intact, empty root),
+  // saved BEFORE prerendering overwrites dist/index.html. SPA routes are
+  // rewritten here so /login, /overview etc. boot the real app instead of
+  // receiving the prerendered landing markup. Canonical/og:url point at /
+  // in the template, so strip them — they would consolidate every app URL
+  // onto the landing page in search results.
+  const appShell = template
+    .replace(/\s*<link rel="canonical" href="[^"]*" \/>/, '')
+    .replace(/\s*<meta property="og:url" content="[^"]*" \/>/, '');
+  writeFileSync(join(root, 'dist', 'app.html'), appShell);
+  console.log(`wrote dist/app.html (SPA shell, ${appShell.length} bytes)`);
+
   for (const page of PAGES) {
     const appHtml = render(page.url);
     if (!appHtml || appHtml.length < 500) {

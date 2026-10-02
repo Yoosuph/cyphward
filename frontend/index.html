@@ -13,22 +13,42 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "Cyphward",
-    "applicationCategory": "SecurityApplication",
-    "operatingSystem": "Web",
-    "url": "https://cyphward.com/",
-    "description": "Cyphward scores your organization 0–100 across network, web apps, encryption and exposure — with findings, fix guides and board-ready reports. Built with NDPA 2023 in mind.",
-    "publisher": {
-      "@type": "Organization",
-      "name": "Cyphward Technologies Ltd",
-      "url": "https://cyphward.com/"
-    },
-    "offers": {
-      "@type": "Offer",
-      "price": "450000",
-      "priceCurrency": "NGN"
-    }
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://cyphward.com/#organization",
+        "name": "Cyphward Technologies Ltd",
+        "url": "https://cyphward.com/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://cyphward.com/og-image.png",
+          "width": 1200,
+          "height": 630
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://cyphward.com/#website",
+        "url": "https://cyphward.com/",
+        "name": "Cyphward",
+        "inLanguage": "en",
+        "publisher": { "@id": "https://cyphward.com/#organization" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Cyphward",
+        "applicationCategory": "SecurityApplication",
+        "operatingSystem": "Web",
+        "url": "https://cyphward.com/",
+        "description": "Cyphward scores your organization 0–100 across network, web apps, encryption and exposure — with findings, fix guides and board-ready reports. Built with NDPA 2023 in mind.",
+        "publisher": { "@id": "https://cyphward.com/#organization" },
+        "offers": {
+          "@type": "Offer",
+          "price": "450000",
+          "priceCurrency": "NGN"
+        }
+      }
+    ]
   }
   </script>
 
@@ -66,6 +86,10 @@
     html:not([data-theme]) body { opacity: 0; }
     html[data-theme] body { opacity: 1; transition: opacity 0.05s; }
   </style>
+  <noscript>
+    <!-- No JS = the theme script never runs, so reveal the body with default (light) theme -->
+    <style>html:not([data-theme]) body { opacity: 1; }</style>
+  </noscript>
   <script>
     /* Blocking script: apply saved theme BEFORE first paint */
     (function() {
