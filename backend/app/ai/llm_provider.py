@@ -4,9 +4,11 @@ Proxies through external LLM APIs (Gemini / OpenAI) with mandatory prior privacy
 Seamlessly falls back to HeuristicAIProvider when API keys are unconfigured or external calls fail.
 """
 import os
+import re
 import json
-import logging
 import time
+import asyncio
+import logging
 import httpx
 from typing import Dict, Any, List
 from backend.app.ai.base import AIProvider
@@ -26,6 +28,42 @@ class CloudLLMProvider(AIProvider):
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.is_openrouter = bool(self.openai_key and self.openai_key.startswith("sk-or-"))
         self._gemini_rate_limited_until = 0.0
+
+    @staticmethod
+    def _retry_after(resp: httpx.Response, default: float = 20.0) -> float:
+        """Seconds to wait after a Gemini 429 (free tier = 20 req/min; body says e.g. 'retry in 17.5s')."""
+        try:
+            match = re.search(r"retry in ([\d.]+)s", resp.text or "")
+            if match:
+                return min(float(match.group(1)) + 1.0, 30.0)
+        except Exception:
+            pass
+        header = resp.headers.get("retry-after")
+        if header:
+            try:
+                return min(float(header) + 1.0, 30.0)
+            except ValueError:
+                pass
+        return default
+
+    async def _post_gemini(self, client: httpx.AsyncClient, url: str, payload: Dict[str, Any], label: str) -> httpx.Response:
+        """POST once, retrying a single time after the server-suggested delay on 429.
+
+        Only after a second 429 does the whole provider back off (short cooldown), so one
+        rate-limited request no longer throws away every remaining call in the batch.
+        """
+        resp: httpx.Response | None = None
+        for attempt in range(2):
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 429:
+                return resp
+            delay = self._retry_after(resp)
+            if attempt == 0:
+                logger.warning("gemini %s rate-limited (429); retrying in %.1fs", label, delay)
+                await asyncio.sleep(delay)
+        self._gemini_rate_limited_until = time.time() + delay
+        logger.warning("gemini %s still rate-limited after retry; cooling down %.0fs", label, delay)
+        return resp
 
     async def _call_llm(self, system_prompt: str, user_prompt: str) -> Dict[str, Any] | None:
         """Helper to invoke OpenRouter/Claude, Gemini, or OpenAI with structured JSON response."""
@@ -79,7 +117,7 @@ class CloudLLMProvider(AIProvider):
                     },
                 }
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(url, json=payload)
+                    resp = await self._post_gemini(client, url, payload, "structured")
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
@@ -103,8 +141,7 @@ class CloudLLMProvider(AIProvider):
                                         finish, len(text), exc,
                                     )
                     elif resp.status_code == 429:
-                        self._gemini_rate_limited_until = now + 65.0
-                        logger.warning("gemini rate-limited (429); backing off 65s")
+                        logger.warning("gemini structured call rate-limited (429) after retry")
                     else:
                         logger.warning("gemini structured call failed: HTTP %s", resp.status_code)
             except Exception as exc:
@@ -321,7 +358,7 @@ class CloudLLMProvider(AIProvider):
                     },
                 }
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(url, json=payload)
+                    resp = await self._post_gemini(client, url, payload, "chat")
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
@@ -342,8 +379,7 @@ class CloudLLMProvider(AIProvider):
                                     ],
                                 }
                     elif resp.status_code == 429:
-                        self._gemini_rate_limited_until = now + 65.0
-                        logger.warning("gemini chat rate-limited (429); backing off 65s")
+                        logger.warning("gemini chat rate-limited (429) after retry")
                     else:
                         logger.warning("gemini chat failed: HTTP %s", resp.status_code)
             except Exception as exc:
@@ -481,42 +517,51 @@ class CloudLLMProvider(AIProvider):
                     "generationConfig": {"temperature": 0.25, "maxOutputTokens": 2048},
                 }
                 async with httpx.AsyncClient(timeout=45.0) as client:
-                    async with client.stream("POST", url, json=payload) as resp:
-                        if resp.status_code == 200:
-                            async for line in resp.aiter_lines():
-                                if not line.startswith("data: "):
+                    for attempt in range(2):
+                        async with client.stream("POST", url, json=payload) as resp:
+                            if resp.status_code == 200:
+                                async for line in resp.aiter_lines():
+                                    if not line.startswith("data: "):
+                                        continue
+                                    try:
+                                        obj = json.loads(line[6:].strip())
+                                    except json.JSONDecodeError:
+                                        continue
+                                    candidates = obj.get("candidates", [])
+                                    if not candidates or "content" not in candidates[0]:
+                                        continue
+                                    parts = candidates[0]["content"].get("parts", [])
+                                    if parts and parts[0].get("text"):
+                                        streamed = True
+                                        yield {"token": parts[0]["text"], "done": False}
+                                if streamed:
+                                    yield {
+                                        "token": "",
+                                        "done": True,
+                                        "sources": [
+                                            {"id": "src_gemini", "label": "Google Gemini Sovereign AI"},
+                                            {"id": "src_enclave", "label": f"{org_name} Live Telemetry"},
+                                            {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                        ],
+                                        "actions": [
+                                            {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
+                                            {"label": "Inspect Assets", "kind": "ghost", "path": "/assets"},
+                                        ],
+                                    }
+                                    return
+                                break
+                            if resp.status_code == 429:
+                                await resp.aread()
+                                delay = self._retry_after(resp)
+                                if attempt == 0:
+                                    logger.warning("gemini stream rate-limited (429); retrying in %.1fs", delay)
+                                    await asyncio.sleep(delay)
                                     continue
-                                try:
-                                    obj = json.loads(line[6:].strip())
-                                except json.JSONDecodeError:
-                                    continue
-                                candidates = obj.get("candidates", [])
-                                if not candidates or "content" not in candidates[0]:
-                                    continue
-                                parts = candidates[0]["content"].get("parts", [])
-                                if parts and parts[0].get("text"):
-                                    streamed = True
-                                    yield {"token": parts[0]["text"], "done": False}
-                            if streamed:
-                                yield {
-                                    "token": "",
-                                    "done": True,
-                                    "sources": [
-                                        {"id": "src_gemini", "label": "Google Gemini Sovereign AI"},
-                                        {"id": "src_enclave", "label": f"{org_name} Live Telemetry"},
-                                        {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
-                                    ],
-                                    "actions": [
-                                        {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
-                                        {"label": "Inspect Assets", "kind": "ghost", "path": "/assets"},
-                                    ],
-                                }
-                                return
-                        elif resp.status_code == 429:
-                            self._gemini_rate_limited_until = now + 65.0
-                            logger.warning("gemini stream rate-limited (429); backing off 65s")
-                        else:
-                            logger.warning("gemini stream failed: HTTP %s", resp.status_code)
+                                self._gemini_rate_limited_until = time.time() + delay
+                                logger.warning("gemini stream still rate-limited after retry; cooling down %.0fs", delay)
+                            else:
+                                logger.warning("gemini stream failed: HTTP %s", resp.status_code)
+                            break
             except Exception as exc:
                 logger.warning("gemini stream error: %s", type(exc).__name__)
             if streamed:
