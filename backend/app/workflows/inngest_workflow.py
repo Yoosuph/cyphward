@@ -136,6 +136,7 @@ async def _email_org_members(org_id: str, subject: str, html: str, text: str) ->
                 html,
                 text,
                 rec.get("full_name"),
+                kind="alerts",
             )
         except Exception:
             continue

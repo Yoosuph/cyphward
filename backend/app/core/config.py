@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Dict, Tuple
 from dotenv import load_dotenv
 
 # Load .env from backend directory or project root
@@ -68,5 +69,22 @@ BREVO_SMTP_SERVER = os.getenv("BREVO_SMTP_SERVER", "smtp-relay.brevo.com")
 BREVO_SMTP_PORT = int(os.getenv("BREVO_SMTP_PORT", "587"))
 BREVO_SMTP_LOGIN = os.getenv("BREVO_SMTP_LOGIN", "")
 BREVO_SMTP_PASSWORD = os.getenv("BREVO_SMTP_PASSWORD", "") or BREVO_API_KEY
-BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "Cyphward Security")
-BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "")
+
+# Central sender identities for outgoing mail — every address below is a
+# verified Brevo sender (DKIM + DMARC aligned). Call sites pick an email
+# kind; never hardcode a "From" address outside this map.
+#   system   → authentication & account email (verification, reset, welcome)
+#   alerts   → automated security events (critical/reopened findings)
+#   reports  → scan & executive report delivery
+#   support  → human support replies (reply-enabled)
+#   security → vulnerability disclosure & security contact
+#   general  → business and general inquiries
+EMAIL_SENDERS: Dict[str, Tuple[str, str]] = {
+    "system": ("Cyphward", "no-reply@cyphward.com"),
+    "alerts": ("Cyphward Alerts", "alerts@cyphward.com"),
+    "reports": ("Cyphward Reports", "reports@cyphward.com"),
+    "support": ("Cyphward Support", "support@cyphward.com"),
+    "security": ("Cyphward Security", "security@cyphward.com"),
+    "general": ("Cyphward", "info@cyphward.com"),
+}
+DEFAULT_EMAIL_SENDER_KIND = "system"

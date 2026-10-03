@@ -200,6 +200,7 @@ async def send_executive_report_email(
             subject=subject,
             html_content=html_content,
             recipient_name=req.recipient_name,
+            kind="reports",
         )
         log_audit(org_id, org.get("current_user_id"), "report.emailed", "report", None,
                   {"to": to_email})

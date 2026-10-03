@@ -20,11 +20,27 @@ from backend.app.core.config import (
     BREVO_SMTP_PORT,
     BREVO_SMTP_LOGIN,
     BREVO_SMTP_PASSWORD,
-    BREVO_SENDER_NAME,
-    BREVO_SENDER_EMAIL,
+    EMAIL_SENDERS,
+    DEFAULT_EMAIL_SENDER_KIND,
 )
 
 logger = logging.getLogger("cyphward.mailer")
+
+
+def email_sender(kind: str) -> "tuple[str, str]":
+    """Resolve the (display name, address) pair for an email kind.
+
+    Unknown kinds fall back to the system sender so a typo can never
+    block delivery; the misspelling is logged loudly instead.
+    """
+    sender = EMAIL_SENDERS.get(kind)
+    if sender is None:
+        logger.warning(
+            f"Unknown email sender kind {kind!r}; falling back to "
+            f"{DEFAULT_EMAIL_SENDER_KIND!r} <{EMAIL_SENDERS[DEFAULT_EMAIL_SENDER_KIND][1]}>."
+        )
+        sender = EMAIL_SENDERS[DEFAULT_EMAIL_SENDER_KIND]
+    return sender
 
 
 def generate_executive_report_html(
@@ -680,11 +696,16 @@ async def send_email_async(
     html_content: str,
     text_content: Optional[str] = None,
     recipient_name: Optional[str] = None,
+    kind: str = DEFAULT_EMAIL_SENDER_KIND,
 ) -> Dict[str, Any]:
     """
     Sends an email using Brevo REST API v3 with automatic failover to Brevo SMTP.
+
+    `kind` selects the verified Brevo sender identity from EMAIL_SENDERS
+    (system / alerts / reports / support / security / general).
     """
     to_email = to_email.strip()
+    sender_name, sender_email = email_sender(kind)
     if not text_content:
         text_content = "Please view this Cyphward Security Report in an HTML-compatible email client."
 
@@ -699,8 +720,8 @@ async def send_email_async(
             }
             payload = {
                 "sender": {
-                    "name": BREVO_SENDER_NAME,
-                    "email": BREVO_SENDER_EMAIL,
+                    "name": sender_name,
+                    "email": sender_email,
                 },
                 "to": [
                     {
@@ -718,7 +739,7 @@ async def send_email_async(
                 response = await client.post(url, json=payload, headers=headers)
                 if response.status_code in (200, 201, 202):
                     res_data = response.json()
-                    logger.info(f"Email successfully dispatched via Brevo REST API to {to_email}. Msg ID: {res_data.get('messageId')}")
+                    logger.info(f"Email successfully dispatched via Brevo REST API to {to_email} (kind={kind}, from={sender_email}). Msg ID: {res_data.get('messageId')}")
                     return {
                         "success": True,
                         "method": "brevo_api",
@@ -751,7 +772,7 @@ async def send_email_async(
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"{BREVO_SENDER_NAME} <{BREVO_SENDER_EMAIL}>"
+        msg["From"] = f"{sender_name} <{sender_email}>"
         msg["To"] = to_email
 
         part1 = MIMEText(text_content, "plain", "utf-8")
@@ -767,11 +788,11 @@ async def send_email_async(
                 server.starttls()
                 server.ehlo()
                 server.login(BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD)
-                server.sendmail(BREVO_SENDER_EMAIL, [to_email], msg.as_string())
+                server.sendmail(sender_email, [to_email], msg.as_string())
 
         await asyncio.to_thread(_smtp_send)
 
-        logger.info(f"Email successfully dispatched via Brevo SMTP relay to {to_email}")
+        logger.info(f"Email successfully dispatched via Brevo SMTP relay to {to_email} (kind={kind}, from={sender_email})")
         return {
             "success": True,
             "method": "brevo_smtp",
@@ -802,7 +823,7 @@ async def send_email_async(
                 camp_payload = {
                     "name": f"Cyphward Report - {to_email.split('@')[0]} - {int(time.time())}",
                     "subject": subject,
-                    "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+                    "sender": {"name": sender_name, "email": sender_email},
                     "type": "classic",
                     "htmlContent": html_content,
                     "recipients": {"listIds": [2]},
@@ -844,6 +865,7 @@ def send_email_sync(
     html_content: str,
     text_content: Optional[str] = None,
     recipient_name: Optional[str] = None,
+    kind: str = DEFAULT_EMAIL_SENDER_KIND,
 ) -> Dict[str, Any]:
     """Synchronous wrapper for scripts and worker jobs."""
     import asyncio
@@ -855,13 +877,13 @@ def send_email_sync(
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 return pool.submit(
                     asyncio.run,
-                    send_email_async(to_email, subject, html_content, text_content, recipient_name)
+                    send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
                 ).result()
         else:
             return loop.run_until_complete(
-                send_email_async(to_email, subject, html_content, text_content, recipient_name)
+                send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
             )
     except RuntimeError:
         return asyncio.run(
-            send_email_async(to_email, subject, html_content, text_content, recipient_name)
+            send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
         )
