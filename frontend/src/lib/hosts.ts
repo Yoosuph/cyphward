@@ -72,7 +72,9 @@ export function hostTarget(pathname: string): string | null {
 
   if (onAuth) {
     if (AUTH_PATHS.has(pathname)) return null;
-    if (pathname === '/') return 'https://auth.cyphward.com/login';
+    // Logo / "VIEW WEBSITE" on the auth pages link to "/" — that's a
+    // marketing link here, not a login link.
+    if (pathname === '/') return 'https://cyphward.com/';
     if (pathname.startsWith('/onboarding') || APP_PATHS.has(pathname)) {
       return `https://app.cyphward.com${pathname}`;
     }

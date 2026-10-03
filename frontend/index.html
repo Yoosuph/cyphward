@@ -91,13 +91,23 @@
     <style>html:not([data-theme]) body { opacity: 1; }</style>
   </noscript>
   <script>
-    /* Blocking script: apply saved theme BEFORE first paint */
+    /* Blocking script: apply saved theme BEFORE first paint.
+       Priority: shared .cyphward.com cookie (works across cyphward.com /
+       auth. / app.), then per-tab, then per-origin storage. */
     (function() {
       try {
-        var t = sessionStorage.getItem('cyphward-theme') || localStorage.getItem('cyphward-theme');
+        var cookie = (document.cookie.match(/(?:^|;\s*)cyphward-theme=(light|dark)/) || [])[1];
+        var stored = sessionStorage.getItem('cyphward-theme') || localStorage.getItem('cyphward-theme');
+        var t = cookie || stored;
         if (!t && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
         if (!t) t = 'light';
         document.documentElement.setAttribute('data-theme', t);
+        // Adopt the first explicitly saved value into the shared cookie so the
+        // choice follows the user across subdomains after they toggle once.
+        if (!cookie && stored && /(^|\.)cyphward\.com$/.test(location.hostname)) {
+          document.cookie = 'cyphward-theme=' + stored + '; domain=.cyphward.com; path=/; max-age=31536000; samesite=lax' +
+            (location.protocol === 'https:' ? '; secure' : '');
+        }
       } catch (e) {
         document.documentElement.setAttribute('data-theme', 'light');
       }
