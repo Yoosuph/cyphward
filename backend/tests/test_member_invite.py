@@ -255,6 +255,7 @@ def test_accept_rejects_mismatched_email(client, auth_headers, monkeypatch, stor
 
 
 def test_accept_invalid_or_missing_token(client, auth_headers, store):
+    _seed_invitee(store)
     headers = auth_headers(NEWBIE, email=INVITEE)
     bad = client.post("/api/v1/members/invites/accept",
                       json={"token": "definitely-not-a-real-token"}, headers=headers)

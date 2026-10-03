@@ -22,8 +22,13 @@ from backend.app.core.config import ACCESS_TOKEN_TTL_SECONDS, AUTH_JWT_SECRET
 from backend.app.core.database import execute_one
 
 
-def issue_access_token(profile: Dict[str, Any]) -> str:
-    """Mint a Cyphward access token for a profile row."""
+def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None) -> str:
+    """Mint a Cyphward access token for a profile row.
+
+    `sid` binds the token to its auth_sessions row so every authenticated
+    request can check revocation (logout / password reset) — issued access
+    JWTs stop working the moment the session is revoked.
+    """
     now = int(time.time())
     claims = {
         "sub": str(profile["id"]),
@@ -32,6 +37,8 @@ def issue_access_token(profile: Dict[str, Any]) -> str:
         "iat": now,
         "exp": now + ACCESS_TOKEN_TTL_SECONDS,
     }
+    if session_id:
+        claims["sid"] = str(session_id)
     return jwt.encode(claims, AUTH_JWT_SECRET, algorithm="HS256")
 
 
@@ -53,7 +60,13 @@ def _verify_token(token: str) -> Dict[str, Any]:
 def get_current_user(
     authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    """Verify the Cyphward JWT and return (creating if needed) the caller's profile."""
+    """Verify the Cyphward JWT and return the caller's profile.
+
+    Single roundtrip: the profile lookup also joins the token's auth_sessions
+    row (sid claim) so a revoked session invalidates the access token
+    immediately. A missing profile is a hard 401 — we never re-create profile
+    rows from token claims (a deleted account must stay deleted).
+    """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
@@ -61,24 +74,22 @@ def get_current_user(
     user_id = claims.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing subject")
-
-    email = (claims.get("email") or "").strip().lower()
-    full_name = (claims.get("full_name") or email or "Cyphward User").strip()
+    sid = claims.get("sid")  # absent on tokens issued before session binding
 
     profile = execute_one(
         """
-        INSERT INTO profiles (id, email, full_name, role)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE
-            SET email = COALESCE(EXCLUDED.email, profiles.email),
-                full_name = COALESCE(EXCLUDED.full_name, profiles.full_name),
-                updated_at = now()
-        RETURNING *
+        SELECT p.*, s.revoked_at AS session_revoked_at
+        FROM profiles p
+        LEFT JOIN auth_sessions s ON s.id = NULLIF(%s, '')::uuid
+        WHERE p.id = %s
         """,
-        (user_id, email or None, full_name, "Member"),
+        (sid or None, user_id),
     )
     if not profile:
-        raise HTTPException(status_code=500, detail="Failed to load profile")
+        # Profile deleted (or orphaned token) — do NOT resurrect it from claims.
+        raise HTTPException(status_code=401, detail="Session no longer valid — sign in again.")
+    if profile.get("session_revoked_at") is not None:
+        raise HTTPException(status_code=401, detail="Session expired — sign in again.")
     return profile
 
 

@@ -20,7 +20,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # Cyphward Auth — our own JWT sessions (Supabase Auth is not used).
 AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "")
-ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", "86400"))
+# Access tokens are short-lived: get_current_user checks session revocation on
+# every request, and the frontend refreshes before expiry (30s slack), so a
+# short window only limits stolen-token use when no logout happened (review P1).
+ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", "1800"))
 REFRESH_TOKEN_TTL_SECONDS = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", "2592000"))
 # Where password-reset / OAuth links send the browser back to.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")

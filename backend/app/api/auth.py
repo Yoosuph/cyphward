@@ -237,12 +237,22 @@ async def verify_verification_otp(
             execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
             raise HTTPException(status_code=400, detail="That code has expired — request a new one.")
 
-    execute_query("UPDATE email_otps SET attempts = attempts + 1 WHERE id = %s", (row["id"],))
+    # Conditional attempt consume: the budget check and the increment are one
+    # statement, so concurrent verifies can't both slip past the limit.
+    bumped = execute_one(
+        "UPDATE email_otps SET attempts = attempts + 1 WHERE id = %s AND attempts < %s RETURNING attempts",
+        (row["id"], _OTP_MAX_ATTEMPTS),
+    )
+    if not bumped:
+        execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+        raise HTTPException(status_code=429, detail="Too many attempts — request a new code.")
+    attempts_now = int(bumped.get("attempts") or _OTP_MAX_ATTEMPTS)
+    left = max(_OTP_MAX_ATTEMPTS - attempts_now, 0)
 
     if not hmac.compare_digest(str(row.get("code_hash") or ""), _hash_code(email, code)):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid code — {remaining - 1} attempt(s) left.",
+            detail=f"Invalid code — {left} attempt(s) left.",
         )
 
     execute_query(
@@ -452,12 +462,24 @@ async def reset_password(body: ResetPasswordBody) -> Dict[str, Any]:
         if datetime.now(timezone.utc) >= expires_at:
             raise HTTPException(status_code=400, detail="This link is invalid or has expired — request a new one.")
 
+    # Claim the token first with a conditional write — a replayed link loses
+    # the compare-and-set and is rejected even under concurrent use.
+    consumed = execute_one(
+        """
+        UPDATE password_reset_tokens SET used_at = now()
+        WHERE id = %s AND used_at IS NULL AND expires_at > now()
+        RETURNING id
+        """,
+        (row["id"],),
+    )
+    if not consumed:
+        raise HTTPException(status_code=400, detail="This link is invalid or has expired — request a new one.")
+
     password_hash = hash_password(body.password)
     execute_one(
         "UPDATE profiles SET password_hash = %s, updated_at = now() WHERE id = %s RETURNING id",
         (password_hash, row["user_id"]),
     )
-    execute_query("UPDATE password_reset_tokens SET used_at = now() WHERE id = %s", (row["id"],))
     execute_query("DELETE FROM password_reset_tokens WHERE user_id = %s", (row["user_id"],))
     revoke_all_sessions(row["user_id"])
     log_audit(None, str(row["user_id"]), "auth.password_reset", "user", str(row["user_id"]))

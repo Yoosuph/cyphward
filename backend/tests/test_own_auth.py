@@ -255,8 +255,64 @@ def test_reset_password_rejects_short_password(client, store, capture_email):
     _register(client)
     client.post("/api/v1/auth/forgot-password", json={"email": "ada@example.com"})
     token = _extract_reset_token(capture_email)
-    resp = client.post("/api/v1/auth/reset-password", json={"token": token, "password": "short"})
+    resp = client.post(
+        "/api/v1/auth/reset-password", json={"token": token, "password": "short"}
+    )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Session binding (P1 — access JWTs die with their session)
+# ---------------------------------------------------------------------------
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_logout_revokes_the_access_token(client):
+    """Logout must kill the access JWT immediately, not just the refresh token."""
+    tokens = _register(client).json()
+    access = tokens["access_token"]
+
+    ok = client.get("/api/v1/auth/bootstrap", headers=_auth(access))
+    assert ok.status_code == 200
+
+    out = client.post("/api/v1/auth/logout", json={"refresh_token": tokens["refresh_token"]})
+    assert out.status_code == 200
+
+    dead = client.get("/api/v1/auth/bootstrap", headers=_auth(access))
+    assert dead.status_code == 401
+    assert "Session" in dead.json()["detail"] or "session" in dead.json()["detail"]
+
+
+def test_stale_token_cannot_recreate_a_deleted_profile(client, store):
+    """get_current_user must 401 on a missing profile, never re-insert it."""
+    tokens = _register(client).json()
+    access = tokens["access_token"]
+    user_id = tokens["user"]["id"]
+    assert user_id in store.profiles
+
+    del store.profiles[user_id]
+
+    resp = client.get("/api/v1/auth/bootstrap", headers=_auth(access))
+    assert resp.status_code == 401
+    assert user_id not in store.profiles  # still gone — no resurrection from claims
+
+
+def test_access_token_dies_with_password_reset(client, store, capture_email):
+    """reset-password revokes every session; old access JWTs stop working now."""
+    tokens = _register(client).json()
+    access = tokens["access_token"]
+
+    client.post("/api/v1/auth/forgot-password", json={"email": "ada@example.com"})
+    reset_token = _extract_reset_token(capture_email)
+    resp = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": reset_token, "password": "brand-new-secret-9"},
+    )
+    assert resp.status_code == 200
+
+    dead = client.get("/api/v1/auth/bootstrap", headers=_auth(access))
+    assert dead.status_code == 401
 
 
 # ---------------------------------------------------------------------------

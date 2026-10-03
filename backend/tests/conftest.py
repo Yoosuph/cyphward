@@ -48,21 +48,20 @@ SCAN_A1 = "51111111-0000-4000-8000-000000000001"
 DOM_A1 = "d1111111-0000-4000-8000-000000000001"
 
 
-def sign_token(user_id: str, email: str = "user@acme.test") -> str:
+def sign_token(user_id: str, email: str = "user@acme.test", sid: str | None = None) -> str:
     """Mint a Cyphward access token exactly as the backend does in production."""
     secret = config.AUTH_JWT_SECRET
     now = int(time.time())
-    return pyjwt.encode(
-        {
-            "sub": user_id,
-            "email": email,
-            "full_name": email.split("@")[0].title(),
-            "iat": now,
-            "exp": now + 3600,
-        },
-        secret,
-        algorithm="HS256",
-    )
+    claims = {
+        "sub": user_id,
+        "email": email,
+        "full_name": email.split("@")[0].title(),
+        "iat": now,
+        "exp": now + 3600,
+    }
+    if sid:
+        claims["sid"] = sid
+    return pyjwt.encode(claims, secret, algorithm="HS256")
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +205,20 @@ class FakeStore:
             return [prof]
 
         # --- own auth: sessions ------------------------------------------
+        # get_current_user: profile + session-revocation join (single query).
+        # Never creates rows — a deleted profile must stay deleted (P1).
+        if s.startswith("SELECT p.*, s.revoked_at AS session_revoked_at FROM profiles p"):
+            sid, uid = params
+            prof = self.profiles.get(str(uid))
+            if prof is None:
+                return []
+            revoked = None
+            if sid:
+                sess = next((x for x in self.sessions if x["id"] == sid), None)
+                if sess is not None:
+                    revoked = sess.get("revoked_at")
+            return [{**prof, "session_revoked_at": revoked}]
+
         if s.startswith("INSERT INTO auth_sessions"):
             if "otc_hash" in s:
                 uid, refresh_hash, otc_hash, ttl = params
@@ -223,30 +236,45 @@ class FakeStore:
             self.sessions.append(row)
             return [{"id": row["id"]}]
 
-        if s.startswith("SELECT * FROM auth_sessions WHERE refresh_token_hash = %s"):
-            return [x for x in self.sessions if x["refresh_token_hash"] == params[0]][:1]
-
-        if s.startswith("SELECT * FROM auth_sessions WHERE otc_hash = %s AND revoked_at IS NULL"):
+        if s.startswith("SELECT id, user_id FROM auth_sessions WHERE refresh_token_hash"):
             return [
-                x for x in self.sessions
+                {"id": x["id"], "user_id": x["user_id"]}
+                for x in self.sessions
+                if x["refresh_token_hash"] == params[0]
+            ][:1]
+
+        if s.startswith("SELECT id, user_id FROM auth_sessions WHERE otc_hash"):
+            return [
+                {"id": x["id"], "user_id": x["user_id"]}
+                for x in self.sessions
                 if x["otc_hash"] == params[0] and x["revoked_at"] is None
             ][:1]
 
-        if s.startswith("UPDATE auth_sessions SET refresh_token_hash = %s, last_used_at = now() WHERE id = %s"):
-            new_hash, sid = params
+        if s.startswith("UPDATE auth_sessions SET refresh_token_hash = %s, last_used_at = now() WHERE id = %s AND refresh_token_hash"):
+            # Conditional compare-and-set: old hash + not revoked + not expired
+            # must all hold, mirroring the single UPDATE in Postgres.
+            new_hash, sid, old_hash = params
+            now = datetime.now(timezone.utc)
             for x in self.sessions:
-                if x["id"] == sid:
+                if (x["id"] == sid and x["refresh_token_hash"] == old_hash
+                        and x["revoked_at"] is None and x["expires_at"] > now):
                     x["refresh_token_hash"] = new_hash
-                    x["last_used_at"] = datetime.now(timezone.utc)
+                    x["last_used_at"] = now
+                    return [{"id": x["id"]}]
             return []
 
         if s.startswith("UPDATE auth_sessions SET otc_hash = NULL"):
-            new_hash, sid = params
+            new_hash, sid, otc_hash = params
+            now = datetime.now(timezone.utc)
             for x in self.sessions:
-                if x["id"] == sid:
+                if (x["id"] == sid and x["otc_hash"] == otc_hash
+                        and x["revoked_at"] is None
+                        and x["otc_expires_at"] is not None and x["otc_expires_at"] > now):
                     x["otc_hash"] = None
                     x["otc_expires_at"] = None
                     x["refresh_token_hash"] = new_hash
+                    x["last_used_at"] = now
+                    return [{"id": x["id"]}]
             return []
 
         if s.startswith("UPDATE auth_sessions SET revoked_at = now() WHERE refresh_token_hash"):
@@ -284,9 +312,13 @@ class FakeStore:
             return rows[:1]
 
         if s.startswith("UPDATE password_reset_tokens SET used_at"):
+            # Conditional consume: only an unused, unexpired row flips to used.
+            rid = params[0]
+            now = datetime.now(timezone.utc)
             for r in self.password_reset_tokens:
-                if r["id"] == params[0]:
-                    r["used_at"] = datetime.now(timezone.utc)
+                if r["id"] == rid and r["used_at"] is None and r["expires_at"] > now:
+                    r["used_at"] = now
+                    return [{"id": r["id"]}]
             return []
 
         if s.startswith("DELETE FROM password_reset_tokens"):
@@ -294,9 +326,6 @@ class FakeStore:
                 r for r in self.password_reset_tokens if str(r["user_id"]) != str(params[0])
             ]
             return []
-
-        if s.startswith("INSERT INTO profiles"):
-            return [self._upsert_profile(params)]
 
         if "FROM audit_log" in s and "welcome.sent" in s:
             uid = params[0]
@@ -346,10 +375,14 @@ class FakeStore:
             return [rows[0]] if rows else []
 
         if s.startswith("UPDATE email_otps SET attempts"):
-            row_id = params[0]
+            # Conditional bump: budget check + increment in one statement.
+            row_id, max_attempts = params
             for r in self.email_otps:
                 if r["id"] == row_id:
-                    r["attempts"] += 1
+                    if r["attempts"] < max_attempts:
+                        r["attempts"] += 1
+                        return [{"attempts": r["attempts"]}]
+                    return []
             return []
 
         if s.startswith("UPDATE profiles SET email_verified_at"):
@@ -650,20 +683,6 @@ class FakeStore:
         # Unknown statement: behave like an empty result set.
         return []
 
-    def _upsert_profile(self, params):
-        user_id, email, full_name, role = params
-        prof = self.profiles.get(user_id, {"id": user_id, "role": role})
-        if email:
-            prof["email"] = email
-        if full_name:
-            prof["full_name"] = full_name
-        prof.setdefault("role", role)
-        # Mirrors the real ON CONFLICT ... RETURNING * (profiles.created_at
-        # defaults to now() on insert and never changes on update).
-        prof.setdefault("created_at", datetime.now(timezone.utc))
-        self.profiles[user_id] = prof
-        return prof
-
     # -- seeding ----------------------------------------------------------
     def seed(self):
         self.organizations = {
@@ -760,7 +779,26 @@ class FakeStore:
             {"org_id": ORG_A, "score": 70, "created_at": "2026-09-01T00:10:00"},
             {"org_id": ORG_A, "score": 75, "created_at": "2026-09-08T00:10:00"},
         ]
-        self.profiles = {}
+        # Fixture accounts: get_current_user only SELECTs profiles now (a
+        # missing profile is a 401, rows are never created from token claims),
+        # so every auth_headers() identity needs a row up front. email follows
+        # the sign_token default claim ({uid[:8]}@acme.test); deliberately no
+        # email_verified_at — OTP/org-gate tests rely on starting unverified.
+        now = datetime.now(timezone.utc)
+        self.profiles = {
+            uid: {
+                "id": uid, "email": f"{uid[:8]}@acme.test", "full_name": name,
+                "role": "Member", "password_hash": None, "provider": "email",
+                "created_at": now,
+            }
+            for uid, name in (
+                (ALICE, "Alice"),
+                (BOB, "Bob"),
+                (ADMI, "Admin"),
+                (CAROL, "Carol"),
+                (DAVE, "Dave"),
+            )
+        }
         self.audit = []
         self.email_otps = []
         self.sessions = []
@@ -793,8 +831,9 @@ def client(store):
 
 @pytest.fixture
 def auth_headers():
-    def _make(user_id: str, email: str | None = None, org: str | None = None) -> dict:
-        headers = {"Authorization": f"Bearer {sign_token(user_id, email or f'{user_id[:8]}@acme.test')}"}
+    def _make(user_id: str, email: str | None = None, org: str | None = None,
+              sid: str | None = None) -> dict:
+        headers = {"Authorization": f"Bearer {sign_token(user_id, email or f'{user_id[:8]}@acme.test', sid=sid)}"}
         if org:
             headers["X-Organization-Id"] = org
         return headers
