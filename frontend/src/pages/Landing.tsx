@@ -182,6 +182,7 @@ export default function Landing() {
             <a href="#layers" className="landing-link">LAYERS</a>
             <a href="#checks" className="landing-link">WHAT WE CHECK</a>
             <a href="#compliance" className="landing-link">REGULATION</a>
+            <a href="#teams" className="landing-link">TEAMS</a>
             <a href="#pricing" className="landing-link">PRICING</a>
           </nav>
 
@@ -242,11 +243,19 @@ export default function Landing() {
                 <ChevronRight size={13} className="text-soft" />
               </a>
               <a
+                href="#teams"
+                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span>TEAMS &amp; ROLES</span>
+                <ChevronRight size={13} className="text-soft" />
+              </a>
+              <a
                 href="#pricing"
                 className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span>PLANS & PRICING</span>
+                <span>PLANS &amp; PRICING</span>
                 <ChevronRight size={13} className="text-soft" />
               </a>
             </nav>
@@ -313,7 +322,7 @@ export default function Landing() {
                 <span className="w-2.5 h-2.5 rounded-full bg-accent" />
                 <span>CYPHWARD DEFENSE OS — LIVE WORKSPACE PREVIEW</span>
               </div>
-              <div className="flex gap-2">
+              <div className="preview-tabs flex gap-2">
                 <button
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'telemetry' ? 'on' : ''}`}
                   onClick={() => setPreviewTab('telemetry')}
@@ -556,6 +565,7 @@ export default function Landing() {
               </tbody>
             </table>
           </div>
+          <p className="ledger-hint">SWIPE THE TABLE FOR THE FULL COLUMN →</p>
         </section>
 
         {/* Interactive Regulatory Exposure Calculator */}
@@ -632,6 +642,83 @@ export default function Landing() {
                 </button>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Teams & roles */}
+        <section id="teams" className="py-16">
+          <div className="sec-head">
+            <p className="eyebrow">BUILT FOR TEAMS</p>
+            <h2>One workspace, the right access for everyone.</h2>
+            <p className="sec-note">
+              Invite colleagues by email and give each person a role — security, IT and
+              leadership all work from the same scores, findings, fix guides and reports.
+            </p>
+          </div>
+
+          <div className="teams-grid">
+            <div className="panel p-6">
+              <span className="tag w-fit mb-3">ROLE 01</span>
+              <h3 className="font-display text-xl font-medium mb-2">Owner</h3>
+              <p className="text-xs mono text-soft leading-relaxed mb-4">
+                Full control of the workspace, including settings and membership.
+              </p>
+              <ul className="space-y-2.5 text-xs mono text-soft">
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  Invite people and set their roles
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  Change workspace settings and company profile
+                </li>
+              </ul>
+            </div>
+
+            <div className="panel p-6">
+              <span className="tag w-fit mb-3">ROLE 02</span>
+              <h3 className="font-display text-xl font-medium mb-2">Admin</h3>
+              <p className="text-xs mono text-soft leading-relaxed mb-4">
+                You can invite people, change settings, and manage findings.
+              </p>
+              <ul className="space-y-2.5 text-xs mono text-soft">
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  Add teammates by email, any role
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  Work through findings and fixes together
+                </li>
+              </ul>
+            </div>
+
+            <div className="panel p-6">
+              <span className="tag w-fit mb-3">ROLE 03</span>
+              <h3 className="font-display text-xl font-medium mb-2">Member</h3>
+              <p className="text-xs mono text-soft leading-relaxed mb-4">
+                You can view findings, scans, and reports.
+              </p>
+              <ul className="space-y-2.5 text-xs mono text-soft">
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  See scores and step-by-step fix guides
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check size={14} className="text-ok flex-none mt-0.5" />
+                  Download board-ready reports
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="teams-foot">
+            <p className="text-xs mono text-soft">
+              INVITE BY EMAIL · CHANGE ROLES ANYTIME · OWNER, ADMIN OR MEMBER
+            </p>
+            <button className="btn btn-solid text-sm py-3 px-6" onClick={handleGetStarted}>
+              INVITE YOUR TEAM <ArrowRight size={14} />
+            </button>
           </div>
         </section>
 
@@ -810,6 +897,40 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+
+      {/* Fixed side social buttons — stacked, small gap */}
+      <div className="social-float" aria-label="Cyphward on social media">
+        <a
+          href="https://x.com/cyphward"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Cyphward on X"
+          title="Cyphward on X"
+          className="social-float-btn"
+        >
+          <Twitter size={14} />
+        </a>
+        <a
+          href="https://www.instagram.com/cyphward_/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Cyphward on Instagram"
+          title="Cyphward on Instagram"
+          className="social-float-btn"
+        >
+          <Instagram size={14} />
+        </a>
+        <a
+          href="https://www.linkedin.com/company/cyphward/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Cyphward on LinkedIn"
+          title="Cyphward on LinkedIn"
+          className="social-float-btn"
+        >
+          <Linkedin size={14} />
+        </a>
+      </div>
     </div>
   );
 }
