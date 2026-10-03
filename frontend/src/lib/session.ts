@@ -76,6 +76,44 @@ function clearLegacySupabaseKeys(): void {
   }
 }
 
+/**
+ * Cross-origin session handoff (auth.cyphward.com → app.cyphward.com).
+ *
+ * localStorage is per-origin, so after a login on the auth host the HostGate
+ * hands the session to the app host inside the URL fragment (fragments are
+ * never sent to servers or leaked via Referer). The receiving boot calls this
+ * once — storing the session and stripping the fragment from history — and the
+ * sending host clears its copy, so a snapshot can never be re-used after the
+ * app host has rotated the tokens (that would cause a redirect loop).
+ */
+export function consumeHandoff(): void {
+  try {
+    const match = window.location.hash.match(/session=([^&]+)/);
+    if (!match) return;
+    try {
+      const parsed = JSON.parse(decodeURIComponent(match[1])) as AuthTokens;
+      if (parsed?.access_token && parsed?.refresh_token && parsed?.user?.id) {
+        saveSession(parsed);
+      }
+    } catch {
+      /* malformed handoff — drop it */
+    }
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Build the app-host handoff URL for a target path, consuming the local copy. */
+export function buildAppHandoff(target: string): string | null {
+  const stored = loadSession();
+  if (!stored) return null;
+  const url = new URL(target);
+  url.hash = `session=${encodeURIComponent(JSON.stringify(stored))}`;
+  clearSession();
+  return url.toString();
+}
+
 export function getAccessTokenSync(): string | null {
   return loadSession()?.access_token ?? null;
 }

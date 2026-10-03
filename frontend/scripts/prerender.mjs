@@ -46,6 +46,10 @@ try {
   const appShell = template
     .replace(/\s*<link rel="canonical" href="[^"]*" \/>/, '')
     .replace(/\s*<meta property="og:url" content="[^"]*" \/>/, '')
+    // The template ships an index,follow robots meta for the marketing page;
+    // the app shell must not carry it alongside the noindex below (conflicting
+    // robots directives are ambiguous to crawlers).
+    .replace(/\s*<meta name="robots" content="index, follow[^"]*" \/>/, '')
     .replace(
       '</head>',
       '  <meta name="robots" content="noindex, nofollow" />\n  </head>'

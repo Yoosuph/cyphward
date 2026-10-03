@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth, IDLE_REASON_KEY } from './lib/auth';
 import { hostTarget, IDLE_NOTICE_PARAM } from './lib/hosts';
+import { buildAppHandoff } from './lib/session';
 import { ToastProvider } from './components/Toast';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -264,8 +265,15 @@ function HostGate({ children }: { children: ReactNode }) {
     url.searchParams.set(IDLE_NOTICE_PARAM, 'idle');
   }
 
+  // Leaving the auth host with a session: hand it to the app host inside the
+  // fragment (localStorage doesn't cross origins) and consume the auth-host
+  // copy so a stale snapshot can't cause a login loop later.
+  let href = url.toString();
+  if (url.hostname === 'app.cyphward.com' && window.location.hostname === 'auth.cyphward.com') {
+    href = buildAppHandoff(href) ?? href;
+  }
+
   try {
-    const href = url.toString();
     if (sessionStorage.getItem('cyphward-host-redirect') !== href) {
       sessionStorage.setItem('cyphward-host-redirect', href);
       window.location.replace(href);
