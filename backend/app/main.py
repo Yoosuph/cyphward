@@ -104,6 +104,23 @@ app.include_router(health.router)
 app.include_router(scanner_jobs.router)
 
 # ---------------------------------------------------------------------------
+# Startup recovery: scans orphaned by a previous process death (local mode
+# pipelines are not lease-backed; see backend.app.core.scan_recovery).
+# Runs before the scheduler so a stale queued/running row cannot suppress
+# today's due-domain check.
+# ---------------------------------------------------------------------------
+@app.on_event("startup")
+async def recover_interrupted_scans_on_startup() -> None:
+    try:
+        from backend.app.core.scan_recovery import recover_interrupted_scans
+        recover_interrupted_scans()
+    except Exception:
+        logging.getLogger("cyphward.scan_recovery").exception(
+            "startup scan recovery failed"
+        )
+
+
+# ---------------------------------------------------------------------------
 # In-process daily scan scheduler (06:00 UTC sweep) — backend.app.scheduler
 # ---------------------------------------------------------------------------
 _scheduler_task: asyncio.Task | None = None

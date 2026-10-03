@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import shutil
+import socket
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -35,6 +36,12 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
+from backend.app.core.cron_claim import (
+    DAILY_SCAN_CRON_NAME,
+    claim_cron_run,
+    complete_cron_run,
+    release_cron_run,
+)
 from backend.app.scanner.discovery import discover_subdomains
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
@@ -1034,10 +1041,40 @@ async def run_daily_scan_schedule() -> Dict[str, Any]:
 
     Shared implementation: triggered by the Inngest cron function below when
     the Inngest platform is wired, and by the in-process scheduler loop
-    (backend.app.scheduler) otherwise. Always writes a `cron.ran` audit marker
-    so the in-process loop can detect whether today's sweep already happened
-    (restart-safe catch-up, exactly-once per day).
+    (backend.app.scheduler) otherwise.
+
+    Durable-jobs claim (review P1): the whole sweep runs under one atomic
+    cron_runs claim, so multiple API replicas (or the Inngest cron racing the
+    in-process loop) cannot double-sweep a day. The `cron.ran` audit marker
+    is still written for observability and for pre-claim legacy rows; the
+    in-process loop treats either signal as "today already ran".
+
+    Returns {"claimed": False, ...} without touching any rows when another
+    owner holds today's claim; on failure the claim is released so the next
+    retry can take over (a crashed owner's claim is taken over by the same
+    statement after the stale window).
     """
+    run_day = datetime.now(timezone.utc).date()
+    claim = claim_cron_run(DAILY_SCAN_CRON_NAME, run_day, _claimant_id())
+    if not claim:
+        return {"claimed": False, "due_domains": 0, "scheduled": 0}
+
+    try:
+        result = await _daily_scan_sweep()
+        complete_cron_run(DAILY_SCAN_CRON_NAME, run_day)
+    except BaseException:
+        release_cron_run(DAILY_SCAN_CRON_NAME, run_day)
+        raise
+    result["claimed"] = True
+    return result
+
+
+def _claimant_id() -> str:
+    """Identify which process holds the cron claim (debugging aid)."""
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+async def _daily_scan_sweep() -> Dict[str, Any]:
     due_domains = execute_query(
         """
         SELECT d.id AS domain_id, d.org_id, d.domain
