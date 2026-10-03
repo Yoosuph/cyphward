@@ -48,7 +48,7 @@ export default function Signup() {
           } else if (step === 'none') {
             setError('Your session could not be restored. Please try again.');
           } else {
-            nav('/', { replace: true });
+            nav('/overview', { replace: true });
           }
         } catch {
           setError('Google sign-in failed. Please try again.');
@@ -75,7 +75,7 @@ export default function Signup() {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       return <Navigate to="/onboarding" replace />;
     }
-    return <Navigate to="/" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   const submit = async (e: FormEvent) => {
@@ -97,7 +97,7 @@ export default function Signup() {
     if (result.needsOnboarding) {
       nav('/onboarding', { replace: true });
     } else {
-      nav('/', { replace: true });
+      nav('/overview', { replace: true });
     }
   };
 

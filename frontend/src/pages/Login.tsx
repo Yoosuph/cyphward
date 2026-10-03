@@ -46,12 +46,16 @@ export default function Login() {
   }, [searchParams]);
 
   // Explain an idle logout: the auth layer set this flag right before
-  // ending a session after 10 minutes with no activity.
+  // ending a session after 10 minutes with no activity. When the logout was
+  // followed by a cross-origin hop to this host, the flag arrives as a query
+  // param instead (localStorage doesn't cross origins).
   useEffect(() => {
     try {
-      if (localStorage.getItem(IDLE_REASON_KEY) === '1') {
+      const fromQuery = searchParams.get('notice') === 'idle';
+      if (fromQuery || localStorage.getItem(IDLE_REASON_KEY) === '1') {
         localStorage.removeItem(IDLE_REASON_KEY);
         toast('Signed out after 10 minutes of inactivity');
+        if (fromQuery) window.history.replaceState({}, '', '/login');
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,7 +75,7 @@ export default function Login() {
           } else if (step === 'none') {
             setError('Your session could not be restored. Please sign in again.');
           } else {
-            nav('/', { replace: true });
+            nav('/overview', { replace: true });
           }
         } catch {
           setError('Google sign-in failed. Please try again.');
@@ -94,7 +98,7 @@ export default function Login() {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       return <Navigate to="/onboarding" replace />;
     }
-    return <Navigate to="/" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   const submit = async (e: FormEvent) => {
@@ -118,7 +122,7 @@ export default function Login() {
     if (result.onboarding && result.onboarding !== 'complete' && result.onboarding !== 'none') {
       nav('/onboarding', { replace: true });
     } else {
-      nav('/', { replace: true });
+      nav('/overview', { replace: true });
     }
   };
 

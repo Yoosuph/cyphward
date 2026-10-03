@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { AuthProvider, useAuth } from './lib/auth';
+import { AuthProvider, useAuth, IDLE_REASON_KEY } from './lib/auth';
+import { hostTarget, IDLE_NOTICE_PARAM } from './lib/hosts';
 import { ToastProvider } from './components/Toast';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -225,11 +226,62 @@ function AppShell() {
   );
 }
 
+/**
+ * Cross-origin route guard for the split-domain layout. React Router cannot
+ * navigate between hosts, so a mismatched (host, path) pair triggers a full
+ * location.replace() — checked during render (before any page content), so
+ * nothing from the wrong host flashes. vercel.json redirects cover cold
+ * loads; this covers client-side <Link> navigations. A sessionStorage flag
+ * makes the replace idempotent under StrictMode double-renders.
+ */
+function HostGate({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const target = hostTarget(location.pathname);
+
+  if (!target) {
+    try {
+      sessionStorage.removeItem('cyphward-host-redirect');
+    } catch {
+      // ignore
+    }
+    return <>{children}</>;
+  }
+
+  const url = new URL(target + location.search + location.hash);
+
+  // The idle-logout explanation lives in localStorage, which is per-origin —
+  // carry it to auth.cyphward.com as a query param (the Login page consumes it).
+  let idleNotice = false;
+  try {
+    if (url.hostname === 'auth.cyphward.com' && localStorage.getItem(IDLE_REASON_KEY) === '1') {
+      localStorage.removeItem(IDLE_REASON_KEY);
+      idleNotice = true;
+    }
+  } catch {
+    // ignore
+  }
+  if (idleNotice && !url.searchParams.has(IDLE_NOTICE_PARAM)) {
+    url.searchParams.set(IDLE_NOTICE_PARAM, 'idle');
+  }
+
+  try {
+    const href = url.toString();
+    if (sessionStorage.getItem('cyphward-host-redirect') !== href) {
+      sessionStorage.setItem('cyphward-host-redirect', href);
+      window.location.replace(href);
+    }
+  } catch {
+    // ignore
+  }
+  return <RouteLoading />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
         <BrowserRouter>
+          <HostGate>
           {/* Custom precision branded cursor active throughout application */}
           <BrandedCursor />
           {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
@@ -283,6 +335,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
+          </HostGate>
         </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

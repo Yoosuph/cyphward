@@ -27,7 +27,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
   const inputRef = useRef<HTMLInputElement>(null);
 
   const cmds: Cmd[] = useMemo(() => ([
-    { label: 'Go to Overview', hint: '01', icon: <ArrowUpRight size={15} />, run: () => nav('/') },
+    { label: 'Go to Overview', hint: '01', icon: <ArrowUpRight size={15} />, run: () => nav('/overview') },
     { label: 'Go to Assets', hint: '02', icon: <Server size={15} />, run: () => nav('/assets') },
     { label: 'Go to Findings', hint: '03', icon: <ShieldAlert size={15} />, run: () => nav('/findings') },
     { label: 'Go to Scans', hint: '04', icon: <Radar size={15} />, run: () => nav('/scans') },

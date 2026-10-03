@@ -35,7 +35,7 @@ export default function AuthCallback() {
         } else if (step === 'none') {
           setError('Your session could not be restored. Please sign in again.');
         } else {
-          nav('/', { replace: true });
+          nav('/overview', { replace: true });
         }
       } catch (e: any) {
         setError(e?.message || 'Sign-in failed. Please try again.');

@@ -39,6 +39,8 @@ CORS_ORIGINS = [
     "https://cyphward.com",
     "https://www.cyphward.com",
     "https://cyphward.vercel.app",
+    "https://app.cyphward.com",
+    "https://auth.cyphward.com",
 ]
 
 # AI Intelligence Layer Configuration

@@ -94,7 +94,7 @@ export default function Sidebar({
         {/* Header / Brand Area */}
         <div className={`side-brand-row flex items-center border-b border-line ${collapsed ? 'flex-col gap-2 py-3 px-2' : 'justify-between px-4 py-3.5'}`}>
           <Link
-            to="/"
+            to="/overview"
             className="flex items-center gap-2 hover:opacity-90 transition-opacity"
             onClick={onClose}
             title="Cyphward — Security Platform"

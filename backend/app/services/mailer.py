@@ -315,7 +315,7 @@ def generate_executive_report_html(
           <table cellpadding="0" cellspacing="0" border="0" align="center">
             <tr>
               <td style="background-color: #E5532B; border-radius: 8px; text-align: center;">
-                <a href="https://cyphward.com/" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
+                <a href="https://app.cyphward.com/overview" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
                   Open your dashboard →
                 </a>
               </td>
@@ -480,7 +480,7 @@ def generate_welcome_email_html(user_name: str, login_email: str) -> str:
           <table cellpadding="0" cellspacing="0" border="0" align="center">
             <tr>
               <td style="background-color: #E5532B; border-radius: 8px; text-align: center;">
-                <a href="https://cyphward.com/" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
+                <a href="https://app.cyphward.com/overview" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 700; color: #FFFFFF; text-decoration: none; letter-spacing: 0.5px;">
                   Open your dashboard →
                 </a>
               </td>
@@ -530,7 +530,7 @@ def generate_welcome_email_text(user_name: str, login_email: str) -> str:
         "1. Create your organization — tell us your company or team name.\n"
         "2. Add and verify your domain — paste one DNS record so we can confirm your site.\n"
         "3. Run your first scan — encryption, email security, headers, and exposure, scored.\n\n"
-        "Open your dashboard: https://cyphward.com/\n\n"
+        "Open your dashboard: https://app.cyphward.com/overview\n\n"
         "Questions? Just reply to this email — a real person reads them.\n\n"
         "— Cyphward\n"
         "Security monitoring, made simple\n\n"

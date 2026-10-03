@@ -77,7 +77,7 @@ export default function Topbar({
 
           {/* Mobile brand (shield + CYPH) or desktop when sidebar is collapsed */}
           <Link
-            to="/"
+            to="/overview"
             className={`${sidebarCollapsed ? 'flex' : 'md:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
             title="CYPH Command Center"
           >

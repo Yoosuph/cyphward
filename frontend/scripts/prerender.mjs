@@ -45,7 +45,11 @@ try {
   // onto the landing page in search results.
   const appShell = template
     .replace(/\s*<link rel="canonical" href="[^"]*" \/>/, '')
-    .replace(/\s*<meta property="og:url" content="[^"]*" \/>/, '');
+    .replace(/\s*<meta property="og:url" content="[^"]*" \/>/, '')
+    .replace(
+      '</head>',
+      '  <meta name="robots" content="noindex, nofollow" />\n  </head>'
+    );
   writeFileSync(join(root, 'dist', 'app.html'), appShell);
   console.log(`wrote dist/app.html (SPA shell, ${appShell.length} bytes)`);
 

@@ -36,7 +36,7 @@ def test_welcome_template_handles_empty_name():
 def test_welcome_text_version():
     text = generate_welcome_email_text("Ada Obi", "ada@example.com")
     assert "Welcome to Cyphward" in text
-    assert "https://cyphward.com/" in text
+    assert "https://app.cyphward.com/overview" in text
     assert "ada@example.com" in text
 
 
