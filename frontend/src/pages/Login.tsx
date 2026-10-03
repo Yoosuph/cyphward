@@ -5,7 +5,7 @@ import {
   Eye, EyeOff, Sun, Moon, Check, Globe, Server, CheckCircle2,
   Radio, ShieldAlert, AlertCircle
 } from 'lucide-react';
-import { useAuth } from '../lib/auth';
+import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
@@ -44,6 +44,18 @@ export default function Login() {
     setError(messages[code] || 'Sign-in failed. Please try again.');
     window.history.replaceState({}, '', '/login');
   }, [searchParams]);
+
+  // Explain an idle logout: the auth layer set this flag right before
+  // ending a session after 10 minutes with no activity.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(IDLE_REASON_KEY) === '1') {
+        localStorage.removeItem(IDLE_REASON_KEY);
+        toast('Signed out after 10 minutes of inactivity');
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Google One Tap — the small side prompt, verified by our own backend.
   useEffect(() => {

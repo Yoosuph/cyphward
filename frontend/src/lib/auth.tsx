@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import {
   verifyDomain as verifyDomainApi,
   createOrganization as createOrganizationApi,
@@ -27,6 +27,10 @@ const SIGNOUT_KEY = 'cyphward-signed-out';
 const ONBOARDING_KEY = 'cyphward-onboarding';
 const ORG_ID_KEY = 'cyphward-org-id';
 const WELCOME_SENT_KEY = 'cyphward-welcome-sent';
+/** 10 minutes of no user activity → session ends and the user is logged out. */
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+/** Set right before an idle logout so the login screen can explain why. */
+export const IDLE_REASON_KEY = 'cyphward-idle-timeout';
 
 // Fire-and-forget: queue one welcome email per account. The server is the
 // authority — it only welcomes brand-new accounts, once, ever — so a
@@ -318,12 +322,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingStep('none');
   };
 
+  // --- 10-minute idle timeout -------------------------------------------
+  // Any real user input restarts the clock; after IDLE_TIMEOUT_MS with no
+  // activity the session is torn down exactly like a manual sign-out
+  // (tokens cleared, refresh revoked, other tabs logged out via SIGNOUT_KEY).
+  const signOutRef = useRef(signOut);
+  signOutRef.current = signOut;
+
+  useEffect(() => {
+    if (!user) return;
+
+    let lastActivity = Date.now();
+    let timer: number | undefined;
+
+    const expire = () => {
+      try {
+        localStorage.setItem(IDLE_REASON_KEY, '1');
+      } catch {}
+      void signOutRef.current();
+    };
+    const reset = (throttle: boolean) => {
+      const now = Date.now();
+      // mousemove/scroll fire constantly — only re-arm once per second.
+      if (throttle && now - lastActivity < 1000) return;
+      lastActivity = now;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(expire, IDLE_TIMEOUT_MS);
+    };
+    const onActivity = () => reset(true);
+    const onDirect = () => reset(false);
+    // Returning to a tab that idled out while hidden logs out without
+    // waiting for the throttled timer to fire.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+        expire();
+      }
+    };
+
+    const listeners: Array<[EventTarget, string, EventListener]> = [
+      [window, 'mousemove', onActivity],
+      [window, 'wheel', onActivity],
+      [window, 'scroll', onActivity],
+      [window, 'mousedown', onDirect],
+      [window, 'keydown', onDirect],
+      [window, 'touchstart', onDirect],
+      [window, 'focus', onDirect],
+    ];
+    listeners.forEach(([target, type, fn]) => target.addEventListener(type, fn, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    timer = window.setTimeout(expire, IDLE_TIMEOUT_MS);
+
+    return () => {
+      listeners.forEach(([target, type, fn]) => target.removeEventListener(type, fn));
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [user]);
+
+  // A sign-out in another tab (manual or idle) must end this tab too.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SIGNOUT_KEY && e.newValue === 'true') {
+        clearAuthState();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const signInWithCredentials = async (
     email: string,
     password: string
   ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
     const cleanEmail = (email || '').trim().toLowerCase();
     localStorage.removeItem(SIGNOUT_KEY);
+    localStorage.removeItem(IDLE_REASON_KEY);
 
     try {
       const tokens = await loginRequest(cleanEmail, password);
