@@ -8,6 +8,8 @@ import json
 import shutil
 from typing import List, Dict, Any
 
+from backend.app.scanner import ip_guard
+
 
 SEVERITY_MAP = {
     "info": "info",
@@ -70,6 +72,15 @@ async def run_nuclei_template(
     means the rerun produced no usable proof either way (binary missing,
     crash, timeout) and the caller must treat verification as inconclusive.
     """
+    # SSRF boundary: nuclei connects by name (vhost/Host header matter), so
+    # validate the resolution first and refuse non-public targets.
+    if not ip_guard.resolve_connect_ip(hostname):
+        return {
+            "ok": False,
+            "findings": [],
+            "error": f"refused: {hostname} resolves only to non-public addresses",
+        }
+
     nuclei_path = shutil.which("nuclei")
     if not nuclei_path:
         return {"ok": False, "findings": [], "error": "nuclei is not installed"}
@@ -132,6 +143,11 @@ async def run_nuclei(
     Run Nuclei against a hostname and return normalized findings.
     Requires: nuclei binary in PATH (go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest)
     """
+    # SSRF boundary: validate resolution before handing the name to nuclei
+    # (it needs the hostname for SNI/Host; redirects stay off by default).
+    if not ip_guard.resolve_connect_ip(hostname):
+        return []
+
     nuclei_path = shutil.which("nuclei")
     if not nuclei_path:
         return []

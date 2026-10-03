@@ -61,7 +61,7 @@ def _mock_probes(monkeypatch, dns_ok=True, http_ok=True):
             "has_spf": False, "has_dmarc": False,
         }
 
-    async def fake_http(hostname):
+    async def fake_http(hostname, scope=None):
         return {
             "hostname": hostname,
             "http_status": 200 if http_ok else None,
@@ -240,7 +240,7 @@ def test_unknown_detector_is_inconclusive(client, auth_headers, store, monkeypat
     _seed_unknown_finding(store)
     _seed_task(store, "f6666666-0000-4000-8000-000000000006")
 
-    async def probes_must_not_run(hostname):
+    async def probes_must_not_run(hostname, **kwargs):
         raise AssertionError("unknown detector short-circuits before probing")
 
     monkeypatch.setattr("backend.app.api.remediation.resolve_host_dns", probes_must_not_run)

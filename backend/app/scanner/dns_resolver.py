@@ -1,10 +1,15 @@
 """
 Cyphward DNS Resolution Worker
 Resolves A, AAAA, CNAME, MX, TXT, NS, SPF, and DMARC records.
+
+Records stay exactly as observed (raw DNS truth), but primary_ip — the
+signal later stages gate connections on — is only set for approved public
+addresses (SSRF boundary, see scanner.ip_guard).
 """
 from typing import Dict, Any, List
 import socket
 import httpx
+from backend.app.scanner import ip_guard
 try:
     import dns.resolver
 except ImportError:
@@ -140,10 +145,17 @@ async def resolve_host_dns(hostname: str) -> Dict[str, Any]:
     # Unresolved hosts stay unresolved: primary_ip stays None so later
     # stages can skip them. (This spot previously minted deterministic
     # mock 102.134.x.x addresses, which invented assets for NXDOMAIN names.)
+    #
+    # primary_ip is public-only: a customer-controlled name pointing at
+    # loopback/private/link-local/metadata space resolves to primary_ip=None
+    # (inventory-only asset, no probes) while the raw records above remain
+    # the observed truth.
+    candidates = ([primary_ip] if primary_ip else []) + list(records["A"]) + list(records["AAAA"])
+    safe_primary = next((ip for ip in candidates if ip_guard.is_public_ip(ip)), None)
 
     return {
         "hostname": hostname,
-        "primary_ip": primary_ip or (records["A"][0] if records["A"] else None),
+        "primary_ip": safe_primary,
         "records": records,
         "has_spf": records["SPF"] is not None,
         "has_dmarc": records["DMARC"] is not None,

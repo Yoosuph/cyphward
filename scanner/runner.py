@@ -185,7 +185,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
         async def _one(host: str):
             async with sem:
-                return await probe_http_service(host)
+                return await probe_http_service(host, scope=list(job.scope))
 
         return await _gather_dicts([_one(h) for h in http_targets])
 

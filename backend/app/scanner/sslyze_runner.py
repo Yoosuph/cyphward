@@ -11,6 +11,8 @@ import shutil
 import tempfile
 from typing import Any, Dict, List, Optional
 
+from backend.app.scanner import ip_guard
+
 logger = logging.getLogger("cyphward.scanner.sslyze")
 
 # Scan commands: certificate + modern/relevant protocol versions.
@@ -117,6 +119,12 @@ async def run_sslyze(
     Run sslyze against host:port. Returns a normalized TLS observation, or
     None on failure/absence (stage degrades, scan continues).
     """
+    # SSRF boundary: sslyze connects by name (SNI matters), so validate the
+    # resolution first and refuse non-public targets.
+    if not ip_guard.resolve_connect_ip(hostname):
+        logger.info("sslyze skip %s:%s: unresolved or non-public address", hostname, port)
+        return None
+
     sslyze_path = shutil.which("sslyze")
     if not sslyze_path:
         return None

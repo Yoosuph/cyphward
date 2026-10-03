@@ -3,15 +3,25 @@ Cyphward HTTP/HTTPS probing worker.
 Raw observations only: real HTTP responses and real TLS handshakes.
 Unreachable services yield honest nulls and an error string — never
 fabricated statuses, certificates, titles, or technologies.
+
+SSRF boundary (see scanner.ip_guard): connections pin to a validated public
+IP (Host header keeps the hostname), redirects are followed manually — every
+hop must stay in scope and resolve public — and a host that resolves only to
+non-public addresses is never connected to.
 """
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import ssl
 import socket
 import datetime
 import os
 import re
 import tempfile
+from urllib.parse import urljoin, urlparse
+
 import httpx
+
+from backend.app.scanner import ip_guard
+from backend.app.scanner.ip_guard import pinned_url as _pinned_url
 
 
 SECURITY_HEADER_KEYS = [
@@ -22,6 +32,9 @@ SECURITY_HEADER_KEYS = [
     "referrer-policy",
     "permissions-policy",
 ]
+
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
+_MAX_REDIRECTS = 5
 
 
 def inspect_tls_certificate(hostname: str, port: int = 443) -> Dict[str, Any]:
@@ -37,11 +50,18 @@ def inspect_tls_certificate(hostname: str, port: int = 443) -> Dict[str, Any]:
         "error": None,
     }
     try:
+        # Pin the TCP connection to an approved public IP; SNI still carries
+        # the real hostname so the served certificate stays authentic.
+        target_ip = ip_guard.resolve_connect_ip(hostname)
+        if not target_ip:
+            result["error"] = "refused: host resolves only to non-public addresses"
+            return result
+
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE  # read cert details even if untrusted/self-signed
 
-        with socket.create_connection((hostname, port), timeout=3.5) as sock:
+        with socket.create_connection((target_ip, port), timeout=3.5) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 result["protocol"] = ssock.version()
                 cipher_tuple = ssock.cipher()
@@ -132,10 +152,17 @@ def extract_title(html: str) -> str:
     return ""
 
 
-async def probe_http_service(hostname: str) -> Dict[str, Any]:
+async def probe_http_service(
+    hostname: str,
+    scope: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """
     Probe a host: real TLS handshake, then HTTPS request with HTTP fallback.
     Only observed values are recorded; failures set error/http_status accordingly.
+
+    scope: authorized suffixes for redirect hops (pass the scan's domain /
+    job scope). Without it, redirects may only stay on the same hostname
+    (plus its subdomains).
     """
     hostname = hostname.strip().lower()
     res: Dict[str, Any] = {
@@ -156,32 +183,97 @@ async def probe_http_service(hostname: str) -> Dict[str, Any]:
 
     res["tls_info"] = inspect_tls_certificate(hostname)
 
-    last_error = None
-    async with httpx.AsyncClient(verify=False, timeout=4.0, follow_redirects=True) as client:
+    # Revalidated again per request/hop below — this is the fast honest exit.
+    if not ip_guard.resolve_connect_ip(hostname):
+        res["error"] = "refused: host resolves only to non-public addresses"
+        return res
+
+    hop_scope = list(scope) if scope else [hostname]
+    last_error: Optional[str] = None
+
+    async with httpx.AsyncClient(verify=False, timeout=4.0, follow_redirects=False) as client:
         for scheme in ("https", "http"):
-            try:
-                resp = await client.get(
-                    f"{scheme}://{hostname}",
-                    headers={"User-Agent": "Cyphward-Security-Scanner/1.0"},
-                )
-            except httpx.HTTPError as e:
-                last_error = f"{scheme}://{hostname}: {type(e).__name__}: {e}"[:300]
-                continue
+            current_host = hostname
+            current_scheme = scheme
+            logical_url = f"{scheme}://{hostname}"
+            redirect_chain: List[str] = []
+            block_reason: Optional[str] = None
+            resp = None
+            hops = 0
+
+            while True:
+                if hops > 0 and not ip_guard.hostname_in_scope(current_host, hop_scope):
+                    block_reason = f"redirect blocked: {current_host} out of scope"
+                    break
+                # Revalidate at connect time (defeats DNS rebinding between
+                # the discovery resolve and this request).
+                target_ip = ip_guard.resolve_connect_ip(current_host)
+                if not target_ip:
+                    block_reason = (
+                        f"redirect blocked: {current_host} resolves to non-public address"
+                        if hops > 0
+                        else f"refused: {current_host} resolves only to non-public addresses"
+                    )
+                    break
+                try:
+                    resp = await client.get(
+                        _pinned_url(current_scheme, target_ip),
+                        headers={
+                            "User-Agent": "Cyphward-Security-Scanner/1.0",
+                            "Host": current_host,
+                        },
+                        # Connect by IP (pin), present the real hostname in
+                        # TLS SNI so servers with IP-SNI rejections still
+                        # serve the right virtual host.
+                        extensions={"sni_hostname": current_host},
+                    )
+                except httpx.HTTPError as e:
+                    last_error = f"{current_scheme}://{current_host}: {type(e).__name__}: {e}"[:300]
+                    resp = None
+                    break
+
+                location = resp.headers.get("location")
+                if resp.status_code in _REDIRECT_CODES and location:
+                    nxt = urljoin(f"{current_scheme}://{current_host}", location)
+                    parsed = urlparse(nxt)
+                    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                        block_reason = f"redirect blocked: unsupported location {nxt[:120]}"
+                        redirect_chain.append(nxt)
+                        break
+                    hops += 1
+                    if hops > _MAX_REDIRECTS:
+                        block_reason = f"redirect blocked: exceeded {_MAX_REDIRECTS} hops"
+                        redirect_chain.append(nxt)
+                        break
+                    redirect_chain.append(nxt)
+                    logical_url = nxt
+                    current_host = parsed.hostname.strip().lower()
+                    current_scheme = parsed.scheme
+                    continue
+                break  # final (non-redirect) response
+
+            if resp is None:
+                if block_reason:
+                    last_error = block_reason
+                if last_error and not res["http_status"]:
+                    res["error"] = last_error
+                continue  # this scheme produced nothing usable — try the next
 
             res["scheme"] = scheme
-            res["url"] = str(resp.url)
+            res["url"] = logical_url
             res["http_status"] = resp.status_code
             res["raw_headers"] = dict(resp.headers)
             res["server_header"] = resp.headers.get("server")
             res["powered_by_header"] = resp.headers.get("x-powered-by")
             res["title"] = extract_title(resp.text)
             res["technologies"] = detect_technologies(dict(resp.headers), resp.text[:10000])
-            res["redirect_chain"] = [str(r.url) for r in resp.history]
+            res["redirect_chain"] = redirect_chain
+            res["error"] = block_reason  # None on a clean chain
             for sk in SECURITY_HEADER_KEYS:
                 if sk in resp.headers:
                     res["security_headers"][sk] = resp.headers[sk]
             break
         else:
-            res["error"] = last_error
+            res["error"] = res["error"] or last_error
 
     return res

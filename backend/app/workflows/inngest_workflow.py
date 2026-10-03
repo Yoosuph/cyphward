@@ -268,7 +268,11 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         # unresolved name only manufactures null/error observations.
         # ---------------------------------------------------------------------
         t0 = time.time()
-        http_tasks = [probe_http_service(h["hostname"]) for h in valid_dns if h.get("primary_ip")]
+        # scope=[domain]: redirect hops must stay under the scanned domain.
+        http_tasks = [
+            probe_http_service(h["hostname"], scope=[domain])
+            for h in valid_dns if h.get("primary_ip")
+        ]
         http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
         valid_http = [r for r in http_results if isinstance(r, dict)]
         http_dur = int((time.time() - t0) * 1000)

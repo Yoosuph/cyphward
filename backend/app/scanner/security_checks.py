@@ -5,6 +5,8 @@ Implements deterministic, non-destructive security checks inspired by Nuclei saf
 from typing import List, Dict, Any
 import httpx
 
+from backend.app.scanner import ip_guard
+
 
 async def run_security_checks(
     hostname: str,
@@ -235,22 +237,30 @@ async def run_security_checks(
     # -------------------------------------------------------------------------
     if http_data.get("http_status") and http_data.get("http_status") < 500:
         try:
-            async with httpx.AsyncClient(verify=False, timeout=1.5) as client:
-                r_resp = await client.get(f"https://{hostname}/robots.txt")
-                if r_resp.status_code == 200 and ("disallow:" in r_resp.text.lower()):
-                    disallowed = [l.strip() for l in r_resp.text.splitlines() if l.lower().startswith("disallow:")][:5]
-                    if disallowed:
-                        findings.append({
-                            "title": "Robots.txt Discloses Sensitive Endpoint Paths",
-                            "description": f"The public robots.txt file on {hostname} lists internal or administrative directories, giving threat actors a direct roadmap to unlinked administrative interfaces.",
-                            "severity": "info",
-                            "category": "Exposure",
-                            "evidence": {
-                                "url": f"https://{hostname}/robots.txt",
-                                "disallowed_paths": disallowed
-                            },
-                            "remediation": "Ensure disallowed administrative panels require strong multi-factor authentication and IP allowlisting."
-                        })
+            # SSRF boundary: pin the robots.txt fetch to an approved public
+            # IP (Host + SNI carry the hostname); no redirects are followed.
+            target_ip = ip_guard.resolve_connect_ip(hostname)
+            if target_ip:
+                async with httpx.AsyncClient(verify=False, timeout=1.5) as client:
+                    r_resp = await client.get(
+                        ip_guard.pinned_url("https", target_ip),
+                        headers={"Host": hostname},
+                        extensions={"sni_hostname": hostname},
+                    )
+                    if r_resp.status_code == 200 and ("disallow:" in r_resp.text.lower()):
+                        disallowed = [l.strip() for l in r_resp.text.splitlines() if l.lower().startswith("disallow:")][:5]
+                        if disallowed:
+                            findings.append({
+                                "title": "Robots.txt Discloses Sensitive Endpoint Paths",
+                                "description": f"The public robots.txt file on {hostname} lists internal or administrative directories, giving threat actors a direct roadmap to unlinked administrative interfaces.",
+                                "severity": "info",
+                                "category": "Exposure",
+                                "evidence": {
+                                    "url": f"https://{hostname}/robots.txt",
+                                    "disallowed_paths": disallowed
+                                },
+                                "remediation": "Ensure disallowed administrative panels require strong multi-factor authentication and IP allowlisting."
+                            })
         except Exception:
             pass
 

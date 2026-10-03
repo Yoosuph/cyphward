@@ -9,6 +9,8 @@ import logging
 import shutil
 from typing import Any, Dict, List
 
+from backend.app.scanner import ip_guard
+
 logger = logging.getLogger("cyphward.scanner.naabu")
 
 
@@ -22,13 +24,20 @@ async def run_naabu(
     Scan top TCP ports on a single host using connect mode (no raw sockets,
     works unprivileged). Returns normalized open_port observations.
     """
+    # SSRF boundary: only ever connect to an approved public IP — by IP, so
+    # the target cannot rebind between validation and connect.
+    target_ip = ip_guard.resolve_connect_ip(hostname)
+    if not target_ip:
+        logger.info("naabu skip %s: unresolved or non-public address", hostname)
+        return []
+
     naabu_path = shutil.which("naabu")
     if not naabu_path:
         return []
 
     cmd = [
         naabu_path,
-        "-host", hostname,
+        "-host", target_ip,
         "-top-ports", str(top_ports),
         "-scan-type", "CONNECT",
         "-rate", str(rate),

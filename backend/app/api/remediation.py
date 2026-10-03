@@ -261,6 +261,16 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
         raise HTTPException(status_code=400, detail="Linked asset missing — cannot recheck.")
 
     hostname = asset["hostname"]
+    # Redirect hops during the recheck must stay under the asset's domain.
+    scope_row = (
+        execute_one(
+            "SELECT * FROM domains WHERE id = %s AND org_id = %s",
+            (asset["domain_id"], org["id"]),
+        )
+        if asset.get("domain_id")
+        else None
+    )
+    probe_scope = [scope_row["domain"]] if scope_row and scope_row.get("domain") else [hostname]
     # Which detector produced this finding (shared with the baseline diff) so
     # verification reruns that detector's rule — never a different one.
     detector = classify_detector(task.get("f_category"), task.get("f_evidence"))
@@ -277,7 +287,7 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
 
     try:
         dns_data = await resolve_host_dns(hostname) or {}
-        http_data = await probe_http_service(hostname) or {}
+        http_data = await probe_http_service(hostname, scope=probe_scope) or {}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Recheck failed: {exc}")
 
