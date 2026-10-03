@@ -10,6 +10,7 @@ import CommandPalette from './components/CommandPalette';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
+import { DocumentTitle } from './lib/seo';
 import ButtonPlate from './components/ButtonPlate';
 
 // Public / prerendered pages — eager: built into the landing bundle.
@@ -292,6 +293,8 @@ export default function App() {
           <HostGate>
           {/* Custom precision branded cursor active throughout application */}
           <BrandedCursor />
+          {/* Per-route <title> so auth/app tabs don't keep the marketing title */}
+          <DocumentTitle />
           {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
           <CookieBanner />
           <Suspense fallback={<RouteLoading />}>
