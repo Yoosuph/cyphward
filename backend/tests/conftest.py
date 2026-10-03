@@ -163,6 +163,26 @@ class FakeStore:
             p = self.profiles.get(str(params[0]))
             return [p] if p else []
 
+        # members/invite: lookup by email (id only) + bare INSERT without id
+        if s.startswith("SELECT id FROM profiles WHERE email = %s"):
+            email = (params[0] or "").lower()
+            for p in self.profiles.values():
+                if (p.get("email") or "").lower() == email:
+                    return [{"id": p["id"]}]
+            return []
+
+        if s.startswith("INSERT INTO profiles (email, full_name, role)"):
+            email, full_name, role = params
+            prof = {
+                "id": str(uuid.uuid4()),
+                "email": email,
+                "full_name": full_name,
+                "role": role,
+                "created_at": datetime.now(timezone.utc),
+            }
+            self.profiles[prof["id"]] = prof
+            return [{"id": prof["id"]}]
+
         if s.startswith("INSERT INTO profiles (id, email, full_name, role, password_hash, provider)"):
             email, full_name, password_hash = params
             prof = {

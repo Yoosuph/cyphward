@@ -7,13 +7,31 @@ PATCH  /members/{user_id}
 Invitations link an existing account (matched by email) to the organization
 with a role: owner | admin | member. Invitees without a profile get a row now;
 /auth/register adopts that row on signup so the membership survives.
+The invitee also receives an invitation email (Brevo) — delivery outcome is
+returned to the caller as `email_sent`.
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from typing import Dict, Any, List, Optional
 
+from backend.app.core.config import FRONTEND_URL
 from backend.app.core.database import execute_one, execute_query
-from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.auth import (
+    get_current_org,
+    get_current_user,
+    require_admin,
+    log_audit,
+    membership_role,
+)
+from backend.app.services.mailer import (
+    generate_invite_email_html,
+    generate_invite_email_text,
+    send_email_async,
+)
+
+logger = logging.getLogger("cyphward.members")
 
 router = APIRouter(prefix="/api/v1/members", tags=["Members"])
 
@@ -48,9 +66,10 @@ def list_members(org: Dict[str, Any] = Depends(get_current_org)) -> List[Dict[st
 
 
 @router.post("/invite", status_code=201)
-def invite_member(
+async def invite_member(
     req: InviteMemberRequest,
     org: Dict[str, Any] = Depends(require_admin),
+    user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     role = (req.role or "member").lower().strip()
     if role not in MVP_ROLES:
@@ -59,13 +78,14 @@ def invite_member(
         raise HTTPException(status_code=403, detail="Only owners can grant the owner role")
 
     email_clean = req.email.strip().lower()
-    user = execute_one("SELECT id FROM profiles WHERE email = %s", (email_clean,))
-    if not user:
+    invitee_name = req.full_name.strip()
+    user_row = execute_one("SELECT id FROM profiles WHERE email = %s", (email_clean,))
+    if not user_row:
         # Profile row is created now; when this email registers via
         # /auth/register the row is adopted (same id → membership intact).
-        user = execute_one(
+        user_row = execute_one(
             "INSERT INTO profiles (email, full_name, role) VALUES (%s, %s, %s) RETURNING id",
-            (email_clean, req.full_name.strip(), req.full_name.strip()),
+            (email_clean, invitee_name, invitee_name),
         )
 
     execute_one(
@@ -75,12 +95,38 @@ def invite_member(
         ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
         RETURNING id
         """,
-        (user["id"], org["id"], role),
+        (user_row["id"], org["id"], role),
     )
 
-    log_audit(org["id"], org.get("current_user_id"), "member.invited", "profile", str(user["id"]),
-              {"email": email_clean, "role": role})
-    return {"message": f"Member {email_clean} invited.", "member": {"email": email_clean, "full_name": req.full_name, "role": role}}
+    inviter_name = (user.get("full_name") or user.get("email") or "A teammate").strip()
+    org_name = (org.get("name") or "your workspace").strip()
+    subject = f"{inviter_name.split(' ')[0]} invited you to {org_name} on Cyphward"
+    accept_url = f"{FRONTEND_URL}/login"
+    email_sent = False
+    try:
+        result = await send_email_async(
+            email_clean,
+            subject,
+            generate_invite_email_html(inviter_name, invitee_name, email_clean, org_name, role, accept_url),
+            generate_invite_email_text(inviter_name, invitee_name, email_clean, org_name, role, accept_url),
+            recipient_name=invitee_name,
+        )
+        email_sent = bool(result and result.get("success"))
+    except Exception:
+        logger.exception(f"Invite email to {email_clean} failed (org={org['id']})")
+
+    log_audit(org["id"], org.get("current_user_id"), "member.invited", "profile", str(user_row["id"]),
+              {"email": email_clean, "role": role, "email_sent": email_sent})
+    message = (
+        f"Invite sent to {email_clean}."
+        if email_sent
+        else f"Member {email_clean} added, but the invitation email failed to send."
+    )
+    return {
+        "message": message,
+        "member": {"email": email_clean, "full_name": invitee_name, "role": role},
+        "email_sent": email_sent,
+    }
 
 
 @router.patch("/{user_id}")

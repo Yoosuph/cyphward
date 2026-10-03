@@ -690,6 +690,119 @@ def generate_password_reset_email_text(user_name: str, reset_url: str, minutes: 
     )
 
 
+_INVITE_ROLE_NOTES = {
+    "owner": "You have full control of the workspace, including settings and membership.",
+    "admin": "You can invite people, change settings, and manage findings.",
+    "member": "You can view findings, scans, and reports.",
+}
+
+
+def generate_invite_email_html(
+    inviter_name: str,
+    invitee_name: str,
+    invitee_email: str,
+    org_name: str,
+    role: str,
+    accept_url: str,
+) -> str:
+    """
+    Team-invite email (Brevo, plain English) — same visual language as the
+    OTP/reset templates. Tells the invitee who invited them, their role,
+    and how to get in.
+    """
+    inviter_first = (inviter_name or "A teammate").strip().split(" ")[0]
+    invitee_first = (invitee_name or "").strip().split(" ")[0] or invitee_email.split("@")[0]
+    role_note = _INVITE_ROLE_NOTES.get(role, _INVITE_ROLE_NOTES["member"])
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="format-detection" content="telephone=no">
+  <title>You're invited to Cyphward</title>
+  <style>
+    html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
+    body {{ margin: 0; padding: 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-text-size-adjust: 100%; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-text-size-adjust: 100%;" bgcolor="#F3F1EC">
+  <div style="display:none; max-height:0; overflow:hidden; font-size:1px; line-height:1px; color:#F3F1EC;">
+    {inviter_first} invited you to join {org_name} on Cyphward as {role}.
+  </div>
+  <center>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 520px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
+      <tr>
+        <td style="height: 4px; background: linear-gradient(90deg, #B33614, #E5532B, #FF8F6B, #E5532B); font-size: 0; line-height: 0;">&nbsp;</td>
+      </tr>
+      <tr>
+        <td style="padding: 26px 28px 30px;">
+          <div style="font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: #8A8377; font-weight: 700; margin-bottom: 16px;">
+            CYPH<span style="color: #E5532B;">WARD</span> &middot; TEAM INVITE
+          </div>
+          <div style="font-size: 20px; font-weight: 700; color: #16130F; letter-spacing: -0.3px; margin-bottom: 10px;">
+            You're invited, {invitee_first}.
+          </div>
+          <div style="font-size: 14px; color: #3A352D; line-height: 1.65; margin-bottom: 14px;">
+            <strong>{inviter_first}</strong> gave you <strong>{role}</strong> access to the
+            <strong>{org_name}</strong> workspace on Cyphward.
+          </div>
+          <div style="padding: 12px 14px; background-color: #FFF7F2; border: 1px solid #F0C9B4; border-radius: 8px; font-size: 13px; color: #5D564B; line-height: 1.55; margin-bottom: 16px;">
+            {role_note}
+          </div>
+          <div style="font-size: 14px; color: #3A352D; line-height: 1.65; margin-bottom: 20px;">
+            Sign in with <strong>{invitee_email}</strong> to open the dashboard.
+            New here? Create your account with this same email address first.
+          </div>
+          <div style="text-align: center; margin: 4px 0 8px;">
+            <a href="{accept_url}" style="display: inline-block; background-color: #E5532B; color: #FFFFFF; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; text-decoration: none; border-radius: 8px; padding: 14px 26px;">Accept invitation</a>
+          </div>
+        </td>
+        <td style="padding: 14px 28px; border-top: 1px solid #EFECE5; background-color: #FBFAF7; font-size: 11px; color: #8A8377;">
+          &mdash; Cyphward &middot; Security monitoring, made simple
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 12px 28px; background-color: #FAF9F6; border-top: 1px solid #EFECE5; font-size: 11px; color: #8A8377; line-height: 1.6;">
+          You received this because {inviter_first} invited <strong>{invitee_email}</strong> to {org_name}.
+          Generated {generated_at} UTC.<br />
+          <a href="https://cyphward.com/" target="_blank" style="color: #C2410C; text-decoration: underline;">cyphward.com</a>
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>
+"""
+
+
+def generate_invite_email_text(
+    inviter_name: str,
+    invitee_name: str,
+    invitee_email: str,
+    org_name: str,
+    role: str,
+    accept_url: str,
+) -> str:
+    inviter_first = (inviter_name or "A teammate").strip().split(" ")[0]
+    invitee_first = (invitee_name or "").strip().split(" ")[0] or invitee_email.split("@")[0]
+    role_note = _INVITE_ROLE_NOTES.get(role, _INVITE_ROLE_NOTES["member"])
+    return (
+        f"Hi {invitee_first},\n\n"
+        f"{inviter_first} gave you {role} access to the {org_name} workspace on Cyphward.\n\n"
+        f"{role_note}\n\n"
+        f"Sign in with {invitee_email} to open the dashboard.\n"
+        "New here? Create your account with this same email address first.\n\n"
+        f"Accept: {accept_url}\n\n"
+        "— Cyphward\n"
+        "Security monitoring, made simple"
+    )
+
+
 async def send_email_async(
     to_email: str,
     subject: str,
