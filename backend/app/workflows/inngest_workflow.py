@@ -870,14 +870,16 @@ async def inngest_scan_pipeline_fn(ctx: inngest.Context) -> Dict[str, Any]:
     return await execute_scan_pipeline(scan_id)
 
 
-@inngest_client.create_function(
-    fn_id="cyphward-daily-scan-scheduler",
-    trigger=inngest.TriggerCron(cron="0 6 * * *"),
-)
-async def inngest_daily_scan_cron(ctx: inngest.Context) -> Dict[str, Any]:
+async def run_daily_scan_schedule() -> Dict[str, Any]:
     """
     Daily scheduled scans: one scan per verified domain for orgs that do not
     already have a queued/running scan (baseline drift detection).
+
+    Shared implementation: triggered by the Inngest cron function below when
+    the Inngest platform is wired, and by the in-process scheduler loop
+    (backend.app.scheduler) otherwise. Always writes a `cron.ran` audit marker
+    so the in-process loop can detect whether today's sweep already happened
+    (restart-safe catch-up, exactly-once per day).
     """
     due_domains = execute_query(
         """
@@ -938,4 +940,20 @@ async def inngest_daily_scan_cron(ctx: inngest.Context) -> Dict[str, Any]:
             "trigger": "cron",
         })
 
+    log_audit(None, None, "cron.ran", "scheduler", None, {
+        "due_domains": len(due_domains),
+        "scheduled": scheduled,
+        "trigger": "cron",
+    })
+
     return {"due_domains": len(due_domains), "scheduled": scheduled}
+
+
+@inngest_client.create_function(
+    fn_id="cyphward-daily-scan-scheduler",
+    trigger=inngest.TriggerCron(cron="0 6 * * *"),
+)
+async def inngest_daily_scan_cron(ctx: inngest.Context) -> Dict[str, Any]:
+    """Inngest platform cron entry point (06:00 UTC). Delegates to the shared
+    daily scan schedule; only fires when the Inngest app is registered."""
+    return await run_daily_scan_schedule()

@@ -3,7 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
-from backend.app.core.config import CORS_ORIGINS
+import asyncio
+import logging
+
+from backend.app.core.config import CORS_ORIGINS, SCHEDULER_ENABLED
 from backend.app.api import (
     overview,
     domains,
@@ -99,6 +102,45 @@ app.include_router(auth.router)
 app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)
+
+# ---------------------------------------------------------------------------
+# In-process daily scan scheduler (06:00 UTC sweep) — backend.app.scheduler
+# ---------------------------------------------------------------------------
+_scheduler_task: asyncio.Task | None = None
+_scheduler_stop: asyncio.Event | None = None
+
+
+@app.on_event("startup")
+async def start_daily_scan_scheduler() -> None:
+    global _scheduler_task, _scheduler_stop
+    if not SCHEDULER_ENABLED:
+        logging.getLogger("cyphward.scheduler").info(
+            "daily scan scheduler disabled (CYPHWARD_SCHEDULER_ENABLED=false)"
+        )
+        return
+    from backend.app.scheduler import daily_scan_scheduler
+
+    _scheduler_stop = asyncio.Event()
+    _scheduler_task = asyncio.create_task(daily_scan_scheduler(_scheduler_stop))
+
+
+@app.on_event("shutdown")
+async def stop_daily_scan_scheduler() -> None:
+    if _scheduler_stop is not None:
+        _scheduler_stop.set()
+    if _scheduler_task is None:
+        return
+    try:
+        await asyncio.wait_for(_scheduler_task, timeout=5)
+    except asyncio.TimeoutError:
+        _scheduler_task.cancel()
+        try:
+            await _scheduler_task
+        except asyncio.CancelledError:
+            pass
+    except asyncio.CancelledError:
+        pass
+
 
 if __name__ == "__main__":
     import uvicorn

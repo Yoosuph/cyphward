@@ -50,6 +50,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 INNGEST_EVENT_KEY = os.getenv("INNGEST_EVENT_KEY", "")
 INNGEST_SIGNING_KEY = os.getenv("INNGEST_SIGNING_KEY", "")
 
+# In-process daily scan scheduler (06:00 UTC sweep). Disable only if an
+# external trigger (e.g. the Inngest cron) is actually registered instead.
+SCHEDULER_ENABLED = os.getenv("CYPHWARD_SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # Scanner worker integration (spec §14/§29)
 # SCANNER_MODE: "local"  -> recon runs in-process (dev fallback, default)
 #               "remote" -> recon is claimed by the Azure scanner worker
