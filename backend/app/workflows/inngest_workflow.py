@@ -80,8 +80,33 @@ def _tool_available(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
+# A scan row only accepts pipeline writes while it is running — or completed,
+# for the post-completion AI-progress flush. Cancelled/failed/terminal scans
+# reject every stage write so a cancelled scan can never be resurrected
+# (review item "P1 — trustworthy scan history").
+_WRITABLE_SCAN_STATUSES = ("running", "completed")
+
+
+def _scan_status(scan_id: str) -> str:
+    """Current status of a scan row ('' when the row no longer exists)."""
+    row = execute_one("SELECT status FROM scans WHERE id = %s", (scan_id,))
+    return (row or {}).get("status") or ""
+
+
+def _still_running(scan_id: str) -> bool:
+    """Boundary check: pipeline work continues only while status='running'."""
+    return _scan_status(scan_id) == "running"
+
+
+def _stage_write_allowed(scan_id: str) -> bool:
+    return _scan_status(scan_id) in _WRITABLE_SCAN_STATUSES
+
+
 def _store_observation(scan_id: str, stage: str, data: Dict[str, Any]) -> None:
-    """Idempotent observation write (replaces a previous row for the stage)."""
+    """Idempotent observation write (replaces a previous row for the stage).
+    Fenced: cancelled/terminal scans accept no further stage writes."""
+    if not _stage_write_allowed(scan_id):
+        return
     execute_query("DELETE FROM scan_results WHERE scan_id = %s AND stage = %s", (scan_id, stage))
     execute_query(
         "INSERT INTO scan_results (scan_id, stage, raw_data) VALUES (%s, %s, %s::jsonb)",
@@ -90,14 +115,17 @@ def _store_observation(scan_id: str, stage: str, data: Dict[str, Any]) -> None:
 
 
 def _save_progress(scan_id: str, progress: Dict[str, Any], current_stage: str = None) -> None:
+    """Fenced progress write — no-ops once the scan is cancelled/failed."""
+    if not _stage_write_allowed(scan_id):
+        return
     if current_stage:
         execute_query(
-            "UPDATE scans SET stage_progress = %s::jsonb, current_stage = %s WHERE id = %s",
+            "UPDATE scans SET stage_progress = %s::jsonb, current_stage = %s WHERE id = %s AND status IN ('running', 'completed')",
             (json.dumps(progress), current_stage, scan_id),
         )
     else:
         execute_query(
-            "UPDATE scans SET stage_progress = %s::jsonb WHERE id = %s",
+            "UPDATE scans SET stage_progress = %s::jsonb WHERE id = %s AND status IN ('running', 'completed')",
             (json.dumps(progress), scan_id),
         )
 
@@ -191,11 +219,17 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
 
     progress = empty_stage_progress()
     progress["discovery"]["status"] = "running"
-    execute_query("""
+    claimed = execute_one("""
         UPDATE scans
         SET status = 'running', current_stage = 'discovery', started_at = now(), stage_progress = %s::jsonb
-        WHERE id = %s
+        WHERE id = %s AND status IN ('queued', 'running')
+        RETURNING id
     """, (json.dumps(progress), scan_id))
+    if not claimed:
+        # Cancelled (or otherwise terminal) between dispatch and execution —
+        # never resurrect the scan; run no stages.
+        logger.info("scan=%s recon skipped: status no longer dispatchable", scan_id)
+        return {"scan_id": scan_id, "cancelled": True}
 
     try:
         # ---------------------------------------------------------------------
@@ -206,6 +240,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         d_dur = int((time.time() - t0) * 1000)
 
         progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
         progress["dns"]["status"] = "running"
         _save_progress(scan_id, progress, "dns")
         _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts})
@@ -220,6 +256,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         dns_dur = int((time.time() - t0) * 1000)
 
         progress["dns"] = {"status": "completed", "items": len(valid_dns), "duration_ms": dns_dur}
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
         progress["http"]["status"] = "running"
         _save_progress(scan_id, progress, "http")
         _store_observation(scan_id, "dns", {"dns_records": valid_dns})
@@ -235,6 +273,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         http_dur = int((time.time() - t0) * 1000)
 
         progress["http"] = {"status": "completed", "items": len(valid_http), "duration_ms": http_dur}
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
         progress["ports"]["status"] = "running"
         _save_progress(scan_id, progress, "ports")
         _store_observation(scan_id, "http", {"http_probes": valid_http})
@@ -264,6 +304,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                 progress["ports"] = {"status": "failed", "items": 0, "duration_ms": ports_dur,
                                      "error": str(ports_err)[:500]}
 
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
         progress["tls"]["status"] = "running"
         _save_progress(scan_id, progress, "tls")
 
@@ -294,6 +336,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                 progress["tls"] = {"status": "failed", "items": 0, "duration_ms": tls_dur,
                                    "error": str(tls_err)[:500]}
 
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
         progress["nuclei"]["status"] = "running"
         _save_progress(scan_id, progress, "nuclei")
 
@@ -329,6 +373,9 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
 
         _save_progress(scan_id, progress)
 
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "cancelled": True}
+
         return {
             "scan_id": scan_id,
             "discovered": len(discovered_hosts),
@@ -344,7 +391,7 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         execute_query("""
             UPDATE scans
             SET status = 'failed', error_message = %s, stage_progress = %s::jsonb, completed_at = now()
-            WHERE id = %s
+            WHERE id = %s AND status IN ('queued', 'running')
         """, (str(exc), json.dumps(progress), scan_id))
         raise
 
@@ -390,15 +437,24 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
     nuclei_findings = (observations.get("nuclei") or {}).get("nuclei_findings") or []
 
     progress[STAGE_SECURITY_CHECKS]["status"] = "running"
-    execute_query("""
+    claimed = execute_one("""
         UPDATE scans
         SET status = 'running', current_stage = %s, stage_progress = %s::jsonb
-        WHERE id = %s
+        WHERE id = %s AND status IN ('queued', 'running')
+        RETURNING id
     """, (STAGE_SECURITY_CHECKS, json.dumps(progress), scan_id))
+    if not claimed:
+        # Cancelled before finalize started — never resurrect or finalize it.
+        status = _scan_status(scan_id)
+        logger.info("scan=%s finalize skipped: status=%s", scan_id, status or "missing")
+        return {"scan_id": scan_id, "status": status}
 
     email_jobs: List[Dict[str, Any]] = []
 
     try:
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "status": _scan_status(scan_id)}
+
         # ---------------------------------------------------------------------
         # Asset inventory (per-scan targets + org asset upsert)
         # ---------------------------------------------------------------------
@@ -498,6 +554,11 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             check_tasks.append(run_security_checks(hname, dns_item, matched_http, is_apex=is_apex))
 
         check_results_list = await asyncio.gather(*check_tasks, return_exceptions=True)
+
+        # Cancelled while security checks ran: stop before any findings writes.
+        if not _still_running(scan_id):
+            return {"scan_id": scan_id, "status": _scan_status(scan_id)}
+
         raw_check_findings = []
         for idx, chk_results in enumerate(check_results_list):
             if isinstance(chk_results, list):
@@ -750,13 +811,20 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
 
         progress["scoring"] = {"status": "completed", "score": final_score, "duration_ms": score_dur}
 
-        execute_query("""
+        completed = execute_one("""
             UPDATE scans
             SET status = 'completed', current_stage = 'completed', score = %s,
                 stage_progress = %s::jsonb, completed_at = now(),
                 claimed_by = NULL, lease_expires_at = NULL
-            WHERE id = %s
+            WHERE id = %s AND status = 'running'
+            RETURNING id
         """, (final_score, json.dumps(progress), scan_id))
+        if not completed:
+            # Cancelled mid-finalize: refuse to complete, score, snapshot,
+            # notify or run AI analysis on a scan the user cancelled.
+            status = _scan_status(scan_id)
+            logger.info("scan=%s finalize completion refused: status=%s", scan_id, status or "missing")
+            return {"scan_id": scan_id, "status": status}
 
         # Record Score Snapshot
         execute_query("""
@@ -819,7 +887,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         execute_query("""
             UPDATE scans
             SET stage_progress = %s::jsonb
-            WHERE id = %s
+            WHERE id = %s AND status IN ('running', 'completed')
         """, (json.dumps(progress), scan_id))
 
         log_audit(org_id, None, "scan.completed", "scan", scan_id, {
@@ -850,7 +918,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             UPDATE scans
             SET status = 'failed', error_message = %s, stage_progress = %s::jsonb,
                 completed_at = now(), claimed_by = NULL, lease_expires_at = NULL
-            WHERE id = %s
+            WHERE id = %s AND status IN ('queued', 'running')
         """, (str(exc), json.dumps(progress), scan_id))
         raise
 
@@ -860,7 +928,9 @@ async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
     Local-mode end-to-end pipeline: recon in-process, then Core finalize.
     In remote mode the worker replaces Phase 1; Core only runs finalize_scan.
     """
-    await execute_recon_local(scan_id)
+    recon = await execute_recon_local(scan_id)
+    if recon.get("cancelled"):
+        return recon
     return await finalize_scan(scan_id)
 
 
@@ -941,7 +1011,7 @@ async def run_daily_scan_schedule() -> Dict[str, Any]:
                     await execute_scan_pipeline(scan_id)
                 except Exception as inline_err:
                     execute_query(
-                        "UPDATE scans SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s",
+                        "UPDATE scans SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s AND status IN ('queued', 'running')",
                         (str(inline_err), scan_id),
                     )
                     continue

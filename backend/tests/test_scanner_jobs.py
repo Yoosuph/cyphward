@@ -180,3 +180,38 @@ def test_fail_marks_scan_failed(scanner_client, store):
     )
     assert r.status_code == 200
     assert r.json()["status"] == "failed"
+
+
+def test_complete_on_cancelled_scan_returns_409(scanner_client, store):
+    store.scans[0]["status"] = "cancelled"
+    store.scans[0]["claimed_by"] = None
+    r = scanner_client.post(
+        "/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/complete",
+        headers=scanner_headers(),
+        json={"stats": {"discovered": 5}},
+    )
+    assert r.status_code == 409
+
+
+def test_progress_after_cancel_clears_lease_returns_409(scanner_client, store):
+    # cancel clears the lease; the worker's next heartbeat must abort (JobLost)
+    store.scans[0]["status"] = "cancelled"
+    store.scans[0]["claimed_by"] = None
+    r = scanner_client.post(
+        "/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/progress",
+        headers=scanner_headers(),
+        json={"stage": "dns", "status": "running", "items": 1},
+    )
+    assert r.status_code == 409
+
+
+def test_fail_on_cancelled_scan_does_not_overwrite_status(scanner_client, store):
+    store.scans[0]["status"] = "cancelled"
+    store.scans[0]["claimed_by"] = None
+    r = scanner_client.post(
+        "/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/fail",
+        headers=scanner_headers(),
+        json={"stage": "dns", "error": "timeout"},
+    )
+    assert r.status_code == 409
+    assert store.scans[0]["status"] == "cancelled"

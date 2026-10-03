@@ -286,14 +286,19 @@ def complete_job(
     # Hand ownership to Core under a finalize lease: the worker no longer
     # holds the job, and the claim-endpoint sweeper can re-trigger finalize
     # (after lease expiry) if this process dies mid-run.
-    execute_one(
+    # CAS: requires the worker to still hold a running job — a cancel that
+    # landed after _held_job must not hand a cancelled scan to finalize.
+    handed_off = execute_one(
         """
         UPDATE scans SET claimed_by = 'core-recovery',
                          lease_expires_at = now() + make_interval(secs => 900)
-        WHERE id = %s AND claimed_by = %s
+        WHERE id = %s AND claimed_by = %s AND status = 'running'
+        RETURNING id
         """,
         (scan_id, scanner_id),
     )
+    if not handed_off:
+        raise HTTPException(status_code=409, detail="Job not held by this scanner.")
 
     # Imported here to avoid a module-level circular import.
     from backend.app.workflows.inngest_workflow import finalize_scan
@@ -319,7 +324,7 @@ def fail_job(
         UPDATE scans
         SET status = 'failed', error_message = %s, completed_at = now(),
             claimed_by = NULL, lease_expires_at = NULL
-        WHERE id = %s AND claimed_by = %s
+        WHERE id = %s AND claimed_by = %s AND status = 'running'
         """,
         (error[:2000], scan_id, scanner_id),
     )

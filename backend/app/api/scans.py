@@ -183,11 +183,24 @@ def cancel_scan(
     if scan["status"] in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Scan is already {scan['status']}.")
 
-    execute_query("""
+    # Conditional cancel: only an active scan may transition to cancelled,
+    # so a completion racing this request can never be overwritten.
+    # Clearing the lease also fences any worker that already holds the job
+    # (its next progress/complete/fail call gets 409 and aborts).
+    cancelled = execute_one("""
         UPDATE scans
-        SET status = 'cancelled', completed_at = now()
-        WHERE id = %s AND org_id = %s
+        SET status = 'cancelled', completed_at = now(),
+            claimed_by = NULL, lease_expires_at = NULL
+        WHERE id = %s AND org_id = %s AND status IN ('queued', 'running')
+        RETURNING id
     """, (scan_id, org["id"]))
+    if not cancelled:
+        fresh = execute_one(
+            "SELECT status FROM scans WHERE id = %s AND org_id = %s",
+            (scan_id, org["id"]),
+        )
+        status = (fresh or {}).get("status", "unknown")
+        raise HTTPException(status_code=400, detail=f"Scan is already {status}.")
 
     log_audit(org["id"], org.get("current_user_id"), "scan.cancelled", "scan", scan_id)
     return {"message": "Scan cancelled."}

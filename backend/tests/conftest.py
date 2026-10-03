@@ -833,6 +833,127 @@ class FakeStore:
             scan_id = params[0]
             return [x for x in self.scans if x["id"] == scan_id]
 
+        # --- scan cancel-fencing / lifecycle CAS transitions ---------------
+        # cancel endpoint: initial row read
+        if s.startswith("SELECT * FROM scans WHERE id = %s AND org_id = %s"):
+            scan_id, org_id = params
+            return [x for x in self.scans if x["id"] == scan_id and x["org_id"] == org_id]
+
+        # cancel endpoint: status re-read after a lost CAS
+        if s.startswith("SELECT status FROM scans WHERE id = %s AND org_id = %s"):
+            scan_id, org_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id and x["org_id"] == org_id), None)
+            return [{"status": sc["status"]}] if sc else []
+
+        # pipeline boundary checks: status by scan id
+        if s.startswith("SELECT status FROM scans WHERE id = %s"):
+            scan_id = params[0]
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            return [{"status": sc["status"]}] if sc else []
+
+        # recon + finalize initial join select
+        if "FROM scans s JOIN domains d ON s.domain_id = d.id WHERE s.id = %s" in s:
+            scan_id = params[0]
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc:
+                return []
+            dom = next((d for d in self.domains if d["id"] == sc.get("domain_id")), None)
+            return [{**sc, "domain": (dom or {}).get("domain") or sc.get("domain") or "example.test"}]
+
+        # recon entry CAS: queued/running -> running (fences cancel-before-dispatch)
+        if "SET status = 'running', current_stage = 'discovery', started_at = now()" in s:
+            progress, scan_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc or sc.get("status") not in ("queued", "running"):
+                return []
+            sc["status"] = "running"
+            sc["current_stage"] = "discovery"
+            sc["stage_progress"] = progress
+            sc["started_at"] = sc.get("started_at") or "2026-10-03T00:00:00"
+            return [{"id": sc["id"]}]
+
+        # finalize entry CAS: queued/running -> running at security_checks
+        if "SET status = 'running', current_stage = %s, stage_progress = %s::jsonb WHERE id = %s AND status IN ('queued', 'running')" in s:
+            stage, progress, scan_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc or sc.get("status") not in ("queued", "running"):
+                return []
+            sc["status"] = "running"
+            sc["current_stage"] = stage
+            sc["stage_progress"] = progress
+            return [{"id": sc["id"]}]
+
+        # completion CAS: running -> completed (score snapshot evidence)
+        if "SET status = 'completed', current_stage = 'completed', score = %s" in s:
+            score, progress, scan_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc or sc.get("status") != "running":
+                return []
+            sc.update(
+                status="completed", current_stage="completed", score=score,
+                stage_progress=progress, completed_at="2026-10-03T00:10:00",
+                claimed_by=None, lease_expires_at=None,
+            )
+            return [{"id": sc["id"]}]
+
+        # terminal-cancel CAS (cancel endpoint)
+        if "SET status = 'cancelled', completed_at = now()" in s:
+            scan_id, org_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id and x["org_id"] == org_id), None)
+            if not sc or sc.get("status") not in ("queued", "running"):
+                return []
+            sc.update(
+                status="cancelled", completed_at="2026-10-03T00:05:00",
+                claimed_by=None, lease_expires_at=None,
+            )
+            return [{"id": sc["id"]}]
+
+        # guarded failure writes: never clobber cancelled/terminal statuses
+        if "SET status = 'failed', error_message = %s" in s and "status IN ('queued', 'running')" in s:
+            if "stage_progress = %s::jsonb" in s:
+                error, progress, scan_id = params
+            else:
+                error, scan_id = params
+                progress = None
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if sc and sc.get("status") in ("queued", "running"):
+                sc["status"] = "failed"
+                sc["error_message"] = error
+                sc["completed_at"] = "2026-10-03T00:05:00"
+                if progress is not None:
+                    sc["stage_progress"] = progress
+            return []
+
+        # worker -> core finalize hand-off (worker must still hold the job)
+        if "SET claimed_by = 'core-recovery'" in s and "WHERE id = %s AND claimed_by = %s" in s:
+            scan_id, scanner_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if not sc or sc.get("claimed_by") != scanner_id or sc.get("status") != "running":
+                return []
+            sc["claimed_by"] = "core-recovery"
+            return [{"id": sc["id"]}]
+
+        # worker terminal failure (must still hold a running job)
+        if "SET status = 'failed', error_message = %s" in s and "WHERE id = %s AND claimed_by = %s" in s:
+            error, scan_id, scanner_id = params
+            sc = next((x for x in self.scans if x["id"] == scan_id), None)
+            if sc and sc.get("claimed_by") == scanner_id and sc.get("status") == "running":
+                sc.update(
+                    status="failed", error_message=error,
+                    completed_at="2026-10-03T00:05:00",
+                    claimed_by=None, lease_expires_at=None,
+                )
+            return []
+
+        # score snapshot insert (completion evidence)
+        if s.startswith("INSERT INTO score_snapshots"):
+            org_id, domain_id, score, subscores, factors = params
+            self.snapshots.append({
+                "org_id": str(org_id), "score": score,
+                "created_at": "2026-10-03T00:10:00",
+            })
+            return []
+
         # Unknown statement: behave like an empty result set.
         return []
 
