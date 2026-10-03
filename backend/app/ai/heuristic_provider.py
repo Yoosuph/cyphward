@@ -348,21 +348,17 @@ class HeuristicAIProvider(AIProvider):
         
         if "dmarc" in q_lower or "spoof" in q_lower or "email" in q_lower:
             answer = (
-                f"Your domain currently lacks an active **DMARC policy**, which leaves your brand unprotected against email spoofing. "
-                f"Without DMARC, receiving email servers like Google Workspace or Microsoft 365 have no explicit instructions on how to treat unauthorized emails claiming to come from `{org_name}`.\n\n"
-                f"In practice, this means malicious actors can forge your domain in email headers to run executive impersonation scams, target staff with deceptive requests, or send fraudulent billing notices to your clients.\n\n"
-                f"You can resolve this by adding a single DNS TXT record at your DNS provider (such as Cloudflare, Route 53, or Namecheap):\n\n"
+                f"Your domain has no **DMARC policy**, so anyone can send email pretending to be you.\n\n"
+                f"Add this one DNS TXT record at your DNS provider (Namecheap, Cloudflare, etc.):\n\n"
                 f"```dns\n"
                 f"Host:  _dmarc\n"
                 f"Type:  TXT\n"
                 f"Value: v=DMARC1; p=reject; rua=mailto:security@{org_name.lower().replace(' ', '')}.com; pct=100;\n"
                 f"```\n\n"
-                f"Here is what these parameters do:\n"
-                f"• **`p=reject`**: Instructs mail servers globally to outright drop spoofed emails rather than letting them into the spam folder.\n"
-                f"• **`rua`**: Designates an email address to receive automated daily reports showing who is attempting to send messages under your domain.\n"
-                f"• **`pct=100`**: Applies strict enforcement to 100% of outbound messages.\n\n"
-                f"Deploying this record also directly satisfies the perimeter protection requirements mandated under **NDPA 2023 Section 39** and the **CBN Cybersecurity Framework**.\n\n"
-                f"Would you like me to guide you through checking your current SPF and DKIM records to ensure legitimate emails don't get interrupted when you flip to `p=reject`?"
+                f"- **p=reject** makes mail servers drop fake emails from your domain.\n"
+                f"- **rua** emails you a daily report of who sent email as you.\n\n"
+                f"This also covers the email-security rule in **NDPA 2023** and **CBN** guidelines.\n\n"
+                f"Want me to check your SPF and DKIM first? If those are wrong, real emails can break when you switch to p=reject."
             )
             sources = [
                 {"id": "s_dmarc", "label": "Email Security Standards (DMARC & SPF)"},
@@ -370,20 +366,18 @@ class HeuristicAIProvider(AIProvider):
             ]
         elif "hsts" in q_lower or "tls" in q_lower or "ssl" in q_lower or "cipher" in q_lower:
             answer = (
-                f"While your web endpoints are serving HTTPS, your servers aren't currently sending the **HTTP Strict Transport Security (HSTS)** header. "
-                f"This means browsers still attempt to connect via plain HTTP first before being redirected, exposing users on public or hostile networks to SSL-stripping and man-in-the-middle attacks.\n\n"
-                f"Enforcing HSTS ensures modern browsers remember to exclusively communicate over encrypted TLS, even if a user types `http://` or clicks an insecure link.\n\n"
-                f"You can enable this with a single header directive in your web server configuration:\n\n"
+                f"Your server doesn't send the **HSTS** header. That's a small instruction that tells browsers: \"always use HTTPS for this site.\" "
+                f"Without it, a user on public Wi-Fi can be tricked into an unencrypted connection.\n\n"
+                f"Add this line inside your Nginx HTTPS (port 443) block:\n\n"
                 f"```nginx\n"
-                f"# Inside your Nginx HTTPS server block (port 443)\n"
                 f"add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\" always;\n"
                 f"```\n\n"
-                f"Once added, verify the configuration syntax and reload your server:\n\n"
+                f"Then check and reload:\n\n"
                 f"```bash\n"
                 f"sudo nginx -t && sudo systemctl reload nginx\n"
                 f"```\n\n"
-                f"If you're using Cloudflare or an edge CDN, you can toggle this on directly under **SSL/TLS > Edge Certificates > HSTS** without editing origin server files.\n\n"
-                f"Would you like me to inspect whether your certificate uses TLS 1.3 cryptographic suites as well?"
+                f"On Cloudflare you can switch the same setting on under **SSL/TLS > Edge Certificates > HSTS** — no server edit needed.\n\n"
+                f"Want me to also check whether your server allows old TLS versions?"
             )
             sources = [
                 {"id": "s_tls", "label": "Web Encryption Best Practices (HSTS / TLS 1.3)"},
@@ -391,11 +385,11 @@ class HeuristicAIProvider(AIProvider):
             ]
         elif "ndpa" in q_lower or "compliance" in q_lower or "cbn" in q_lower or "law" in q_lower:
             answer = (
-                f"Here is a straightforward breakdown of how current Nigerian regulatory standards apply to **{org_name}**'s digital infrastructure:\n\n"
-                f"• **NDPA 2023 (Section 39 - Technical Safeguards)**: The Act requires data controllers and processors to maintain proactive measures against unauthorized access, data alteration, or perimeter breaches. Continuous vulnerability scanning and remediation directly fulfill this mandate.\n\n"
-                f"• **72-Hour Breach Notification (Section 40)**: In the event of a material security incident affecting personal data, you are legally required to report it to the Nigeria Data Protection Commission (NDPC) within 72 hours. Maintaining active attack-surface mapping ensures you have immediate forensic visibility.\n\n"
-                f"• **CBN Risk-Based Cybersecurity Framework**: For financial entities and payment switches, the Central Bank mandates hardened transport security (TLS 1.3), strict email authentication (DMARC), and continuous perimeter surveillance.\n\n"
-                f"You can review your real-time compliance posture and download an audit-ready compliance dossier directly in the **Comply** tab. Would you like me to highlight the top controls currently pending remediation?"
+                f"Here's what the main rules ask of **{org_name}**:\n\n"
+                f"- **NDPA 2023 (Section 39)**: keep your systems patched and scanned. Your weekly scans cover this.\n"
+                f"- **NDPA 2023 (Section 40)**: if personal data is stolen, tell the regulator within **72 hours**.\n"
+                f"- **CBN framework** (banks): use strong encryption (TLS), DMARC on email, and constant monitoring.\n\n"
+                f"See your live status in the **Comply** tab. Want me to list the checks you're currently failing?"
             )
             sources = [
                 {"id": "s_ndpa23", "label": "NDPA 2023 Data Protection Act"},
@@ -403,14 +397,11 @@ class HeuristicAIProvider(AIProvider):
             ]
         elif "board" in q_lower or "briefing" in q_lower or "executive" in q_lower or "report" in q_lower:
             answer = (
-                f"Here is an executive security briefing prepared for **{org_name}** leadership:\n\n"
-                f"**Your score**\n"
-                f"Your security score is **{score}/100**. Your encryption is strong, and no open database ports were found on the public internet.\n\n"
-                f"**What to do next**\n"
-                f"• **Email Channel Hardening**: Transitioning from passive email monitoring to an active DMARC rejection policy (`p=reject`) is our highest priority to prevent executive impersonation and wire fraud attempts.\n"
-                f"• **Transport Encryption Strictness**: Implementing HSTS across subdomains will close the door on credential-interception vectors for remote employees.\n"
-                f"• **Regulatory Standing**: Your technical perimeter is progressing toward full alignment with NDPA 2023 technical safeguards and CBN cybersecurity expectations.\n\n"
-                f"You can download an executive PDF dossier anytime using the **Generate Board Report** action on the Overview page. Would you like me to draft talking points for a specific committee or audit inquiry?"
+                f"Short update for **{org_name}** leadership:\n\n"
+                f"- **Score**: {score}/100. Encryption is strong; no open database ports found.\n"
+                f"- **Top risk**: email spoofing. Moving DMARC to `p=reject` is the next step — it stops fake emails sent as your staff or brand.\n"
+                f"- **Also due**: HSTS across subdomains, and the NDPA/CBN checks you're close to passing.\n\n"
+                f"Download the full PDF from **Generate Board Report** on the Overview page. Want me to write 3 talking points for your next board meeting?"
             )
             sources = [
                 {"id": "s_board", "label": "Cyphward Risk Assessment Engine"},
@@ -418,10 +409,8 @@ class HeuristicAIProvider(AIProvider):
             ]
         else:
             answer = (
-                f"Hello! I'm CyphBot, your cybersecurity assistant for **{org_name}**.\n\n"
-                f"Your security score is currently **{score}/100**. "
-                f"I'm here to help you understand vulnerabilities, guide you through step-by-step technical fixes, and ensure your systems remain resilient and compliant with statutory standards like NDPA 2023 and CBN guidelines.\n\n"
-                f"What would you like to explore or remediate today?"
+                f"Hi, I'm **CyphBot**. {org_name}'s security score is **{score}/100** right now.\n\n"
+                f"Ask me about anything you see in the dashboard — what it means, or how to fix it."
             )
             sources = [
                 {"id": "s_core", "label": "Cyphward Defense Knowledge Core"},

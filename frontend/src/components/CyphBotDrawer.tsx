@@ -94,6 +94,37 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   );
 }
 
+// Inline formatting: **bold** and `code` → real elements (they used to show
+// up as literal asterisks/backticks). Unmatched tokens while streaming stay
+// as plain text until the closing marker arrives.
+function inlineFormat(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith('**')) {
+      nodes.push(
+        <strong key={key++} className="font-semibold text-ink">
+          {tok.slice(2, -2)}
+        </strong>
+      );
+    } else {
+      nodes.push(
+        <code key={key++} className="px-1 py-px rounded bg-inset border border-line mono text-[11px] text-accent">
+          {tok.slice(1, -1)}
+        </code>
+      );
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
 function FormattedMessage({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   const parts: React.ReactNode[] = [];
   const lines = content.split('\n');
@@ -129,7 +160,7 @@ function FormattedMessage({ content, isStreaming }: { content: string; isStreami
     if (line.startsWith('### ')) {
       parts.push(
         <h4 key={idx} className="text-xs font-bold text-ink font-sans mt-2.5 mb-1">
-          {line.replace('### ', '')}
+          {inlineFormat(line.replace('### ', ''))}
         </h4>
       );
       return;
@@ -137,7 +168,7 @@ function FormattedMessage({ content, isStreaming }: { content: string; isStreami
     if (line.startsWith('## ')) {
       parts.push(
         <h3 key={idx} className="text-sm font-bold text-ink font-sans mt-3 mb-1.5">
-          {line.replace('## ', '')}
+          {inlineFormat(line.replace('## ', ''))}
         </h3>
       );
       return;
@@ -148,7 +179,7 @@ function FormattedMessage({ content, isStreaming }: { content: string; isStreami
       parts.push(
         <div key={idx} className="flex items-start gap-2 my-1 text-ink/90 font-sans text-[12px] leading-relaxed">
           <span className="text-accent select-none mt-1 font-mono text-[10px]">•</span>
-          <span>{line.trim().replace(/^[-•]\s*/, '')}</span>
+          <span>{inlineFormat(line.trim().replace(/^[-•]\s*/, ''))}</span>
         </div>
       );
       return;
@@ -164,7 +195,7 @@ function FormattedMessage({ content, isStreaming }: { content: string; isStreami
             isStreaming && isLast ? 'claude-surface-word' : ''
           }`}
         >
-          {line}
+          {inlineFormat(line)}
           {isStreaming && isLast && <span className="claude-cursor" />}
         </p>
       );
@@ -207,7 +238,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
     {
       id: 'welcome',
       role: 'assistant',
-      text: `Hello! I'm **CyphBot**. Ask me about issues we found at **${orgName}**, what they mean, or how to fix them. I can also help with NDPA 2023 and CBN compliance questions.\n\nPick a suggested question below to get started.`,
+      text: `Hi, I'm **CyphBot**. Ask me about anything in **${orgName}**'s dashboard — what we found, what it means, or how to fix it.`,
       sources: [
         { id: 'claude-ai', label: 'Claude AI' },
         { id: 'enclave-telemetry', label: `${orgName} live data` },
@@ -371,7 +402,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
       {
         id: 'welcome',
         role: 'assistant',
-        text: `Conversation cleared. What would you like to look at next for **${orgName}**?`,
+        text: `Cleared. What should we look at next?`,
         sources: [
           { id: 'claude-ai', label: 'Claude AI' },
         ],
