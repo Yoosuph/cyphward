@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowRight, MailCheck, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
@@ -24,6 +24,7 @@ function parseCooldown(message: string): number {
 export default function VerifyEmail() {
   const { user, refreshOnboarding } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
   const toast = useToast();
 
   const [digits, setDigits] = useState<string[]>(Array(BOX_COUNT).fill(''));
@@ -45,7 +46,9 @@ export default function VerifyEmail() {
 
   const finish = async () => {
     const step = await refreshOnboarding();
-    nav(NEXT_ROUTE[step] || '/', { replace: true });
+    // Keep ?invite= (and any other query) so invitation links survive the
+    // onboarding hop back into the product.
+    nav(`${NEXT_ROUTE[step] || '/'}${location.search}`, { replace: true });
   };
 
   const sendCode = async (opts?: { silent?: boolean }) => {

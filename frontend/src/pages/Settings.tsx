@@ -83,11 +83,7 @@ export default function Settings() {
     setAddingMember(true);
     try {
       const res = await addTeamMember(memberEmail.trim(), memberName.trim() || memberEmail.split('@')[0], memberRole);
-      if (res && res.email_sent === false) {
-        toast(`${memberEmail} added — but the invite email didn't send`);
-      } else {
-        toast(`Invite sent to ${memberEmail}`);
-      }
+      toast(res?.message || `Invite sent to ${memberEmail}`);
       setMemberModalOpen(false);
       setMemberEmail('');
       setMemberName('');

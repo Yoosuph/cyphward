@@ -11,6 +11,7 @@ import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
 import { DocumentTitle } from './lib/seo';
+import InviteAcceptance from './components/InviteAcceptance';
 import ButtonPlate from './components/ButtonPlate';
 
 // Public / prerendered pages — eager: built into the landing bundle.
@@ -295,6 +296,8 @@ export default function App() {
           <BrandedCursor />
           {/* Per-route <title> so auth/app tabs don't keep the marketing title */}
           <DocumentTitle />
+          {/* Emailed team-invitation links (?invite=) — joins on success */}
+          <InviteAcceptance />
           {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
           <CookieBanner />
           <Suspense fallback={<RouteLoading />}>

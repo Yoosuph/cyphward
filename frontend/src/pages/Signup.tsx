@@ -1,5 +1,5 @@
 import { FormEvent, useState, useEffect } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, ShieldCheck, Lock,
   Eye, EyeOff, Sun, Moon, Check, Globe, Server, CheckCircle2,
@@ -17,6 +17,13 @@ export default function Signup() {
   const { tenant, signUpWithCredentials, completeExternalLogin, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
+  // Team-invitation links arrive as ?invite= — carry it through registration,
+  // verification, and sign-in so InviteAcceptance can consume it.
+  const [searchParams] = useSearchParams();
+  const inviteParam = (() => {
+    const t = searchParams.get('invite');
+    return t ? `?invite=${encodeURIComponent(t)}` : '';
+  })();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -44,11 +51,11 @@ export default function Signup() {
         try {
           const step = await completeExternalLogin(tokens);
           if (step && step !== 'complete' && step !== 'none') {
-            nav('/onboarding', { replace: true });
+            nav(`/onboarding${inviteParam}`, { replace: true });
           } else if (step === 'none') {
             setError('Your session could not be restored. Please try again.');
           } else {
-            nav('/overview', { replace: true });
+            nav(`/overview${inviteParam}`, { replace: true });
           }
         } catch {
           setError('Google sign-in failed. Please try again.');
@@ -73,9 +80,9 @@ export default function Signup() {
 
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
-      return <Navigate to="/onboarding" replace />;
+      return <Navigate to={`/onboarding${inviteParam}`} replace />;
     }
-    return <Navigate to="/overview" replace />;
+    return <Navigate to={`/overview${inviteParam}`} replace />;
   }
 
   const submit = async (e: FormEvent) => {
@@ -95,9 +102,9 @@ export default function Signup() {
     const first = (name || '').trim().split(' ')[0] || email.split('@')[0];
     toast(`Welcome to Cyphward${first ? `, ${first}` : ''}! Check your inbox for your welcome email.`);
     if (result.needsOnboarding) {
-      nav('/onboarding', { replace: true });
+      nav(`/onboarding${inviteParam}`, { replace: true });
     } else {
-      nav('/overview', { replace: true });
+      nav(`/overview${inviteParam}`, { replace: true });
     }
   };
 
@@ -425,7 +432,7 @@ export default function Signup() {
                   <div className="mt-4 pt-3.5 border-t border-line text-center">
                     <span className="text-xs mono text-soft">
                       Already have an account?{' '}
-                      <Link to="/login" className="text-accent underline font-medium ml-1">
+                      <Link to={`/login${inviteParam}`} className="text-accent underline font-medium ml-1">
                         Sign In
                       </Link>
                     </span>

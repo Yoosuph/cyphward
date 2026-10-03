@@ -33,6 +33,12 @@ export default function Login() {
 
   // Errors bounced back from the backend OAuth flow (/login?error=…).
   const [searchParams] = useSearchParams();
+  // Team-invitation links arrive as ?invite= — carry it through every
+  // in-app navigation so InviteAcceptance can consume it after sign-in.
+  const inviteParam = (() => {
+    const t = searchParams.get('invite');
+    return t ? `?invite=${encodeURIComponent(t)}` : '';
+  })();
   useEffect(() => {
     const code = searchParams.get('error');
     if (!code) return;
@@ -71,11 +77,11 @@ export default function Login() {
         try {
           const step = await completeExternalLogin(tokens);
           if (step && step !== 'complete' && step !== 'none') {
-            nav('/onboarding', { replace: true });
+            nav(`/onboarding${inviteParam}`, { replace: true });
           } else if (step === 'none') {
             setError('Your session could not be restored. Please sign in again.');
           } else {
-            nav('/overview', { replace: true });
+            nav(`/overview${inviteParam}`, { replace: true });
           }
         } catch {
           setError('Google sign-in failed. Please try again.');
@@ -96,9 +102,9 @@ export default function Login() {
 
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
-      return <Navigate to="/onboarding" replace />;
+      return <Navigate to={`/onboarding${inviteParam}`} replace />;
     }
-    return <Navigate to="/overview" replace />;
+    return <Navigate to={`/overview${inviteParam}`} replace />;
   }
 
   const submit = async (e: FormEvent) => {
@@ -120,9 +126,9 @@ export default function Login() {
 
     // Navigate from the server-resolved onboarding step (no stale state).
     if (result.onboarding && result.onboarding !== 'complete' && result.onboarding !== 'none') {
-      nav('/onboarding', { replace: true });
+      nav(`/onboarding${inviteParam}`, { replace: true });
     } else {
-      nav('/overview', { replace: true });
+      nav(`/overview${inviteParam}`, { replace: true });
     }
   };
 
@@ -397,7 +403,7 @@ export default function Login() {
                   <div className="mt-4 pt-3.5 border-t border-line text-center">
                     <span className="text-xs mono text-soft">
                       Don't have an account?{' '}
-                        <Link to="/signup" className="text-accent underline font-medium ml-1">
+                        <Link to={`/signup${inviteParam}`} className="text-accent underline font-medium ml-1">
                         Create Account
                       </Link>
                     </span>

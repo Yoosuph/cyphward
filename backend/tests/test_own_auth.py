@@ -7,6 +7,7 @@ All emails are mocked (auth_mod.send_email_async) — nothing touches Brevo.
 """
 import re
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -14,7 +15,7 @@ from backend.app.api import auth as auth_mod
 from backend.app.api import auth_google as google_mod
 from backend.app.core import config
 from backend.app.core.security import hash_opaque_token
-from conftest import ALICE
+from conftest import ALICE, ORG_A
 
 PASSWORD = "correct-horse-battery"
 
@@ -77,17 +78,36 @@ def test_register_rejects_duplicate_email(client):
     assert resp.status_code == 409
 
 
-def test_register_adopts_invited_profile(client, store):
+def test_register_refuses_to_adopt_existing_profile(client, store):
+    """P0-1: public registration must never take over an existing profile.
+
+    The old adopt-by-email path handed the registrant every organization
+    membership attached to a passwordless (Google or invited) profile.
+    """
     invited_id = str(uuid.uuid4())
     store.profiles[invited_id] = {
-        "id": invited_id, "email": "invited@acme.test", "full_name": "",
-        "password_hash": None, "provider": "email",
+        "id": invited_id, "email": "invited@acme.test", "full_name": "Real Owner",
+        "password_hash": None, "provider": "google",
+        "email_verified_at": datetime.now(timezone.utc),
     }
+    store.memberships.append(
+        {"user_id": invited_id, "org_id": ORG_A, "role": "owner"}
+    )
+
     resp = _register(client, email="invited@acme.test", name="Invited Person")
-    assert resp.status_code == 200
-    assert resp.json()["user"]["id"] == invited_id
-    assert store.profiles[invited_id]["password_hash"]
-    assert store.profiles[invited_id]["full_name"] == "Invited Person"
+
+    assert resp.status_code == 409
+    assert "already exists" in resp.json()["detail"]
+    # No session for the victim's account, and nothing about it changed.
+    assert "access_token" not in resp.json()
+    profile = store.profiles[invited_id]
+    assert profile["password_hash"] is None
+    assert profile["provider"] == "google"
+    assert profile["full_name"] == "Real Owner"
+    assert any(
+        m["user_id"] == invited_id and m["org_id"] == ORG_A and m["role"] == "owner"
+        for m in store.memberships
+    )
 
 
 # ---------------------------------------------------------------------------

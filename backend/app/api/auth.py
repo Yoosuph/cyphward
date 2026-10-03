@@ -326,36 +326,27 @@ async def register(body: RegisterBody) -> Dict[str, Any]:
     password_hash = hash_password(body.password)
     name = (body.full_name or "").strip() or email.split("@")[0]
 
-    # An invited-but-not-registered profile (created by members.py) is adopted
-    # by email so its id — and every membership FK pointing at it — stays intact.
+    # Never adopt an existing profile from public registration. The old
+    # adopt-by-email path let a registrant take over any passwordless
+    # (Google or invited) profile — and every organization membership
+    # attached to it — without proving control of that account (review P0-1).
+    # Ownership stays where it can be proven: signing in with the original
+    # provider, or setting a password through the emailed reset link.
     existing = execute_one("SELECT * FROM profiles WHERE email = %s", (email,))
     if existing:
-        if existing.get("password_hash"):
-            raise HTTPException(
-                status_code=409,
-                detail="An account with this email already exists. Try signing in.",
-            )
-        user = execute_one(
-            """
-            UPDATE profiles
-            SET password_hash = %s,
-                full_name = CASE WHEN %s = '' THEN full_name ELSE %s END,
-                provider = CASE WHEN provider = 'google' THEN 'both' ELSE provider END,
-                updated_at = now()
-            WHERE id = %s
-            RETURNING *
-            """,
-            (password_hash, name, name, existing["id"]),
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists. Sign in instead, or reset your password.",
         )
-    else:
-        user = execute_one(
-            """
-            INSERT INTO profiles (id, email, full_name, role, password_hash, provider)
-            VALUES (gen_random_uuid(), %s, %s, 'Member', %s, 'email')
-            RETURNING *
-            """,
-            (email, name, password_hash),
-        )
+
+    user = execute_one(
+        """
+        INSERT INTO profiles (id, email, full_name, role, password_hash, provider)
+        VALUES (gen_random_uuid(), %s, %s, 'Member', %s, 'email')
+        RETURNING *
+        """,
+        (email, name, password_hash),
+    )
     if not user:
         raise HTTPException(status_code=500, detail="Could not create the account.")
 

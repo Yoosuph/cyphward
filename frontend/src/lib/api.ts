@@ -70,7 +70,10 @@ async function apiFetch<T>(
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `Request failed with status ${res.status}`);
+      const error: any = new Error(err.detail || `Request failed with status ${res.status}`);
+      // Carry the HTTP status so callers can branch (403 vs 409 vs 400).
+      error.status = res.status;
+      throw error;
     }
     return (await res.json()) as T;
   } catch (err) {
@@ -309,14 +312,33 @@ export async function addTeamMember(email: string, fullName: string, role: strin
   return apiFetch('/members/invite', {
     method: 'POST',
     body: JSON.stringify({ email, full_name: fullName, role }),
-  });
+  }, true);
 }
 
 export async function updateMemberRole(userId: string, role: string): Promise<any> {
   return apiFetch(`/members/${userId}`, {
     method: 'PATCH',
     body: JSON.stringify({ role }),
-  });
+  }, true);
+}
+
+/** Consume a single-use invite token; joins the workspace on success. */
+export async function acceptInvite(token: string): Promise<{ message: string; member: any }> {
+  const res = await apiFetch<{ message: string; member: any }>(
+    '/members/invites/accept',
+    { method: 'POST', body: JSON.stringify({ token }) },
+    true,
+  );
+  if (!res) throw new Error('Could not accept the invitation. Please try again.');
+  return res;
+}
+
+export async function listInvites(): Promise<any[] | null> {
+  return apiFetch('/members/invites');
+}
+
+export async function revokeInvite(inviteId: string): Promise<any> {
+  return apiFetch(`/members/invites/${inviteId}`, { method: 'DELETE' }, true);
 }
 
 // ============================================================================

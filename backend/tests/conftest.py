@@ -143,6 +143,7 @@ class FakeStore:
         self.email_otps: list = []
         self.sessions: list = []
         self.password_reset_tokens: list = []
+        self.organization_invites: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -163,26 +164,6 @@ class FakeStore:
             p = self.profiles.get(str(params[0]))
             return [p] if p else []
 
-        # members/invite: lookup by email (id only) + bare INSERT without id
-        if s.startswith("SELECT id FROM profiles WHERE email = %s"):
-            email = (params[0] or "").lower()
-            for p in self.profiles.values():
-                if (p.get("email") or "").lower() == email:
-                    return [{"id": p["id"]}]
-            return []
-
-        if s.startswith("INSERT INTO profiles (email, full_name, role)"):
-            email, full_name, role = params
-            prof = {
-                "id": str(uuid.uuid4()),
-                "email": email,
-                "full_name": full_name,
-                "role": role,
-                "created_at": datetime.now(timezone.utc),
-            }
-            self.profiles[prof["id"]] = prof
-            return [{"id": prof["id"]}]
-
         if s.startswith("INSERT INTO profiles (id, email, full_name, role, password_hash, provider)"):
             email, full_name, password_hash = params
             prof = {
@@ -202,19 +183,6 @@ class FakeStore:
                 "created_at": datetime.now(timezone.utc),
             }
             self.profiles[prof["id"]] = prof
-            return [prof]
-
-        if s.startswith("UPDATE profiles SET password_hash = %s,") and "full_name = CASE" in s:
-            # register adopting an invited profile (matched by email beforehand)
-            password_hash, name, _name2, user_id = params
-            prof = self.profiles.get(str(user_id))
-            if not prof:
-                return []
-            prof["password_hash"] = password_hash
-            if name:
-                prof["full_name"] = name
-            if prof.get("provider") == "google":
-                prof["provider"] = "both"
             return [prof]
 
         if s.startswith("UPDATE profiles SET password_hash = %s, updated_at = now() WHERE id = %s"):
@@ -395,13 +363,115 @@ class FakeStore:
             return [{"id": o["id"]} for o in self.organizations.values() if o["slug"] == params[0]]
 
         if s.startswith("INSERT INTO organization_members"):
-            role_match = re.search(r"'(owner|admin|member)'", s)
+            user_id, org_id = params[0], params[1]
+            if len(params) >= 3 and params[2] in ("owner", "admin", "member"):
+                role = params[2]
+            else:
+                role_match = re.search(r"'(owner|admin|member)'", s)
+                role = role_match.group(1) if role_match else "member"
+            if "DO NOTHING" in s and any(
+                m["user_id"] == user_id and m["org_id"] == org_id for m in self.memberships
+            ):
+                return []
             self.memberships.append({
-                "user_id": params[0],
-                "org_id": params[1],
-                "role": role_match.group(1) if role_match else "member",
+                "user_id": user_id,
+                "org_id": org_id,
+                "role": role,
             })
             return [{"id": len(self.memberships)}]
+
+        if s.startswith("SELECT m.role FROM organization_members m JOIN profiles p"):
+            email, org_id = (params[0] or "").lower(), params[1]
+            for p in self.profiles.values():
+                if (p.get("email") or "").lower() == email:
+                    for m in self.memberships:
+                        if m["user_id"] == p["id"] and m["org_id"] == org_id:
+                            return [{"role": m["role"]}]
+            return []
+
+        if s.startswith("SELECT role FROM organization_members WHERE user_id = %s AND org_id = %s"):
+            user_id, org_id = params
+            for m in self.memberships:
+                if m["user_id"] == user_id and m["org_id"] == org_id:
+                    return [{"role": m["role"]}]
+            return []
+
+        if s.startswith("SELECT COUNT(*) AS n FROM organization_members WHERE org_id = %s AND role = 'owner'"):
+            org_id = params[0]
+            return [{"n": sum(1 for m in self.memberships
+                              if m["org_id"] == org_id and m["role"] == "owner")}]
+
+        if s.startswith("UPDATE organization_members SET role = %s"):
+            role, user_id, org_id = params
+            for m in self.memberships:
+                if m["user_id"] == user_id and m["org_id"] == org_id:
+                    m["role"] = role
+                    return [{"id": 1}]
+            return []
+
+        # --- tokenized invitations (members router) ------------------------
+        if s.startswith("DELETE FROM organization_invites WHERE org_id = %s"):
+            org_id, email = params[0], (params[1] or "").lower()
+            self.organization_invites = [
+                i for i in self.organization_invites
+                if not (i["org_id"] == org_id and i["email"].lower() == email
+                        and i["accepted_at"] is None and i["revoked_at"] is None)
+            ]
+            return []
+
+        if s.startswith("INSERT INTO organization_invites"):
+            org_id, email, full_name, role, token_hash, invited_by = params
+            now = datetime.now(timezone.utc)
+            invite = {
+                "id": str(uuid.uuid4()), "org_id": org_id, "email": email,
+                "full_name": full_name, "role": role, "token_hash": token_hash,
+                "invited_by": invited_by, "created_at": now,
+                # real SQL: now() + interval '7 days'
+                "expires_at": now + timedelta(days=7),
+                "accepted_at": None, "accepted_user_id": None, "revoked_at": None,
+            }
+            self.organization_invites.append(invite)
+            return [{"id": invite["id"]}]
+
+        if s.startswith("SELECT * FROM organization_invites WHERE token_hash = %s"):
+            return [i for i in self.organization_invites if i["token_hash"] == params[0]]
+
+        if s.startswith("SELECT i.id, i.email"):
+            org_id = params[0]
+            return [
+                {k: i[k] for k in ("id", "email", "full_name", "role",
+                                   "created_at", "expires_at", "invited_by")}
+                for i in self.organization_invites
+                if i["org_id"] == org_id and i["accepted_at"] is None and i["revoked_at"] is None
+            ]
+
+        if s.startswith("UPDATE organization_invites SET accepted_at = now()"):
+            user_id, invite_id = params
+            for i in self.organization_invites:
+                if (i["id"] == str(invite_id) and i["accepted_at"] is None
+                        and i["revoked_at"] is None):
+                    i["accepted_at"] = datetime.now(timezone.utc)
+                    i["accepted_user_id"] = user_id
+                    return [{"id": i["id"]}]
+            return []
+
+        if s.startswith("UPDATE organization_invites SET revoked_at"):
+            invite_id, org_id = params
+            for i in self.organization_invites:
+                if (i["id"] == str(invite_id) and i["org_id"] == org_id
+                        and i["accepted_at"] is None and i["revoked_at"] is None):
+                    i["revoked_at"] = datetime.now(timezone.utc)
+                    return [{"id": i["id"]}]
+            return []
+
+        if s.startswith("UPDATE organization_invites SET accepted_at = NULL"):
+            invite_id, user_id = params
+            for i in self.organization_invites:
+                if i["id"] == str(invite_id) and i["accepted_user_id"] == user_id:
+                    i["accepted_at"] = None
+                    i["accepted_user_id"] = None
+                    return [{"id": i["id"]}]
+            return []
 
         if s.startswith("INSERT INTO organizations"):
             org = {
@@ -695,6 +765,7 @@ class FakeStore:
         self.email_otps = []
         self.sessions = []
         self.password_reset_tokens = []
+        self.organization_invites = []
 
 
 # ---------------------------------------------------------------------------
