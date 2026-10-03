@@ -168,7 +168,7 @@ class FakeStore:
             prof = {
                 "id": str(uuid.uuid4()), "email": email, "full_name": full_name,
                 "role": "Member", "password_hash": password_hash, "provider": "email",
-                "email_verified_at": None,
+                "email_verified_at": None, "created_at": datetime.now(timezone.utc),
             }
             self.profiles[prof["id"]] = prof
             return [prof]
@@ -179,6 +179,7 @@ class FakeStore:
                 "id": str(uuid.uuid4()), "email": email, "full_name": full_name,
                 "role": "Member", "password_hash": None, "provider": "google",
                 "email_verified_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(timezone.utc),
             }
             self.profiles[prof["id"]] = prof
             return [prof]
@@ -308,6 +309,13 @@ class FakeStore:
 
         if s.startswith("INSERT INTO profiles"):
             return [self._upsert_profile(params)]
+
+        if "FROM audit_log" in s and "welcome.sent" in s:
+            uid = params[0]
+            return [
+                r for r in self.audit
+                if r["params"][1] == uid and r["params"][2] == "welcome.sent"
+            ]
 
         if "INSERT INTO audit_log" in s:
             self.audit.append({"id": len(self.audit) + 1, "params": params})
@@ -560,6 +568,9 @@ class FakeStore:
         if full_name:
             prof["full_name"] = full_name
         prof.setdefault("role", role)
+        # Mirrors the real ON CONFLICT ... RETURNING * (profiles.created_at
+        # defaults to now() on insert and never changes on update).
+        prof.setdefault("created_at", datetime.now(timezone.utc))
         self.profiles[user_id] = prof
         return prof
 

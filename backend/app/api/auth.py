@@ -54,6 +54,9 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 # One welcome mail per account per hour (signup trigger + login retry can race).
 _WELCOME_COOLDOWN_SECONDS = 3600
 _last_sent: Dict[str, float] = {}
+# Welcome is a signup gift, not a login ritual: only accounts younger than this
+# may ever receive one (existing accounts are rejected outright).
+_WELCOME_MAX_ACCOUNT_AGE_SECONDS = 86400
 
 # Email OTP policy
 _OTP_TTL_SECONDS = 600
@@ -82,6 +85,26 @@ def _hash_code(email: str, code: str) -> str:
     return hashlib.sha256(f"{email}:{code}".encode("utf-8")).hexdigest()
 
 
+def _account_is_new(user: Dict[str, Any]) -> bool:
+    """True only for accounts created within the welcome window.
+
+    Fails safe: an unreadable/missing created_at is treated as "existing" so
+    the endpoint can never spam an account we cannot prove is brand new.
+    """
+    created = user.get("created_at")
+    if isinstance(created, str):
+        try:
+            created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if not isinstance(created, datetime):
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - created).total_seconds()
+    return age <= _WELCOME_MAX_ACCOUNT_AGE_SECONDS
+
+
 @router.post("/welcome")
 async def send_welcome_email(
     background_tasks: BackgroundTasks,
@@ -97,6 +120,18 @@ async def send_welcome_email(
     if last is not None and now - last < _WELCOME_COOLDOWN_SECONDS:
         return {"sent": False, "reason": "recently_sent"}
 
+    # Persistent dedupe: one welcome per account, ever (survives restarts).
+    prior = execute_one(
+        "SELECT id FROM audit_log WHERE user_id = %s AND action = 'welcome.sent' LIMIT 1",
+        (str(user["id"]),),
+    )
+    if prior:
+        return {"sent": False, "reason": "already_sent"}
+
+    # Welcome belongs to signup, not sign-in: existing accounts never get one.
+    if not _account_is_new(user):
+        return {"sent": False, "reason": "existing_account"}
+
     _last_sent[user["id"]] = now
 
     name = (user.get("full_name") or email.split("@")[0]).strip()
@@ -109,6 +144,7 @@ async def send_welcome_email(
         generate_welcome_email_text(name, email),
         recipient_name=name,
     )
+    log_audit(None, str(user["id"]), "welcome.sent", "user", str(user["id"]))
     return {"sent": True}
 
 

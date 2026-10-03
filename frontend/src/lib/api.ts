@@ -596,8 +596,10 @@ export async function sendReportEmail(payload: {
 // ============================================================================
 // Auth lifecycle (welcome mail after signup / first login)
 // ============================================================================
+// throwOnError: network/server failures must reject so callers can retry on
+// the next login, while a 200 "sent: false" (server declined) resolves.
 export async function sendWelcomeEmail(): Promise<boolean> {
-  const res = await apiFetch<{ sent: boolean }>('/auth/welcome', { method: 'POST' });
+  const res = await apiFetch<{ sent: boolean }>('/auth/welcome', { method: 'POST' }, true);
   return !!res?.sent;
 }
 

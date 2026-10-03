@@ -1,8 +1,11 @@
 """
 Welcome mail & auth lifecycle tests (no network, no Brevo dispatch).
 """
+from datetime import datetime, timedelta, timezone
+
 from backend.app.api import auth as auth_mod
 from backend.app.services.mailer import generate_welcome_email_html, generate_welcome_email_text
+from conftest import ALICE
 
 
 def _clear_cooldown():
@@ -88,3 +91,56 @@ def test_welcome_cooldown_prevents_duplicates(client, auth_headers, monkeypatch)
     assert first.json() == {"sent": True}
     assert second.json() == {"sent": False, "reason": "recently_sent"}
     assert len(sent) == 1
+
+
+# ---------------------------------------------------------------------------
+# First-time-only semantics (welcome is a signup gift, not a login ritual)
+# ---------------------------------------------------------------------------
+def test_welcome_existing_account_is_rejected(client, auth_headers, monkeypatch, store):
+    _clear_cooldown()
+    sent: list = []
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
+
+    # Account created 3 days ago — an existing user signing in again.
+    store.profiles[ALICE] = {
+        "id": ALICE, "email": "user@acme.test", "full_name": "Alice", "role": "owner",
+        "created_at": datetime.now(timezone.utc) - timedelta(days=3),
+    }
+
+    resp = client.post(
+        "/api/v1/auth/welcome",
+        headers=auth_headers(ALICE),
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": False, "reason": "existing_account"}
+    assert sent == []
+
+
+def test_welcome_sends_exactly_once_ever(client, auth_headers, monkeypatch):
+    _clear_cooldown()
+    sent: list = []
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
+
+    headers = auth_headers(ALICE)
+    first = client.post("/api/v1/auth/welcome", headers=headers)
+    _clear_cooldown()  # bypass the hour cooldown — the audit marker must hold
+    second = client.post("/api/v1/auth/welcome", headers=headers)
+
+    assert first.json() == {"sent": True}
+    assert second.json() == {"sent": False, "reason": "already_sent"}
+    assert len(sent) == 1
+
+
+def test_welcome_unreadable_created_at_fails_safe(client, auth_headers, monkeypatch, store):
+    _clear_cooldown()
+    sent: list = []
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
+
+    store.profiles[ALICE] = {
+        "id": ALICE, "email": "user@acme.test", "full_name": "Alice", "role": "owner",
+        "created_at": "not-a-timestamp",
+    }
+
+    resp = client.post("/api/v1/auth/welcome", headers=auth_headers(ALICE))
+    assert resp.json() == {"sent": False, "reason": "existing_account"}
+    assert sent == []

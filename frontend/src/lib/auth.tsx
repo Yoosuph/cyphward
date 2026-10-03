@@ -28,16 +28,16 @@ const ONBOARDING_KEY = 'cyphward-onboarding';
 const ORG_ID_KEY = 'cyphward-org-id';
 const WELCOME_SENT_KEY = 'cyphward-welcome-sent';
 
-// Fire-and-forget: queue one welcome email per account (server enforces its
-// own cooldown too). Only safe once a real session exists.
+// Fire-and-forget: queue one welcome email per account. The server is the
+// authority — it only welcomes brand-new accounts, once, ever — so a
+// "sent: false" answer keeps the local guard (don't retry on every login).
+// Only a network failure clears it so the next login can try again.
 function maybeSendWelcome(userId?: string) {
   if (!userId) return;
   try {
     if (localStorage.getItem(WELCOME_SENT_KEY) === userId) return;
     localStorage.setItem(WELCOME_SENT_KEY, userId);
-    sendWelcomeEmail().then((ok) => {
-      if (!ok) localStorage.removeItem(WELCOME_SENT_KEY);
-    });
+    sendWelcomeEmail().catch(() => localStorage.removeItem(WELCOME_SENT_KEY));
   } catch {
     /* never block auth flow on welcome mail */
   }
