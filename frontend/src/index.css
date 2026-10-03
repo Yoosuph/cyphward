@@ -151,6 +151,7 @@ body{
   width:232px; flex:none; position:fixed; top:0; bottom:0; left:0; z-index:40;
   background:var(--bg); border-right:1px solid var(--line);
   display:flex; flex-direction:column;
+  overflow-x:hidden; overflow-y:auto;
   transform:translateX(-103%); transition:transform .3s cubic-bezier(.2,.8,.2,1), width .22s cubic-bezier(.2,.8,.2,1);
 }
 .sidebar.open{transform:none}
@@ -229,7 +230,7 @@ body{
 .nav-item.active::before{content:''; position:absolute; left:-14px; top:8px; bottom:8px; width:2px; background:var(--accent)}
 .side-foot{margin-top:auto; border-top:1px solid var(--line); padding:16px 20px}
 .side-tenant{font-size:11px; letter-spacing:.06em; margin:9px 0 10px; line-height:1.5; color:var(--ink)}
-.side-plan-row{display:flex; align-items:center; gap:10px}
+.side-plan-row{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px}
 .side-out{display:inline-flex; gap:7px; align-items:center; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; color:var(--soft); margin-top:14px; transition:color .15s}
 .side-out:hover{color:var(--accent)}
 
