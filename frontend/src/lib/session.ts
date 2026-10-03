@@ -28,8 +28,24 @@ const SESSION_KEY = 'cyphward-session';
 const API_BASE = '/api/v1';
 const EXPIRY_SLACK_MS = 30_000;
 
+/**
+ * Sessions live on the app/auth origins. A leftover copy on the marketing
+ * host (written before the subdomain split) drives an endless bounce:
+ * / → HomeRoute sees the tenant → /overview → app host (no session there)
+ * → auth login → logo → / … Clearing cookies with a short time range can
+ * miss it, so drop it the moment we see it.
+ */
+function isMarketingHost(): boolean {
+  const h = window.location.hostname;
+  return h === 'cyphward.com' || h === 'www.cyphward.com';
+}
+
 export function loadSession(): AuthTokens | null {
   try {
+    if (isMarketingHost()) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AuthTokens;
