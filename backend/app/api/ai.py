@@ -112,28 +112,69 @@ class CyphBotChatRequest(BaseModel):
 
 
 def _build_chat_context(org: Dict[str, Any]) -> Dict[str, Any]:
-    """Ground CyphBot in live org telemetry — no hardcoded fallback values."""
+    """Ground CyphBot in live org telemetry — no hardcoded fallback values.
+
+    Returns EVERY monitored domain (not just the first), severity counts,
+    and the latest scan so the bot can answer "what do you see?" fully.
+    """
     org_id = org["id"]
-    findings = execute_query(
-        "SELECT * FROM findings WHERE org_id = %s AND status != 'resolved' LIMIT 15",
+    unresolved = execute_query(
+        "SELECT id, title, severity, category, status, description, remediation "
+        "FROM findings WHERE org_id = %s AND status != 'resolved' "
+        "ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+        "WHEN 'medium' THEN 2 ELSE 3 END",
         (org_id,),
     ) or []
+    severity_counts: Dict[str, int] = {}
+    for f in unresolved:
+        sev = (f.get("severity") or "unknown").lower()
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
     assets_count = (execute_one(
-        "SELECT COUNT(*) as count FROM assets WHERE org_id = %s", (org_id,)
-    ) or {}).get("count", 0)
-    domain_row = execute_one(
-        "SELECT domain FROM domains WHERE org_id = %s AND verification_status = 'verified' ORDER BY created_at ASC LIMIT 1",
+        "SELECT count(*) as cnt FROM assets WHERE org_id = %s", (org_id,)
+    ) or {}).get("cnt", 0)
+    domains = execute_query(
+        "SELECT * FROM domains WHERE org_id = %s ORDER BY created_at ASC",
         (org_id,),
-    ) or {}
-    score_data = compute_risk_score(
-        execute_query("SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'", (org_id,)) or []
+    ) or []
+    # Verified domains first (Python-side so the fake DB matches prod order).
+    domains = sorted(domains, key=lambda d: d.get("verification_status") != "verified")
+    primary_domain = next(
+        (d.get("domain") for d in domains if d.get("verification_status") == "verified"),
+        domains[0].get("domain", "") if domains else "",
     )
+    score_data = compute_risk_score(unresolved)
+    recent_scans = execute_query(
+        "SELECT * FROM scans WHERE org_id = %s ORDER BY created_at DESC LIMIT 5",
+        (org_id,),
+    ) or []
+    last_scan = recent_scans[0] if recent_scans else None
     return {
         "org_name": org.get("name", ""),
         "score": score_data.get("score", 100),
-        "domain": domain_row.get("domain") or "",
+        "domain": primary_domain,
+        "domains": [
+            {
+                "domain": d.get("domain"),
+                "verified": d.get("verification_status") == "verified",
+                "verification_status": d.get("verification_status") or "pending",
+                # Only unverified domains need the DNS proof record — the bot
+                # can hand it over verbatim when someone asks how to verify.
+                **(
+                    {}
+                    if d.get("verification_status") == "verified"
+                    else {"verification_token": d.get("verification_token")}
+                ),
+            }
+            for d in domains
+        ],
         "assets_count": assets_count,
-        "findings": findings,
+        "findings": unresolved[:15],
+        "severity_counts": severity_counts,
+        "open_findings_total": len(unresolved),
+        "last_scan": (
+            {"status": last_scan.get("status"), "created_at": str(last_scan.get("created_at") or "")}
+            if last_scan else None
+        ),
     }
 
 

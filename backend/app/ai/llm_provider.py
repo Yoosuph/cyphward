@@ -273,21 +273,43 @@ class CloudLLMProvider(AIProvider):
             "You are CyphBot, the assistant inside the Cyphward security dashboard.\n"
             "Answer in the simplest English possible.\n\n"
             "Rules:\n"
-            "1. Keep it short: 2-4 sentences, unless the user asked for code, a config, or numbered steps.\n"
-            "2. Use plain everyday words and short sentences. One idea per sentence.\n"
-            "3. If a technical term is unavoidable, explain it in a few words right after it — once.\n"
-            "4. Do not over-explain. Give the key fact and the next action, then stop.\n"
-            "5. No filler openings like 'Certainly!' or 'Great question', and no ending recap. Start with the answer.\n"
-            "6. No headings. Use at most 3 bullet points. Use **bold** only for key terms and `backticks` for values or commands.\n"
-            "7. Put DNS records, configs, and commands in ``` code blocks so the user can copy them.\n"
-            "8. Ask a follow-up question only when the next step depends on the user's choice."
+            "1. First contact: when the user greets you or says hi/hello, reply with one short greeting and offer help. Do not list dashboard facts.\n"
+            "2. Only share Organization Context facts that answer what the user actually asked — pull them in as needed, not all at once.\n"
+            "3. Keep it short: 2-4 sentences, unless the user asked for code, a config, or numbered steps.\n"
+            "4. Use plain everyday words and short sentences. One idea per sentence.\n"
+            "5. If a technical term is unavoidable, explain it in a few words right after it — once.\n"
+            "6. Do not over-explain. Give the key fact and the next action, then stop.\n"
+            "7. No filler openings like 'Certainly!' or 'Great question', and no ending recap. Start with the answer.\n"
+            "8. No headings. Use at most 3 bullet points. Use **bold** only for key terms and `backticks` for values or commands.\n"
+            "9. Put DNS records, configs, and commands in ``` code blocks so the user can copy them.\n"
+            "10. Ask a follow-up question only when the next step depends on the user's choice."
         )
 
+        domains = context.get("domains") or (
+            [{"domain": domain, "verified": True}] if domain else []
+        )
+        domains_line = ", ".join(
+            f"{d.get('domain')} ({'verified' if d.get('verified') else 'not verified yet'})"
+            for d in domains
+        ) or "none"
+        counts = context.get("severity_counts") or {}
+        totals_line = ", ".join(
+            f"{counts.get(sev, 0)} {sev}"
+            for sev in ("critical", "high", "medium", "low")
+            if counts.get(sev)
+        ) or "none"
+        last_scan = context.get("last_scan") or {}
+        scan_line = (
+            f"Latest Scan: {last_scan.get('status')} at {last_scan.get('created_at')}\n"
+            if last_scan.get("status") else ""
+        )
         enclave_prompt = (
             f"Organization Name: {org_name}\n"
-            f"Monitored Domain: {domain}\n"
+            f"Monitored Domains ({len(domains)}): {domains_line}\n"
             f"Security Score: {score}/100\n"
             f"Discovered Assets: {assets_count}\n"
+            f"Open Findings: {context.get('open_findings_total', len(findings))} ({totals_line})\n"
+            f"{scan_line}"
             f"Current Open Findings: {json.dumps(findings_summary, default=str)}\n"
         )
 
@@ -343,8 +365,8 @@ class CloudLLMProvider(AIProvider):
         if self.gemini_key and now > self._gemini_rate_limited_until:
             try:
                 gemini_contents = []
-                gemini_contents.append({"role": "user", "parts": [{"text": f"System Context & Rules:\n{system_instruction}\n\nOrganization Context:\n{enclave_prompt}Please acknowledge in a friendly, conversational tone."}]})
-                gemini_contents.append({"role": "model", "parts": [{"text": f"Hi! I'm CyphBot, your security assistant for {org_name}. I'm here to explain your perimeter findings in plain English and give you simple, step-by-step fix guides. What can I help you with today?"}]})
+                gemini_contents.append({"role": "user", "parts": [{"text": f"System Context & Rules:\n{system_instruction}\n\nOrganization Context:\n{enclave_prompt}Greet the user briefly and offer help — do not summarize the dashboard."}]})
+                gemini_contents.append({"role": "model", "parts": [{"text": "Hi, I'm CyphBot. What can I help you with today?"}]})
                 for h in history[-6:]:
                     role = "user" if h.get("role") == "user" else "model"
                     content = h.get("content", "").strip()
@@ -413,21 +435,43 @@ class CloudLLMProvider(AIProvider):
             "You are CyphBot, the assistant inside the Cyphward security dashboard.\n"
             "Answer in the simplest English possible.\n\n"
             "Rules:\n"
-            "1. Keep it short: 2-4 sentences, unless the user asked for code, a config, or numbered steps.\n"
-            "2. Use plain everyday words and short sentences. One idea per sentence.\n"
-            "3. If a technical term is unavoidable, explain it in a few words right after it — once.\n"
-            "4. Do not over-explain. Give the key fact and the next action, then stop.\n"
-            "5. No filler openings like 'Certainly!' or 'Great question', and no ending recap. Start with the answer.\n"
-            "6. No headings. Use at most 3 bullet points. Use **bold** only for key terms and `backticks` for values or commands.\n"
-            "7. Put DNS records, configs, and commands in ``` code blocks so the user can copy them.\n"
-            "8. Ask a follow-up question only when the next step depends on the user's choice."
+            "1. First contact: when the user greets you or says hi/hello, reply with one short greeting and offer help. Do not list dashboard facts.\n"
+            "2. Only share Organization Context facts that answer what the user actually asked — pull them in as needed, not all at once.\n"
+            "3. Keep it short: 2-4 sentences, unless the user asked for code, a config, or numbered steps.\n"
+            "4. Use plain everyday words and short sentences. One idea per sentence.\n"
+            "5. If a technical term is unavoidable, explain it in a few words right after it — once.\n"
+            "6. Do not over-explain. Give the key fact and the next action, then stop.\n"
+            "7. No filler openings like 'Certainly!' or 'Great question', and no ending recap. Start with the answer.\n"
+            "8. No headings. Use at most 3 bullet points. Use **bold** only for key terms and `backticks` for values or commands.\n"
+            "9. Put DNS records, configs, and commands in ``` code blocks so the user can copy them.\n"
+            "10. Ask a follow-up question only when the next step depends on the user's choice."
         )
 
+        domains = context.get("domains") or (
+            [{"domain": domain, "verified": True}] if domain else []
+        )
+        domains_line = ", ".join(
+            f"{d.get('domain')} ({'verified' if d.get('verified') else 'not verified yet'})"
+            for d in domains
+        ) or "none"
+        counts = context.get("severity_counts") or {}
+        totals_line = ", ".join(
+            f"{counts.get(sev, 0)} {sev}"
+            for sev in ("critical", "high", "medium", "low")
+            if counts.get(sev)
+        ) or "none"
+        last_scan = context.get("last_scan") or {}
+        scan_line = (
+            f"Latest Scan: {last_scan.get('status')} at {last_scan.get('created_at')}\n"
+            if last_scan.get("status") else ""
+        )
         enclave_prompt = (
             f"Organization Name: {org_name}\n"
-            f"Monitored Domain: {domain}\n"
+            f"Monitored Domains ({len(domains)}): {domains_line}\n"
             f"Security Score: {score}/100\n"
             f"Discovered Assets: {assets_count}\n"
+            f"Open Findings: {context.get('open_findings_total', len(findings))} ({totals_line})\n"
+            f"{scan_line}"
             f"Current Open Findings: {json.dumps(findings_summary, default=str)}\n"
         )
 
@@ -502,8 +546,8 @@ class CloudLLMProvider(AIProvider):
             streamed = False
             try:
                 contents = [
-                    {"role": "user", "parts": [{"text": f"System Context & Rules:\n{system_instruction}\n\nOrganization Context:\n{enclave_prompt}Please acknowledge in a friendly, conversational tone."}]},
-                    {"role": "model", "parts": [{"text": f"Hi! I'm CyphBot, your security assistant for {org_name}. I'm here to explain your perimeter findings in plain English and give you simple, step-by-step fix guides. What can I help you with today?"}]},
+                    {"role": "user", "parts": [{"text": f"System Context & Rules:\n{system_instruction}\n\nOrganization Context:\n{enclave_prompt}Greet the user briefly and offer help — do not summarize the dashboard."}]},
+                    {"role": "model", "parts": [{"text": "Hi, I'm CyphBot. What can I help you with today?"}]},
                 ]
                 for h in history[-6:]:
                     content = h.get("content", "").strip()

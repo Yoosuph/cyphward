@@ -407,10 +407,48 @@ class HeuristicAIProvider(AIProvider):
                 {"id": "s_board", "label": "Cyphward Risk Assessment Engine"},
                 {"id": "s_audit", "label": "Live Perimeter Scan Telemetry"},
             ]
+        elif "domain" in q_lower:
+            domains = context.get("domains") or (
+                [{"domain": context.get("domain", ""), "verified": True}] if context.get("domain") else []
+            )
+            if domains:
+                rows = "\n".join(
+                    f"- **{d.get('domain')}** — {'verified' if d.get('verified') else 'not verified yet'}"
+                    for d in domains
+                )
+                answer = (
+                    f"You have **{len(domains)}** monitored domains on **{org_name}**:\n\n"
+                    f"{rows}"
+                )
+                pending = [
+                    d for d in domains
+                    if not d.get("verified") and d.get("verification_token")
+                ]
+                if "verif" in q_lower and pending:
+                    d0 = pending[0]
+                    answer += (
+                        f"\n\nTo verify **{d0.get('domain')}**, add this TXT record at your DNS provider:\n\n"
+                        f"```dns\n"
+                        f"Host:  @\n"
+                        f"Type:  TXT\n"
+                        f"Value: {d0.get('verification_token')}\n"
+                        f"```\n\n"
+                        f"DNS changes take a few minutes to a few hours. Then hit **Verify** on the Domains page."
+                    )
+                elif pending:
+                    answer += "\n\nWant to verify the unverified one, or check something specific?"
+                else:
+                    answer += "\n\nWant me to check something specific on one of them?"
+            else:
+                answer = f"No domains are added to **{org_name}** yet. Add one under **Domains** to start monitoring."
+            sources = [
+                {"id": "s_inventory", "label": "Cyphward Asset Inventory"},
+                {"id": "s_telemetry", "label": f"{org_name} Live Perimeter Telemetry"},
+            ]
         else:
             answer = (
                 f"Hi, I'm **CyphBot**. {org_name}'s security score is **{score}/100** right now.\n\n"
-                f"Ask me about anything you see in the dashboard — what it means, or how to fix it."
+                f"What would you like to know?"
             )
             sources = [
                 {"id": "s_core", "label": "Cyphward Defense Knowledge Core"},
