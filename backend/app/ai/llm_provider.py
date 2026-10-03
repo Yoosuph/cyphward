@@ -228,6 +228,10 @@ class CloudLLMProvider(AIProvider):
         if not self.gemini_key and not self.openai_key:
             return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
 
+        # Never let a model invent a score when no scan has been completed.
+        if score_data.get("score") is None:
+            return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
+
         sanitized_score = sanitize_for_ai(score_data)
         sanitized_findings = sanitize_for_ai(findings[:10])
 

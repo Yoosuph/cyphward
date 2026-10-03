@@ -82,3 +82,52 @@ def test_heuristic_lists_verified_state_and_verify_steps(store):
     assert "**shop.acme.com** — not verified yet" in answer
     assert "tok-shop" in answer          # exact TXT record handed over
     assert "```dns" in answer
+
+
+def test_chat_context_score_requires_completed_scan(store):
+    """Score + assessment flag flow into the chat context from the engine."""
+    ctx = _build_chat_context({"id": ORG_A, "name": "Acme Traders"})
+    assert ctx["score_assessed"] is True
+    assert ctx["score"] is not None
+
+    store.scans = [s for s in store.scans if s["org_id"] != ORG_A]
+    ctx = _build_chat_context({"id": ORG_A, "name": "Acme Traders"})
+    assert ctx["score_assessed"] is False
+    assert ctx["score"] is None
+
+
+def test_exec_summary_not_assessed_without_completed_scan(store):
+    import asyncio
+    from backend.app.ai.heuristic_provider import HeuristicAIProvider
+
+    provider = HeuristicAIProvider()
+    score_data = {
+        "assessed": False, "score": None, "grade": None,
+        "posture_label": "Not assessed", "counts": {},
+    }
+    summary = asyncio.run(
+        provider.generate_executive_summary("Acme Traders", score_data, [])
+    )
+    assert summary["score"] is None
+    assert summary["grade"] is None
+    assert "Not assessed" in summary["executive_headline"]
+    assert summary["key_strengths"] == []
+    assert "not completed a full scan" in summary["board_summary"]
+    # No invented strengths on an unassessed org.
+    assert "TLS 1.3" not in summary["board_summary"]
+
+
+def test_chat_answers_never_render_unassessed_score(store):
+    import asyncio
+    from backend.app.ai.heuristic_provider import HeuristicAIProvider
+
+    provider = HeuristicAIProvider()
+    ctx = {"org_name": "Acme Traders", "score": None, "findings": []}
+
+    greeting = asyncio.run(provider.chat("hello", [], ctx))
+    assert "None" not in greeting["answer"]
+    assert "hasn't completed a scan" in greeting["answer"]
+
+    board = asyncio.run(provider.chat("write a board briefing", [], ctx))
+    assert "None" not in board["answer"]
+    assert "Not assessed" in board["answer"]

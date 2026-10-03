@@ -275,10 +275,40 @@ class HeuristicAIProvider(AIProvider):
         score_data: Dict[str, Any],
         findings: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        score = score_data.get("score", 74)
-        grade = score_data.get("grade", "B")
-        posture = score_data.get("posture_label", "Good")
+        score = score_data.get("score")
+        grade = score_data.get("grade")
+        posture = score_data.get("posture_label")
         counts = score_data.get("counts", {})
+
+        if score is None:
+            # No completed scan — refuse to invent a score or claims.
+            return {
+                "org_name": org_name,
+                "score": None,
+                "grade": None,
+                "posture_label": "Not assessed",
+                "executive_headline": f"Security Score for {org_name}: Not assessed",
+                "board_summary": (
+                    f"{org_name} has not completed a full scan yet, so no security score has "
+                    "been assigned. A scan checks DNS, public web apps, email security, and "
+                    "encryption; the score, findings, and recommendations populate once it "
+                    "completes."
+                ),
+                "key_strengths": [],
+                "critical_action_items": [
+                    {
+                        "priority": "P1 - High",
+                        "title": "Run the first security scan",
+                        "impact": "Without a completed scan, security posture and compliance standing cannot be assessed.",
+                        "owner": "IT Infrastructure & Security",
+                    }
+                ],
+                "compliance_verdict": (
+                    "Not assessed — compliance posture cannot be determined before a "
+                    "completed scan exists."
+                ),
+                "generated_at": "Live Telemetry",
+            }
 
         crit_count = counts.get("critical", 0)
         high_count = counts.get("high", 0)
@@ -343,7 +373,7 @@ class HeuristicAIProvider(AIProvider):
         """Contextual heuristic conversation engine for sovereign African cybersecurity."""
         q_lower = message.lower()
         org_name = context.get("org_name", "Enterprise Enclave")
-        score = context.get("score", 74)
+        score = context.get("score")
         open_findings = context.get("findings", [])
         
         if "dmarc" in q_lower or "spoof" in q_lower or "email" in q_lower:
@@ -396,13 +426,23 @@ class HeuristicAIProvider(AIProvider):
                 {"id": "s_cbn_csf", "label": "CBN Cybersecurity Guidelines"},
             ]
         elif "board" in q_lower or "briefing" in q_lower or "executive" in q_lower or "report" in q_lower:
-            answer = (
-                f"Short update for **{org_name}** leadership:\n\n"
-                f"- **Score**: {score}/100. Encryption is strong; no open database ports found.\n"
-                f"- **Top risk**: email spoofing. Moving DMARC to `p=reject` is the next step — it stops fake emails sent as your staff or brand.\n"
-                f"- **Also due**: HSTS across subdomains, and the NDPA/CBN checks you're close to passing.\n\n"
-                f"Download the full PDF from **Generate Board Report** on the Overview page. Want me to write 3 talking points for your next board meeting?"
-            )
+            if score is None:
+                answer = (
+                    f"Short update for **{org_name}** leadership:\n\n"
+                    f"- **Score**: Not assessed — no completed scan yet.\n"
+                    f"- **Next step**: run the first scan. It checks DNS, web apps, email "
+                    f"security, and encryption; the score and board report populate once it completes.\n\n"
+                    f"Once a scan has completed, **Generate Board Report** on the Overview page "
+                    f"exports the full PDF."
+                )
+            else:
+                answer = (
+                    f"Short update for **{org_name}** leadership:\n\n"
+                    f"- **Score**: {score}/100. Encryption is strong; no open database ports found.\n"
+                    f"- **Top risk**: email spoofing. Moving DMARC to `p=reject` is the next step — it stops fake emails sent as your staff or brand.\n"
+                    f"- **Also due**: HSTS across subdomains, and the NDPA/CBN checks you're close to passing.\n\n"
+                    f"Download the full PDF from **Generate Board Report** on the Overview page. Want me to write 3 talking points for your next board meeting?"
+                )
             sources = [
                 {"id": "s_board", "label": "Cyphward Risk Assessment Engine"},
                 {"id": "s_audit", "label": "Live Perimeter Scan Telemetry"},
@@ -446,10 +486,18 @@ class HeuristicAIProvider(AIProvider):
                 {"id": "s_telemetry", "label": f"{org_name} Live Perimeter Telemetry"},
             ]
         else:
-            answer = (
-                f"Hi, I'm **CyphBot**. {org_name}'s security score is **{score}/100** right now.\n\n"
-                f"What would you like to know?"
-            )
+            if score is None:
+                answer = (
+                    f"Hi, I'm **CyphBot**. {org_name} hasn't completed a scan yet, so there's "
+                    f"no security score to show.\n\n"
+                    f"Start one from the Overview page — I'll have DNS, web app, email security, "
+                    f"and encryption results to walk you through once it finishes."
+                )
+            else:
+                answer = (
+                    f"Hi, I'm **CyphBot**. {org_name}'s security score is **{score}/100** right now.\n\n"
+                    f"What would you like to know?"
+                )
             sources = [
                 {"id": "s_core", "label": "Cyphward Defense Knowledge Core"},
                 {"id": "s_telemetry", "label": f"{org_name} Live Perimeter Telemetry"},

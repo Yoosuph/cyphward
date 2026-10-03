@@ -215,7 +215,7 @@ export default function BoardReportModal({
     const text = `
 CYPHWARD SECURITY REPORT FOR THE BOARD
 Organization: ${summary.org_name}
-Security Score: ${summary.score}/100 (Grade ${summary.grade} — ${summary.posture_label})
+Security Score: ${summary.score !== null ? `${summary.score}/100 (Grade ${summary.grade} — ${summary.posture_label})` : 'Not assessed (no completed scan yet)'}
 Date: ${summary.generated_at}
 
 SUMMARY:
@@ -370,11 +370,13 @@ ${summary.compliance_verdict}
             <div className="text-right">
               <span className="text-[10px] mono text-soft block">SECURITY SCORE</span>
               <div className="flex items-baseline gap-1 justify-end">
-                <span className="text-2xl font-bold mono text-accent font-display">{summary.score}</span>
-                <span className="text-xs mono text-soft">/100</span>
+                <span className="text-2xl font-bold mono text-accent font-display">{summary.score ?? '—'}</span>
+                {summary.score !== null && <span className="text-xs mono text-soft">/100</span>}
               </div>
               <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9.5px] mono font-bold bg-accent/10 text-accent border border-accent/25 report-badge">
-                GRADE {summary.grade} · {summary.posture_label.toUpperCase()}
+                {summary.grade
+                  ? `GRADE ${summary.grade} · ${summary.posture_label.toUpperCase()}`
+                  : 'NOT ASSESSED · RUN A SCAN'}
               </span>
             </div>
           </div>

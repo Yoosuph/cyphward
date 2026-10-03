@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.ai.factory import get_ai_provider
-from backend.app.risk.engine import compute_risk_score
+from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.core.auth import get_current_org
 
 router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"])
@@ -93,7 +93,7 @@ async def generate_executive_summary(
     """
     org_id = org["id"]
     findings = execute_query("SELECT * FROM findings WHERE org_id = %s AND status = 'open'", (org_id,))
-    score_data = compute_risk_score(findings)
+    score_data = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
     ai = get_ai_provider()
     summary = await ai.generate_executive_summary(org["name"], score_data, findings)
@@ -142,7 +142,7 @@ def _build_chat_context(org: Dict[str, Any]) -> Dict[str, Any]:
         (d.get("domain") for d in domains if d.get("verification_status") == "verified"),
         domains[0].get("domain", "") if domains else "",
     )
-    score_data = compute_risk_score(unresolved)
+    score_data = compute_risk_score(unresolved, assessment=latest_assessment(org_id))
     recent_scans = execute_query(
         "SELECT * FROM scans WHERE org_id = %s ORDER BY created_at DESC LIMIT 5",
         (org_id,),
@@ -150,7 +150,8 @@ def _build_chat_context(org: Dict[str, Any]) -> Dict[str, Any]:
     last_scan = recent_scans[0] if recent_scans else None
     return {
         "org_name": org.get("name", ""),
-        "score": score_data.get("score", 100),
+        "score": score_data.get("score"),
+        "score_assessed": score_data.get("assessed", False),
         "domain": primary_domain,
         "domains": [
             {

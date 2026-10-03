@@ -21,6 +21,7 @@ import json
 import logging
 import shutil
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import inngest
@@ -42,7 +43,7 @@ from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
-from backend.app.risk.engine import compute_risk_score
+from backend.app.risk.engine import compute_risk_score, SCORE_MODEL
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
@@ -732,7 +733,18 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         # STAGE: Deterministic Risk Scoring
         # ---------------------------------------------------------------------
         t0 = time.time()
-        score_result = compute_risk_score(normalized_all)
+        # This scan is the assessment being completed right now — score it
+        # against its own evidence instead of the "no scan" gate.
+        scan_completed_at = datetime.now(timezone.utc).isoformat()
+        score_result = compute_risk_score(
+            normalized_all,
+            assessment={
+                "scan_id": str(scan_id),
+                "status": "completed",
+                "completed_at": scan_completed_at,
+                "model": SCORE_MODEL,
+            },
+        )
         final_score = score_result["score"]
         score_dur = int((time.time() - t0) * 1000)
 

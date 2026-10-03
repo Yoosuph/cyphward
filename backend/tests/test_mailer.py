@@ -41,7 +41,11 @@ def test_report_uses_live_engine_scores():
         [
             {"title": "DMARC Missing", "severity": "critical", "category": "DNS & Email Security", "status": "open"},
             {"title": "HSTS Missing", "severity": "high", "category": "HTTP Headers", "status": "open"},
-        ]
+        ],
+        assessment={
+            "scan_id": "scan-1", "status": "completed",
+            "completed_at": "2026-10-01T00:00:00", "model": "cyphward-risk-v1",
+        },
     )
     assert 0 <= scoring["score"] <= 100
     html = generate_executive_report_html(
@@ -51,6 +55,22 @@ def test_report_uses_live_engine_scores():
     )
     assert f"{scoring['score']}" in html
     assert "/1000" not in html
+
+
+def test_report_html_not_assessed_without_score():
+    """A report with no completed scan must say so — never render None or a fake score."""
+    scoring = compute_risk_score([])
+    html = generate_executive_report_html(
+        org_name="Acme Africa",
+        domain="acmetraders.ng",
+        score=scoring["score"],
+        grade=scoring["grade"] or "",
+        posture_label=scoring["posture_label"],
+    )
+    assert scoring["score"] is None
+    assert "Not assessed" in html
+    assert "not assessed" in html
+    assert "None" not in html
 
 
 # --- Central sender map (EMAIL_SENDERS) -------------------------------------

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 
 from backend.app.core.auth import get_current_org
 from backend.app.core.database import execute_one, execute_query
-from backend.app.risk.engine import compute_risk_score
+from backend.app.risk.engine import compute_risk_score, latest_assessment
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
@@ -102,7 +102,7 @@ def dashboard_security_score(org: Dict[str, Any] = Depends(get_current_org)) -> 
         "SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'",
         (org_id,),
     ) or []
-    scoring = compute_risk_score(findings)
+    scoring = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
     snapshots = execute_query(
         """
@@ -114,16 +114,19 @@ def dashboard_security_score(org: Dict[str, Any] = Depends(get_current_org)) -> 
 
     previous = snapshots[1]["score"] if len(snapshots) >= 2 else None
     current = snapshots[0]["score"] if snapshots else scoring["score"]
+    score_val = scoring["score"]
 
     return {
-        "score": scoring["score"],
+        "score": score_val,
         "max_score": 100,
         "grade": scoring["grade"],
         "posture_label": scoring["posture_label"],
+        "assessed": scoring["assessed"],
+        "assessment": scoring["assessment"],
         "subscores": scoring["subscores"],
         "factors": scoring["factors"],
         "previous_score": previous,
-        "change": (scoring["score"] - previous) if previous is not None else None,
+        "change": (score_val - previous) if (previous is not None and score_val is not None) else None,
         "reasons": scoring["factors"],
     }
 

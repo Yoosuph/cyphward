@@ -139,15 +139,26 @@ export interface ScoreFactorItem {
   impact: string;
   type: 'positive' | 'negative';
   label: string;
+  scan_id?: string;
+  assessed_at?: string;
+}
+
+export interface ScoreAssessment {
+  scan_id: string;
+  status: string;
+  completed_at: string | null;
+  model: string;
 }
 
 export interface OverviewData {
   organization: Organization;
-  score: number;
+  score: number | null;
   max_score: number;
-  grade: string;
+  grade: string | null;
   posture_label: string;
   status_color: string;
+  assessed: boolean;
+  assessment: ScoreAssessment | null;
   trend: number;
   counts: {
     total_assets: number;
@@ -188,8 +199,8 @@ export interface RemediationGuide {
 
 export interface ExecutiveSummary {
   org_name: string;
-  score: number;
-  grade: string;
+  score: number | null;
+  grade: string | null;
   posture_label: string;
   executive_headline: string;
   board_summary: string;

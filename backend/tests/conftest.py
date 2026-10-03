@@ -143,6 +143,8 @@ class FakeStore:
         self.sessions: list = []
         self.password_reset_tokens: list = []
         self.organization_invites: list = []
+        self.remediation_tasks: list = []
+        self.notifications: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -519,6 +521,135 @@ class FakeStore:
             self.organizations[org["id"]] = org
             return [org]
 
+        # --- findings status transitions used by remediation verification ---
+        if s.startswith("UPDATE findings SET status = 'open', resolved_at = NULL"):
+            finding_id, org_id = params
+            for f in self.findings:
+                if f["id"] == finding_id and f["org_id"] == org_id:
+                    f["status"] = "open"
+                    f["resolved_at"] = None
+                    f["last_seen_at"] = "2026-09-23T12:00:00"
+                    f["updated_at"] = "2026-09-23T12:00:00"
+                    return [f]
+            return []
+
+        if s.startswith("UPDATE findings SET status = 'resolved', resolved_at = now()"):
+            finding_id, org_id = params
+            for f in self.findings:
+                if f["id"] == finding_id and f["org_id"] == org_id:
+                    f["status"] = "resolved"
+                    f["resolved_at"] = "2026-09-23T12:00:00"
+                    f["last_seen_at"] = "2026-09-23T12:00:00"
+                    f["updated_at"] = "2026-09-23T12:00:00"
+                    return [f]
+            return []
+
+        # --- remediation tasks ------------------------------------------
+        if s.startswith("INSERT INTO remediation_tasks"):
+            cols_match = re.search(r"INSERT INTO remediation_tasks \(([^)]+)\)", s)
+            cols = [c.strip() for c in cols_match.group(1).split(",")] if cols_match else []
+            task = {col: val for col, val in zip(cols, params)}
+            task.update({
+                "id": str(uuid.uuid4()),
+                "status": "open",
+                "verified_at": None,
+                "created_at": "2026-09-23T12:00:00",
+                "updated_at": "2026-09-23T12:00:00",
+            })
+            self.remediation_tasks.append(task)
+            return [task]
+
+        if s.startswith("UPDATE remediation_tasks"):
+            task_id, org_id = params[-2], params[-1]
+            task = next(
+                (t for t in self.remediation_tasks if t["id"] == task_id and t["org_id"] == org_id),
+                None,
+            )
+            if not task:
+                return []
+            if "SET status = 'reopened'" in s:
+                task["status"] = "reopened"
+                task["updated_at"] = "2026-09-23T12:00:00"
+            elif "SET status = 'verified'" in s:
+                task["status"] = "verified"
+                task["verified_at"] = "2026-09-23T12:00:00"
+                task["updated_at"] = "2026-09-23T12:00:00"
+            else:
+                set_part = s.split("WHERE")[0]
+                for col, val in zip(re.findall(r"(\w+) = %s", set_part), params[:-2]):
+                    task[col] = val
+                task["updated_at"] = "2026-09-23T12:00:00"
+            return [task]
+
+        if s.startswith("SELECT id, status, assignee_id FROM remediation_tasks"):
+            task_id, org_id = params
+            return [t for t in self.remediation_tasks
+                    if t["id"] == task_id and t["org_id"] == org_id]
+
+        if "FROM remediation_tasks t JOIN findings f" in s:
+            task_id, org_id = params
+            task = next((t for t in self.remediation_tasks
+                         if t["id"] == task_id and t["org_id"] == org_id), None)
+            if not task:
+                return []
+            f = next((x for x in self.findings if x["id"] == task.get("finding_id")), None)
+            if not f:
+                return []
+            return [{**task, "f_id": f["id"], "f_title": f["title"],
+                     "asset_id": f.get("asset_id"), "f_status": f["status"],
+                     "f_category": f.get("category"), "f_evidence": f.get("evidence")}]
+
+        if "FROM remediation_tasks t LEFT JOIN findings f" in s:
+            if "WHERE t.id = %s AND t.org_id = %s" in s:
+                task_id, org_id = params
+                task = next((t for t in self.remediation_tasks
+                             if t["id"] == task_id and t["org_id"] == org_id), None)
+                if not task:
+                    return []
+                f = next((x for x in self.findings if x["id"] == task.get("finding_id")), None)
+                row = {**task}
+                if f:
+                    row.update({"finding_title": f["title"],
+                                "finding_description": f.get("description"),
+                                "severity": f.get("severity"),
+                                "finding_status": f["status"],
+                                "finding_instructions": f.get("remediation")})
+                return [row]
+            org_id = params[0]
+            status_filter = params[1] if len(params) > 1 else None
+            finding_filter = params[2] if len(params) > 2 else None
+            rows = []
+            for t in self.remediation_tasks:
+                if t["org_id"] != org_id:
+                    continue
+                if status_filter and t.get("status") != status_filter:
+                    continue
+                if finding_filter and t.get("finding_id") != finding_filter:
+                    continue
+                f = next((x for x in self.findings if x["id"] == t.get("finding_id")), None)
+                row = {**t}
+                if f:
+                    row.update({"finding_title": f["title"],
+                                "severity": f.get("severity"),
+                                "finding_status": f["status"]})
+                rows.append(row)
+            return rows
+
+        # --- notifications (remediation verify notices) -------------------
+        if s.startswith("INSERT INTO notifications"):
+            cols_match = re.search(r"INSERT INTO notifications \(([^)]+)\)", s)
+            cols = [c.strip() for c in cols_match.group(1).split(",")] if cols_match else []
+            row = {col: val for col, val in zip(cols, params)}
+            row.update({"id": str(uuid.uuid4()), "read_at": None,
+                        "created_at": "2026-09-23T12:00:00"})
+            self.notifications.append(row)
+            return [row]
+
+        # --- asset lookup for remediation rechecks ------------------------
+        if s.startswith("SELECT hostname, domain_id FROM assets WHERE id = %s AND org_id = %s"):
+            asset_id, org_id = params
+            return [a for a in self.assets if a["id"] == asset_id and a["org_id"] == org_id]
+
         if s.startswith("UPDATE findings"):
             st, _st2, finding_id, org_id = params
             for f in self.findings:
@@ -588,8 +719,8 @@ class FakeStore:
             finding_id, org_id = params
             return [e for e in self.evidence if e["finding_id"] == finding_id and e["org_id"] == org_id]
 
-        # finding existence check before status update (unaliased columns)
-        if "SELECT id, status FROM findings WHERE id = %s AND org_id = %s" in s:
+        # finding existence check before status update / task creation
+        if "FROM findings WHERE id = %s AND org_id = %s" in s:
             finding_id, org_id = params
             return [f for f in self.findings if f["id"] == finding_id and f["org_id"] == org_id]
 
@@ -602,6 +733,17 @@ class FakeStore:
             return [f for f in self.findings if f["org_id"] == org_id]
 
         # overview open findings
+        # plain SELECT * open findings (dashboard / reports / exec summary)
+        if s.startswith("SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'"):
+            org_id = params[0]
+            return [f for f in self.findings
+                    if f["org_id"] == org_id and f["status"] != "resolved"]
+
+        if s.startswith("SELECT * FROM findings WHERE org_id = %s AND status = 'open'"):
+            org_id = params[0]
+            return [f for f in self.findings
+                    if f["org_id"] == org_id and f["status"] == "open"]
+
         if "FROM findings" in s and "status != 'resolved'" in s and "remediation" in s:
             org_id = params[0]
             return [f for f in self.findings if f["org_id"] == org_id and f["status"] != "resolved"]
@@ -622,6 +764,17 @@ class FakeStore:
                 reverse=True,
             )
             return rows[:2]
+
+        # completed-scan assessment lookup (risk engine "not assessed" gate)
+        if s.startswith("SELECT id, status, completed_at, stage_progress FROM scans WHERE org_id = %s AND status = 'completed'"):
+            org_id = params[0]
+            rows = sorted(
+                [sc for sc in self.scans
+                 if sc["org_id"] == org_id and sc.get("status") == "completed"],
+                key=lambda r: r.get("completed_at") or "",
+                reverse=True,
+            )
+            return rows[:1]
 
         # overview recent scans (LIMIT 5, no COUNT)
         if "FROM scans" in s and "LIMIT 5" in s:

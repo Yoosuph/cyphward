@@ -232,6 +232,9 @@ def test_overview_shape(client, auth_headers):
 
     assert 0 <= data["score"] <= 100
     assert data["max_score"] == 100
+    assert data["assessed"] is True
+    assert data["assessment"]["scan_id"] == SCAN_A1
+    assert data["assessment"]["status"] == "completed"
     assert data["organization"]["id"] == ORG_A
     assert data["organization"]["primary_domain"] == "acme.test"
     assert data["organization"]["verified_domains_count"] == 1
@@ -242,6 +245,23 @@ def test_overview_shape(client, auth_headers):
     assert data["counts"]["total_assets"] == 2
     assert data["trend"] == 5  # 75 - 70
     assert len(data["recent_scans"]) == 1
+
+
+def test_overview_not_assessed_without_completed_scan(client, auth_headers):
+    """No completed scan -> 'Not assessed', never an empty-findings 100."""
+    resp = client.get("/api/v1/overview", headers=auth_headers(DAVE, org=ORG_B))
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["assessed"] is False
+    assert data["score"] is None
+    assert data["grade"] is None
+    assert data["posture_label"] == "Not assessed"
+    assert data["subscores"] == []
+    assert data["factors"] == []
+    assert data["assessment"] is None
+    # Factual counts still report; only the score is withheld.
+    assert data["counts"]["total_findings"] >= 1
 
 
 def test_health(client):
@@ -283,10 +303,49 @@ def test_dependency_override_get_current_user(client, override_deps, store):
 # ---------------------------------------------------------------------------
 # Unit: risk scoring engine
 # ---------------------------------------------------------------------------
-def test_risk_engine_empty_findings():
+ASSESSMENT = {
+    "scan_id": SCAN_A1,
+    "status": "completed",
+    "completed_at": "2026-03-01T00:10:00",
+    "model": "cyphward-risk-v1",
+}
+
+
+def test_risk_engine_not_assessed_without_completed_scan():
     res = compute_risk_score([])
+    assert res["assessed"] is False
+    assert res["score"] is None
+    assert res["grade"] is None
+    assert res["posture_label"] == "Not assessed"
+    assert res["subscores"] == []
+    assert res["factors"] == []
+    assert res["assessment"] is None
+    assert res["model"] == "cyphward-risk-v1"
+
+
+def test_risk_engine_counts_but_never_scores_without_assessment():
+    findings = [
+        {"title": "DMARC Missing", "severity": "critical", "category": "DNS & Email Security", "status": "open"},
+    ]
+    res = compute_risk_score(findings)
+    # Factual finding counts survive; the score does not.
+    assert res["counts"]["critical"] == 1
+    assert res["score"] is None
+    assert res["grade"] is None
+
+
+def test_risk_engine_empty_findings_with_assessment_scores_100():
+    res = compute_risk_score([], assessment=ASSESSMENT)
+    assert res["assessed"] is True
     assert res["score"] == 100
     assert res["grade"] == "A"
+    assert res["assessment"] == ASSESSMENT
+    # Positive claims carry the assessment date and scan they derive from.
+    positive = [f for f in res["factors"] if f["type"] == "positive"]
+    assert positive
+    for factor in positive:
+        assert factor["assessed_at"] == ASSESSMENT["completed_at"]
+        assert factor["scan_id"] == ASSESSMENT["scan_id"]
 
 
 def test_risk_engine_reduces_for_open_findings():
@@ -294,17 +353,20 @@ def test_risk_engine_reduces_for_open_findings():
         {"title": "DMARC Missing", "severity": "critical", "category": "DNS & Email Security", "status": "open"},
         {"title": "HSTS Missing", "severity": "high", "category": "HTTP Headers", "status": "open"},
     ]
-    res = compute_risk_score(findings)
+    res = compute_risk_score(findings, assessment=ASSESSMENT)
     assert res["score"] < 100
     assert res["counts"]["critical"] == 1
     assert res["counts"]["high"] == 1
+    negative = [f for f in res["factors"] if f["type"] == "negative"]
+    assert negative
+    assert all(f["scan_id"] == ASSESSMENT["scan_id"] for f in negative)
 
 
 def test_risk_engine_skips_resolved_findings():
     resolved = [
         {"title": "Old Issue", "severity": "critical", "category": "HTTP Headers", "status": "resolved"},
     ]
-    res = compute_risk_score(resolved)
+    res = compute_risk_score(resolved, assessment=ASSESSMENT)
     assert res["score"] == 100
     assert res["counts"]["critical"] == 0
 

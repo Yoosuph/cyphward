@@ -46,7 +46,7 @@ def email_sender(kind: str) -> "tuple[str, str]":
 def generate_executive_report_html(
     org_name: str = "DataGrid Africa",
     domain: str = "datagrid-ng.com",
-    score: int = 76,
+    score: Optional[int] = 76,
     grade: str = "B",
     posture_label: str = "Good",
     assets_count: int = 18,
@@ -60,46 +60,81 @@ def generate_executive_report_html(
     Renders a clean, light-themed HTML security report email in plain English.
     Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
     """
-    score_color = "#DC2626" if score < 70 else ("#D97706" if score < 85 else "#059669")
+    assessed = score is not None
+    if assessed:
+        score_color = "#DC2626" if score < 70 else ("#D97706" if score < 85 else "#059669")
+        score_width = max(2, min(100, int(score)))
+        score_text = str(score)
+        score_label = f"{score}/100"
+        score_suffix = "/100"
+        grade_text = str(grade)
+        grade_line = f"Grade {grade} · {posture_label}"
+    else:
+        score_color = "#64748B"
+        score_width = 0
+        score_text = "—"
+        score_label = "not assessed"
+        score_suffix = ""
+        grade_text = "not assessed"
+        grade_line = "Not assessed · run a scan"
     report_ref = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-    score_width = max(2, min(100, int(score)))
 
     if not summary_text:
-        summary_text = (
-            f"We checked {domain} and gave {org_name} a security score of {score} out of 100 "
-            f"(grade {grade} — {posture_label}). The good news: your site is reachable and mostly healthy. "
-            f"The issues below are the quickest wins — each takes a few minutes to fix and will raise your "
-            f"score right away. Step-by-step guides are inside your dashboard."
-        )
+        if assessed:
+            summary_text = (
+                f"We checked {domain} and gave {org_name} a security score of {score} out of 100 "
+                f"(grade {grade} — {posture_label}). The good news: your site is reachable and mostly healthy. "
+                f"The issues below are the quickest wins — each takes a few minutes to fix and will raise your "
+                f"score right away. Step-by-step guides are inside your dashboard."
+            )
+        else:
+            summary_text = (
+                f"A full scan of {domain} hasn't completed yet, so {org_name} has no security "
+                f"score to report. Run the first scan to assess DNS, public web apps, email "
+                f"security, and encryption — this report regenerates with a scored assessment "
+                f"as soon as it finishes."
+            )
 
     if not drivers:
-        drivers = [
-            {
-                "impact": "-8 pts",
-                "badge_bg": "#FFF3EC",
-                "badge_color": "#C2410C",
-                "title": "Anyone can send fake emails as you",
-                "desc": "Without a strict DMARC rule, scammers can send emails that look like they come from your domain — which hurts your customers' trust.",
-                "remedy": "Set DMARC to reject unknown senders. Your dashboard shows the exact record to paste.",
-            },
-            {
-                "impact": "-8 pts",
-                "badge_bg": "#FFF3EC",
-                "badge_color": "#C2410C",
-                "title": "Some pages can load without encryption",
-                "desc": "A visitor could accidentally reach an unencrypted version of your site, which is easier for anyone on the same network to snoop on.",
-                "remedy": "Turn on HSTS (one switch) so every visit stays encrypted.",
-            },
-            {
-                "impact": "+5 pts",
-                "badge_bg": "#EAF9F1",
-                "badge_color": "#0B7A53",
-                "title": "Strong encryption is working",
-                "desc": "Data between your visitors and your servers is securely encrypted.",
-                "remedy": "Nothing to do — we keep watching it for you.",
-            },
-        ]
+        if not assessed:
+            drivers = [
+                {
+                    "impact": "Run a scan",
+                    "badge_bg": "#F5F2EC",
+                    "badge_color": "#8A8377",
+                    "title": "No completed scan yet",
+                    "desc": "This report has no score because the first full scan hasn't finished — none of the checks below have been run against your domains.",
+                    "remedy": "Start a scan from your dashboard. DNS, web apps, email security, and encryption are assessed, then this report regenerates with a scored assessment.",
+                },
+            ]
+        else:
+            drivers = [
+                {
+                    "impact": "-8 pts",
+                    "badge_bg": "#FFF3EC",
+                    "badge_color": "#C2410C",
+                    "title": "Anyone can send fake emails as you",
+                    "desc": "Without a strict DMARC rule, scammers can send emails that look like they come from your domain — which hurts your customers' trust.",
+                    "remedy": "Set DMARC to reject unknown senders. Your dashboard shows the exact record to paste.",
+                },
+                {
+                    "impact": "-8 pts",
+                    "badge_bg": "#FFF3EC",
+                    "badge_color": "#C2410C",
+                    "title": "Some pages can load without encryption",
+                    "desc": "A visitor could accidentally reach an unencrypted version of your site, which is easier for anyone on the same network to snoop on.",
+                    "remedy": "Turn on HSTS (one switch) so every visit stays encrypted.",
+                },
+                {
+                    "impact": "+5 pts",
+                    "badge_bg": "#EAF9F1",
+                    "badge_color": "#0B7A53",
+                    "title": "Strong encryption is working",
+                    "desc": "Data between your visitors and your servers is securely encrypted.",
+                    "remedy": "Nothing to do — we keep watching it for you.",
+                },
+            ]
 
     drivers_html = ""
     for d in drivers:
@@ -147,7 +182,7 @@ def generate_executive_report_html(
 </head>
 <body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-color-scheme: only light;" bgcolor="#F3F1EC">
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F3F1EC;">
-    {org_name} security report — score {score}/100, grade {grade}. {critical_count} urgent issues need attention. Open your dashboard for details.
+    {org_name} security report — score {score_label}, grade {grade_text}. {critical_count} urgent issues need attention. Open your dashboard for details.
   </div>
   <center>
     <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 620px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
@@ -233,11 +268,11 @@ def generate_executive_report_html(
                   SECURITY SCORE
                 </div>
                 <div style="font-size: 36px; font-weight: 800; color: {score_color}; line-height: 1; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">
-                  {score}<span style="font-size: 15px; color: #8A8377; font-weight: 400;">/100</span>
+                  {score_text}<span style="font-size: 15px; color: #8A8377; font-weight: 400;">{score_suffix}</span>
                 </div>
                 <div style="margin-top: 7px;">
                   <span style="display: inline-block; padding: 3px 9px; background-color: #FFFFFF; border: 1px solid {score_color}; border-radius: 12px; font-size: 11px; font-weight: 700; color: {score_color};">
-                    Grade {grade} · {posture_label}
+                    {grade_line}
                   </span>
                 </div>
               </td>

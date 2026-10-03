@@ -10,7 +10,7 @@ import logging
 
 from backend.app.core.database import execute_query, execute_one
 from backend.app.core.auth import get_current_org, require_admin, log_audit
-from backend.app.risk.engine import compute_risk_score
+from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.services.mailer import (
     generate_executive_report_html,
     send_email_async,
@@ -63,13 +63,15 @@ def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[
         "SELECT COUNT(*) as count FROM assets WHERE org_id = %s", (org_id,)
     ) or {}).get("count", 0)
 
-    scoring = compute_risk_score(findings)
+    scoring = compute_risk_score(findings, assessment=latest_assessment(org_id))
     return {
         "org_name": org.get("name", ""),
         "domain": domain_row.get("domain", ""),
-        "score": scoring.get("score", 100),
-        "grade": scoring.get("grade", ""),
+        "score": scoring.get("score"),
+        "grade": scoring.get("grade"),
         "posture_label": scoring.get("posture_label", ""),
+        "assessed": scoring.get("assessed", False),
+        "assessment": scoring.get("assessment"),
         "assets_count": assets_count,
         "critical_count": sum(1 for f in findings if f.get("severity") == "critical"),
         "high_count": sum(1 for f in findings if f.get("severity") == "high"),
@@ -121,6 +123,8 @@ def create_report(
     summary = {
         "score": data["score"],
         "grade": data["grade"],
+        "assessed": data["assessed"],
+        "assessed_at": (data.get("assessment") or {}).get("completed_at"),
         "assets": data["assets_count"],
         "critical": data["critical_count"],
         "high": data["high_count"],
@@ -179,7 +183,12 @@ async def send_executive_report_email(
     high_count = data["high_count"]
     medium_count = data["medium_count"]
 
-    subject = req.subject or f"Your security report for {org_name} — score {score_val}/100"
+    if req.subject:
+        subject = req.subject
+    elif score_val is not None:
+        subject = f"Your security report for {org_name} — score {score_val}/100"
+    else:
+        subject = f"Your security report for {org_name} — not assessed yet"
 
     html_content = generate_executive_report_html(
         org_name=org_name,

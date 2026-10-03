@@ -141,7 +141,7 @@ export default function Overview() {
     );
   }
 
-  const { score, max_score, grade, posture_label, trend, counts, subscores, factors, recent_scans, organization } = data;
+  const { score, max_score, grade, posture_label, trend, counts, subscores, factors, recent_scans, organization, assessed, assessment } = data;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
@@ -191,21 +191,37 @@ export default function Overview() {
           </div>
           <div className="absolute top-3 right-4">
             <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
-              {grade} RATING
+              {grade ? `${grade} RATING` : 'NOT ASSESSED'}
             </span>
           </div>
 
           <div className="my-2">
-            <ScoreRing score={score} max={max_score} size={190} />
+            {score !== null ? (
+              <ScoreRing score={score} max={max_score} size={190} />
+            ) : (
+              <div
+                className="flex flex-col items-center justify-center rounded-full border-2 border-dashed border-line-strong"
+                style={{ width: 190, height: 190 }}
+              >
+                <span className="text-4xl font-bold mono text-soft">—</span>
+                <span className="text-[10px] mono text-soft tracking-wider mt-1">NO SCORE YET</span>
+              </div>
+            )}
           </div>
 
           <div className="mt-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs mono font-semibold tracking-wider">
               {posture_label}
             </div>
-            <p className="text-xs mono text-soft mt-2">
-              7-Day Change: <span className="text-ok font-medium">+{trend} pts</span> · Checks run around the clock
-            </p>
+            {assessed ? (
+              <p className="text-xs mono text-soft mt-2">
+                7-Day Change: <span className="text-ok font-medium">+{trend} pts</span> · Checks run around the clock
+              </p>
+            ) : (
+              <p className="text-xs mono text-soft mt-2">
+                Run your first scan to get a score.
+              </p>
+            )}
           </div>
         </div>
 
@@ -342,11 +358,19 @@ export default function Overview() {
             <h3 className="mono text-xs font-semibold tracking-wider text-ink">
               SCORE BREAKDOWN
             </h3>
-            <span className="text-[10px] mono text-soft">OUT OF 100</span>
+            <span className="text-[10px] mono text-soft">
+              {assessed && assessment?.completed_at
+                ? `OUT OF 100 · ASSESSED ${new Date(assessment.completed_at).toLocaleDateString()}`
+                : 'OUT OF 100'}
+            </span>
           </div>
 
           <div className="space-y-4">
-            {subscores.map(pillar => (
+            {subscores.length === 0 ? (
+              <p className="text-xs mono text-soft py-6 text-center">
+                Not assessed yet — complete a scan to see your pillar breakdown.
+              </p>
+            ) : subscores.map(pillar => (
               <div key={pillar.name} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs mono">
                   <span className="font-medium text-ink">{pillar.name}</span>
@@ -383,7 +407,11 @@ export default function Overview() {
             </div>
 
             <div className="space-y-2.5">
-              {factors.map((f, idx) => (
+              {factors.length === 0 ? (
+                <p className="text-xs mono text-soft py-4 text-center">
+                  Score drivers appear after your first completed scan.
+                </p>
+              ) : factors.map((f, idx) => (
                 <div
                   key={idx}
                   className="flex items-start gap-2.5 p-2 rounded bg-inset/50 border border-line/60 text-xs"

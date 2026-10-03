@@ -3,8 +3,10 @@ Cyphward Remediation API Router (spec §27, §28, §34)
 Task lifecycle: OPEN -> IN_PROGRESS -> READY_FOR_VERIFICATION -> VERIFIED;
 VERIFICATION failure transitions the task to REOPENED.
 
-Verification re-checks the live asset — the platform never blindly trusts a
-user's "fixed" claim.
+Verification re-checks the live asset with the detector/rule that produced
+the finding — the platform never blindly trusts a user's "fixed" claim, and
+when the recheck can't produce proof it returns INCONCLUSIVE instead of
+closing the finding.
 """
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -16,6 +18,7 @@ from backend.app.core.auth import get_current_org, log_audit, require_admin
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
+from backend.app.scanner.nuclei_runner import run_nuclei_template
 from backend.app.scanner.security_checks import run_security_checks
 from backend.app.services.notifications import notify
 
@@ -23,6 +26,53 @@ router = APIRouter(prefix="/api/v1/remediation", tags=["Remediation"])
 
 STATUSES = {"open", "in_progress", "ready_for_verification", "verified", "reopened"}
 PRIORITIES = {"low", "medium", "high", "critical"}
+
+# Categories the shared DNS/HTTP security-check detector can re-evaluate.
+SHARED_CHECK_CATEGORIES = {
+    "DNS & Email Security",
+    "HTTP Headers",
+    "SSL/TLS",
+    "Exposure",
+    "Information Disclosure",
+    "Security Configuration",
+}
+DNS_ONLY_CATEGORIES = {"DNS & Email Security"}
+HTTP_CATEGORIES = {"HTTP Headers", "SSL/TLS", "Information Disclosure", "Exposure"}
+
+
+def _finding_detector(category: Optional[str], evidence: Any) -> Dict[str, Any]:
+    """
+    Classify which detector produced a finding so verification reruns that
+    detector's rule — never a different one. Unknown detectors can only be
+    re-checked by a fresh scan.
+    """
+    ev = evidence if isinstance(evidence, dict) else {}
+    cat = (category or "").strip()
+    if cat == "Nuclei Scan" or ev.get("template_id"):
+        return {"name": "nuclei", "template_id": ev.get("template_id")}
+    if cat in SHARED_CHECK_CATEGORIES:
+        return {"name": "security_checks", "template_id": None}
+    return {"name": "unknown", "template_id": None}
+
+
+def _inconclusive(
+    task: Dict[str, Any],
+    org: Dict[str, Any],
+    hostname: str,
+    message: str,
+    detector: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Recheck produced insufficient proof. The task keeps its current status
+    and the finding stays open — we never mark a fix we could not observe.
+    """
+    log_audit(
+        org["id"], org.get("current_user_id"), "remediation.recheck_inconclusive",
+        "remediation_task", str(task["id"]),
+        {"hostname": hostname, "detector": detector.get("name"),
+         "template_id": detector.get("template_id"), "reason": message},
+    )
+    return {"result": "inconclusive", "message": message, "task": task}
 
 
 class CreateTaskRequest(BaseModel):
@@ -201,11 +251,20 @@ def update_task(
 async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
     """
     Recheck a READY_FOR_VERIFICATION task against the live asset (spec §28).
+
+    The recheck reruns the detector/rule that produced the finding:
+      - shared DNS/HTTP security checks  -> rerun run_security_checks
+      - Nuclei template                  -> rerun that exact template
+      - anything else                    -> inconclusive (fresh scan needed)
+
     Pass -> task VERIFIED + finding RESOLVED. Fail -> task REOPENED.
+    Insufficient proof (unreachable host, unavailable tool, unknown
+    detector) -> INCONCLUSIVE: task and finding both stay as they are.
     """
     task = execute_one(
         """
-        SELECT t.*, f.id AS f_id, f.title AS f_title, f.asset_id, f.status AS f_status
+        SELECT t.*, f.id AS f_id, f.title AS f_title, f.asset_id, f.status AS f_status,
+               f.category AS f_category, f.evidence AS f_evidence
         FROM remediation_tasks t
         JOIN findings f ON f.id = t.finding_id
         WHERE t.id = %s AND t.org_id = %s
@@ -225,15 +284,81 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
         raise HTTPException(status_code=400, detail="Linked asset missing — cannot recheck.")
 
     hostname = asset["hostname"]
+    detector = _finding_detector(task.get("f_category"), task.get("f_evidence"))
+
+    # An unknown detector can't be rerun on demand — a fresh full scan is
+    # the only honest way to re-check it.
+    if detector["name"] == "unknown":
+        return _inconclusive(
+            task, org, hostname,
+            f"Inconclusive — detector for category '{task.get('f_category') or 'unknown'}' "
+            f"can't be rechecked on demand. Run a fresh scan to re-verify this finding.",
+            detector,
+        )
+
     try:
-        dns_data = await resolve_host_dns(hostname)
-        http_data = await probe_http_service(hostname)
-        fresh = await run_security_checks(hostname, dns_data or {}, http_data or {}, is_apex=True)
+        dns_data = await resolve_host_dns(hostname) or {}
+        http_data = await probe_http_service(hostname) or {}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Recheck failed: {exc}")
 
-    target_title = (task["f_title"] or "").strip().lower()
-    reproduced = any((f.get("title") or "").strip().lower() == target_title for f in fresh)
+    # A recheck is only conclusive if the probes actually observed the host.
+    records = dns_data.get("records") or {}
+    dns_ok = bool(dns_data.get("primary_ip")) or any(records.values())
+    http_ok = http_data.get("http_status") is not None
+
+    if detector["name"] == "nuclei":
+        template_id = detector["template_id"]
+        if not template_id:
+            return _inconclusive(
+                task, org, hostname,
+                "Inconclusive — this Nuclei finding has no template id recorded, "
+                "so its rule can't be rerun. Run a fresh scan to re-verify it.",
+                detector,
+            )
+        if not http_ok:
+            return _inconclusive(
+                task, org, hostname,
+                f"Inconclusive — {hostname} did not respond to the HTTP probe, so "
+                f"template {template_id} couldn't be rerun. Try again later or run a fresh scan.",
+                detector,
+            )
+        rerun = await run_nuclei_template(hostname, template_id, timeout=60)
+        if not rerun.get("ok"):
+            return _inconclusive(
+                task, org, hostname,
+                f"Inconclusive — couldn't rerun Nuclei template {template_id} on "
+                f"{hostname}: {rerun.get('error')}. Run a fresh scan to re-verify it.",
+                detector,
+            )
+        reproduced = any(
+            (nf.get("evidence") or {}).get("template_id") == template_id
+            for nf in rerun.get("findings") or []
+        )
+    else:
+        # Shared security-check detector: the category must be observable
+        # right now or the (possibly clean) result proves nothing.
+        if task.get("f_category") in HTTP_CATEGORIES and not http_ok:
+            return _inconclusive(
+                task, org, hostname,
+                f"Inconclusive — {hostname} did not respond to the HTTP probe, so "
+                f"this check couldn't be re-evaluated. Try again later or run a fresh scan.",
+                detector,
+            )
+        if task.get("f_category") in DNS_ONLY_CATEGORIES and not dns_ok:
+            return _inconclusive(
+                task, org, hostname,
+                f"Inconclusive — DNS for {hostname} could not be resolved, so this "
+                f"check couldn't be re-evaluated. Try again later or run a fresh scan.",
+                detector,
+            )
+        try:
+            fresh = await run_security_checks(hostname, dns_data, http_data, is_apex=True)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Recheck failed: {exc}")
+
+        target_title = (task["f_title"] or "").strip().lower()
+        reproduced = any((f.get("title") or "").strip().lower() == target_title for f in fresh)
 
     if reproduced:
         updated_task = execute_one(
@@ -257,7 +382,7 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
                f"Recheck against {hostname} shows the issue still exists.",
                "high", "/findings")
         log_audit(org["id"], org.get("current_user_id"), "remediation.recheck_failed",
-                  "remediation_task", task_id, {"hostname": hostname})
+                  "remediation_task", task_id, {"hostname": hostname, "detector": detector["name"]})
         return {
             "result": "reopened",
             "message": f"Recheck failed — {task['f_title']} still reproduces on {hostname}.",
@@ -285,7 +410,9 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
            f"Recheck against {hostname} confirms the issue is fixed.",
            "info", "/findings")
     log_audit(org["id"], org.get("current_user_id"), "remediation.verified",
-              "remediation_task", task_id, {"hostname": hostname})
+              "remediation_task", task_id,
+              {"hostname": hostname, "detector": detector["name"],
+               "template_id": detector.get("template_id")})
     return {
         "result": "verified",
         "message": f"Recheck passed — {task['f_title']} no longer reproduces on {hostname}.",

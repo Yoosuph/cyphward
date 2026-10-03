@@ -5,7 +5,7 @@ Aggregates deterministic risk score, asset telemetry, severity distribution, and
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from backend.app.core.database import get_db
-from backend.app.risk.engine import compute_risk_score
+from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.core.auth import get_current_org
 
 router = APIRouter(prefix="/api/v1/overview", tags=["Overview"])
@@ -59,8 +59,9 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
             """, (org_id,))
             snapshots = cur.fetchall() or []
 
-    # Compute deterministic score
-    scoring = compute_risk_score(findings)
+    # Compute deterministic score — only when a completed scan exists;
+    # otherwise the payload reports "Not assessed" instead of an empty 100.
+    scoring = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
     trend = 0
     if len(snapshots) >= 2:
@@ -83,6 +84,9 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
         "grade": scoring["grade"],
         "posture_label": scoring["posture_label"],
         "status_color": scoring["status_color"],
+        "assessed": scoring["assessed"],
+        "assessment": scoring["assessment"],
+        "model": scoring["model"],
         "trend": trend,
         "counts": {
             "total_assets": total_assets,
