@@ -254,6 +254,20 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
         nuclei_findings = await run_stage(client, cfg, job, "nuclei", _nuclei, optional=True)
         stats["nuclei"] = len(nuclei_findings or [])
 
+        if nuclei_findings is not None:
+            # Re-submit the nuclei observation with the attempted host list:
+            # finalize gates baseline resolution on real coverage, so
+            # "not evaluated" is distinguishable from "no findings".
+            try:
+                await client.observations(job.scan_id, "nuclei", {
+                    "nuclei_findings": nuclei_findings,
+                    "attempted_hosts": active_hosts,
+                })
+            except JobLost:
+                raise
+            except CoreError as e:
+                logger.debug("scan=%s nuclei observation resubmit failed (transient): %s", job.scan_id, e)
+
     return stats
 
 

@@ -218,7 +218,7 @@ async def run_security_checks(
         })
     elif cert_observed and days_rem <= 30:
         findings.append({
-            "title": f"SSL/TLS Certificate Expiring within {days_rem} Days",
+            "title": "SSL/TLS Certificate Expiring Soon",
             "description": f"The TLS certificate on {hostname} will expire in {days_rem} days ({tls_info.get('valid_to')}). Failure to renew will result in service outage and user warnings.",
             "severity": "high",
             "category": "SSL/TLS",
@@ -260,7 +260,7 @@ async def run_security_checks(
     protocol = tls_info.get("protocol")
     if protocol in ["TLSv1.3", "TLSv1.2"]:
         findings.append({
-            "title": f"Modern Cryptographic Protocols Active ({protocol})",
+            "title": "Modern Cryptographic Protocols Active",
             "description": f"Endpoint {hostname} enforces modern cryptographic protocols ({protocol}) with strong forward-secrecy cipher suites. Insecure legacy protocols are appropriately prohibited.",
             "severity": "info",
             "category": "SSL/TLS",

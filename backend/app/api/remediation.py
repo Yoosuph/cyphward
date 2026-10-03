@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.core.auth import get_current_org, log_audit, require_admin
 from backend.app.core.database import execute_one, execute_query
+from backend.app.scanner.detectors import classify_detector
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.nuclei_runner import run_nuclei_template
@@ -27,32 +28,8 @@ router = APIRouter(prefix="/api/v1/remediation", tags=["Remediation"])
 STATUSES = {"open", "in_progress", "ready_for_verification", "verified", "reopened"}
 PRIORITIES = {"low", "medium", "high", "critical"}
 
-# Categories the shared DNS/HTTP security-check detector can re-evaluate.
-SHARED_CHECK_CATEGORIES = {
-    "DNS & Email Security",
-    "HTTP Headers",
-    "SSL/TLS",
-    "Exposure",
-    "Information Disclosure",
-    "Security Configuration",
-}
 DNS_ONLY_CATEGORIES = {"DNS & Email Security"}
 HTTP_CATEGORIES = {"HTTP Headers", "SSL/TLS", "Information Disclosure", "Exposure"}
-
-
-def _finding_detector(category: Optional[str], evidence: Any) -> Dict[str, Any]:
-    """
-    Classify which detector produced a finding so verification reruns that
-    detector's rule — never a different one. Unknown detectors can only be
-    re-checked by a fresh scan.
-    """
-    ev = evidence if isinstance(evidence, dict) else {}
-    cat = (category or "").strip()
-    if cat == "Nuclei Scan" or ev.get("template_id"):
-        return {"name": "nuclei", "template_id": ev.get("template_id")}
-    if cat in SHARED_CHECK_CATEGORIES:
-        return {"name": "security_checks", "template_id": None}
-    return {"name": "unknown", "template_id": None}
 
 
 def _inconclusive(
@@ -284,7 +261,9 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
         raise HTTPException(status_code=400, detail="Linked asset missing — cannot recheck.")
 
     hostname = asset["hostname"]
-    detector = _finding_detector(task.get("f_category"), task.get("f_evidence"))
+    # Which detector produced this finding (shared with the baseline diff) so
+    # verification reruns that detector's rule — never a different one.
+    detector = classify_detector(task.get("f_category"), task.get("f_evidence"))
 
     # An unknown detector can't be rerun on demand — a fresh full scan is
     # the only honest way to re-check it.

@@ -4,6 +4,8 @@ Standardizes disparate observations into consistent, actionable security finding
 """
 from typing import List, Dict, Any
 
+from backend.app.scanner.detectors import detector_key
+
 
 def normalize_findings(
     raw_findings: List[Dict[str, Any]],
@@ -30,8 +32,10 @@ def normalize_findings(
         remediation = rf.get("remediation", "").strip()
         evidence = rf.get("evidence") or {}
 
-        # Signature for deduplication across the same asset
-        sig = f"{asset_id}:{title}"
+        # Signature for deduplication across the same asset — keyed by
+        # detector identity so a nuclei rule and a security check that happen
+        # to share a title are never collapsed into one finding.
+        sig = f"{asset_id}:{detector_key(category, evidence, title)}"
         if sig in seen_signatures:
             continue
         seen_signatures.add(sig)

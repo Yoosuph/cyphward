@@ -43,6 +43,7 @@ from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
+from backend.app.scanner.detectors import classify_detector, detector_key
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
@@ -365,7 +366,10 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                 nuclei_dur = int((time.time() - t0) * 1000)
                 progress["nuclei"] = {"status": "completed", "items": len(nuclei_findings),
                                       "duration_ms": nuclei_dur}
-                _store_observation(scan_id, "nuclei", {"nuclei_findings": nuclei_findings})
+                _store_observation(scan_id, "nuclei", {
+                    "nuclei_findings": nuclei_findings,
+                    "attempted_hosts": active_hosts,
+                })
             except Exception as nuclei_err:
                 nuclei_dur = int((time.time() - t0) * 1000)
                 progress["nuclei"] = {"status": "failed", "items": 0, "duration_ms": nuclei_dur,
@@ -560,9 +564,13 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             return {"scan_id": scan_id, "status": _scan_status(scan_id)}
 
         raw_check_findings = []
+        # Hosts where the shared security-check detector completed (a host's
+        # task raising is recorded by gather as the exception → not covered).
+        check_success_hosts: set = set()
         for idx, chk_results in enumerate(check_results_list):
             if isinstance(chk_results, list):
                 hname = dns_list[idx]["hostname"]
+                check_success_hosts.add(hname)
                 for cr in chk_results:
                     cr["_hostname"] = hname
                 raw_check_findings.extend(chk_results)
@@ -599,7 +607,41 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             normalized_all.extend(norm)
 
         scanned_asset_ids = [aid for aid in asset_id_map.values() if aid]
-        baseline = {"new": [], "reopened": [], "resolved": []}
+        baseline = {"new": [], "reopened": [], "resolved": [], "not_evaluated": []}
+
+        # -----------------------------------------------------------------
+        # Detector coverage — "not evaluated" must never look like "clear".
+        # A finding may only auto-resolve when its detector completed for
+        # that specific host this scan; anything else stays open and is
+        # recorded as not evaluated.
+        # -----------------------------------------------------------------
+        nuclei_obs = observations.get("nuclei") or {}
+        if isinstance(nuclei_obs.get("attempted_hosts"), list):
+            nuclei_attempted = [h for h in nuclei_obs["attempted_hosts"] if isinstance(h, str)]
+        else:
+            # Legacy observations (pre-attempted_hosts): recompute the rule
+            # recon used — HTTP-responsive hosts, discovery order, capped.
+            nuclei_attempted = []
+            for h in valid_dns:
+                hn = h.get("hostname")
+                if not hn or hn in nuclei_attempted:
+                    continue
+                if any(hp.get("hostname") == hn and hp.get("http_status") for hp in valid_http):
+                    nuclei_attempted.append(hn)
+                if len(nuclei_attempted) >= SCANNER_NUCLEI_MAX_HOSTS:
+                    break
+        nuclei_stage_ok = (progress.get("nuclei") or {}).get("status") == "completed"
+        nuclei_covered_hosts = set(nuclei_attempted) if nuclei_stage_ok else set()
+
+        def _detector_covered(asset_id: Any, category: Any, evidence: Any) -> bool:
+            """Did this finding's detector complete for this host this scan?"""
+            hostname = hostname_by_asset.get(asset_id) or hostname_by_asset.get(str(asset_id))
+            name = classify_detector(category, evidence)["name"]
+            if name == "nuclei":
+                return hostname in nuclei_covered_hosts
+            if name == "security_checks":
+                return hostname in check_success_hosts
+            return False
 
         if scanned_asset_ids:
             existing_findings = execute_query(
@@ -610,15 +652,21 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                 """,
                 (org_id, scanned_asset_ids),
             ) or []
-            existing_map = {(f["asset_id"], f["title"]): f for f in existing_findings}
+            # Keyed by detector identity (detector + rule/template), not the
+            # display title — titles are mutable, a nuclei rule id is not.
+            existing_map = {
+                (f["asset_id"], detector_key(f.get("category"), f.get("evidence"), f["title"])): f
+                for f in existing_findings
+            }
             observed_by_asset: Dict[str, set] = {aid: set() for aid in scanned_asset_ids}
 
             for nf in normalized_all:
                 asset_id = nf.get("asset_id")
                 if not asset_id:
                     continue
-                observed_by_asset.setdefault(asset_id, set()).add(nf["title"])
-                prior = existing_map.get((asset_id, nf["title"]))
+                nf_key = detector_key(nf.get("category"), nf.get("evidence"), nf["title"])
+                observed_by_asset.setdefault(asset_id, set()).add(nf_key)
+                prior = existing_map.get((asset_id, nf_key))
 
                 if prior is None:
                     row = execute_one(
@@ -686,24 +734,41 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                     baseline["reopened"].append(nf)
 
             # Auto-resolve findings on scanned assets that were not re-observed
+            # — but only when their detector actually completed for that host.
+            # A detector that didn't run is "not evaluated", never "clear".
             for aid, observed in observed_by_asset.items():
                 for f in existing_findings:
-                    if f["asset_id"] == aid and f["title"] not in observed and f["status"] != "resolved":
-                        execute_query(
-                            """
-                            UPDATE findings
-                            SET status = 'resolved', resolved_at = now(), updated_at = now()
-                            WHERE id = %s AND org_id = %s
-                            """,
-                            (f["id"], org_id),
-                        )
-                        baseline["resolved"].append({
+                    if f["asset_id"] != aid or f["status"] == "resolved":
+                        continue
+                    f_key = detector_key(f.get("category"), f.get("evidence"), f["title"])
+                    if f_key in observed:
+                        continue
+                    f_host = hostname_by_asset.get(str(f["asset_id"])) or hostname_by_asset.get(f["asset_id"])
+                    if not _detector_covered(aid, f.get("category"), f.get("evidence")):
+                        baseline["not_evaluated"].append({
                             "id": str(f["id"]),
                             "title": f["title"],
                             "severity": f["severity"],
                             "asset_id": str(f["asset_id"]),
-                            "hostname": hostname_by_asset.get(str(f["asset_id"])) or hostname_by_asset.get(f["asset_id"]),
+                            "hostname": f_host,
+                            "detector": classify_detector(f.get("category"), f.get("evidence"))["name"],
                         })
+                        continue
+                    execute_query(
+                        """
+                        UPDATE findings
+                        SET status = 'resolved', resolved_at = now(), updated_at = now()
+                        WHERE id = %s AND org_id = %s
+                        """,
+                        (f["id"], org_id),
+                    )
+                    baseline["resolved"].append({
+                        "id": str(f["id"]),
+                        "title": f["title"],
+                        "severity": f["severity"],
+                        "asset_id": str(f["asset_id"]),
+                        "hostname": f_host,
+                    })
         else:
             # No assets in scope (empty discovery): still insert free-standing findings
             for nf in normalized_all:
@@ -832,10 +897,14 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             VALUES (%s, %s, %s, %s::jsonb, %s::jsonb)
         """, (org_id, domain_id, final_score, json.dumps(score_result["subscores"]), json.dumps(score_result["factors"])))
 
+        not_evaluated_msg = (
+            f" · {len(baseline['not_evaluated'])} not evaluated"
+            if baseline["not_evaluated"] else ""
+        )
         notify(
             org_id, "scan_completed",
             f"Scan completed for {domain}",
-            f"Score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved.",
+            f"Score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
             "info" if final_score >= 70 else "medium",
             "/scans",
         )
@@ -897,6 +966,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             "new": len(baseline["new"]),
             "reopened": len(baseline["reopened"]),
             "resolved": len(baseline["resolved"]),
+            "not_evaluated": len(baseline["not_evaluated"]),
         })
 
         return {
@@ -909,6 +979,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             "new_findings": len(baseline["new"]),
             "reopened_findings": len(baseline["reopened"]),
             "resolved_findings": len(baseline["resolved"]),
+            "not_evaluated_findings": len(baseline["not_evaluated"]),
             "ai_analyzed": len(ai_explanations),
         }
 

@@ -650,6 +650,27 @@ class FakeStore:
             asset_id, org_id = params
             return [a for a in self.assets if a["id"] == asset_id and a["org_id"] == org_id]
 
+        if s.startswith("SELECT id FROM assets WHERE org_id = %s AND hostname = %s"):
+            org_id, hostname = params
+            return [a for a in self.assets if a["org_id"] == org_id and a["hostname"] == hostname]
+
+        # finalize asset inventory upsert: (org_id, domain_id, hostname, ip, type,
+        # status, http_status, techs, tls, records)
+        if s.startswith("INSERT INTO assets"):
+            org_id, domain_id, hostname, ip, atype, status, http_status, techs, tls, records = params
+            for a in self.assets:
+                if a["org_id"] == org_id and a["hostname"] == hostname:
+                    a.update(ip_address=ip, asset_type=atype, status=status,
+                             http_status=http_status)
+                    return [{"id": a["id"]}]
+            new_id = f"agen-{len(self.assets)}"
+            self.assets.append({
+                "id": new_id, "org_id": org_id, "domain_id": domain_id,
+                "hostname": hostname, "ip_address": ip, "asset_type": atype,
+                "status": status, "http_status": http_status,
+            })
+            return [{"id": new_id}]
+
         if s.startswith("UPDATE findings"):
             st, _st2, finding_id, org_id = params
             for f in self.findings:
@@ -731,6 +752,16 @@ class FakeStore:
         if "FROM findings f" in s:
             org_id = params[0]
             return [f for f in self.findings if f["org_id"] == org_id]
+
+        # baseline diff: existing findings on the scanned assets
+        if s.startswith(
+            "SELECT id, asset_id, title, status, severity, description, category, "
+            "evidence, remediation FROM findings WHERE org_id = %s AND asset_id = ANY(%s)"
+        ):
+            org_id, asset_ids = params
+            wanted = set(asset_ids)
+            return [dict(f) for f in self.findings
+                    if f["org_id"] == org_id and f.get("asset_id") in wanted]
 
         # overview open findings
         # plain SELECT * open findings (dashboard / reports / exec summary)
