@@ -436,13 +436,21 @@ class FakeStore:
             return [{"n": sum(1 for m in self.memberships
                               if m["org_id"] == org_id and m["role"] == "owner")}]
 
-        if s.startswith("UPDATE organization_members SET role = %s"):
-            role, user_id, org_id = params
-            for m in self.memberships:
-                if m["user_id"] == user_id and m["org_id"] == org_id:
-                    m["role"] = role
-                    return [{"id": 1}]
-            return []
+        if "UPDATE organization_members m SET role = %s" in s and "WITH locked AS" in s:
+            org_id_lock, role, user_id, org_id, _pred_role = params
+            target = next((m for m in self.memberships
+                           if m["user_id"] == user_id and m["org_id"] == org_id), None)
+            if target is None:
+                return []
+            # Mirror the SQL guard: demoting an owner requires >1 owner in
+            # the org at update time (the atomic last-owner protection).
+            if target["role"] == "owner" and role != "owner":
+                owners = [m for m in self.memberships
+                          if m["org_id"] == org_id and m["role"] == "owner"]
+                if len(owners) <= 1:
+                    return []
+            target["role"] = role
+            return [{"id": 1}]
 
         # --- tokenized invitations (members router) ------------------------
         if s.startswith("DELETE FROM organization_invites WHERE org_id = %s"):

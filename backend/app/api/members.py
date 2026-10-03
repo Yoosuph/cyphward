@@ -307,10 +307,32 @@ def update_member_role(
         if owners is None or int(owners.get("n") or 0) <= 1:
             raise HTTPException(status_code=403, detail="An organization must keep at least one owner.")
 
-    execute_one(
-        "UPDATE organization_members SET role = %s WHERE user_id = %s AND org_id = %s RETURNING id",
-        (role, user_id, org["id"]),
+    # Never demote the last owner — and enforce it inside the UPDATE itself,
+    # not with a separate read. Two concurrent demotes could both pass a
+    # read-then-write owner count; this single statement locks the org's
+    # owner rows (ordered, deadlock-free) and refuses when the target would
+    # be the last one left (review P1: preserve at least one owner
+    # transactionally). The read above stays as a fast path for a friendly
+    # error message.
+    demoted = execute_one(
+        """
+        WITH locked AS (
+            SELECT user_id FROM organization_members
+            WHERE org_id = %s AND role = 'owner'
+            ORDER BY user_id
+            FOR UPDATE
+        )
+        UPDATE organization_members m SET role = %s
+         WHERE m.user_id = %s AND m.org_id = %s
+           AND (m.role <> 'owner'
+                OR %s = 'owner'
+                OR (SELECT COUNT(*) FROM locked) > 1)
+        RETURNING id
+        """,
+        (org["id"], role, user_id, org["id"], role),
     )
+    if not demoted:
+        raise HTTPException(status_code=403, detail="An organization must keep at least one owner.")
     log_audit(org["id"], org.get("current_user_id"), "member.role_changed", "profile", user_id,
               {"from": target["role"], "to": role})
     return {"message": "Member role updated.", "member_id": user_id, "role": role}

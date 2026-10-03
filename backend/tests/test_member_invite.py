@@ -417,3 +417,28 @@ def test_demoting_non_owner_bypasses_last_owner_guard(client, auth_headers, stor
     headers = auth_headers(ALICE, email="alice@acme.test", org=ORG_A)
     resp = client.patch(f"/api/v1/members/{BOB}", json={"role": "member"}, headers=headers)
     assert resp.status_code == 200  # BOB was already a member; guard only guards owners
+
+
+def test_demote_last_owner_blocked_even_when_count_check_is_stale(client, auth_headers, store, monkeypatch):
+    """The friendly owner-count read is only a fast path. If it races and
+    reports a stale owner count (read-then-write TOCTOU), the guarded UPDATE
+    itself must still refuse — the last owner can never be demoted."""
+    headers = auth_headers(ALICE, email="alice@acme.test", org=ORG_A)
+
+    # ALICE is the only owner, but pretend the pre-check saw two.
+    orig_route = store.route
+
+    def racing_route(sql, params=()):
+        if "SELECT COUNT(*) AS n FROM organization_members" in sql:
+            return [{"n": 2}]
+        return orig_route(sql, params)
+
+    monkeypatch.setattr(store, "route", racing_route)
+
+    resp = client.patch(f"/api/v1/members/{ALICE}", json={"role": "admin"}, headers=headers)
+
+    assert resp.status_code == 403
+    assert "at least one owner" in resp.json()["detail"]
+    assert next(m["role"] for m in store.memberships
+                if m["user_id"] == ALICE and m["org_id"] == ORG_A) == "owner"
+    assert "member.role_changed" not in [a.params[2] for a in store.audit]
