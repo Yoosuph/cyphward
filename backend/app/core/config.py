@@ -25,6 +25,13 @@ AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "")
 # short window only limits stolen-token use when no logout happened (review P1).
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", "1800"))
 REFRESH_TOKEN_TTL_SECONDS = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", "2592000"))
+# Database pool capacity — set from the Postgres connection budget and the
+# expected number of app replicas. A saturated pool makes callers WAIT (then
+# 503); it never opens connections outside the pool (review P1 — processing
+# and database capacity).
+DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
+DB_POOL_TIMEOUT_SECONDS = float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "5.0"))
 # Where password-reset / OAuth links send the browser back to.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 

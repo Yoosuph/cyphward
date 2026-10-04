@@ -1,9 +1,29 @@
+"""Synchronous psycopg access with a single bounded pool.
+
+Capacity contract (review P1 — processing and database capacity):
+- exactly ONE pool per process, capped at DB_POOL_MAX connections;
+- pool checkout waits up to DB_POOL_TIMEOUT_SECONDS and then raises
+  psycopg_pool.PoolTimeout (mapped to HTTP 503 by the app) — there is no
+  direct-connection fallback anywhere: opening unpooled connections under
+  load amplifies saturation instead of applying backpressure;
+- pool construction is fail-fast and retried on the next call — a transient
+  failure never degrades into per-query unlimited connects.
+
+The queries themselves are synchronous and run on the event loop; adopting
+a consistently async driver across routes and workflows is the tracked
+follow-up to move this work fully off the loop.
+"""
 import logging
 import atexit
 from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
-from backend.app.core.config import DATABASE_URL
+from backend.app.core.config import (
+    DATABASE_URL,
+    DB_POOL_MIN,
+    DB_POOL_MAX,
+    DB_POOL_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger("cyphward.db")
 
@@ -24,62 +44,54 @@ atexit.register(_cleanup_pool)
 
 
 def get_pool():
+    """Return the process-wide pool, constructing it on first use.
+
+    Construction failures propagate (and leave _pool unset) so the next call
+    retries — fail fast instead of silently falling back to unlimited
+    direct connections.
+    """
     global _pool
     if _pool is None:
         if not DATABASE_URL:
             raise RuntimeError(
                 "DATABASE_URL is not set. Configure it in backend/.env or the process environment."
             )
-        try:
-            from psycopg_pool import ConnectionPool
-            _pool = ConnectionPool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=20,
-                timeout=5.0,
-                max_idle=30.0,
-                reconnect_timeout=3.0,
-                check=ConnectionPool.check_connection,
-                open=False,
-                kwargs={"row_factory": dict_row, "prepare_threshold": None}
-            )
-            _pool.open()
-            logger.info("Cyphward PostgreSQL connection pool established successfully (size=20).")
-        except Exception as e:
-            logger.warning(f"Connection pool init failed: {e}. Falling back to unpooled connections.")
-            _pool = None
+        from psycopg_pool import ConnectionPool
+
+        pool = ConnectionPool(
+            DATABASE_URL,
+            min_size=DB_POOL_MIN,
+            max_size=DB_POOL_MAX,
+            timeout=DB_POOL_TIMEOUT_SECONDS,
+            max_idle=30.0,
+            reconnect_timeout=3.0,
+            check=ConnectionPool.check_connection,
+            open=False,
+            kwargs={"row_factory": dict_row, "prepare_threshold": None}
+        )
+        pool.open()
+        _pool = pool
+        logger.info(
+            "Cyphward PostgreSQL connection pool established (min=%s max=%s timeout=%ss).",
+            DB_POOL_MIN, DB_POOL_MAX, DB_POOL_TIMEOUT_SECONDS,
+        )
     return _pool
 
 
 @contextmanager
 def get_db():
-    """Yields a database connection from the pool, or creates a direct connection as fallback."""
-    pool = get_pool()
-    if pool:
-        try:
-            conn = pool.getconn(timeout=5.0)
-        except Exception as e:
-            logger.warning(f"Pool getconn failed ({e}). Using direct ephemeral connection.")
-            conn = None
+    """Yields a pooled connection; returns it on exit.
 
-        if conn is not None:
-            try:
-                yield conn
-            finally:
-                try:
-                    pool.putconn(conn)
-                except Exception:
-                    pass
-            return
-
-    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=6)
+    Saturation behavior: waits up to DB_POOL_TIMEOUT_SECONDS for a free
+    connection, then raises psycopg_pool.PoolTimeout. Never opens a
+    connection outside the pool (no unpooled fallback).
+    """
+    pool = get_pool()  # construction errors propagate; no direct-connect path
+    conn = pool.getconn(timeout=DB_POOL_TIMEOUT_SECONDS)
     try:
         yield conn
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        pool.putconn(conn)
 
 
 def _run_query(sql: str, params: tuple, *, fetch_all: bool, fetch_one: bool):

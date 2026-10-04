@@ -67,6 +67,28 @@ def api_v1_docs():
         title="Cyphward API — Documentation",
     )
 
+# Database saturation backpressure: the bounded pool waits, then raises
+# PoolTimeout — surface it as an explicit 503 (retryable) instead of a 500.
+# No connection is ever opened outside the pool to "help" (review P1 —
+# processing and database capacity).
+from psycopg_pool import PoolTimeout
+
+
+@app.exception_handler(PoolTimeout)
+async def database_busy_handler(request: Request, exc: PoolTimeout):
+    return JSONResponse(
+        status_code=503,
+        headers={"Retry-After": "5"},
+        content={
+            "type": "https://errors.cyphward.com/v1/service-unavailable",
+            "title": "Service Unavailable",
+            "status": 503,
+            "detail": "The service is at database capacity right now. Please retry in a few seconds.",
+            "instance": request.url.path,
+        },
+    )
+
+
 # RFC 9457 Global Exception Handler — never leak internals to clients
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
