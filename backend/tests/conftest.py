@@ -787,6 +787,39 @@ class FakeStore:
             org_id = params[0]
             return [f for f in self.findings if f["org_id"] == org_id and f["status"] != "resolved"]
 
+        # --- reports: org-scoped domain lookups + tenant-scoped join (P1) ---
+        if s.startswith("SELECT id FROM domains WHERE id = %s AND org_id = %s"):
+            did, org_id = params
+            return [d for d in self.domains if d["id"] == did and d["org_id"] == org_id][:1]
+
+        if s.startswith("SELECT domain FROM domains WHERE id = %s AND org_id = %s"):
+            did, org_id = params
+            return [{"domain": d["domain"]} for d in self.domains
+                    if d["id"] == did and d["org_id"] == org_id]
+
+        if "FROM reports r LEFT JOIN domains d ON d.id = r.domain_id AND d.org_id = r.org_id" in s:
+            org_id = params[0]
+            rows = []
+            for r in self.reports:
+                if r["org_id"] != org_id:
+                    continue
+                dom = next((d for d in self.domains
+                            if d["id"] == r.get("domain_id") and d["org_id"] == org_id), None)
+                rows.append({**r, "domain": dom["domain"] if dom else None})
+            return rows
+
+        if s.startswith("INSERT INTO reports"):
+            org_id, domain_id, title, html, summary, created_by = params
+            row = {
+                "id": f"rep-{len(self.reports) + 1}", "org_id": org_id,
+                "domain_id": domain_id, "title": title, "status": "ready",
+                "summary": summary, "created_at": "2026-10-04T00:00:00",
+                "updated_at": "2026-10-04T00:00:00",
+            }
+            self.reports.append(row)
+            return [{k: row[k] for k in ("id", "org_id", "domain_id", "title",
+                                         "status", "summary", "created_at", "updated_at")}]
+
         if "SELECT * FROM domains WHERE org_id" in s:
             org_id = params[0]
             return [d for d in self.domains if d["org_id"] == org_id]
@@ -1117,6 +1150,7 @@ class FakeStore:
         self.sessions = []
         self.password_reset_tokens = []
         self.organization_invites = []
+        self.reports = []
 
 
 # ---------------------------------------------------------------------------

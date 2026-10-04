@@ -89,7 +89,7 @@ def list_reports(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
         SELECT r.id, r.title, r.status, r.summary, r.domain_id, r.scan_id, r.created_at, r.updated_at,
                d.domain
         FROM reports r
-        LEFT JOIN domains d ON d.id = r.domain_id
+        LEFT JOIN domains d ON d.id = r.domain_id AND d.org_id = r.org_id
         WHERE r.org_id = %s
         ORDER BY r.created_at DESC
         LIMIT 100
@@ -105,6 +105,16 @@ def create_report(
     org: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Generate and persist an assessment report from live data (spec §32)."""
+    # A supplied domain must belong to the caller's org — reject before the
+    # report is assembled or stored (the composite (org_id, domain_id) FK
+    # enforces the same rule at insert time).
+    if req.domain_id:
+        domain = execute_one(
+            "SELECT id FROM domains WHERE id = %s AND org_id = %s",
+            (req.domain_id, org["id"]),
+        )
+        if not domain:
+            raise HTTPException(status_code=404, detail="Domain not found.")
     data = _build_report(org, req.domain_id)
     title = req.title or f"Security Assessment — {data['domain'] or org['name']}"
 
