@@ -8,7 +8,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization } from '../lib/api';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
@@ -38,6 +38,10 @@ export default function Settings() {
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // Workspace export + closure (owner-only danger zone).
+  const [exportBusy, setExportBusy] = useState(false);
+  const [closeSlug, setCloseSlug] = useState('');
+  const [closeBusy, setCloseBusy] = useState(false);
   // MFA (step-up sign-in code): status + enroll/disable flows.
   const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean } | null>(null);
   const [mfaBusy, setMfaBusy] = useState(false);
@@ -133,6 +137,50 @@ export default function Settings() {
     }
   };
 
+  const handleExport = async () => {
+    setExportBusy(true);
+    try {
+      const blob = await exportOrganization();
+      if (!blob) {
+        toast('Export failed');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cyphward-${data?.organization?.slug || 'workspace'}-export.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast('Workspace export downloaded');
+    } catch (e: any) {
+      toast(e?.message || 'Export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const handleClose = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!closeSlug.trim()) return;
+    if (!window.confirm('This permanently deletes the workspace and all its data. Continue?')) return;
+    setCloseBusy(true);
+    try {
+      const res = await closeOrganization(closeSlug.trim());
+      if (res?.closed) {
+        toast('Workspace closed');
+        window.location.href = '/overview';
+      } else {
+        toast('Could not close the workspace');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not close the workspace');
+    } finally {
+      setCloseBusy(false);
+    }
+  };
+
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingCompany(true);
@@ -197,6 +245,7 @@ export default function Settings() {
   };
 
   const myRole = (data?.membership?.role || 'member').toLowerCase();
+  const isOwner = myRole === 'owner';
   const canManageRoles = myRole === 'owner' || myRole === 'admin';
 
   if (loading || !data) {
@@ -335,6 +384,45 @@ export default function Settings() {
               </div>
             </form>
           </div>
+
+          {isOwner && (
+          <div className="p-6 rounded-lg border border-red-500/30 bg-raised space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-line">
+              <h3 className="mono font-semibold text-ink text-sm">DATA & CLOSURE</h3>
+            </div>
+            <p className="text-xs text-soft mono leading-relaxed">
+              Download everything in this workspace (members, domains, assets, findings,
+              scans, reports) as JSON, or permanently close the workspace. Closure deletes
+              all workspace data at once — your account itself stays.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exportBusy}
+                className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
+              >
+                {exportBusy ? 'EXPORTING…' : 'DOWNLOAD WORKSPACE EXPORT'}
+              </button>
+            </div>
+            <form onSubmit={handleClose} className="flex flex-wrap items-center gap-2 pt-3 border-t border-line">
+              <input
+                type="text"
+                placeholder={`Type '${data?.organization?.slug || 'slug'}' to confirm`}
+                value={closeSlug}
+                onChange={e => setCloseSlug(e.target.value)}
+                className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-red-500"
+              />
+              <button
+                type="submit"
+                disabled={closeBusy || !closeSlug.trim()}
+                className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                {closeBusy ? 'CLOSING…' : 'CLOSE WORKSPACE'}
+              </button>
+            </form>
+          </div>
+          )}
         </div>
       )}
 

@@ -6,11 +6,13 @@ GET    /organizations/current
 PATCH  /organizations/current
 """
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
 
 from backend.app.core.database import execute_one, execute_query
-from backend.app.core.auth import get_current_user, get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role
 from backend.app.core.plans import (
     DEFAULT_PLAN,
     entitlements_for,
@@ -20,6 +22,17 @@ from backend.app.core.plans import (
 from backend.app.services.notifications import slugify
 
 router = APIRouter(prefix="/api/v1/organizations", tags=["Organizations"])
+
+
+def json_safe(value: Any) -> Any:
+    """Recursively stringify datetimes/UUIDs for the export bundle."""
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value if value is None or isinstance(value, (str, int, float, bool)) else str(value)
 
 
 class CreateOrganizationRequest(BaseModel):
@@ -36,6 +49,10 @@ class UpdateOrganizationRequest(BaseModel):
     cac_rc: Optional[str] = None
     sector: Optional[str] = None
     plan: Optional[str] = None
+
+
+class CloseOrganizationRequest(BaseModel):
+    slug: str = Field(min_length=1, max_length=160)
 
 
 @router.get("")
@@ -147,3 +164,108 @@ def update_current_organization(
     log_audit(org["id"], org.get("current_user_id"), "org.updated", "organization", org["id"],
               ({"plan_from": old_plan, "plan_to": new_plan} if new_plan is not None and new_plan != old_plan else None))
     return {"organization": updated, "role": membership_role(org)}
+
+
+@router.get("/export")
+def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONResponse:
+    """Owner-only full workspace export (data-portability right, review P2).
+
+    One JSON bundle: organization, members, domains, assets, findings,
+    scans, score snapshots, reports and invitations. Secret material
+    (password hashes, tokens, session material) is never included.
+    """
+    org_id = org["id"]
+    members = execute_query(
+        """
+        SELECT m.role, m.created_at, p.email, p.full_name
+        FROM organization_members m JOIN profiles p ON p.id = m.user_id
+        WHERE m.org_id = %s ORDER BY m.created_at ASC
+        """,
+        (org_id,),
+    )
+    domains = execute_query(
+        "SELECT id, domain, verification_status, verified_at, created_at "
+        "FROM domains WHERE org_id = %s ORDER BY created_at ASC",
+        (org_id,),
+    )
+    assets = execute_query(
+        "SELECT id, hostname, ip_address, asset_type, status, last_seen "
+        "FROM assets WHERE org_id = %s ORDER BY hostname ASC",
+        (org_id,),
+    )
+    findings = execute_query(
+        "SELECT id, asset_id, title, description, severity, category, status, "
+        "evidence, remediation, created_at, resolved_at "
+        "FROM findings WHERE org_id = %s ORDER BY created_at ASC",
+        (org_id,),
+    )
+    scans = execute_query(
+        "SELECT id, domain_id, status, score, started_at, completed_at, created_at "
+        "FROM scans WHERE org_id = %s ORDER BY created_at ASC",
+        (org_id,),
+    )
+    snapshots = execute_query(
+        "SELECT id, score, created_at FROM score_snapshots WHERE org_id = %s "
+        "ORDER BY created_at ASC",
+        (org_id,),
+    )
+    reports = execute_query(
+        "SELECT id, domain_id, title, status, summary, created_at FROM reports "
+        "WHERE org_id = %s ORDER BY created_at ASC",
+        (org_id,),
+    )
+    invites = execute_query(
+        "SELECT email, full_name, role, accepted_at, revoked_at, created_at "
+        "FROM organization_invites WHERE org_id = %s ORDER BY created_at ASC",
+        (org_id,),
+    )
+    bundle = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "organization": {
+            "id": str(org["id"]), "name": org["name"], "slug": org["slug"],
+            "cac_rc": org.get("cac_rc"), "sector": org.get("sector"),
+            "plan": org.get("plan"), "created_at": str(org.get("created_at")),
+        },
+        "members": members or [],
+        "domains": domains or [],
+        "assets": assets or [],
+        "findings": findings or [],
+        "scans": scans or [],
+        "score_snapshots": snapshots or [],
+        "reports": reports or [],
+        "invitations": invites or [],
+    }
+    log_audit(org_id, org.get("current_user_id"), "org.exported", "organization", str(org_id))
+    return JSONResponse(
+        content=json_safe(bundle),
+        headers={"Content-Disposition": f'attachment; filename="cyphward-{org["slug"]}-export.json"'},
+    )
+
+
+@router.post("/close")
+def close_organization(
+    req: CloseOrganizationRequest,
+    org: Dict[str, Any] = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Owner-only workspace closure (right to be forgotten, review P2).
+
+    The typed slug guards against accidents. One DELETE cascades the whole
+    tenant subtree (members, domains, assets, findings, scans, reports,
+    invites, tenant audit rows — all ON DELETE CASCADE); a tombstone audit
+    with NULL org_id is written first so the closure itself stays on record.
+    Profiles and sessions are untouched: closing a workspace is not account
+    deletion (see the privacy policy for account deletion).
+    """
+    if req.slug.strip() != org["slug"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Type the workspace slug '{org['slug']}' to confirm closure.",
+        )
+    log_audit(None, org.get("current_user_id"), "org.closed", "organization", str(org["id"]),
+              {"slug": org["slug"], "name": org["name"]})
+    deleted = execute_one(
+        "DELETE FROM organizations WHERE id = %s RETURNING id", (org["id"],)
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    return {"closed": True, "org_id": str(org["id"])}

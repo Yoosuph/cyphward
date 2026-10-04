@@ -728,6 +728,26 @@ export async function mfaDisableConfirm(code: string): Promise<{ disabled: boole
   }, true);
 }
 
+export async function exportOrganization(): Promise<Blob | null> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  const res = await fetch(`${API_BASE}/organizations/export`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(orgId ? { 'X-Organization-Id': orgId } : {}),
+    },
+  });
+  if (!res.ok) throw new Error('Export failed. Only workspace owners can export.');
+  return res.blob();
+}
+
+export async function closeOrganization(slug: string): Promise<{ closed: boolean; org_id: string } | null> {
+  return apiFetch<{ closed: boolean; org_id: string }>('/organizations/close', {
+    method: 'POST',
+    body: JSON.stringify({ slug }),
+  }, true);
+}
+
 export async function registerRequest(
   email: string,
   password: string,

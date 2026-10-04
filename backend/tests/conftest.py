@@ -677,6 +677,58 @@ class FakeStore:
         if s.startswith("SELECT id, plan FROM organizations"):
             return [{"id": o["id"], "plan": o.get("plan")} for o in self.organizations.values()]
 
+        # --- workspace export + closure (P2 data lifecycle) -----------------
+        if s.startswith("SELECT m.role, m.created_at, p.email, p.full_name FROM organization_members m"):
+            org_id = params[0]
+            rows = []
+            for m in self.memberships:
+                if m["org_id"] != org_id:
+                    continue
+                p = self.profiles.get(m["user_id"], {})
+                rows.append({"role": m["role"], "created_at": m.get("created_at"),
+                             "email": p.get("email"), "full_name": p.get("full_name")})
+            return rows
+
+        if s.startswith("SELECT id, domain, verification_status, verified_at, created_at FROM domains"):
+            return [d for d in self.domains if d["org_id"] == params[0]]
+
+        if s.startswith("SELECT id, hostname, ip_address, asset_type, status, last_seen FROM assets"):
+            return [a for a in self.assets if a["org_id"] == params[0]]
+
+        if s.startswith("SELECT id, asset_id, title, description, severity, category, status,"):
+            return [f for f in self.findings if f["org_id"] == params[0]]
+
+        if s.startswith("SELECT id, domain_id, status, score, started_at, completed_at, created_at FROM scans"):
+            return [x for x in self.scans if x["org_id"] == params[0]]
+
+        if s.startswith("SELECT id, score, created_at FROM score_snapshots"):
+            return [r for r in self.snapshots if r["org_id"] == params[0]]
+
+        if s.startswith("SELECT id, domain_id, title, status, summary, created_at FROM reports"):
+            return [r for r in self.reports if r["org_id"] == params[0]]
+
+        if s.startswith("SELECT email, full_name, role, accepted_at, revoked_at, created_at FROM organization_invites"):
+            return [i for i in self.organization_invites if i["org_id"] == params[0]]
+
+        if s.startswith("DELETE FROM organizations WHERE id = %s"):
+            org_id = str(params[0])
+            org = self.organizations.pop(org_id, None)
+            if org is None:
+                return []
+            # mirror ON DELETE CASCADE across every tenant-owned collection
+            self.memberships = [m for m in self.memberships if m["org_id"] != org_id]
+            self.domains = [d for d in self.domains if d["org_id"] != org_id]
+            self.assets = [a for a in self.assets if a["org_id"] != org_id]
+            self.findings = [f for f in self.findings if f["org_id"] != org_id]
+            self.scans = [x for x in self.scans if x["org_id"] != org_id]
+            self.snapshots = [r for r in self.snapshots if r["org_id"] != org_id]
+            self.reports = [r for r in self.reports if r["org_id"] != org_id]
+            self.organization_invites = [
+                i for i in self.organization_invites if i["org_id"] != org_id]
+            self.audit = [a for a in self.audit
+                          if not (a["params"][0] == org_id)]
+            return [{"id": org_id}]
+
         def _in_current_month(value) -> bool:
             now = datetime.now(timezone.utc)
             dt = value

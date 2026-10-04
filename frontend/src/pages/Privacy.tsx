@@ -96,7 +96,11 @@ export default function Privacy() {
           stay while the account is active so your reports remain complete.
         </p>
         <p>
-          Ask us to delete your account and we remove your profile, domains, and scan
+          Workspace owners can self-serve most of this in Settings: download a full
+          JSON export of the workspace, or close the workspace, which deletes its
+          members, domains, assets, findings, scans and reports at once (a tamper-proof
+          closure record is kept). Ask us to delete your account and we remove your
+          profile, domains, and scan
           data within <span className="text-ink">30 days</span>, keeping only the
           minimum records the law requires (for example, billing invoices).
           Password reset links expire after 30 minutes and work once.
