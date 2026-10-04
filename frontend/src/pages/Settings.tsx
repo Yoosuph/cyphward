@@ -15,6 +15,7 @@ import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 import BoardReportModal from '../components/BoardReportModal';
+import { QRCodeSVG } from 'qrcode.react';
 
 type SettingsTab = 'general' | 'team' | 'auth';
 
@@ -82,6 +83,9 @@ export default function Settings() {
   const [totpCode, setTotpCode] = useState('');
   const [totpBusy, setTotpBusy] = useState(false);
   const [totpCopied, setTotpCopied] = useState(false);
+  // QR modal: fitted (just the code) or moderate.
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrSize, setQrSize] = useState<'fitted' | 'moderate'>('fitted');
 
   const handleTotpStart = async () => {
     setTotpBusy(true);
@@ -888,17 +892,30 @@ export default function Settings() {
             {!mfa?.totp_enrolled && totpSecret && (
               <div className="space-y-2">
                 <p className="text-xs mono text-soft">
-                  Enter this secret in your authenticator app, then confirm with a code:
+                  Scan this with Google Authenticator (click to enlarge), or enter the secret manually:
                 </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-inset border border-line rounded px-3 py-1.5 text-xs mono text-ink break-all">{totpSecret}</code>
+                <div className="flex flex-wrap items-start gap-3">
                   <button
                     type="button"
-                    onClick={copyTotpUrl}
-                    className="btn-tactile px-2.5 py-1.5 rounded text-[11px] mono border border-line text-soft hover:text-ink"
+                    onClick={() => setQrOpen(true)}
+                    title="Enlarge QR code"
+                    className="btn-tactile p-2 rounded bg-white border border-line hover:border-line-strong"
                   >
-                    {totpCopied ? 'COPIED' : 'COPY'}
+                    <QRCodeSVG value={totpUrl || totpSecret} size={128} />
                   </button>
+                  <div className="flex-1 min-w-[200px] space-y-2">
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 bg-inset border border-line rounded px-3 py-1.5 text-xs mono text-ink break-all">{totpSecret}</code>
+                      <button
+                        type="button"
+                        onClick={copyTotpUrl}
+                        className="btn-tactile px-2.5 py-1.5 rounded text-[11px] mono border border-line text-soft hover:text-ink"
+                      >
+                        {totpCopied ? 'COPIED' : 'COPY'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] mono text-soft">Then confirm with a code from the app:</p>
+                  </div>
                 </div>
                 <form onSubmit={handleTotpConfirm} className="flex items-center gap-2">
                   <input
@@ -1047,6 +1064,39 @@ export default function Settings() {
         loading={summaryLoading}
         summary={execSummary}
       />
+
+      {/* TOTP QR code — fitted or moderate */}
+      <Modal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        title="SCAN WITH YOUR AUTHENTICATOR APP"
+        maxWidth={qrSize === 'fitted' ? 'max-w-xs' : 'max-w-sm'}
+      >
+        <div className="flex flex-col items-center gap-3 py-2">
+          <div className="flex rounded border border-line overflow-hidden text-[11px] mono">
+            {(['fitted', 'moderate'] as const).map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setQrSize(s)}
+                className={`px-3 py-1 uppercase tracking-wider transition-colors ${
+                  qrSize === s ? 'bg-accent text-white' : 'text-soft hover:text-ink'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          {totpUrl && (
+            <div className="p-3 rounded bg-white border border-line">
+              <QRCodeSVG value={totpUrl} size={qrSize === 'fitted' ? 200 : 280} />
+            </div>
+          )}
+          <p className="text-[11px] mono text-soft text-center">
+            Point Google Authenticator at this code, then confirm with a 6-digit code.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }
