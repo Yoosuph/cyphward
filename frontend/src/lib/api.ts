@@ -297,6 +297,7 @@ export async function createOrganization(payload: {
   slug?: string;
   cac_rc?: string;
   sector?: string;
+  plan?: string;
 }): Promise<{ organization: any; role: string } | null> {
   return apiFetch('/organizations', {
     method: 'POST',

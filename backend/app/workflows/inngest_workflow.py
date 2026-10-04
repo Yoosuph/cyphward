@@ -36,6 +36,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
+from backend.app.core.plans import PLANS, LEGACY_PLAN_FALLBACK
 from backend.app.core.cron_claim import (
     DAILY_SCAN_CRON_NAME,
     claim_cron_run,
@@ -1090,9 +1091,32 @@ async def _daily_scan_sweep() -> Dict[str, Any]:
     ) or []
 
     scheduled = 0
+    skipped_quota = 0
     stage_progress = _queued_stage_progress()
 
+    # Plan quotas apply to automation too (review P1 line 33) — an org at
+    # its monthly scan limit is skipped instead of burning quota.
+    plan_rows = execute_query("SELECT id, plan FROM organizations") or []
+    plan_of = {
+        str(r["id"]): ((r.get("plan") or "").strip().lower() or LEGACY_PLAN_FALLBACK)
+        for r in plan_rows
+    }
+
     for row in due_domains:
+        slug = plan_of.get(str(row["org_id"]), LEGACY_PLAN_FALLBACK)
+        quota = PLANS.get(slug, PLANS[LEGACY_PLAN_FALLBACK])["monthly_scans"]
+        if quota is not None:
+            # Module-level execute_one so tests can fake it; None row = 0.
+            used_row = execute_one(
+                """
+                SELECT count(*) AS n FROM scans
+                WHERE org_id = %s AND created_at >= date_trunc('month', now())
+                """,
+                (str(row["org_id"]),),
+            )
+            if (used_row or {}).get("n", 0) >= quota:
+                skipped_quota += 1
+                continue
         new_scan = execute_one(
             """
             INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)
@@ -1137,10 +1161,12 @@ async def _daily_scan_sweep() -> Dict[str, Any]:
     log_audit(None, None, "cron.ran", "scheduler", None, {
         "due_domains": len(due_domains),
         "scheduled": scheduled,
+        "skipped_quota": skipped_quota,
         "trigger": "cron",
     })
 
-    return {"due_domains": len(due_domains), "scheduled": scheduled}
+    return {"due_domains": len(due_domains), "scheduled": scheduled,
+            "skipped_quota": skipped_quota}
 
 
 @inngest_client.create_function(

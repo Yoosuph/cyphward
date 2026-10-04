@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.domain_verifier import generate_verification_token, verify_domain_dns_txt
 from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.plans import require_quota
 
 router = APIRouter(prefix="/api/v1/domains", tags=["Domains"])
 
@@ -55,6 +56,9 @@ def add_domain(
     existing = execute_one("SELECT id FROM domains WHERE org_id = %s AND domain = %s", (org["id"], domain_clean))
     if existing:
         raise HTTPException(status_code=400, detail=f"Domain {domain_clean} is already added.")
+
+    # Plan entitlement: domain-count limit (review P1 line 33).
+    require_quota(org, "domains")
 
     created = execute_one("""
         INSERT INTO domains (org_id, domain, verification_status, verification_token)

@@ -12,6 +12,7 @@ from backend.app.core.database import execute_one, execute_query
 from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from backend.app.core.plans import require_quota
 from shared.contracts import empty_stage_progress
 import inngest
 
@@ -117,6 +118,9 @@ async def launch_scan(
         )
 
     stage_progress = empty_stage_progress()
+
+    # Plan entitlement: monthly scan quota (review P1 line 33).
+    require_quota(org, "scans")
 
     new_scan = execute_one("""
         INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)

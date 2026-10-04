@@ -385,7 +385,9 @@ class FakeStore:
             org_id = params[0]
             return [{"n": sum(1 for d in self.domains if d["org_id"] == org_id)}]
 
-        if s.startswith("SELECT count(*) AS n FROM scans WHERE org_id = %s"):
+        # Active-scan count (tenant lookup). The monthly-quota variant
+        # (AND created_at >= ...) is routed to its own handler below.
+        if s.startswith("SELECT count(*) AS n FROM scans WHERE org_id = %s") and "created_at >=" not in s:
             org_id = params[0]
             return [{"n": sum(
                 1 for x in self.scans
@@ -596,11 +598,53 @@ class FakeStore:
                 "slug": params[1],
                 "cac_rc": params[2],
                 "sector": params[3],
-                "plan": "scale",
+                "plan": params[4] if len(params) > 4 else "scale",
                 "created_at": "2026-01-01T00:00:00",
             }
             self.organizations[org["id"]] = org
             return [org]
+
+        if s.startswith("UPDATE organizations SET ") and "WHERE id = %s RETURNING *" in s:
+            set_part = s.split("UPDATE organizations SET ", 1)[1].rsplit(" WHERE id = %s", 1)[0]
+            cols = [m.group(1) for m in re.finditer(r"(\w+) = %s", set_part)]
+            org_id = params[-1]
+            o = self.organizations.get(str(org_id))
+            if not o:
+                return []
+            for col, val in zip(cols, params[:-1]):
+                if col == "updated_at":
+                    continue
+                o[col] = val
+            return [o]
+
+        if s.startswith("SELECT id, plan FROM organizations"):
+            return [{"id": o["id"], "plan": o.get("plan")} for o in self.organizations.values()]
+
+        def _in_current_month(value) -> bool:
+            now = datetime.now(timezone.utc)
+            dt = value
+            if isinstance(value, str):
+                try:
+                    dt = datetime.fromisoformat(value)
+                except ValueError:
+                    return False
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (dt.year, dt.month) == (now.year, now.month)
+
+        if s.startswith("SELECT count(*) AS n FROM scans WHERE org_id = %s AND created_at >="):
+            org_id = params[0]
+            return [{"n": sum(
+                1 for x in self.scans
+                if x["org_id"] == org_id and _in_current_month(x.get("created_at"))
+            )}]
+
+        if s.startswith("SELECT count(*) AS n FROM reports WHERE org_id = %s AND created_at >="):
+            org_id = params[0]
+            return [{"n": sum(
+                1 for r in self.reports
+                if r["org_id"] == org_id and _in_current_month(r.get("created_at"))
+            )}]
 
         # --- findings status transitions used by remediation verification ---
         if s.startswith("UPDATE findings SET status = 'open', resolved_at = NULL"):
@@ -797,6 +841,22 @@ class FakeStore:
                     return [{**org, "membership_role": m["role"], "current_user_id": current_user_id}]
             return []
 
+        # scan launch (scans router + daily sweep share this shape)
+        if s.startswith("INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)"):
+            org_id, domain_id, _progress = params
+            now = datetime.now(timezone.utc)
+            row = {
+                "id": str(uuid.uuid4()), "org_id": org_id, "domain_id": domain_id,
+                "domain": None, "status": "queued", "score": None,
+                "current_stage": "queued", "stage_progress": {},
+                "scan_type": "EXTERNAL_ASSESSMENT",
+                "started_at": None, "completed_at": None,
+                "created_at": now, "claimed_by": None, "lease_expires_at": None,
+                "error_message": None,
+            }
+            self.scans.append(row)
+            return [row]
+
         # all memberships for user
         if "membership_role" in s:
             current_user_id, user_id = params
@@ -861,6 +921,12 @@ class FakeStore:
             return [f for f in self.findings if f["org_id"] == org_id and f["status"] != "resolved"]
 
         # --- reports: org-scoped domain lookups + tenant-scoped join (P1) ---
+        if s.startswith("SELECT * FROM domains WHERE id = %s AND org_id = %s"):
+            did, org_id = params
+            d = next((x for x in self.domains
+                      if x["id"] == did and x["org_id"] == org_id), None)
+            return [d] if d else []
+
         if s.startswith("SELECT id FROM domains WHERE id = %s AND org_id = %s"):
             did, org_id = params
             return [d for d in self.domains if d["id"] == did and d["org_id"] == org_id][:1]

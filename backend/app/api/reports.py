@@ -10,6 +10,7 @@ import logging
 
 from backend.app.core.database import execute_query, execute_one
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from backend.app.core.plans import require_quota
 from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.services.mailer import (
     generate_executive_report_html,
@@ -115,6 +116,9 @@ def create_report(
         )
         if not domain:
             raise HTTPException(status_code=404, detail="Domain not found.")
+    # Plan entitlement: monthly report quota — checked before the expensive
+    # assembly (review P1 line 33).
+    require_quota(org, "reports")
     data = _build_report(org, req.domain_id)
     title = req.title or f"Security Assessment — {data['domain'] or org['name']}"
 

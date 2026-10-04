@@ -23,6 +23,7 @@ from typing import Dict, Any, List, Optional
 
 from backend.app.core.config import FRONTEND_URL
 from backend.app.core.database import execute_one, execute_query
+from backend.app.core.plans import require_quota
 from backend.app.core.auth import (
     get_current_org,
     get_current_user,
@@ -136,6 +137,8 @@ async def invite_member(
         (org["id"], email_clean),
     )
     token = new_opaque_token()
+    # Plan entitlement: member-count limit (review P1 line 33).
+    require_quota(org, "members")
     invite_row = execute_one(
         f"""
         INSERT INTO organization_invites (org_id, email, full_name, role, token_hash, invited_by, expires_at)

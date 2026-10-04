@@ -11,6 +11,12 @@ from typing import Dict, Any, List, Optional
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.auth import get_current_user, get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.plans import (
+    DEFAULT_PLAN,
+    entitlements_for,
+    parse_plan,
+    usage_for_org,
+)
 from backend.app.services.notifications import slugify
 
 router = APIRouter(prefix="/api/v1/organizations", tags=["Organizations"])
@@ -21,6 +27,7 @@ class CreateOrganizationRequest(BaseModel):
     slug: Optional[str] = None
     cac_rc: Optional[str] = None
     sector: Optional[str] = None
+    plan: Optional[str] = None
 
 
 class UpdateOrganizationRequest(BaseModel):
@@ -28,6 +35,7 @@ class UpdateOrganizationRequest(BaseModel):
     slug: Optional[str] = None
     cac_rc: Optional[str] = None
     sector: Optional[str] = None
+    plan: Optional[str] = None
 
 
 @router.get("")
@@ -64,13 +72,17 @@ def create_organization(
         suffix += 1
         slug = f"{base_slug}-{suffix}"
 
+    # The onboarding plan selector is a real plan now — validated against
+    # the server allowlist, never stored as sector (review P1 line 33).
+    plan = parse_plan(req.plan) if req.plan is not None else DEFAULT_PLAN
+
     org = execute_one(
         """
-        INSERT INTO organizations (name, slug, cac_rc, sector)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO organizations (name, slug, cac_rc, sector, plan)
+        VALUES (%s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (req.name.strip(), slug, req.cac_rc, req.sector or "Technology"),
+        (req.name.strip(), slug, req.cac_rc, req.sector or "Technology", plan),
     )
 
     execute_one(
@@ -83,7 +95,7 @@ def create_organization(
         (user["id"], org["id"]),
     )
 
-    log_audit(org["id"], user["id"], "org.created", "organization", str(org["id"]), {"slug": slug})
+    log_audit(org["id"], user["id"], "org.created", "organization", str(org["id"]), {"slug": slug, "plan": plan})
     return {"organization": org, "role": "owner"}
 
 
@@ -97,6 +109,8 @@ def get_current_organization(org: Dict[str, Any] = Depends(get_current_org)) -> 
         "cac_rc": org.get("cac_rc"),
         "sector": org.get("sector"),
         "plan": org.get("plan"),
+        "plan_entitlements": entitlements_for(org),
+        "plan_usage": usage_for_org(str(org["id"])),
         "created_at": org.get("created_at"),
         "role": membership_role(org),
         "user_id": org.get("current_user_id"),
@@ -116,6 +130,11 @@ def update_current_organization(
         if val is not None:
             updates.append(f"{col} = %s")
             params.append(val.strip() if isinstance(val, str) else val)
+    old_plan = (org.get("plan") or "").strip().lower()
+    new_plan = parse_plan(req.plan) if req.plan is not None else None
+    if new_plan is not None and new_plan != old_plan:
+        updates.append("plan = %s")
+        params.append(new_plan)
 
     if not updates:
         return {"organization": get_current_organization(org)}
@@ -125,5 +144,6 @@ def update_current_organization(
         f"UPDATE organizations SET {', '.join(updates)}, updated_at = now() WHERE id = %s RETURNING *",
         tuple(params),
     )
-    log_audit(org["id"], org.get("current_user_id"), "org.updated", "organization", org["id"])
+    log_audit(org["id"], org.get("current_user_id"), "org.updated", "organization", org["id"],
+              ({"plan_from": old_plan, "plan_to": new_plan} if new_plan is not None and new_plan != old_plan else None))
     return {"organization": updated, "role": membership_role(org)}

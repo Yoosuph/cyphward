@@ -451,7 +451,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       // Server creates the org and assigns the caller as owner (RBAC).
-      const res = await createOrganizationApi({ name: name.trim(), sector: plan });
+      // The plan goes to the server plan allowlist — never into sector.
+      const res = await createOrganizationApi({ name: name.trim(), plan });
       const org = res?.organization;
       if (!org) {
         return { ok: false, error: 'Failed to create organization. Ensure you are signed in.' };

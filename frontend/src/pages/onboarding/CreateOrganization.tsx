@@ -7,7 +7,7 @@ import { useToast } from '../../components/Toast';
 const PLANS = [
   { id: 'Growth', label: 'Growth', desc: 'Small teams, single region' },
   { id: 'Scale', label: 'Scale', desc: 'Bigger teams, more regions' },
-  { id: 'Sovereign', label: 'Sovereign', desc: 'Large organizations, runs on your own servers' },
+  { id: 'Sovereign', label: 'Sovereign', desc: 'Large organizations — dedicated rollout scoped with our team' },
 ];
 
 export default function CreateOrganization() {
