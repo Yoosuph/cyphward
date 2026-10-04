@@ -145,6 +145,8 @@ class FakeStore:
         self.organization_invites: list = []
         self.remediation_tasks: list = []
         self.notifications: list = []
+        self.staff_grants: list = []
+        self.cron_runs: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -339,6 +341,77 @@ class FakeStore:
         if "INSERT INTO audit_log" in s:
             self.audit.append({"id": len(self.audit) + 1, "params": params})
             return [{"id": len(self.audit)}]
+
+        # --- platform staff (P1 workspace authorization) -------------------
+        if s == "SELECT 1":
+            return [{"ok": 1}]
+
+        if s.startswith("SELECT id, scopes FROM platform_staff WHERE user_id = %s"):
+            uid = params[0]
+            now = datetime.now(timezone.utc)
+            live = [
+                g for g in self.staff_grants
+                if g["user_id"] == uid and g.get("revoked_at") is None
+                and (g.get("expires_at") is None or g["expires_at"] > now)
+            ]
+            live.sort(key=lambda g: g.get("created_at") or now, reverse=True)
+            return (
+                [{"id": live[0]["id"], "scopes": live[0]["scopes"]}]
+                if live else []
+            )
+
+        if s.startswith("SELECT run_day, status FROM cron_runs"):
+            done = sorted(
+                (r for r in self.cron_runs
+                 if r.get("cron_name") == "daily-scans" and r.get("status") == "completed"),
+                key=lambda r: r.get("run_day", ""), reverse=True,
+            )
+            return [{"run_day": done[0]["run_day"], "status": "completed"}] if done else []
+
+        if s.startswith("SELECT count(*) AS n FROM scans WHERE status IN"):
+            return [{"n": sum(1 for x in self.scans if x.get("status") in ("queued", "running"))}]
+
+        if s.startswith("SELECT id, name, slug, plan, created_at FROM organizations WHERE id = %s"):
+            o = self.organizations.get(str(params[0]))
+            if not o:
+                return []
+            return [{k: o.get(k) for k in ("id", "name", "slug", "plan", "created_at")}]
+
+        if s.startswith("SELECT count(*) AS n FROM organization_members WHERE org_id = %s"):
+            org_id = params[0]
+            return [{"n": sum(1 for m in self.memberships if m["org_id"] == org_id)}]
+
+        if s.startswith("SELECT count(*) AS n FROM domains WHERE org_id = %s"):
+            org_id = params[0]
+            return [{"n": sum(1 for d in self.domains if d["org_id"] == org_id)}]
+
+        if s.startswith("SELECT count(*) AS n FROM scans WHERE org_id = %s"):
+            org_id = params[0]
+            return [{"n": sum(
+                1 for x in self.scans
+                if x["org_id"] == org_id and x.get("status") in ("queued", "running")
+            )}]
+
+        if s.startswith("SELECT s.id, s.org_id, o.name AS org_name"):
+            limit = params[0] if params else 50
+            now = datetime.now(timezone.utc)
+            rows = []
+            for x in self.scans:
+                if x.get("status") not in ("queued", "running"):
+                    continue
+                lease = x.get("lease_expires_at")
+                if lease is not None and lease >= now:
+                    continue
+                o = self.organizations.get(x["org_id"], {})
+                rows.append({
+                    "id": x["id"], "org_id": x["org_id"],
+                    "org_name": o.get("name"), "status": x["status"],
+                    "created_at": str(x.get("created_at")),
+                    "lease_expires_at": (
+                        str(lease) if lease is not None else None
+                    ),
+                })
+            return rows[:limit]
 
         # --- email OTP (Brevo verification) -------------------------------
         if s.startswith("DELETE FROM email_otps"):
