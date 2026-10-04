@@ -190,6 +190,7 @@ def test_totp_enroll_requires_verified_email(client, auth_headers, store):
 def test_totp_full_roundtrip(client, auth_headers, store, monkeypatch):
     _set_password(store, BOB)
     _verify(store, BOB)
+    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
     start = client.post("/api/v1/auth/totp/enroll/start", headers=_authz(auth_headers, BOB))
     assert start.status_code == 200
     secret = start.json()["secret"]

@@ -360,7 +360,11 @@ def _user_is_admin(user_id: str) -> bool:
 
 
 def _send_mfa_code(user: Dict[str, Any]) -> None:
-    """Create a fresh login step-up code and email it (purpose='mfa')."""
+    """Create a fresh login step-up code and email it (purpose='mfa').
+
+    A mail outage surfaces as 503 (retryable via resend), never a 500 —
+    and never a session.
+    """
     email = (user.get("email") or "").strip().lower()
     code = f"{secrets.randbelow(1_000_000):06d}"
     execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user["id"],))
@@ -372,13 +376,21 @@ def _send_mfa_code(user: Dict[str, Any]) -> None:
         (user["id"], _hash_code(email, code), _OTP_TTL_SECONDS),
     )
     name = (user.get("full_name") or email.split("@")[0]).strip()
-    send_email_sync(
-        email,
-        "Your Cyphward sign-in code",
-        generate_otp_email_html(name, code),
-        generate_otp_email_text(name, code),
-        recipient_name=name,
-    )
+    try:
+        send_email_sync(
+            email,
+            "Your Cyphward sign-in code",
+            generate_otp_email_html(name, code),
+            generate_otp_email_text(name, code),
+            recipient_name=name,
+        )
+    except Exception:
+        import logging
+        logging.getLogger("cyphward.auth").warning("MFA code email failed for %s", email)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not send the sign-in code — please try again shortly.",
+        )
 
 
 @router.post("/register")
