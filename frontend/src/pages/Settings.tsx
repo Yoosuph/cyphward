@@ -8,7 +8,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm } from '../lib/api';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
@@ -38,6 +38,12 @@ export default function Settings() {
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // MFA (step-up sign-in code): status + enroll/disable flows.
+  const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean } | null>(null);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaCodeSent, setMfaCodeSent] = useState(false);
+
   const toast = useToast();
 
   const loadSettings = async () => {
@@ -58,6 +64,74 @@ export default function Settings() {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'auth') return;
+    mfaStatus().then(setMfa).catch(() => setMfa(null));
+  }, [activeTab]);
+
+  const refreshMfa = async () => {
+    try {
+      setMfa(await mfaStatus());
+    } catch {
+      toast('Could not load sign-in security status');
+    }
+  };
+
+  const handleMfaEnroll = async () => {
+    setMfaBusy(true);
+    try {
+      const res = await mfaEnroll();
+      if (res?.enrolled) {
+        toast('Step-up sign-in switched on — codes go to your email');
+        await refreshMfa();
+      } else {
+        toast('Could not switch on step-up sign-in');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not switch on step-up sign-in');
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleMfaDisableRequest = async () => {
+    setMfaBusy(true);
+    try {
+      const res = await mfaDisableRequest();
+      if (res?.sent) {
+        setMfaCodeSent(true);
+        setMfaCode('');
+        toast('Confirmation code sent to your email');
+      } else {
+        toast('Could not send the confirmation code');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not send the confirmation code');
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleMfaDisableConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaBusy(true);
+    try {
+      const res = await mfaDisableConfirm(mfaCode.trim());
+      if (res?.disabled) {
+        toast('Step-up sign-in switched off');
+        setMfaCodeSent(false);
+        setMfaCode('');
+        await refreshMfa();
+      } else {
+        toast('Could not switch off step-up sign-in');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Invalid code. Please try again.');
+    } finally {
+      setMfaBusy(false);
+    }
+  };
 
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -363,6 +437,72 @@ export default function Settings() {
                 Roles are checked on the server: owner / admin / member
               </li>
             </ul>
+          </div>
+
+          {/* Step-up sign-in (email code) */}
+          <div className="pt-4 border-t border-line space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="mono font-semibold text-ink text-xs">STEP-UP SIGN-IN CODE</h4>
+              {mfa && (
+                <span className={`px-2 py-0.5 rounded text-[10px] mono border ${
+                  mfa.enrolled || mfa.admin_required
+                    ? 'bg-ok/10 text-ok border-ok/30'
+                    : 'bg-inset text-soft border-line'
+                }`}>
+                  {mfa.enrolled ? 'ON' : mfa.admin_required ? 'REQUIRED (ADMIN)' : 'OFF'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-soft mono leading-relaxed">
+              {mfa?.admin_required
+                ? 'Owner and admin accounts always confirm sign-in with a 6-digit code sent to their email.'
+                : mfa?.enrolled
+                  ? 'Your sign-ins ask for a 6-digit email code after your password.'
+                  : 'Add a 6-digit email code after your password on every sign-in.'}
+            </p>
+            {!mfa?.enrolled && !mfa?.admin_required && (
+              mfa && !mfa.email_verified ? (
+                <p className="text-xs mono text-amber-500">Verify your email first — the code has to reach you.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleMfaEnroll}
+                  disabled={mfaBusy}
+                  className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
+                >
+                  {mfaBusy ? 'SWITCHING ON…' : 'SWITCH ON STEP-UP SIGN-IN'}
+                </button>
+              )
+            )}
+            {!mfa?.admin_required && mfa?.enrolled && !mfaCodeSent && (
+              <button
+                type="button"
+                onClick={handleMfaDisableRequest}
+                disabled={mfaBusy}
+                className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
+              >
+                {mfaBusy ? 'SENDING…' : 'SWITCH OFF (SEND CONFIRMATION CODE)'}
+              </button>
+            )}
+            {!mfa?.admin_required && mfa?.enrolled && mfaCodeSent && (
+              <form onSubmit={handleMfaDisableConfirm} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={mfaCode}
+                  onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="w-32 bg-inset border border-line rounded px-3 py-1.5 text-ink mono focus:outline-none focus:border-accent"
+                />
+                <button
+                  type="submit"
+                  disabled={mfaBusy || mfaCode.length !== 6}
+                  className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-accent text-white disabled:opacity-50"
+                >
+                  {mfaBusy ? 'CONFIRMING…' : 'CONFIRM SWITCH-OFF'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}

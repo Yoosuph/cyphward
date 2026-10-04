@@ -18,6 +18,11 @@ def _set_password(store, user_id):
     store.profiles[user_id]["password_hash"] = hash_password(PASSWORD)
 
 
+def _verify(store, user_id):
+    from datetime import datetime, timezone
+    store.profiles[user_id]["email_verified_at"] = datetime.now(timezone.utc)
+
+
 def _login(client, email, password=PASSWORD):
     return client.post("/api/v1/auth/login", json={"email": email, "password": password})
 
@@ -133,3 +138,38 @@ def test_mfa_resend_cooldown_and_recovery(client, store, monkeypatch):
             r["created_at"] = datetime.now(timezone.utc) - timedelta(seconds=61)
     assert client.post("/api/v1/auth/mfa/send",
                        json={"mfa_token": token, "code": ""}).json() == {"sent": True}
+
+
+def _authz(auth_headers, user_id):
+    return auth_headers(user_id, email=f"{user_id[:8]}@acme.test")
+
+
+def test_mfa_enroll_requires_verified_email(client, auth_headers, store):
+    resp = client.post("/api/v1/auth/mfa/enroll", headers=_authz(auth_headers, BOB))
+    assert resp.status_code == 403
+
+
+def test_member_enroll_disable_roundtrip(client, auth_headers, store, monkeypatch):
+    _set_password(store, BOB)
+    _verify(store, BOB)
+    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
+
+    status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, BOB)).json()
+    assert status == {"enrolled": False, "admin_required": False, "email_verified": True}
+
+    assert client.post("/api/v1/auth/mfa/enroll", headers=_authz(auth_headers, BOB)).json() == {"enrolled": True}
+    assert _login(client, f"{BOB[:8]}@acme.test").json().get("mfa_required") is True
+
+    assert client.post("/api/v1/auth/mfa/disable/request",
+                       headers=_authz(auth_headers, BOB)).json() == {"sent": True}
+    confirm = client.post("/api/v1/auth/mfa/disable/confirm", json={"code": "000042"},
+                          headers=_authz(auth_headers, BOB))
+    assert confirm.json() == {"disabled": True}
+    assert _login(client, f"{BOB[:8]}@acme.test").json().get("access_token") is not None
+
+
+def test_admin_status_reports_mandate(client, auth_headers, store):
+    _verify(store, ALICE)
+    status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, ALICE)).json()
+    assert status["admin_required"] is True

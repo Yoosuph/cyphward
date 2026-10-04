@@ -703,6 +703,31 @@ export async function mfaResend(mfaToken: string): Promise<{ sent: boolean }> {
   return authPost<{ sent: boolean }>('/auth/mfa/send', { mfa_token: mfaToken, code: '' });
 }
 
+export interface MfaStatus {
+  enrolled: boolean;
+  admin_required: boolean;
+  email_verified: boolean;
+}
+
+export async function mfaStatus(): Promise<MfaStatus | null> {
+  return apiFetch<MfaStatus>('/auth/mfa/status', {}, true);
+}
+
+export async function mfaEnroll(): Promise<{ enrolled: boolean } | null> {
+  return apiFetch<{ enrolled: boolean }>('/auth/mfa/enroll', { method: 'POST' }, true);
+}
+
+export async function mfaDisableRequest(): Promise<{ sent: boolean } | null> {
+  return apiFetch<{ sent: boolean }>('/auth/mfa/disable/request', { method: 'POST' }, true);
+}
+
+export async function mfaDisableConfirm(code: string): Promise<{ disabled: boolean } | null> {
+  return apiFetch<{ disabled: boolean }>('/auth/mfa/disable/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }, true);
+}
+
 export async function registerRequest(
   email: string,
   password: string,

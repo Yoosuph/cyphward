@@ -512,6 +512,20 @@ class FakeStore:
                 prof["email_verified_at"] = datetime.now(timezone.utc)
             return []
 
+        if s.startswith("UPDATE profiles SET mfa_enrolled_at = now()"):
+            uid = params[0]
+            prof = self.profiles.get(uid)
+            if prof is not None:
+                prof["mfa_enrolled_at"] = datetime.now(timezone.utc)
+            return [{"id": uid}] if prof else []
+
+        if s.startswith("UPDATE profiles SET mfa_enrolled_at = NULL"):
+            uid = params[0]
+            prof = self.profiles.get(uid)
+            if prof is not None:
+                prof["mfa_enrolled_at"] = None
+            return [{"id": uid}] if prof else []
+
         if "SELECT id FROM organizations WHERE slug" in s:
             return [{"id": o["id"]} for o in self.organizations.values() if o["slug"] == params[0]]
 

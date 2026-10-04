@@ -18,6 +18,7 @@ def public_user(profile: Dict[str, Any]) -> Dict[str, Any]:
         "email": (profile.get("email") or "").strip().lower(),
         "full_name": profile.get("full_name") or "",
         "email_verified_at": profile.get("email_verified_at"),
+        "mfa_enrolled": profile.get("mfa_enrolled_at") is not None,
         "provider": profile.get("provider") or "email",
     }
 

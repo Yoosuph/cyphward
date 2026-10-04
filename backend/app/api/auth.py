@@ -439,7 +439,7 @@ async def login(body: LoginBody) -> Dict[str, Any]:
     reset_bucket(f"login:{email}")
     log_audit(None, str(user["id"]), "auth.login", "user", str(user["id"]))
 
-    if _user_is_admin(str(user["id"])):
+    if _user_is_admin(str(user["id"])) or user.get("mfa_enrolled_at") is not None:
         check_rate_limit(f"mfa:{user['id']}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
         _send_mfa_code(user)
         return {
@@ -492,11 +492,20 @@ async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
     user = execute_one("SELECT * FROM profiles WHERE id = %s", (user_id,))
     if not user:
         raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    _consume_mfa_code(user_id, (user.get("email") or "").strip().lower(), code)
+    reset_bucket(f"mfa-verify:{user_id}")
+    log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]))
+    return issue_session(user)
+
+
+def _consume_mfa_code(user_id: str, email: str, code: str) -> None:
+    """Validate and single-use consume a purpose='mfa' code (shared by the
+    login step-up and the disable-confirm flows — neither trusts the other
+    purpose's rows). Raises 400/401/429; returns None on success."""
     try:
         check_rate_limit(f"mfa-verify:{user_id}", _MFA_VERIFY_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
     except HTTPException:
         raise HTTPException(status_code=429, detail="Too many attempts — start sign-in again.")
-    email = (user.get("email") or "").strip().lower()
     row = execute_one(
         """
         SELECT id, code_hash, attempts, expires_at FROM email_otps
@@ -527,9 +536,67 @@ async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
     if not hmac.compare_digest(str(row.get("code_hash") or ""), _hash_code(email, code)):
         raise HTTPException(status_code=401, detail="Invalid code.")
     execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user_id,))
-    reset_bucket(f"mfa-verify:{user_id}")
-    log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]))
-    return issue_session(user)
+
+
+@router.get("/mfa/status")
+async def mfa_status(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Drive the Settings MFA panel: enrolled, admin-mandated, email verified."""
+    return {
+        "enrolled": user.get("mfa_enrolled_at") is not None,
+        "admin_required": _user_is_admin(str(user["id"])),
+        "email_verified": user.get("email_verified_at") is not None,
+    }
+
+
+@router.post("/mfa/enroll")
+async def enroll_mfa(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Opt into the login step-up code. Requires a verified email — the
+    code has to reach the account, or the next login locks the user out."""
+    if not user.get("email_verified_at"):
+        raise HTTPException(
+            status_code=403,
+            detail="Verify your email address first — the sign-in code has to reach you.",
+        )
+    execute_one(
+        "UPDATE profiles SET mfa_enrolled_at = now(), updated_at = now() WHERE id = %s RETURNING id",
+        (user["id"],),
+    )
+    log_audit(None, str(user["id"]), "auth.mfa_enrolled", "user", str(user["id"]))
+    return {"enrolled": True}
+
+
+@router.post("/mfa/disable/request")
+async def request_mfa_disable(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Mail a confirmation code for turning the step-up off. Disabling
+    needs inbox access — a stolen session alone cannot switch MFA off."""
+    try:
+        check_rate_limit(f"mfa-disable:{user['id']}", 1, _MFA_SEND_WINDOW_SECONDS)
+    except HTTPException:
+        raise HTTPException(status_code=429, detail="A code was just sent — check your inbox.")
+    _send_mfa_code(user)
+    return {"sent": True}
+
+
+class MfaDisableBody(BaseModel):
+    code: str = ""
+
+
+@router.post("/mfa/disable/confirm")
+async def confirm_mfa_disable(
+    body: MfaDisableBody,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Consume the disable code and switch the step-up off (no session issued)."""
+    code = (body.code or "").strip()
+    if len(code) != 6 or not code.isdigit():
+        raise HTTPException(status_code=400, detail="Enter the 6-digit code.")
+    _consume_mfa_code(str(user["id"]), (user.get("email") or "").strip().lower(), code)
+    execute_one(
+        "UPDATE profiles SET mfa_enrolled_at = NULL, updated_at = now() WHERE id = %s RETURNING id",
+        (user["id"],),
+    )
+    log_audit(None, str(user["id"]), "auth.mfa_disabled", "user", str(user["id"]))
+    return {"disabled": True}
 
 
 @router.post("/refresh")
