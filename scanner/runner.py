@@ -160,8 +160,14 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     hosts_raw = await run_stage(client, cfg, job, "discovery", lambda: discover_subdomains(job.target))
     assert hosts_raw is not None
     # Owner-registered hosts ride along (scope filter below still applies).
+    # Re-post the observation: run_stage already stored the raw passive set.
     if getattr(job, "seed_hosts", None):
-        hosts_raw = sorted(set(hosts_raw) | {h.strip().lower() for h in job.seed_hosts if h})
+        seeds = {h.strip().lower() for h in job.seed_hosts if h}
+        if seeds - set(hosts_raw):
+            hosts_raw = sorted(set(hosts_raw) | seeds)
+            await client.observations(job.scan_id, "discovery", {"discovered_hosts": hosts_raw})
+            logger.info("scan=%s discovery: +%d registered seed hosts",
+                        job.scan_id, len(seeds))
     # Per-host suffix validation (§40) + de-dup + cap (first scope check).
     discovered = filter_hosts(hosts_raw, job.scope, max_hosts)
     if len(hosts_raw) > len(discovered):
