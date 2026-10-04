@@ -8,7 +8,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
@@ -75,7 +75,83 @@ export default function Settings() {
   const [billingBusy, setBillingBusy] = useState(false);
   const [newPlan, setNewPlan] = useState('scale');
   // MFA (step-up sign-in code): status + enroll/disable flows.
-  const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean } | null>(null);
+  const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean; totp_enrolled: boolean; totp_pending: boolean } | null>(null);
+  // Authenticator app (TOTP): enroll/confirm/disable flows.
+  const [totpSecret, setTotpSecret] = useState<string | null>(null);
+  const [totpUrl, setTotpUrl] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [totpCopied, setTotpCopied] = useState(false);
+
+  const handleTotpStart = async () => {
+    setTotpBusy(true);
+    try {
+      const res = await totpEnrollStart();
+      if (res?.secret) {
+        setTotpSecret(res.secret);
+        setTotpUrl(res.otpauth_url);
+        setTotpCode('');
+        setTotpCopied(false);
+        await refreshMfa();
+      } else {
+        toast('Could not start authenticator setup');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not start authenticator setup');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const handleTotpConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await totpEnrollConfirm(totpCode.trim());
+      if (res?.enrolled) {
+        toast('Authenticator app switched on');
+        setTotpSecret(null);
+        setTotpUrl(null);
+        setTotpCode('');
+        await refreshMfa();
+      } else {
+        toast('Could not confirm — check the code');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Invalid code. Please try again.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const handleTotpDisable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await totpDisable(totpCode.trim());
+      if (res?.disabled) {
+        toast('Authenticator app switched off');
+        setTotpCode('');
+        await refreshMfa();
+      } else {
+        toast('Could not switch off');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Invalid code. Please try again.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const copyTotpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(totpUrl || totpSecret || '');
+      setTotpCopied(true);
+      setTimeout(() => setTotpCopied(false), 2000);
+    } catch {
+      toast('Copy failed — select the text manually');
+    }
+  };
   const [mfaBusy, setMfaBusy] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [mfaCodeSent, setMfaCodeSent] = useState(false);
@@ -776,6 +852,89 @@ export default function Settings() {
                   className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-accent text-white disabled:opacity-50"
                 >
                   {mfaBusy ? 'CONFIRMING…' : 'CONFIRM SWITCH-OFF'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* Authenticator app (TOTP) */}
+          <div className="pt-4 border-t border-line space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="mono font-semibold text-ink text-xs">AUTHENTICATOR APP</h4>
+              {mfa && (
+                <span className={`px-2 py-0.5 rounded text-[10px] mono border ${
+                  mfa.totp_enrolled
+                    ? 'bg-ok/10 text-ok border-ok/30'
+                    : 'bg-inset text-soft border-line'
+                }`}>
+                  {mfa.totp_enrolled ? 'ON' : mfa.totp_pending ? 'PENDING' : 'OFF'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-soft mono leading-relaxed">
+              Use Google Authenticator, 1Password or any TOTP app instead of waiting for email codes.
+              {mfa && !mfa.email_verified && ' Verify your email first.'}
+            </p>
+            {!mfa?.totp_enrolled && !totpSecret && (
+              <button
+                type="button"
+                onClick={handleTotpStart}
+                disabled={totpBusy || (mfa != null && !mfa.email_verified)}
+                className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
+              >
+                {totpBusy ? 'PREPARING…' : 'SET UP AUTHENTICATOR APP'}
+              </button>
+            )}
+            {!mfa?.totp_enrolled && totpSecret && (
+              <div className="space-y-2">
+                <p className="text-xs mono text-soft">
+                  Enter this secret in your authenticator app, then confirm with a code:
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-inset border border-line rounded px-3 py-1.5 text-xs mono text-ink break-all">{totpSecret}</code>
+                  <button
+                    type="button"
+                    onClick={copyTotpUrl}
+                    className="btn-tactile px-2.5 py-1.5 rounded text-[11px] mono border border-line text-soft hover:text-ink"
+                  >
+                    {totpCopied ? 'COPIED' : 'COPY'}
+                  </button>
+                </div>
+                <form onSubmit={handleTotpConfirm} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="123456"
+                    value={totpCode}
+                    onChange={e => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-32 bg-inset border border-line rounded px-3 py-1.5 text-ink mono focus:outline-none focus:border-accent"
+                  />
+                  <button
+                    type="submit"
+                    disabled={totpBusy || totpCode.length !== 6}
+                    className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-accent text-white disabled:opacity-50"
+                  >
+                    {totpBusy ? 'CONFIRMING…' : 'CONFIRM'}
+                  </button>
+                </form>
+              </div>
+            )}
+            {mfa?.totp_enrolled && (
+              <form onSubmit={handleTotpDisable} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Current app code"
+                  value={totpCode}
+                  onChange={e => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="w-40 bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
+                />
+                <button
+                  type="submit"
+                  disabled={totpBusy || totpCode.length !== 6}
+                  className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
+                >
+                  {totpBusy ? 'SWITCHING OFF…' : 'SWITCH OFF APP'}
                 </button>
               </form>
             )}

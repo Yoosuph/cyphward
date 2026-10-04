@@ -34,6 +34,7 @@ from backend.app.core.config import AUTH_JWT_SECRET, FRONTEND_URL, REFRESH_TOKEN
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.rate_limit import check_rate_limit, reset_bucket
 from backend.app.core.security import hash_password, new_opaque_token, hash_opaque_token, verify_password
+from backend.app.core import totp as totp_mod
 from backend.app.core.sessions import (
     issue_session,
     public_user,
@@ -439,7 +440,9 @@ async def login(body: LoginBody) -> Dict[str, Any]:
     reset_bucket(f"login:{email}")
     log_audit(None, str(user["id"]), "auth.login", "user", str(user["id"]))
 
-    if _user_is_admin(str(user["id"])) or user.get("mfa_enrolled_at") is not None:
+    if (_user_is_admin(str(user["id"]))
+            or user.get("mfa_enrolled_at") is not None
+            or user.get("totp_enrolled_at") is not None):
         check_rate_limit(f"mfa:{user['id']}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
         _send_mfa_code(user)
         return {
@@ -484,7 +487,12 @@ async def resend_mfa_code(body: MfaBody) -> Dict[str, Any]:
 
 @router.post("/mfa/verify")
 async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
-    """Consume the admin login step-up code and issue the session."""
+    """Consume the login step-up code and issue the session.
+
+    Authenticator-app (TOTP) codes are tried first when enrolled, then the
+    emailed code — one shared attempt budget covers both, and the method is
+    recorded on the audit event.
+    """
     code = (body.code or "").strip()
     if len(code) != 6 or not code.isdigit():
         raise HTTPException(status_code=400, detail="Enter the 6-digit code.")
@@ -492,9 +500,26 @@ async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
     user = execute_one("SELECT * FROM profiles WHERE id = %s", (user_id,))
     if not user:
         raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
-    _consume_mfa_code(user_id, (user.get("email") or "").strip().lower(), code)
-    reset_bucket(f"mfa-verify:{user_id}")
-    log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]))
+    method = "email"
+    if user.get("totp_secret_enc") and user.get("totp_enrolled_at") is not None:
+        try:
+            secret = totp_mod.decrypt_secret(user["totp_secret_enc"])
+        except ValueError:
+            secret = ""
+        if secret and totp_mod.verify_code(secret, code):
+            method = "totp"
+            execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'",
+                          (user_id,))
+    if method == "email":
+        _consume_mfa_code(user_id, (user.get("email") or "").strip().lower(), code)
+    else:
+        try:
+            check_rate_limit(f"mfa-verify:{user_id}", _MFA_VERIFY_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
+        except HTTPException:
+            raise HTTPException(status_code=429, detail="Too many attempts — start sign-in again.")
+        reset_bucket(f"mfa-verify:{user_id}")
+    log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]),
+              {"method": method})
     return issue_session(user)
 
 
@@ -545,6 +570,10 @@ async def mfa_status(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[s
         "enrolled": user.get("mfa_enrolled_at") is not None,
         "admin_required": _user_is_admin(str(user["id"])),
         "email_verified": user.get("email_verified_at") is not None,
+        "totp_enrolled": user.get("totp_secret_enc") is not None
+        and user.get("totp_enrolled_at") is not None,
+        "totp_pending": user.get("totp_secret_enc") is not None
+        and user.get("totp_enrolled_at") is None,
     }
 
 
@@ -646,6 +675,95 @@ async def confirm_mfa_disable(
         (user["id"],),
     )
     log_audit(None, str(user["id"]), "auth.mfa_disabled", "user", str(user["id"]))
+    return {"disabled": True}
+
+
+class TotpCodeBody(BaseModel):
+    code: str = ""
+
+
+@router.post("/totp/enroll/start")
+async def start_totp_enroll(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Begin authenticator-app enrollment: store an encrypted pending seed
+    and return it (shown once) plus the otpauth URL. Verified email
+    required — recovery runs through the inbox."""
+    if not user.get("email_verified_at"):
+        raise HTTPException(
+            status_code=403,
+            detail="Verify your email address first — recovery codes go there.",
+        )
+    secret = totp_mod.generate_secret()
+    execute_one(
+        "UPDATE profiles SET totp_secret_enc = %s, totp_enrolled_at = NULL, updated_at = now() "
+        "WHERE id = %s RETURNING id",
+        (totp_mod.encrypt_secret(secret), user["id"]),
+    )
+    email = (user.get("email") or "").strip().lower()
+    log_audit(None, str(user["id"]), "auth.totp_enroll_started", "user", str(user["id"]))
+    return {"secret": secret, "otpauth_url": totp_mod.otpauth_url(secret, email)}
+
+
+@router.post("/totp/enroll/confirm")
+async def confirm_totp_enroll(
+    body: TotpCodeBody,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Confirm enrollment with a code from the authenticator app."""
+    code = (body.code or "").strip()
+    row = execute_one(
+        "SELECT totp_secret_enc, totp_enrolled_at FROM profiles WHERE id = %s", (user["id"],)
+    )
+    if not row or not row.get("totp_secret_enc"):
+        raise HTTPException(status_code=400, detail="No pending enrollment — start again.")
+    if row.get("totp_enrolled_at") is not None:
+        return {"enrolled": True}
+    try:
+        check_rate_limit(f"totp-enroll:{user['id']}", _MFA_VERIFY_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
+    except HTTPException:
+        raise HTTPException(status_code=429, detail="Too many attempts — start again.")
+    try:
+        secret = totp_mod.decrypt_secret(row["totp_secret_enc"])
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Enrollment is misconfigured — start again.")
+    if not totp_mod.verify_code(secret, code):
+        raise HTTPException(status_code=401, detail="Invalid code — check the app and retry.")
+    execute_one(
+        "UPDATE profiles SET totp_enrolled_at = now(), updated_at = now() WHERE id = %s RETURNING id",
+        (user["id"],),
+    )
+    log_audit(None, str(user["id"]), "auth.totp_enrolled", "user", str(user["id"]))
+    return {"enrolled": True}
+
+
+@router.post("/totp/disable")
+async def disable_totp(
+    body: TotpCodeBody,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Switch the authenticator app off with a current code. Lost the app?
+    Use the email step-up disable flow instead (inbox recovery)."""
+    code = (body.code or "").strip()
+    row = execute_one(
+        "SELECT totp_secret_enc, totp_enrolled_at FROM profiles WHERE id = %s", (user["id"],)
+    )
+    if not row or not row.get("totp_secret_enc") or row.get("totp_enrolled_at") is None:
+        raise HTTPException(status_code=400, detail="Authenticator app is not switched on.")
+    try:
+        check_rate_limit(f"totp-disable:{user['id']}", _MFA_VERIFY_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
+    except HTTPException:
+        raise HTTPException(status_code=429, detail="Too many attempts — try again later.")
+    try:
+        secret = totp_mod.decrypt_secret(row["totp_secret_enc"])
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Enrollment is misconfigured — contact support.")
+    if not totp_mod.verify_code(secret, code):
+        raise HTTPException(status_code=401, detail="Invalid code.")
+    execute_one(
+        "UPDATE profiles SET totp_secret_enc = NULL, totp_enrolled_at = NULL, updated_at = now() "
+        "WHERE id = %s RETURNING id",
+        (user["id"],),
+    )
+    log_audit(None, str(user["id"]), "auth.totp_disabled", "user", str(user["id"]))
     return {"disabled": True}
 
 

@@ -156,7 +156,8 @@ def test_member_enroll_disable_roundtrip(client, auth_headers, store, monkeypatc
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
 
     status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, BOB)).json()
-    assert status == {"enrolled": False, "admin_required": False, "email_verified": True}
+    assert status["enrolled"] is False and status["admin_required"] is False
+    assert status["email_verified"] is True
 
     assert client.post("/api/v1/auth/mfa/enroll", headers=_authz(auth_headers, BOB)).json() == {"enrolled": True}
     assert _login(client, f"{BOB[:8]}@acme.test").json().get("mfa_required") is True
@@ -173,3 +174,60 @@ def test_admin_status_reports_mandate(client, auth_headers, store):
     _verify(store, ALICE)
     status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, ALICE)).json()
     assert status["admin_required"] is True
+
+
+def _totp_now(secret):
+    import time
+    from backend.app.core import totp as totp_mod
+    return f"{totp_mod._hotp(secret, int(time.time() // 30)):06d}"
+
+
+def test_totp_enroll_requires_verified_email(client, auth_headers, store):
+    resp = client.post("/api/v1/auth/totp/enroll/start", headers=_authz(auth_headers, BOB))
+    assert resp.status_code == 403
+
+
+def test_totp_full_roundtrip(client, auth_headers, store, monkeypatch):
+    _set_password(store, BOB)
+    _verify(store, BOB)
+    start = client.post("/api/v1/auth/totp/enroll/start", headers=_authz(auth_headers, BOB))
+    assert start.status_code == 200
+    secret = start.json()["secret"]
+    assert start.json()["otpauth_url"].startswith("otpauth://totp/")
+    status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, BOB)).json()
+    assert status["totp_pending"] is True and status["totp_enrolled"] is False
+
+    assert client.post("/api/v1/auth/totp/enroll/confirm", json={"code": "000000"},
+                       headers=_authz(auth_headers, BOB)).status_code == 401
+    assert client.post("/api/v1/auth/totp/enroll/confirm", json={"code": _totp_now(secret)},
+                       headers=_authz(auth_headers, BOB)).json() == {"enrolled": True}
+    # secret at rest is encrypted, never plaintext
+    assert store.profiles[BOB]["totp_secret_enc"] != secret
+
+    login = _login(client, f"{BOB[:8]}@acme.test").json()
+    assert login.get("mfa_required") is True
+    verify = client.post("/api/v1/auth/mfa/verify",
+                         json={"mfa_token": login["mfa_token"], "code": _totp_now(secret)})
+    assert verify.status_code == 200
+    assert "access_token" in verify.json()
+
+    assert client.post("/api/v1/auth/totp/disable", json={"code": _totp_now(secret)},
+                       headers=_authz(auth_headers, BOB)).json() == {"disabled": True}
+    assert _login(client, f"{BOB[:8]}@acme.test").json().get("access_token") is not None
+
+
+def test_totp_wrong_falls_back_to_email_code(client, auth_headers, store, monkeypatch):
+    _set_password(store, BOB)
+    _verify(store, BOB)
+    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
+    secret = client.post("/api/v1/auth/totp/enroll/start",
+                         headers=_authz(auth_headers, BOB)).json()["secret"]
+    client.post("/api/v1/auth/totp/enroll/confirm", json={"code": _totp_now(secret)},
+                headers=_authz(auth_headers, BOB))
+    login = _login(client, f"{BOB[:8]}@acme.test").json()
+    # wrong authenticator code, right emailed code -> session via email path
+    verify = client.post("/api/v1/auth/mfa/verify",
+                         json={"mfa_token": login["mfa_token"], "code": "000042"})
+    assert verify.status_code == 200
+    assert "access_token" in verify.json()

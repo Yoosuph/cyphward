@@ -707,6 +707,8 @@ export interface MfaStatus {
   enrolled: boolean;
   admin_required: boolean;
   email_verified: boolean;
+  totp_enrolled: boolean;
+  totp_pending: boolean;
 }
 
 export async function mfaStatus(): Promise<MfaStatus | null> {
@@ -723,6 +725,24 @@ export async function mfaDisableRequest(): Promise<{ sent: boolean } | null> {
 
 export async function mfaDisableConfirm(code: string): Promise<{ disabled: boolean } | null> {
   return apiFetch<{ disabled: boolean }>('/auth/mfa/disable/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }, true);
+}
+
+export async function totpEnrollStart(): Promise<{ secret: string; otpauth_url: string } | null> {
+  return apiFetch('/auth/totp/enroll/start', { method: 'POST' }, true);
+}
+
+export async function totpEnrollConfirm(code: string): Promise<{ enrolled: boolean } | null> {
+  return apiFetch('/auth/totp/enroll/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }, true);
+}
+
+export async function totpDisable(code: string): Promise<{ disabled: boolean } | null> {
+  return apiFetch('/auth/totp/disable', {
     method: 'POST',
     body: JSON.stringify({ code }),
   }, true);

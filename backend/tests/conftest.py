@@ -529,6 +529,36 @@ class FakeStore:
                 prof["mfa_enrolled_at"] = None
             return [{"id": uid}] if prof else []
 
+        if s.startswith("SELECT totp_secret_enc, totp_enrolled_at FROM profiles WHERE id = %s"):
+            p = self.profiles.get(str(params[0]))
+            if not p:
+                return []
+            return [{"totp_secret_enc": p.get("totp_secret_enc"),
+                     "totp_enrolled_at": p.get("totp_enrolled_at")}]
+
+        if s.startswith("UPDATE profiles SET totp_secret_enc = %s, totp_enrolled_at = NULL"):
+            enc, uid = params
+            prof = self.profiles.get(str(uid))
+            if prof is not None:
+                prof["totp_secret_enc"] = enc
+                prof["totp_enrolled_at"] = None
+            return [{"id": uid}] if prof else []
+
+        if s.startswith("UPDATE profiles SET totp_enrolled_at = now()"):
+            uid = params[0]
+            prof = self.profiles.get(str(uid))
+            if prof is not None:
+                prof["totp_enrolled_at"] = datetime.now(timezone.utc)
+            return [{"id": uid}] if prof else []
+
+        if s.startswith("UPDATE profiles SET totp_secret_enc = NULL, totp_enrolled_at = NULL"):
+            uid = params[0]
+            prof = self.profiles.get(str(uid))
+            if prof is not None:
+                prof["totp_secret_enc"] = None
+                prof["totp_enrolled_at"] = None
+            return [{"id": uid}] if prof else []
+
         if "SELECT id FROM organizations WHERE slug" in s:
             return [{"id": o["id"]} for o in self.organizations.values() if o["slug"] == params[0]]
 
