@@ -148,6 +148,8 @@ class FakeStore:
         self.staff_grants: list = []
         self.cron_runs: list = []
         self.rate_limits: list = []
+        self.subscriptions: list = []
+        self.invoices: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -676,6 +678,61 @@ class FakeStore:
 
         if s.startswith("SELECT id, plan FROM organizations"):
             return [{"id": o["id"], "plan": o.get("plan")} for o in self.organizations.values()]
+
+        # --- billing model (subscriptions + invoices, manual provider) ---
+        if s.startswith("SELECT * FROM subscriptions WHERE org_id = %s"):
+            sub = next((x for x in self.subscriptions if x["org_id"] == params[0]), None)
+            return [sub] if sub else []
+
+        if s.startswith("INSERT INTO subscriptions"):
+            org_id, plan = params[0], params[1]
+            now = datetime.now(timezone.utc)
+            sub = next((x for x in self.subscriptions if x["org_id"] == org_id), None)
+            if sub is None:
+                sub = {"id": str(uuid.uuid4()), "org_id": org_id, "created_at": now}
+                self.subscriptions.append(sub)
+            sub.update({"plan": plan, "status": "active" if sub.get("status") != "canceled" else "active",
+                        "provider": "manual", "cancel_at_period_end": False,
+                        "current_period_start": now,
+                        "current_period_end": now + timedelta(days=30),
+                        "updated_at": now})
+            # mirror the SQL: canceled flips back to active on plan set
+            if sub.get("_was_canceled"):
+                sub["status"] = "active"
+            return [sub]
+
+        if s.startswith("UPDATE subscriptions"):
+            org_id = params[-1]
+            sub = next((x for x in self.subscriptions if x["org_id"] == org_id), None)
+            if sub is None:
+                return []
+            now = datetime.now(timezone.utc)
+            if "cancel_at_period_end = true" in s:
+                sub["cancel_at_period_end"] = True
+            else:
+                sub.update({"status": "active", "cancel_at_period_end": False,
+                            "current_period_start": now,
+                            "current_period_end": now + timedelta(days=30),
+                            "updated_at": now})
+            return [sub]
+
+        if s.startswith("INSERT INTO invoices"):
+            org_id, plan, amount = params[0], params[1], params[2]
+            now = datetime.now(timezone.utc)
+            inv = {"id": str(uuid.uuid4()), "number": f"INV-{len(self.invoices) + 1}",
+                   "org_id": org_id, "plan": plan, "amount_kobo": amount,
+                   "currency": "NGN", "status": "open", "provider_ref": None,
+                   "period_start": now, "period_end": now + timedelta(days=30),
+                   "created_at": now}
+            self.invoices.append(inv)
+            return [{"id": inv["id"], "number": inv["number"], "plan": plan,
+                     "amount_kobo": amount, "currency": "NGN", "status": "open",
+                     "created_at": now}]
+
+        if s.startswith("SELECT id, number, plan, amount_kobo, currency, status, provider_ref"):
+            return sorted(
+                [i for i in self.invoices if i["org_id"] == params[0]],
+                key=lambda r: r["created_at"], reverse=True)[:20]
 
         # --- workspace export + closure (P2 data lifecycle) -----------------
         if s.startswith("SELECT m.role, m.created_at, p.email, p.full_name FROM organization_members m"):

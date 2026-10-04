@@ -8,7 +8,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices } from '../lib/api';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
@@ -42,6 +42,11 @@ export default function Settings() {
   const [exportBusy, setExportBusy] = useState(false);
   const [closeSlug, setCloseSlug] = useState('');
   const [closeBusy, setCloseBusy] = useState(false);
+  // Billing (manual provider — records only, nothing is charged).
+  const [billing, setBilling] = useState<any | null>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [newPlan, setNewPlan] = useState('scale');
   // MFA (step-up sign-in code): status + enroll/disable flows.
   const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean } | null>(null);
   const [mfaBusy, setMfaBusy] = useState(false);
@@ -73,6 +78,14 @@ export default function Settings() {
     if (activeTab !== 'auth') return;
     mfaStatus().then(setMfa).catch(() => setMfa(null));
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'general' || billing !== null) return;
+    const role = (data?.membership?.role || 'member').toLowerCase();
+    if (role !== 'owner') return;
+    refreshBilling().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, data, billing]);
 
   const refreshMfa = async () => {
     try {
@@ -178,6 +191,69 @@ export default function Settings() {
       toast(e?.message || 'Could not close the workspace');
     } finally {
       setCloseBusy(false);
+    }
+  };
+
+  const refreshBilling = async () => {
+    try {
+      const [sub, inv] = await Promise.all([getSubscription(), listInvoices().catch(() => null)]);
+      setBilling(sub);
+      setInvoices(inv?.invoices || []);
+      if (sub?.subscription?.plan) setNewPlan(sub.subscription.plan);
+    } catch {
+      toast('Could not load billing status');
+    }
+  };
+
+  const handleSetPlan = async () => {
+    setBillingBusy(true);
+    try {
+      const res = await setSubscriptionPlan(newPlan);
+      if (res?.subscription) {
+        toast(`Plan set to ${newPlan} — manual billing, nothing charged`);
+        await refreshBilling();
+      } else {
+        toast('Could not change the plan');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not change the plan');
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
+  const handleRenew = async () => {
+    setBillingBusy(true);
+    try {
+      const res = await renewSubscription();
+      if (res?.subscription) {
+        toast('Billing period extended by 30 days');
+        await refreshBilling();
+      } else {
+        toast('Could not renew');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not renew');
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
+  const handleCancelSub = async () => {
+    if (!window.confirm('Cancel the subscription at the end of the current period?')) return;
+    setBillingBusy(true);
+    try {
+      const res = await cancelSubscription();
+      if (res?.subscription) {
+        toast('Subscription will end after the current period');
+        await refreshBilling();
+      } else {
+        toast('Could not cancel');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not cancel');
+    } finally {
+      setBillingBusy(false);
     }
   };
 
@@ -385,6 +461,91 @@ export default function Settings() {
             </form>
           </div>
 
+          {isOwner && (
+          <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-line">
+              <h3 className="mono font-semibold text-ink text-sm">BILLING</h3>
+              <span className="tag ml-auto">MANUAL — NOTHING IS CHARGED</span>
+            </div>
+            {billing ? (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mono">
+                  <div className="p-2 rounded bg-inset border border-line">
+                    <div className="text-soft text-[10px]">PLAN</div>
+                    <div className="text-ink font-semibold capitalize">{billing.entitlements?.plan || '—'}</div>
+                  </div>
+                  <div className="p-2 rounded bg-inset border border-line">
+                    <div className="text-soft text-[10px]">STATUS</div>
+                    <div className="text-ink font-semibold uppercase">{billing.effective_status || 'none'}</div>
+                  </div>
+                  <div className="p-2 rounded bg-inset border border-line col-span-2">
+                    <div className="text-soft text-[10px]">CURRENT PERIOD ENDS</div>
+                    <div className="text-ink font-semibold">{billing.subscription?.current_period_end ? new Date(billing.subscription.current_period_end).toLocaleDateString() : '—'}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={newPlan}
+                    onChange={e => setNewPlan(e.target.value)}
+                    className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
+                  >
+                    <option value="growth">Growth — ₦450,000/mo</option>
+                    <option value="scale">Scale — ₦1,850,000/mo</option>
+                    <option value="sovereign">Sovereign — custom</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleSetPlan}
+                    disabled={billingBusy}
+                    className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
+                  >
+                    {billingBusy ? 'SAVING…' : 'SET PLAN'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRenew}
+                    disabled={billingBusy || !billing.subscription}
+                    className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
+                  >
+                    RENEW 30 DAYS
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelSub}
+                    disabled={billingBusy || !billing.subscription || billing.subscription?.cancel_at_period_end}
+                    className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
+                  >
+                    {billing.subscription?.cancel_at_period_end ? 'CANCELS AT PERIOD END' : 'CANCEL'}
+                  </button>
+                </div>
+                {invoices.length > 0 && (
+                  <table className="w-full text-left text-xs mono">
+                    <thead>
+                      <tr className="border-b border-line text-soft text-[11px]">
+                        <th className="pb-2 font-medium">INVOICE</th>
+                        <th className="pb-2 font-medium">PLAN</th>
+                        <th className="pb-2 font-medium">AMOUNT</th>
+                        <th className="pb-2 font-medium">STATUS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line/60">
+                      {invoices.map(inv => (
+                        <tr key={inv.id}>
+                          <td className="py-2 text-soft">{inv.number}</td>
+                          <td className="py-2 text-ink capitalize">{inv.plan}</td>
+                          <td className="py-2 text-ink">₦{(inv.amount_kobo / 100).toLocaleString()}</td>
+                          <td className="py-2 text-soft uppercase">{inv.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-soft mono">Loading billing status…</p>
+            )}
+          </div>
+          )}
           {isOwner && (
           <div className="p-6 rounded-lg border border-red-500/30 bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">

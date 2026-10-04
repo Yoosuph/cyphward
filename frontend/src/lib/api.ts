@@ -748,6 +748,36 @@ export async function closeOrganization(slug: string): Promise<{ closed: boolean
   }, true);
 }
 
+export interface SubscriptionInfo {
+  subscription: any | null;
+  effective_status: string | null;
+  entitlements: any;
+  provider: string;
+}
+
+export async function getSubscription(): Promise<SubscriptionInfo | null> {
+  return apiFetch<SubscriptionInfo>('/billing/subscription', {}, true);
+}
+
+export async function setSubscriptionPlan(plan: string): Promise<{ subscription: any; invoice: any } | null> {
+  return apiFetch('/billing/subscription', {
+    method: 'POST',
+    body: JSON.stringify({ plan }),
+  }, true);
+}
+
+export async function renewSubscription(): Promise<{ subscription: any; invoice: any } | null> {
+  return apiFetch('/billing/subscription/renew', { method: 'POST' }, true);
+}
+
+export async function cancelSubscription(): Promise<{ subscription: any } | null> {
+  return apiFetch('/billing/subscription/cancel', { method: 'POST' }, true);
+}
+
+export async function listInvoices(): Promise<{ invoices: any[] } | null> {
+  return apiFetch<{ invoices: any[] }>('/billing/invoices', {}, true);
+}
+
 export async function registerRequest(
   email: string,
   password: string,

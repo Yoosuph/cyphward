@@ -26,6 +26,7 @@ from backend.app.api import (
     auth,
     auth_google,
     platform,
+    billing,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -126,6 +127,7 @@ app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)
 app.include_router(platform.router)
+app.include_router(billing.router)
 
 # ---------------------------------------------------------------------------
 # Startup recovery: scans orphaned by a previous process death (local mode

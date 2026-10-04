@@ -121,10 +121,14 @@ def require_quota(org: Dict[str, Any], kind: str) -> Dict[str, Any]:
     """Enforce one quota; raises 402 with the plan limit when exhausted.
 
     `kind` is one of scans/domains/reports/members. Returns the resolved
-    entitlements (plan + limits) for audit/metadata use.
+    entitlements (plan + limits) for audit/metadata use. A live
+    subscription governs when present, else the org plan text.
     """
+    from backend.app.billing.subscriptions import resolve_plan
+
+    sub = execute_one("SELECT * FROM subscriptions WHERE org_id = %s", (str(org["id"]),))
+    ent = resolve_plan(org, sub)
     quota_key, noun = QUOTA_DEFS[kind]
-    ent = entitlements_for(org)
     limit: Optional[int] = ent[quota_key]
     if limit is None:
         return ent
