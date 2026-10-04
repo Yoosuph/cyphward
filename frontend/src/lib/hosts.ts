@@ -28,6 +28,7 @@ const APP_PATHS = new Set([
   '/remediation',
   '/reports',
   '/settings',
+  '/platform',
   '/analytics',
   '/comply',
   '/dashboard',
