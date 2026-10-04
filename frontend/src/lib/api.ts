@@ -778,6 +778,29 @@ export async function listInvoices(): Promise<{ invoices: any[] } | null> {
   return apiFetch<{ invoices: any[] }>('/billing/invoices', {}, true);
 }
 
+export interface MonitoredHost {
+  id: string;
+  hostname: string;
+  created_at: string;
+}
+
+export async function listMonitoredHosts(domainId: string): Promise<{ hosts: MonitoredHost[] } | null> {
+  return apiFetch<{ hosts: MonitoredHost[] }>(`/domains/${domainId}/hosts`, {}, true);
+}
+
+export async function addMonitoredHost(domainId: string, hostname: string): Promise<{ host: MonitoredHost } | null> {
+  return apiFetch<{ host: MonitoredHost }>(`/domains/${domainId}/hosts`, {
+    method: 'POST',
+    body: JSON.stringify({ hostname }),
+  }, true);
+}
+
+export async function removeMonitoredHost(domainId: string, hostId: string): Promise<{ removed: boolean } | null> {
+  return apiFetch<{ removed: boolean }>(`/domains/${domainId}/hosts/${hostId}`, {
+    method: 'DELETE',
+  }, true);
+}
+
 export async function registerRequest(
   email: string,
   password: string,

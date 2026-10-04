@@ -15,7 +15,7 @@ import {
   Server,
   X,
 } from 'lucide-react';
-import { getDomains, addDomain, verifyDomain, deleteDomain } from '../lib/api';
+import { getDomains, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
 import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
@@ -43,6 +43,11 @@ export default function Domains() {
   // "How to verify" modal — DNS steps + inline check result
   const [instructionModal, setInstructionModal] = useState<Domain | null>(null);
   const [modalCheck, setModalCheck] = useState<'idle' | 'checking' | 'failed' | 'verified'>('idle');
+  // Manually monitored hosts per domain (probed every scan).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [hostsByDomain, setHostsByDomain] = useState<Record<string, { id: string; hostname: string }[]>>({});
+  const [newHost, setNewHost] = useState('');
+  const [hostsBusy, setHostsBusy] = useState(false);
 
   const toast = useToast();
 
@@ -130,6 +135,55 @@ export default function Domains() {
       await loadDomains();
     } catch (e) {
       toast('Failed to delete domain');
+    }
+  };
+
+  const toggleHosts = async (domainId: string) => {
+    if (expandedId === domainId) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(domainId);
+    setNewHost('');
+    try {
+      const res = await listMonitoredHosts(domainId);
+      setHostsByDomain(prev => ({ ...prev, [domainId]: res?.hosts || [] }));
+    } catch {
+      toast('Could not load monitored hosts');
+    }
+  };
+
+  const handleAddHost = async (e: React.FormEvent, domainId: string, domain: string) => {
+    e.preventDefault();
+    if (!newHost.trim()) return;
+    setHostsBusy(true);
+    try {
+      const res = await addMonitoredHost(domainId, newHost.trim());
+      if (res?.host) {
+        setHostsByDomain(prev => ({
+          ...prev,
+          [domainId]: [...(prev[domainId] || []), { id: res.host.id, hostname: res.host.hostname }].sort((a, b) => a.hostname.localeCompare(b.hostname)),
+        }));
+        setNewHost('');
+        toast(`${res.host.hostname} will be probed on every scan of ${domain}.`);
+      }
+    } catch (err: any) {
+      toast(err?.message || 'Could not add host');
+    } finally {
+      setHostsBusy(false);
+    }
+  };
+
+  const handleRemoveHost = async (domainId: string, hostId: string, hostname: string) => {
+    try {
+      await removeMonitoredHost(domainId, hostId);
+      setHostsByDomain(prev => ({
+        ...prev,
+        [domainId]: (prev[domainId] || []).filter(h => h.id !== hostId),
+      }));
+      toast(`${hostname} removed from monitoring.`);
+    } catch {
+      toast('Could not remove host');
     }
   };
 
@@ -233,6 +287,7 @@ export default function Domains() {
                 </tr>
               ) : (
                 domains.map((dom, idx) => (
+                  <>
                   <tr
                     key={dom.id}
                     style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
@@ -329,8 +384,60 @@ export default function Domains() {
                       >
                         <Trash2 size={13} />
                       </button>
+                      {dom.verification_status === 'verified' && (
+                        <button
+                          onClick={() => toggleHosts(dom.id)}
+                          className="btn-tactile px-2 py-1 rounded hover:bg-inset text-soft hover:text-ink text-[10px] mono"
+                          title="Hosts probed on every scan"
+                        >
+                          {expandedId === dom.id ? 'HIDE HOSTS' : 'HOSTS'}
+                        </button>
+                      )}
                     </td>
                   </tr>
+                  {expandedId === dom.id && (
+                    <tr key={`${dom.id}-hosts`}>
+                      <td colSpan={6} className="py-3 px-4 bg-inset/40">
+                        <p className="text-[11px] mono text-soft mb-2">
+                          Hosts under {dom.domain} probed on every scan — even when passive discovery misses them.
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {(hostsByDomain[dom.id] || []).map(h => (
+                            <span key={h.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] mono bg-raised border border-line text-ink">
+                              {h.hostname}
+                              <button
+                                onClick={() => handleRemoveHost(dom.id, h.id, h.hostname)}
+                                className="text-soft hover:text-accent"
+                                title="Stop monitoring"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                          {(hostsByDomain[dom.id] || []).length === 0 && (
+                            <span className="text-[11px] mono text-soft">No extra hosts — discovery only.</span>
+                          )}
+                        </div>
+                        <form onSubmit={e => handleAddHost(e, dom.id, dom.domain)} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder={`e.g. portal.${dom.domain}`}
+                            value={expandedId === dom.id ? newHost : ''}
+                            onChange={e => setNewHost(e.target.value)}
+                            className="w-64 max-w-full bg-raised border border-line rounded px-2.5 py-1 text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
+                          />
+                          <button
+                            type="submit"
+                            disabled={hostsBusy || !newHost.trim()}
+                            className="btn-tactile px-2.5 py-1 rounded text-[11px] mono bg-accent text-white disabled:opacity-50"
+                          >
+                            {hostsBusy ? 'ADDING…' : 'ADD HOST'}
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 ))
               )}
             </tbody>

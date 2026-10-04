@@ -10,13 +10,129 @@ from typing import List, Dict, Any, Optional
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.domain_verifier import generate_verification_token, verify_domain_dns_txt
 from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
-from backend.app.core.plans import require_quota
+from backend.app.core.plans import entitlements_for, require_quota, usage_for_org
 
 router = APIRouter(prefix="/api/v1/domains", tags=["Domains"])
 
 
 class AddDomainRequest(BaseModel):
     domain: str
+
+
+class AddHostRequest(BaseModel):
+    hostname: str
+
+
+def _normalize_hostname(raw: str) -> str:
+    host = (raw or "").strip().lower()
+    for prefix in ("https://", "http://"):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+    host = host.split("/")[0].split(":")[0].rstrip(".")
+    if not host or "." not in host or " " in host or len(host) > 253:
+        raise HTTPException(status_code=400, detail=f"Invalid hostname '{raw}'.")
+    if any(not (ch.isalnum() or ch in "-.") for ch in host):
+        raise HTTPException(status_code=400, detail=f"Invalid hostname '{raw}'.")
+    return host
+
+
+def _get_owned_domain(domain_id: str, org_id: str) -> Dict[str, Any]:
+    domain = execute_one(
+        "SELECT * FROM domains WHERE id = %s AND org_id = %s", (domain_id, org_id)
+    )
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found.")
+    return domain
+
+
+@router.get("/{domain_id}/hosts")
+def list_monitored_hosts(
+    domain_id: str,
+    org: Dict[str, Any] = Depends(get_current_org),
+) -> Dict[str, Any]:
+    """Owner-registered hosts for a domain (probed every scan)."""
+    _get_owned_domain(domain_id, org["id"])
+    rows = execute_query(
+        "SELECT id, hostname, created_at FROM monitored_hosts "
+        "WHERE org_id = %s AND domain_id = %s ORDER BY hostname ASC",
+        (org["id"], domain_id),
+    )
+    return {"hosts": rows or []}
+
+
+@router.post("/{domain_id}/hosts", status_code=201)
+def add_monitored_host(
+    domain_id: str,
+    req: AddHostRequest,
+    org: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Register a hostname under a VERIFIED domain (admin/owner).
+
+    The name must be the domain itself or its subdomain — never anything
+    outside the tenant's verified scope. Shares the plan's domain budget.
+    """
+    domain = _get_owned_domain(domain_id, org["id"])
+    if domain["verification_status"] != "verified":
+        raise HTTPException(
+            status_code=400,
+            detail="Verify the domain before registering hosts for it.",
+        )
+    hostname = _normalize_hostname(req.hostname)
+    apex = domain["domain"].strip().lower()
+    if hostname != apex and not hostname.endswith("." + apex):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{hostname}' is outside the verified scope of {apex}.",
+        )
+    existing = execute_one(
+        "SELECT id FROM monitored_hosts WHERE org_id = %s AND hostname = %s",
+        (org["id"], hostname),
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail=f"{hostname} is already registered.")
+    usage = usage_for_org(str(org["id"]))
+    ent = entitlements_for(org)
+    limit = ent.get("max_domains")
+    if limit is not None and usage["domains"] + len(
+        execute_query(
+            "SELECT id FROM monitored_hosts WHERE org_id = %s", (org["id"],)
+        ) or []
+    ) >= limit:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Domain budget reached for the {ent['label']} plan "
+                   f"({usage['domains']} domains, limit {limit}).",
+        )
+    row = execute_one(
+        """
+        INSERT INTO monitored_hosts (org_id, domain_id, hostname, added_by)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, hostname, created_at
+        """,
+        (org["id"], domain_id, hostname, org.get("current_user_id")),
+    )
+    log_audit(org["id"], org.get("current_user_id"), "domain.host_registered",
+              "monitored_host", str(row["id"]), {"hostname": hostname})
+    return {"host": row}
+
+
+@router.delete("/{domain_id}/hosts/{host_id}")
+def remove_monitored_host(
+    domain_id: str,
+    host_id: str,
+    org: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Remove a registered host (admin/owner)."""
+    _get_owned_domain(domain_id, org["id"])
+    deleted = execute_one(
+        "DELETE FROM monitored_hosts WHERE id = %s AND org_id = %s AND domain_id = %s RETURNING id",
+        (host_id, org["id"], domain_id),
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Registered host not found.")
+    log_audit(org["id"], org.get("current_user_id"), "domain.host_removed",
+              "monitored_host", str(host_id), {})
+    return {"removed": True}
 
 
 @router.get("")

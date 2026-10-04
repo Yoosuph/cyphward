@@ -87,6 +87,9 @@ class ScanJob(BaseModel):
     target_type: str = "domain"
     # Authorization scope: the worker may only touch hosts under these suffixes.
     scope: List[str]
+    # Owner-registered hosts for the domain: probed every scan even when
+    # passive discovery misses them (still scope-filtered worker-side).
+    seed_hosts: List[str] = Field(default_factory=list)
     created_at: str
     authorization_context: Dict[str, Any] = Field(default_factory=dict)
     limits: ScanJobLimits = Field(default_factory=ScanJobLimits)

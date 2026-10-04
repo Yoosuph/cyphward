@@ -150,6 +150,7 @@ class FakeStore:
         self.rate_limits: list = []
         self.subscriptions: list = []
         self.invoices: list = []
+        self.monitored_hosts: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -733,6 +734,43 @@ class FakeStore:
             return sorted(
                 [i for i in self.invoices if i["org_id"] == params[0]],
                 key=lambda r: r["created_at"], reverse=True)[:20]
+
+        # --- monitored hosts (scan-scope registration) --------------------
+        if s.startswith("SELECT hostname FROM monitored_hosts WHERE org_id = %s AND domain_id = %s"):
+            org_id, domain_id = params
+            return [{"hostname": h["hostname"]} for h in self.monitored_hosts
+                    if h["org_id"] == org_id and h["domain_id"] == domain_id]
+
+        if s.startswith("SELECT id, hostname, created_at FROM monitored_hosts"):
+            org_id, domain_id = params
+            return [{"id": h["id"], "hostname": h["hostname"], "created_at": h["created_at"]}
+                    for h in self.monitored_hosts
+                    if h["org_id"] == org_id and h["domain_id"] == domain_id]
+
+        if s.startswith("SELECT id FROM monitored_hosts WHERE org_id = %s AND hostname = %s"):
+            org_id, hostname = params
+            return [{"id": h["id"]} for h in self.monitored_hosts
+                    if h["org_id"] == org_id and h["hostname"] == hostname][:1]
+
+        if s.startswith("SELECT id FROM monitored_hosts WHERE org_id = %s"):
+            return [{"id": h["id"]} for h in self.monitored_hosts if h["org_id"] == params[0]]
+
+        if s.startswith("INSERT INTO monitored_hosts"):
+            org_id, domain_id, hostname, added_by = params
+            row = {"id": str(uuid.uuid4()), "org_id": org_id, "domain_id": domain_id,
+                   "hostname": hostname, "added_by": added_by,
+                   "created_at": datetime.now(timezone.utc)}
+            self.monitored_hosts.append(row)
+            return [{"id": row["id"], "hostname": hostname, "created_at": row["created_at"]}]
+
+        if s.startswith("DELETE FROM monitored_hosts WHERE id = %s"):
+            hid, org_id, domain_id = params
+            before = len(self.monitored_hosts)
+            self.monitored_hosts = [
+                h for h in self.monitored_hosts
+                if not (h["id"] == hid and h["org_id"] == org_id and h["domain_id"] == domain_id)
+            ]
+            return [{"id": hid}] if len(self.monitored_hosts) < before else []
 
         # --- workspace export + closure (P2 data lifecycle) -----------------
         if s.startswith("SELECT m.role, m.created_at, p.email, p.full_name FROM organization_members m"):

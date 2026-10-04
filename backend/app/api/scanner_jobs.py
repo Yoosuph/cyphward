@@ -184,6 +184,16 @@ def claim_job(
 
     logger.info("scan=%s claimed by %s", scan["id"], scanner_id)
 
+    seed_hosts = [
+        r["hostname"] for r in (
+            execute_query(
+                "SELECT hostname FROM monitored_hosts WHERE org_id = %s AND domain_id = %s",
+                (scan["org_id"], scan["domain_id"]),
+            )
+            or []
+        )
+    ]
+
     return ScanJob(
         scan_id=str(scan["id"]),
         organization_id=str(scan["org_id"]),
@@ -191,6 +201,7 @@ def claim_job(
         target=scan["domain"],
         target_type="domain",
         scope=[scan["domain"]],
+        seed_hosts=seed_hosts,
         created_at=str(scan["created_at"]),
         authorization_context={
             "verification_status": "verified",

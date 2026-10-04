@@ -208,6 +208,19 @@ def _finding_email_html(
 # PHASE 1 — RECON (local fallback; the remote worker performs the same stages
 # via its own runner and submits observations to Core over HTTPS).
 # ===========================================================================
+def _registered_hosts(org_id: str, domain_id: str) -> List[str]:
+    """Owner-registered hostnames for a domain (scan-scope registration).
+
+    Probed every scan even when passive discovery misses them. Returns
+    normalized hostnames; callers union them into discovery results.
+    """
+    rows = execute_query(
+        "SELECT hostname FROM monitored_hosts WHERE org_id = %s AND domain_id = %s",
+        (org_id, domain_id),
+    )
+    return sorted({str(r["hostname"]).strip().lower() for r in (rows or []) if r.get("hostname")})
+
+
 async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
     """
     Run recon stages in-process: discovery → dns → http → ports → tls → nuclei.
@@ -247,6 +260,11 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         t0 = time.time()
         discovered_hosts = await discover_subdomains(domain)
         d_dur = int((time.time() - t0) * 1000)
+
+        # Owner-registered hosts ride along (scope-enforced at registration).
+        registered = _registered_hosts(str(scan["org_id"]), str(scan["domain_id"]))
+        if registered:
+            discovered_hosts = sorted(set(discovered_hosts) | set(registered))
 
         progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
         if not _still_running(scan_id):
@@ -448,6 +466,12 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
 
     observations = _load_observations(scan_id)
     discovered_hosts = (observations.get("discovery") or {}).get("discovered_hosts") or []
+    # Belt-and-braces: owner-registered hosts apply even when the recon
+    # side (older worker, pre-union scans) never saw them.
+    for h in _registered_hosts(str(org_id), str(domain_id)):
+        if h not in discovered_hosts:
+            discovered_hosts.append(h)
+    discovered_hosts = sorted(set(discovered_hosts))
     valid_dns = (observations.get("dns") or {}).get("dns_records") or []
     valid_http = (observations.get("http") or {}).get("http_probes") or []
     nuclei_findings = (observations.get("nuclei") or {}).get("nuclei_findings") or []
@@ -556,6 +580,23 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                         "info",
                         "/assets",
                     )
+
+        # Registered-but-unresolved hosts: visible inventory (never clobber
+        # an existing assessed row — DO NOTHING on conflict).
+        for hname in _registered_hosts(str(org_id), str(domain_id)):
+            if hname in asset_id_map:
+                continue
+            res = execute_one(
+                """
+                INSERT INTO assets (org_id, domain_id, hostname, status, last_seen)
+                VALUES (%s, %s, %s, 'discovered', now())
+                ON CONFLICT (org_id, hostname) DO NOTHING
+                RETURNING id
+                """,
+                (org_id, domain_id, hname),
+            )
+            if res:
+                asset_id_map[hname] = res["id"]
 
         # ---------------------------------------------------------------------
         # STAGE: Security Checks (pure-Python checks + worker nuclei findings)

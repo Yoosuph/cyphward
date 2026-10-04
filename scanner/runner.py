@@ -159,6 +159,9 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     # --- STAGE 1: discovery (fatal) --------------------------------------
     hosts_raw = await run_stage(client, cfg, job, "discovery", lambda: discover_subdomains(job.target))
     assert hosts_raw is not None
+    # Owner-registered hosts ride along (scope filter below still applies).
+    if getattr(job, "seed_hosts", None):
+        hosts_raw = sorted(set(hosts_raw) | {h.strip().lower() for h in job.seed_hosts if h})
     # Per-host suffix validation (§40) + de-dup + cap (first scope check).
     discovered = filter_hosts(hosts_raw, job.scope, max_hosts)
     if len(hosts_raw) > len(discovered):
