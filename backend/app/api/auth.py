@@ -25,12 +25,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.app.core.auth import execute_query_memberships, get_current_user, log_audit
-from backend.app.core.config import FRONTEND_URL, REFRESH_TOKEN_TTL_SECONDS
+from backend.app.core.config import AUTH_JWT_SECRET, FRONTEND_URL, REFRESH_TOKEN_TTL_SECONDS
 from backend.app.core.database import execute_one, execute_query
+from backend.app.core.rate_limit import check_rate_limit, reset_bucket
 from backend.app.core.security import hash_password, new_opaque_token, hash_opaque_token, verify_password
 from backend.app.core.sessions import (
     issue_session,
@@ -42,18 +44,34 @@ from backend.app.core.sessions import (
 from backend.app.services.mailer import (
     generate_otp_email_html,
     generate_otp_email_text,
+    generate_password_changed_alert_html,
+    generate_password_changed_alert_text,
     generate_password_reset_email_html,
     generate_password_reset_email_text,
     generate_welcome_email_html,
     generate_welcome_email_text,
     send_email_async,
+    send_email_sync,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
-# One welcome mail per account per hour (signup trigger + login retry can race).
-_WELCOME_COOLDOWN_SECONDS = 3600
-_last_sent: Dict[str, float] = {}
+# Shared fixed-window budgets (Postgres-backed, review P2 — throttling).
+# Login throttle: 5 attempts per 5 minutes per email (fail-closed 401).
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SECONDS = 300
+# Password-reset request: 1 per minute per email (generic ok on exceed).
+_RESET_MAX_SENDS = 1
+_RESET_WINDOW_SECONDS = 60
+# Welcome mail: 1 per hour per account.
+_WELCOME_MAX_SENDS = 1
+_WELCOME_WINDOW_SECONDS = 3600
+# Admin login step-up (MFA): code resend 1/min, 3 per 10 min; 5 verify tries.
+_MFA_SEND_WINDOW_SECONDS = 60
+_MFA_SEND_MAX = 3
+_MFA_SEND_BUDGET_SECONDS = 600
+_MFA_VERIFY_MAX_ATTEMPTS = 5
+_MFA_TOKEN_MINUTES = 10
 # Welcome is a signup gift, not a login ritual: only accounts younger than this
 # may ever receive one (existing accounts are rejected outright).
 _WELCOME_MAX_ACCOUNT_AGE_SECONDS = 86400
@@ -65,19 +83,6 @@ _OTP_MAX_ATTEMPTS = 5
 
 # Password reset policy
 _RESET_TTL_MINUTES = 30
-_RESET_COOLDOWN_SECONDS = 60
-_reset_cooldown: Dict[str, float] = {}
-
-# Login throttle (in-process, mirrors the OTP cooldown style)
-_LOGIN_MAX_ATTEMPTS = 5
-_LOGIN_WINDOW_SECONDS = 300
-_login_attempts: Dict[str, list] = {}
-
-
-def _prune(now: float) -> None:
-    expired = [uid for uid, ts in _last_sent.items() if now - ts >= _WELCOME_COOLDOWN_SECONDS]
-    for uid in expired:
-        _last_sent.pop(uid, None)
 
 
 def _hash_code(email: str, code: str) -> str:
@@ -115,9 +120,9 @@ async def send_welcome_email(
         raise HTTPException(status_code=400, detail="Account has no email address on file.")
 
     now = time.time()
-    _prune(now)
-    last = _last_sent.get(user["id"])
-    if last is not None and now - last < _WELCOME_COOLDOWN_SECONDS:
+    try:
+        check_rate_limit(f"welcome:{user['id']}", _WELCOME_MAX_SENDS, _WELCOME_WINDOW_SECONDS)
+    except HTTPException:
         return {"sent": False, "reason": "recently_sent"}
 
     # Persistent dedupe: one welcome per account, ever (survives restarts).
@@ -131,8 +136,6 @@ async def send_welcome_email(
     # Welcome belongs to signup, not sign-in: existing accounts never get one.
     if not _account_is_new(user):
         return {"sent": False, "reason": "existing_account"}
-
-    _last_sent[user["id"]] = now
 
     name = (user.get("full_name") or email.split("@")[0]).strip()
     first_name = name.split(" ")[0]
@@ -165,7 +168,8 @@ async def send_verification_otp(
         return {"sent": False, "reason": "already_verified"}
 
     latest = execute_one(
-        "SELECT created_at FROM email_otps WHERE user_id = %s ORDER BY created_at DESC LIMIT 1",
+        "SELECT created_at FROM email_otps WHERE user_id = %s AND purpose = 'verify' "
+        "ORDER BY created_at DESC LIMIT 1",
         (user["id"],),
     )
     if latest is not None and latest.get("created_at") is not None:
@@ -180,11 +184,11 @@ async def send_verification_otp(
             )
 
     code = f"{secrets.randbelow(1_000_000):06d}"
-    execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+    execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'verify'", (user["id"],))
     execute_query(
         """
-        INSERT INTO email_otps (user_id, code_hash, expires_at)
-        VALUES (%s, %s, now() + make_interval(secs => %s))
+        INSERT INTO email_otps (user_id, code_hash, expires_at, purpose)
+        VALUES (%s, %s, now() + make_interval(secs => %s), 'verify')
         """,
         (user["id"], _hash_code(email, code), _OTP_TTL_SECONDS),
     )
@@ -216,7 +220,7 @@ async def verify_verification_otp(
     row = execute_one(
         """
         SELECT id, code_hash, attempts, expires_at
-        FROM email_otps WHERE user_id = %s
+        FROM email_otps WHERE user_id = %s AND purpose = 'verify'
         ORDER BY created_at DESC LIMIT 1
         """,
         (user["id"],),
@@ -226,7 +230,7 @@ async def verify_verification_otp(
 
     remaining = _OTP_MAX_ATTEMPTS - int(row.get("attempts") or 0)
     if remaining <= 0:
-        execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+        execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'verify'", (user["id"],))
         raise HTTPException(status_code=429, detail="Too many attempts — request a new code.")
 
     expires_at = row.get("expires_at")
@@ -234,7 +238,7 @@ async def verify_verification_otp(
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) >= expires_at:
-            execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+            execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'verify'", (user["id"],))
             raise HTTPException(status_code=400, detail="That code has expired — request a new one.")
 
     # Conditional attempt consume: the budget check and the increment are one
@@ -244,7 +248,7 @@ async def verify_verification_otp(
         (row["id"], _OTP_MAX_ATTEMPTS),
     )
     if not bumped:
-        execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+        execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'verify'", (user["id"],))
         raise HTTPException(status_code=429, detail="Too many attempts — request a new code.")
     attempts_now = int(bumped.get("attempts") or _OTP_MAX_ATTEMPTS)
     left = max(_OTP_MAX_ATTEMPTS - attempts_now, 0)
@@ -259,7 +263,7 @@ async def verify_verification_otp(
         "UPDATE profiles SET email_verified_at = now(), updated_at = now() WHERE id = %s",
         (user["id"],),
     )
-    execute_query("DELETE FROM email_otps WHERE user_id = %s", (user["id"],))
+    execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'verify'", (user["id"],))
     log_audit(None, str(user["id"]), "auth.email_verified", "user", str(user["id"]))
     return {"verified": True}
 
@@ -314,15 +318,66 @@ def _check_password_policy(password: str) -> None:
         raise HTTPException(status_code=400, detail="Password must be at most 128 characters.")
 
 
-def _login_throttled(email: str) -> bool:
-    now = time.time()
-    window = [t for t in _login_attempts.get(email, []) if now - t < _LOGIN_WINDOW_SECONDS]
-    _login_attempts[email] = window
-    return len(window) >= _LOGIN_MAX_ATTEMPTS
+def _mask_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if len(local) <= 1:
+        masked = "*"
+    else:
+        masked = local[0] + "***"
+    return f"{masked}@{domain}"
 
 
-def _record_login_attempt(email: str) -> None:
-    _login_attempts.setdefault(email, []).append(time.time())
+def _issue_mfa_token(user_id: str) -> str:
+    now = int(time.time())
+    return jwt.encode(
+        {"sub": str(user_id), "purpose": "mfa",
+         "iat": now, "exp": now + _MFA_TOKEN_MINUTES * 60},
+        AUTH_JWT_SECRET,
+        algorithm="HS256",
+    )
+
+
+def _verify_mfa_token(token: str) -> str:
+    if not AUTH_JWT_SECRET:
+        raise HTTPException(status_code=401, detail="Authentication is not configured on the server.")
+    try:
+        claims = jwt.decode(token, AUTH_JWT_SECRET, algorithms=["HS256"],
+                            options={"require": ["exp", "sub"]})
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    if claims.get("purpose") != "mfa" or not claims.get("sub"):
+        raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    return str(claims["sub"])
+
+
+def _user_is_admin(user_id: str) -> bool:
+    row = execute_one(
+        "SELECT 1 FROM organization_members WHERE user_id = %s AND role IN ('owner', 'admin') LIMIT 1",
+        (user_id,),
+    )
+    return row is not None
+
+
+def _send_mfa_code(user: Dict[str, Any]) -> None:
+    """Create a fresh login step-up code and email it (purpose='mfa')."""
+    email = (user.get("email") or "").strip().lower()
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user["id"],))
+    execute_query(
+        """
+        INSERT INTO email_otps (user_id, code_hash, expires_at, purpose)
+        VALUES (%s, %s, now() + make_interval(secs => %s), 'mfa')
+        """,
+        (user["id"], _hash_code(email, code), _OTP_TTL_SECONDS),
+    )
+    name = (user.get("full_name") or email.split("@")[0]).strip()
+    send_email_sync(
+        email,
+        "Your Cyphward sign-in code",
+        generate_otp_email_html(name, code),
+        generate_otp_email_text(name, code),
+        recipient_name=name,
+    )
 
 
 @router.post("/register")
@@ -366,20 +421,114 @@ async def register(body: RegisterBody) -> Dict[str, Any]:
 
 @router.post("/login")
 async def login(body: LoginBody) -> Dict[str, Any]:
-    """Verify email + password and return session tokens."""
+    """Verify email + password. Owners/admins must also complete an email
+    step-up code (MFA) before a session is issued; everyone else signs in
+    directly. Throttling is fail-closed 401 (no existence oracle)."""
     email = _normalize_email(body.email)
-    if not email or _login_throttled(email):
-        if email:
-            _record_login_attempt(email)
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    try:
+        check_rate_limit(f"login:{email}", _LOGIN_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
+    except HTTPException:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     user = execute_one("SELECT * FROM profiles WHERE email = %s", (email,))
     if not user or not verify_password(user.get("password_hash"), body.password):
-        _record_login_attempt(email)
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
-    _login_attempts.pop(email, None)
+    reset_bucket(f"login:{email}")
     log_audit(None, str(user["id"]), "auth.login", "user", str(user["id"]))
+
+    if _user_is_admin(str(user["id"])):
+        check_rate_limit(f"mfa:{user['id']}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
+        _send_mfa_code(user)
+        return {
+            "mfa_required": True,
+            "mfa_token": _issue_mfa_token(str(user["id"])),
+            "email_hint": _mask_email(email),
+        }
+    return issue_session(user)
+
+
+class MfaBody(BaseModel):
+    mfa_token: str
+    code: str = ""
+
+
+@router.post("/mfa/send")
+async def resend_mfa_code(body: MfaBody) -> Dict[str, Any]:
+    """Resend the admin login step-up code (1/min; the token proves a fresh
+    password login, so this cannot be used to spam arbitrary addresses)."""
+    user_id = _verify_mfa_token(body.mfa_token)
+    user = execute_one("SELECT * FROM profiles WHERE id = %s", (user_id,))
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    latest = execute_one(
+        "SELECT created_at FROM email_otps WHERE user_id = %s AND purpose = 'mfa' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (user_id,),
+    )
+    if latest is not None and latest.get("created_at") is not None:
+        created = latest["created_at"]
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - created).total_seconds() < _MFA_SEND_WINDOW_SECONDS:
+            raise HTTPException(status_code=429, detail="A code was just sent — check your inbox.")
+    try:
+        check_rate_limit(f"mfa-send:{user_id}", 1, _MFA_SEND_WINDOW_SECONDS)
+    except HTTPException:
+        raise HTTPException(status_code=429, detail="A code was just sent — check your inbox.")
+    _send_mfa_code(user)
+    return {"sent": True}
+
+
+@router.post("/mfa/verify")
+async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
+    """Consume the admin login step-up code and issue the session."""
+    code = (body.code or "").strip()
+    if len(code) != 6 or not code.isdigit():
+        raise HTTPException(status_code=400, detail="Enter the 6-digit code.")
+    user_id = _verify_mfa_token(body.mfa_token)
+    user = execute_one("SELECT * FROM profiles WHERE id = %s", (user_id,))
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    try:
+        check_rate_limit(f"mfa-verify:{user_id}", _MFA_VERIFY_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS)
+    except HTTPException:
+        raise HTTPException(status_code=429, detail="Too many attempts — start sign-in again.")
+    email = (user.get("email") or "").strip().lower()
+    row = execute_one(
+        """
+        SELECT id, code_hash, attempts, expires_at FROM email_otps
+        WHERE user_id = %s AND purpose = 'mfa'
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (user_id,),
+    )
+    if row is None:
+        raise HTTPException(status_code=400, detail="No active code — request a new one.")
+    if int(row.get("attempts") or 0) >= _MFA_VERIFY_MAX_ATTEMPTS:
+        execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user_id,))
+        raise HTTPException(status_code=429, detail="Too many attempts — start sign-in again.")
+    expires_at = row.get("expires_at")
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= expires_at:
+            execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user_id,))
+            raise HTTPException(status_code=400, detail="That code has expired — request a new one.")
+    bumped = execute_one(
+        "UPDATE email_otps SET attempts = attempts + 1 WHERE id = %s AND attempts < %s RETURNING attempts",
+        (row["id"], _MFA_VERIFY_MAX_ATTEMPTS),
+    )
+    if not bumped:
+        execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user_id,))
+        raise HTTPException(status_code=429, detail="Too many attempts — start sign-in again.")
+    if not hmac.compare_digest(str(row.get("code_hash") or ""), _hash_code(email, code)):
+        raise HTTPException(status_code=401, detail="Invalid code.")
+    execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user_id,))
+    reset_bucket(f"mfa-verify:{user_id}")
+    log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]))
     return issue_session(user)
 
 
@@ -405,15 +554,16 @@ async def forgot_password(
 ) -> Dict[str, Any]:
     """Queue a Brevo password-reset link. Always responds generically (no account enumeration)."""
     email = _normalize_email(body.email)
-    now = time.time()
-    if email and now - _reset_cooldown.get(email, 0) < _RESET_COOLDOWN_SECONDS:
-        return {"ok": True}
+    if email:
+        try:
+            check_rate_limit(f"reset:{email}", _RESET_MAX_SENDS, _RESET_WINDOW_SECONDS)
+        except HTTPException:
+            return {"ok": True}
 
     user = execute_one("SELECT * FROM profiles WHERE email = %s", (email,)) if email else None
     if user is None:
         return {"ok": True}
 
-    _reset_cooldown[email] = now
     token = new_opaque_token()
     execute_query("DELETE FROM password_reset_tokens WHERE user_id = %s", (str(user["id"]),))
     execute_one(
@@ -440,7 +590,7 @@ async def forgot_password(
 
 
 @router.post("/reset-password")
-async def reset_password(body: ResetPasswordBody) -> Dict[str, Any]:
+async def reset_password(background_tasks: BackgroundTasks, body: ResetPasswordBody) -> Dict[str, Any]:
     """Consume a single-use reset link, set the new password, revoke all sessions."""
     _check_password_policy(body.password)
     token_hash = hash_opaque_token(body.token.strip())
@@ -483,6 +633,21 @@ async def reset_password(body: ResetPasswordBody) -> Dict[str, Any]:
     execute_query("DELETE FROM password_reset_tokens WHERE user_id = %s", (row["user_id"],))
     revoke_all_sessions(row["user_id"])
     log_audit(None, str(row["user_id"]), "auth.password_reset", "user", str(row["user_id"]))
+    # Credential-recovery alert (review P2): the account owner is told the
+    # password changed, even if the reset was legitimate.
+    changed = execute_one(
+        "SELECT * FROM profiles WHERE id = %s", (row["user_id"],)
+    )
+    if changed and changed.get("email"):
+        name = (changed.get("full_name") or changed["email"].split("@")[0]).strip()
+        background_tasks.add_task(
+            send_email_async,
+            changed["email"],
+            "Your Cyphward password was changed",
+            generate_password_changed_alert_html(name),
+            generate_password_changed_alert_text(name),
+            recipient_name=name,
+        )
     return {"ok": True}
 
 

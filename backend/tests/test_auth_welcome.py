@@ -8,10 +8,6 @@ from backend.app.services.mailer import generate_welcome_email_html, generate_we
 from conftest import ALICE
 
 
-def _clear_cooldown():
-    auth_mod._last_sent.clear()
-
-
 # ---------------------------------------------------------------------------
 # Template
 # ---------------------------------------------------------------------------
@@ -44,14 +40,12 @@ def test_welcome_text_version():
 # Endpoint
 # ---------------------------------------------------------------------------
 def test_welcome_requires_token(client):
-    _clear_cooldown()
     resp = client.post("/api/v1/auth/welcome")
     assert resp.status_code == 401
     assert "token" in resp.json()["detail"].lower()
 
 
 def test_welcome_rejects_invalid_token(client):
-    _clear_cooldown()
     resp = client.post(
         "/api/v1/auth/welcome",
         headers={"Authorization": "Bearer not-a-jwt"},
@@ -60,7 +54,6 @@ def test_welcome_rejects_invalid_token(client):
 
 
 def test_welcome_sends_to_verified_account_email(client, auth_headers, monkeypatch):
-    _clear_cooldown()
     sent: list = []
 
     def record(to_email, subject, html_content, text_content=None, recipient_name=None):
@@ -80,7 +73,6 @@ def test_welcome_sends_to_verified_account_email(client, auth_headers, monkeypat
 
 
 def test_welcome_cooldown_prevents_duplicates(client, auth_headers, monkeypatch):
-    _clear_cooldown()
     sent: list = []
     monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
 
@@ -97,7 +89,6 @@ def test_welcome_cooldown_prevents_duplicates(client, auth_headers, monkeypatch)
 # First-time-only semantics (welcome is a signup gift, not a login ritual)
 # ---------------------------------------------------------------------------
 def test_welcome_existing_account_is_rejected(client, auth_headers, monkeypatch, store):
-    _clear_cooldown()
     sent: list = []
     monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
 
@@ -116,14 +107,13 @@ def test_welcome_existing_account_is_rejected(client, auth_headers, monkeypatch,
     assert sent == []
 
 
-def test_welcome_sends_exactly_once_ever(client, auth_headers, monkeypatch):
-    _clear_cooldown()
+def test_welcome_sends_exactly_once_ever(client, auth_headers, monkeypatch, store):
     sent: list = []
     monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
 
     headers = auth_headers(ALICE)
     first = client.post("/api/v1/auth/welcome", headers=headers)
-    _clear_cooldown()  # bypass the hour cooldown — the audit marker must hold
+    store.rate_limits.clear()  # bypass the hour cooldown — the audit marker must hold
     second = client.post("/api/v1/auth/welcome", headers=headers)
 
     assert first.json() == {"sent": True}
@@ -132,7 +122,6 @@ def test_welcome_sends_exactly_once_ever(client, auth_headers, monkeypatch):
 
 
 def test_welcome_unreadable_created_at_fails_safe(client, auth_headers, monkeypatch, store):
-    _clear_cooldown()
     sent: list = []
     monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: sent.append(a))
 

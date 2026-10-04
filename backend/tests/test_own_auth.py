@@ -21,14 +21,10 @@ PASSWORD = "correct-horse-battery"
 
 
 @pytest.fixture(autouse=True)
-def _clear_cooldowns():
-    auth_mod._login_attempts.clear()
-    auth_mod._reset_cooldown.clear()
-    auth_mod._last_sent.clear()
+def _clear_cooldowns(store):
+    store.rate_limits.clear()
     yield
-    auth_mod._login_attempts.clear()
-    auth_mod._reset_cooldown.clear()
-    auth_mod._last_sent.clear()
+    store.rate_limits.clear()
 
 
 @pytest.fixture

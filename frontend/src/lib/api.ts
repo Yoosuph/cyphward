@@ -685,8 +685,22 @@ async function authPost<T>(endpoint: string, payload: unknown): Promise<T> {
   return res;
 }
 
-export async function loginRequest(email: string, password: string): Promise<AuthTokens> {
-  return authPost<AuthTokens>('/auth/login', { email, password });
+export async function loginRequest(email: string, password: string): Promise<AuthTokens | MfaChallenge> {
+  return authPost<AuthTokens | MfaChallenge>('/auth/login', { email, password });
+}
+
+export interface MfaChallenge {
+  mfa_required: true;
+  mfa_token: string;
+  email_hint: string;
+}
+
+export async function mfaVerify(mfaToken: string, code: string): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/mfa/verify', { mfa_token: mfaToken, code });
+}
+
+export async function mfaResend(mfaToken: string): Promise<{ sent: boolean }> {
+  return authPost<{ sent: boolean }>('/auth/mfa/send', { mfa_token: mfaToken, code: '' });
 }
 
 export async function registerRequest(

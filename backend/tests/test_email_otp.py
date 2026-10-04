@@ -14,10 +14,6 @@ from backend.app.services.mailer import generate_otp_email_html, generate_otp_em
 ALICE = "aaaaaaaa-0000-4000-8000-000000000001"
 
 
-def _clear():
-    auth_mod._last_sent.clear()
-
-
 def _send_and_capture(client, headers, monkeypatch, store):
     """POST /otp/send, return (response, captured 6-digit code)."""
     sent = []
@@ -58,12 +54,10 @@ def test_otp_text_version():
 # Send
 # ---------------------------------------------------------------------------
 def test_otp_send_requires_token(client):
-    _clear()
     assert client.post("/api/v1/auth/otp/send").status_code == 401
 
 
 def test_otp_send_stores_hash_not_plaintext(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _resp, code, sent = _send_and_capture(client, headers, monkeypatch, store)
 
@@ -84,7 +78,6 @@ def test_otp_send_stores_hash_not_plaintext(client, auth_headers, monkeypatch, s
 
 
 def test_otp_send_cooldown(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _send_and_capture(client, headers, monkeypatch, store)
 
@@ -103,21 +96,18 @@ def test_otp_send_cooldown(client, auth_headers, monkeypatch, store):
 # Verify
 # ---------------------------------------------------------------------------
 def test_otp_verify_requires_token(client):
-    _clear()
     assert client.post(
         "/api/v1/auth/otp/verify", json={"code": "123456"}
     ).status_code == 401
 
 
 def test_otp_verify_rejects_bad_shape(client, auth_headers):
-    _clear()
     headers = auth_headers(ALICE)
     assert client.post("/api/v1/auth/otp/verify", json={"code": "12ab56"}, headers=headers).status_code == 400
     assert client.post("/api/v1/auth/otp/verify", json={"code": "12345"}, headers=headers).status_code == 400
 
 
 def test_otp_verify_wrong_code_counts_attempts(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _send_and_capture(client, headers, monkeypatch, store)
 
@@ -130,7 +120,6 @@ def test_otp_verify_wrong_code_counts_attempts(client, auth_headers, monkeypatch
 
 
 def test_otp_verify_attempt_limit(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _send_and_capture(client, headers, monkeypatch, store)
 
@@ -147,7 +136,6 @@ def test_otp_verify_attempt_limit(client, auth_headers, monkeypatch, store):
 
 
 def test_otp_verify_expired_code(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _send_and_capture(client, headers, monkeypatch, store)
     store.email_otps[0]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -159,7 +147,6 @@ def test_otp_verify_expired_code(client, auth_headers, monkeypatch, store):
 
 
 def test_otp_verify_success_marks_verified(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     _send_and_capture(client, headers, monkeypatch, store)
 
@@ -192,7 +179,6 @@ def test_otp_verify_success_marks_verified(client, auth_headers, monkeypatch, st
 
 
 def test_otp_verify_no_active_code(client, auth_headers):
-    _clear()
     headers = auth_headers(ALICE)
     resp = client.post("/api/v1/auth/otp/verify", json={"code": "123456"}, headers=headers)
     assert resp.status_code == 400
@@ -203,7 +189,6 @@ def test_otp_verify_no_active_code(client, auth_headers):
 # Org creation gate
 # ---------------------------------------------------------------------------
 def test_create_org_blocked_until_verified(client, auth_headers, monkeypatch, store):
-    _clear()
     headers = auth_headers(ALICE)
     resp = client.post(
         "/api/v1/organizations",

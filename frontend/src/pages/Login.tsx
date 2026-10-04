@@ -13,7 +13,7 @@ import StrataField from '../components/StrataField';
 import CyphwardLogo from '../components/CyphwardLogo';
 
 export default function Login() {
-  const { tenant, signInWithCredentials, completeExternalLogin, onboardingStep } = useAuth();
+  const { tenant, signInWithCredentials, completeMfaSignIn, resendMfaCode, completeExternalLogin, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -24,6 +24,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [remember, setRemember] = useState(true);
   const [theme, setTheme] = useState(getTheme());
+  // Admin step-up: password accepted, 6-digit email code pending.
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaHint, setMfaHint] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [resendNote, setResendNote] = useState('');
 
   useEffect(() => {
     const onThemeChange = () => setTheme(getTheme());
@@ -121,15 +127,51 @@ export default function Login() {
       return;
     }
 
-    const first = (result.name || email.split('@')[0] || '').split(' ')[0];
+    if (result.mfa_required) {
+      setBusy(false);
+      setMfaToken(result.mfa_token || null);
+      setMfaHint(result.email_hint || '');
+      setMfaCode('');
+      setResendNote('');
+      return;
+    }
+
+    finishLogin(result.name || email.split('@')[0] || '', result.onboarding);
+  };
+
+  const finishLogin = (name: string, onboarding: string | undefined) => {
+    const first = (name || '').split(' ')[0];
     toast(`Welcome back${first ? `, ${first}` : ''}!`);
 
     // Navigate from the server-resolved onboarding step (no stale state).
-    if (result.onboarding && result.onboarding !== 'complete' && result.onboarding !== 'none') {
+    if (onboarding && onboarding !== 'complete' && onboarding !== 'none') {
       nav(`/onboarding${inviteParam}`, { replace: true });
     } else {
       nav(`/overview${inviteParam}`, { replace: true });
     }
+  };
+
+  const submitMfa = async (e: FormEvent) => {
+    e.preventDefault();
+    if (mfaBusy || !mfaToken) return;
+    setMfaBusy(true);
+    setError('');
+
+    const result = await completeMfaSignIn(mfaToken, mfaCode);
+    setMfaBusy(false);
+    if (!result.ok) {
+      setError(result.error || 'Invalid code. Please try again.');
+      return;
+    }
+    setMfaToken(null);
+    finishLogin(result.name || '', result.onboarding);
+  };
+
+  const resendCode = async () => {
+    if (!mfaToken) return;
+    setResendNote('');
+    const result = await resendMfaCode(mfaToken);
+    setResendNote(result.ok ? 'A fresh code is on its way.' : (result.error || 'Could not resend the code.'));
   };
 
   const signInWithGoogle = () => {
@@ -300,6 +342,50 @@ export default function Login() {
                 </button>
               </div>
 
+              {mfaToken ? (
+              <form onSubmit={submitMfa}>
+                  {/* Admin step-up: 6-digit code emailed after password check */}
+                  <div className="p-3 mb-4 bg-accent/10 border border-accent/30 rounded text-xs mono text-ink">
+                    Extra check for workspace admins — enter the 6-digit code we sent
+                    {mfaHint ? ` to ${mfaHint}` : ''}.
+                  </div>
+                  <div className="field">
+                    <label htmlFor="mfa-code">SIGN-IN CODE</label>
+                    <input
+                      id="mfa-code"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="123456"
+                      value={mfaCode}
+                      onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      autoComplete="one-time-code"
+                      required
+                    />
+                  </div>
+
+                  {error && (
+                    <div className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex items-start gap-2">
+                      <AlertCircle size={14} className="flex-none mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <button className="btn btn-solid w-full justify-center mt-5" type="submit" disabled={mfaBusy}>
+                    {mfaBusy ? <>VERIFYING…</> : (<>VERIFY & SIGN IN <ArrowRight size={14} className="ml-1" /></>)}
+                  </button>
+
+                  <div className="mt-4 pt-3.5 border-t border-line text-center">
+                    {resendNote && <p className="text-xs mono text-soft mb-2">{resendNote}</p>}
+                    <button type="button" onClick={resendCode} className="text-xs mono text-soft hover:text-accent transition-colors">
+                      RESEND CODE
+                    </button>
+                    <span className="text-xs mono text-soft mx-2">·</span>
+                    <button type="button" onClick={() => { setMfaToken(null); setMfaCode(''); setError(''); }} className="text-xs mono text-soft hover:text-accent transition-colors">
+                      BACK
+                    </button>
+                  </div>
+              </form>
+              ) : (
               <form onSubmit={submit}>
                   {/* Email Field */}
                   <div className="field">
@@ -409,6 +495,7 @@ export default function Login() {
                     </span>
                   </div>
               </form>
+              )}
 
               {/* Hardware attestation footer */}
               <div className="mt-5 pt-3 border-t border-line/60 flex items-center justify-between text-[9.5px] mono text-soft">

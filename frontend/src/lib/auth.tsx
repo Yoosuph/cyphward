@@ -6,9 +6,12 @@ import {
   sendWelcomeEmail,
   getBootstrap,
   loginRequest,
+  mfaResend,
+  mfaVerify,
   registerRequest,
   logoutRequest,
   type BootstrapData,
+  type MfaChallenge,
 } from './api';
 import {
   loadSession,
@@ -76,7 +79,12 @@ interface Auth {
   signInWithCredentials: (
     email: string,
     password: string
+  ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue; mfa_required?: boolean; mfa_token?: string; email_hint?: string }>;
+  completeMfaSignIn: (
+    mfaToken: string,
+    code: string
   ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }>;
+  resendMfaCode: (mfaToken: string) => Promise<{ ok: boolean; error?: string }>;
   signUpWithCredentials: (
     email: string,
     password: string,
@@ -99,6 +107,8 @@ const Ctx = createContext<Auth>({
   primaryDomain: null,
   onboardingStep: 'none',
   signInWithCredentials: async () => ({ ok: false, error: 'Sign in failed. Please try again.' }),
+  completeMfaSignIn: async () => ({ ok: false, error: 'Sign in failed. Please try again.' }),
+  resendMfaCode: async () => ({ ok: false, error: 'Could not resend the code.' }),
   signUpWithCredentials: async () => ({ ok: false, error: 'Sign up failed. Please try again.' }),
   completeExternalLogin: async () => 'none',
   signOut: async () => {},
@@ -393,13 +403,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithCredentials = async (
     email: string,
     password: string
-  ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
+  ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue; mfa_required?: boolean; mfa_token?: string; email_hint?: string }> => {
     const cleanEmail = (email || '').trim().toLowerCase();
     localStorage.removeItem(SIGNOUT_KEY);
     localStorage.removeItem(IDLE_REASON_KEY);
 
     try {
-      const tokens = await loginRequest(cleanEmail, password);
+      const data = await loginRequest(cleanEmail, password);
+      if ((data as MfaChallenge).mfa_required) {
+        const c = data as MfaChallenge;
+        return { ok: true, mfa_required: true, mfa_token: c.mfa_token, email_hint: c.email_hint };
+      }
+      const tokens = data as AuthTokens;
       saveSession(tokens);
       setUser(tokens.user);
       const onboarding = await reloadState();
@@ -408,6 +423,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: true, name, onboarding };
     } catch (e) {
       return { ok: false, error: (e as Error).message || 'Invalid email or password.' };
+    }
+  };
+
+  const completeMfaSignIn = async (
+    mfaToken: string,
+    code: string
+  ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
+    try {
+      const tokens = await mfaVerify(mfaToken, code.trim());
+      saveSession(tokens);
+      setUser(tokens.user);
+      localStorage.removeItem(SIGNOUT_KEY);
+      localStorage.removeItem(IDLE_REASON_KEY);
+      const onboarding = await reloadState();
+      maybeSendWelcome(tokens.user.id);
+      const name = (tokens.user.full_name || '').trim();
+      return { ok: true, name, onboarding };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || 'Invalid code. Please try again.' };
+    }
+  };
+
+  const resendMfaCode = async (mfaToken: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await mfaResend(mfaToken);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || 'Could not resend the code.' };
     }
   };
 
@@ -547,6 +590,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         primaryDomain,
         onboardingStep,
         signInWithCredentials,
+        completeMfaSignIn,
+        resendMfaCode,
         signUpWithCredentials,
         completeExternalLogin,
         signOut,

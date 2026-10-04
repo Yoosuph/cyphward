@@ -147,6 +147,7 @@ class FakeStore:
         self.notifications: list = []
         self.staff_grants: list = []
         self.cron_runs: list = []
+        self.rate_limits: list = []
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -415,10 +416,15 @@ class FakeStore:
                 })
             return rows[:limit]
 
-        # --- email OTP (Brevo verification) -------------------------------
+        # --- email OTP (Brevo verification + admin login step-up) --------
         if s.startswith("DELETE FROM email_otps"):
             uid = params[0]
-            self.email_otps = [r for r in self.email_otps if r["user_id"] != uid]
+            purpose = "mfa" if "purpose = 'mfa'" in s else (
+                "verify" if "purpose = 'verify'" in s else None)
+            self.email_otps = [
+                r for r in self.email_otps
+                if not (r["user_id"] == uid and (purpose is None or r.get("purpose", "verify") == purpose))
+            ]
             return []
 
         if s.startswith("INSERT INTO email_otps"):
@@ -430,22 +436,59 @@ class FakeStore:
                 "code_hash": code_hash,
                 "attempts": 0,
                 "created_at": now,
+                "purpose": "mfa" if "'mfa'" in s else "verify",
                 # the real SQL computes now() + ttl; mirror it in the fake
                 "expires_at": now + timedelta(seconds=600),
             })
             return []
 
+        # --- shared rate limits (P2 throttling) ---------------------------
+        if s.startswith("INSERT INTO rate_limits"):
+            bucket, window = params[0], float(params[1])
+            now = datetime.now(timezone.utc)
+            row = next((r for r in self.rate_limits if r["bucket_key"] == bucket), None)
+            if row is None:
+                row = {"bucket_key": bucket, "window_start": now, "count": 0}
+                self.rate_limits.append(row)
+            if (now - row["window_start"]).total_seconds() >= window:
+                row["window_start"] = now
+                row["count"] = 1
+            else:
+                row["count"] += 1
+            return [{"count": row["count"], "window_start": row["window_start"]}]
+
+        if s.startswith("DELETE FROM rate_limits"):
+            if "bucket_key = %s" in s:
+                self.rate_limits = [r for r in self.rate_limits if r["bucket_key"] != params[0]]
+            else:
+                cutoff = datetime.now(timezone.utc) - timedelta(seconds=float(params[0]))
+                self.rate_limits = [r for r in self.rate_limits if r["window_start"] >= cutoff]
+            return []
+
+        if s.startswith("SELECT 1 FROM organization_members WHERE user_id = %s AND role IN"):
+            uid = params[0]
+            return [{"ok": 1}] if any(
+                m["user_id"] == uid and m["role"] in ("owner", "admin")
+                for m in self.memberships
+            ) else []
+
         if s.startswith("SELECT created_at FROM email_otps"):
             uid = params[0]
-            rows = [r for r in self.email_otps if r["user_id"] == uid]
+            purpose = "mfa" if "purpose = 'mfa'" in s else (
+                "verify" if "purpose = 'verify'" in s else None)
+            rows = [r for r in self.email_otps
+                    if r["user_id"] == uid and (purpose is None or r.get("purpose", "verify") == purpose)]
             if not rows:
                 return []
             return [{"created_at": max(r["created_at"] for r in rows)}]
 
         if s.startswith("SELECT id, code_hash, attempts, expires_at") and "email_otps" in s:
             uid = params[0]
+            purpose = "mfa" if "purpose = 'mfa'" in s else (
+                "verify" if "purpose = 'verify'" in s else None)
             rows = sorted(
-                [r for r in self.email_otps if r["user_id"] == uid],
+                [r for r in self.email_otps
+                 if r["user_id"] == uid and (purpose is None or r.get("purpose", "verify") == purpose)],
                 key=lambda r: r["created_at"],
                 reverse=True,
             )
