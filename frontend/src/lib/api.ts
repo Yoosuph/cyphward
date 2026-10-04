@@ -801,6 +801,52 @@ export async function removeMonitoredHost(domainId: string, hostId: string): Pro
   }, true);
 }
 
+export interface PlatformHealth {
+  database: { connected: boolean; roundtrip_ms: number };
+  daily_scans_last_completed: string | null;
+  scans_active: number;
+}
+
+export async function platformHealth(): Promise<PlatformHealth> {
+  const res = await apiFetch<PlatformHealth>('/platform/health', {}, true);
+  if (!res) throw new Error('Platform access required.');
+  return res;
+}
+
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  created_at: string;
+  member_count: number;
+  domain_count: number;
+  active_scan_count: number;
+}
+
+export async function platformTenantLookup(orgId: string, reason: string): Promise<PlatformTenant> {
+  const res = await apiFetch<PlatformTenant>(
+    `/platform/tenants/${encodeURIComponent(orgId)}?reason=${encodeURIComponent(reason)}`, {}, true);
+  if (!res) throw new Error('Lookup failed.');
+  return res;
+}
+
+export interface PlatformOverdueScan {
+  id: string;
+  org_id: string;
+  org_name: string;
+  status: string;
+  created_at: string;
+  lease_expires_at: string | null;
+}
+
+export async function platformOverdueScans(reason: string, limit = 50): Promise<{ count: number; scans: PlatformOverdueScan[] }> {
+  const res = await apiFetch<{ count: number; scans: PlatformOverdueScan[] }>(
+    `/platform/scans/overdue?reason=${encodeURIComponent(reason)}&limit=${limit}`, {}, true);
+  if (!res) throw new Error('Lookup failed.');
+  return res;
+}
+
 export async function registerRequest(
   email: string,
   password: string,

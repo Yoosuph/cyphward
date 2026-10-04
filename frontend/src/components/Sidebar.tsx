@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, Link } from 'react-router-dom';
 import {
   Activity,
@@ -9,12 +9,14 @@ import {
   Network,
   ShieldCheck,
   Sliders,
+  Terminal,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   X,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { platformHealth } from '../lib/api';
 import { useToast } from './Toast';
 import StatusChip from './StatusChip';
 import CyphwardLogo from './CyphwardLogo';
@@ -30,6 +32,8 @@ const NAV = [
   { to: '/settings', label: 'SETTINGS', idx: '08', icon: Sliders, end: false },
 ];
 
+const STAFF_NAV = { to: '/platform', label: 'PLATFORM', idx: '09', icon: Terminal, end: false };
+
 interface SidebarProps {
   open?: boolean;
   onClose?: () => void;
@@ -44,6 +48,17 @@ export default function Sidebar({
   onToggleCollapse,
 }: SidebarProps) {
   const { tenant, signOut } = useAuth();
+  // Staff console link: shown only when the account holds a live platform
+  // grant (checked once — the page itself re-verifies on every request).
+  const [staffAccess, setStaffAccess] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    platformHealth().then(
+      () => { if (live) setStaffAccess(true); },
+      () => { if (live) setStaffAccess(false); },
+    );
+    return () => { live = false; };
+  }, []);
   const nav = useNavigate();
   const toast = useToast();
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -145,6 +160,20 @@ export default function Sidebar({
               <span className="nav-label">{n.label}</span>
             </NavLink>
           ))}
+          {staffAccess && (
+            <NavLink
+              key={STAFF_NAV.to}
+              to={STAFF_NAV.to}
+              end={STAFF_NAV.end}
+              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              onClick={onClose}
+              title={collapsed ? `SECTION ${STAFF_NAV.idx} · ${STAFF_NAV.label}` : undefined}
+            >
+              <STAFF_NAV.icon size={15} strokeWidth={1.7} />
+              <span className="idx">{STAFF_NAV.idx}</span>
+              <span className="nav-label">{STAFF_NAV.label}</span>
+            </NavLink>
+          )}
         </nav>
 
         <div className="side-foot">

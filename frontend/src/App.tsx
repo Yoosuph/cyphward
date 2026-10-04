@@ -44,6 +44,7 @@ const Domains = lazy(() => import('./pages/Domains'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Remediation = lazy(() => import('./pages/Remediation'));
 const Reports = lazy(() => import('./pages/Reports'));
+const Platform = lazy(() => import('./pages/Platform'));
 import CyphBotDrawer from './components/CyphBotDrawer';
 import CyphBotFloatingButton from './components/CyphBotFloatingButton';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -334,6 +335,7 @@ export default function App() {
               <Route path="/remediation" element={<Remediation />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/platform" element={<Platform />} />
 
               {/* Legacy alias redirects */}
               <Route path="/analytics" element={<Navigate to="/overview" replace />} />
