@@ -129,12 +129,46 @@ const CHECKS = [
 ];
 
 const CALCULATOR_SECTORS = [
-  { name: 'Commercial Banking & Merchant Banks', baseExposure: '₦450M', recommended: 'Enterprise' },
-  { name: 'Fintech & Payment Gateway Switches', baseExposure: '₦180M', recommended: 'Scale' },
-  { name: 'Telco VAS & Mobile Money Providers', baseExposure: '₦320M', recommended: 'Enterprise' },
-  { name: 'Logistics & Supply Chain Conglomerates', baseExposure: '₦65M', recommended: 'Growth' },
-  { name: 'Healthcare & Healthtech Networks', baseExposure: '₦95M', recommended: 'Growth' },
+  { name: 'Commercial Banking & Merchant Banks', turnoverNGN: 22_500_000_000, recommended: 'Enterprise' },
+  { name: 'Fintech & Payment Gateway Switches', turnoverNGN: 9_000_000_000, recommended: 'Scale' },
+  { name: 'Telco VAS & Mobile Money Providers', turnoverNGN: 16_000_000_000, recommended: 'Enterprise' },
+  { name: 'Logistics & Supply Chain Conglomerates', turnoverNGN: 3_250_000_000, recommended: 'Growth' },
+  { name: 'Healthcare & Healthtech Networks', turnoverNGN: 4_750_000_000, recommended: 'Growth' },
 ];
+
+// Illustrative FX for the estimator only (foreign currency per ₦1).
+const ILLUSTRATIVE_FX: Record<string, number> = { KES: 1 / 12, ZAR: 1 / 85, GHS: 1 / 120, EGP: 1 / 30 };
+
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1))}M`;
+  if (n >= 1_000) return `${parseFloat((n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1))}K`;
+  return `${Math.round(n)}`;
+}
+
+// Jurisdiction-specific maximum administrative exposure for the sector's
+// assumed turnover. Rules: NDPA 2023 s.48 (greater of ₦10M/₦2M and 2%);
+// Kenya DPA 2019 s.63 (up to KES 5M or 1% of turnover, whichever is lower);
+// PoPIA s.109 (up to R10M); Ghana DPA 2012 (up to 2,500 penalty units);
+// Egypt Law 151/2020 art.36 (up to EGP 1M for unlawful processing).
+function calcFine(turnoverNGN: number, country: string): { figure: string; rule: string } {
+  switch (country) {
+    case 'Kenya': {
+      const t = turnoverNGN * ILLUSTRATIVE_FX.KES;
+      const fine = Math.min(5_000_000, 0.01 * t);
+      return { figure: `KES ${compact(fine)}`, rule: 'Kenya DPA s.63: up to KES 5M or 1% of turnover, whichever is lower.' };
+    }
+    case 'South Africa':
+      return { figure: 'R10M', rule: 'PoPIA s.109: administrative fine up to R10M (statutory maximum).' };
+    case 'Ghana':
+      return { figure: 'GHS 30K', rule: 'Ghana DPA 2012: up to 2,500 penalty units (≈GHS 30,000) per serious offence.' };
+    case 'Egypt':
+      return { figure: 'EGP 1M', rule: 'Law 151/2020 art.36: up to EGP 1M for unlawful processing.' };
+    default: {
+      const fine = Math.max(10_000_000, 0.02 * turnoverNGN);
+      return { figure: `₦${compact(fine)}`, rule: 'NDPA 2023 s.48 (major importance): greater of ₦10M and 2% of annual turnover.' };
+    }
+  }
+}
 
 const COUNTRY_REGULATION: Record<string, string> = {
   Nigeria: 'NDPA 2023 · CBN Cybersecurity Framework',
@@ -615,12 +649,12 @@ export default function Landing() {
                   <span className="tag acc">ILLUSTRATIVE</span>
                 </div>
                 <div className="font-display text-4xl text-accent font-medium mb-1">
-                  {CALCULATOR_SECTORS[calcSector].baseExposure}
+                  {calcFine(CALCULATOR_SECTORS[calcSector].turnoverNGN, calcCountry).figure}
                 </div>
                 <p className="text-xs mono text-soft mb-4">
-                  Penalties are typically tied to turnover — NDPA 2023 Sec 48, for example,
-                  allows up to 2% of annual turnover or ₦10M. Figures shown assume a typical
-                  annual turnover for the selected sector.
+                  {calcFine(CALCULATOR_SECTORS[calcSector].turnoverNGN, calcCountry).rule}{' '}
+                  Assumes ≈₦{(CALCULATOR_SECTORS[calcSector].turnoverNGN / 1_000_000_000).toFixed(1)}B
+                  annual turnover for this sector. Illustrative estimate — not legal advice.
                 </p>
 
                 <div className="space-y-2 border-t border-line pt-3 text-xs mono">
@@ -818,8 +852,8 @@ export default function Landing() {
                 <CyphwardLogo variant="full" size={20} />
               </div>
               <p className="text-xs mono text-soft leading-relaxed">
-                African-built cyber security and compliance platform.
-                Layer by layer defense for the continent.
+                African-built cyber security platform.
+                Technical evidence for your compliance programme, layer by layer defense for the continent.
               </p>
               <div className="flex items-center gap-2.5 mt-4">
                 <a

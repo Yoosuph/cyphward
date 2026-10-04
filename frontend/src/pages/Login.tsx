@@ -192,7 +192,7 @@ export default function Login() {
               </h1>
 
               <p className="login-sub">
-                Track NDPA and CBN compliance, watch for USSD and SIM-swap fraud, and see the
+                Track NDPA and CBN readiness evidence, watch for USSD and SIM-swap fraud, and see the
                 security of everything you run online in one clear dashboard.
               </p>
             </div>
@@ -270,7 +270,7 @@ export default function Login() {
               {/* Compliance Badges */}
               <div className="auth-trust-strip mt-4">
                 <span className="auth-trust-item">
-                  <ShieldCheck size={12} className="text-accent" /> NDPA 2023 COMPLIANT
+                  <ShieldCheck size={12} className="text-accent" /> NDPA 2023 READINESS
                 </span>
                 <span className="auth-trust-item">
                   <Lock size={12} className="text-accent" /> BUILT FOR CBN RULES
@@ -285,7 +285,7 @@ export default function Login() {
             <div className="p-3.5 rounded border border-line bg-inset/60 text-xs text-soft leading-relaxed flex items-start gap-3">
               <span className="font-serif text-2xl text-accent leading-none select-none">“</span>
               <p>
-                <strong className="text-ink">CYPHWARD</strong> gives our board a clear view of our security and compliance — no more guesswork.
+                <strong className="text-ink">CYPHWARD</strong> gives our board a clear view of our security posture and compliance evidence — no more guesswork.
                 <span className="block mt-1 text-[10.5px] mono text-soft">— Folake Adeyemi, Lead DPO, Lagos Core Switch</span>
               </p>
             </div>
@@ -425,7 +425,7 @@ export default function Login() {
         <div className="mt-10 pt-6 border-t border-line">
           <dl className="meta-row">
             <div><dt>WORKSPACES</dt><dd>ONE PRIVATE WORKSPACE PER COMPANY</dd></div>
-            <div><dt>COMPLIANCE</dt><dd>NDPA 2023 · CBN</dd></div>
+            <div><dt>READINESS EVIDENCE</dt><dd>NDPA 2023 · CBN</dd></div>
             <div><dt>DATA LOCATION</dt><dd>LAGOS · NAIROBI</dd></div>
             <div><dt>ACCOUNT STATUS</dt><dd className="text-ok font-medium">SECURE &amp; ACTIVE</dd></div>
           </dl>

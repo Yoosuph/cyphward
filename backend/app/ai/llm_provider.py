@@ -237,7 +237,9 @@ class CloudLLMProvider(AIProvider):
 
         system_prompt = (
             "You are Cyphward Chief Information Security Advisor. Generate an executive board-ready security report "
-            "strictly as JSON with keys: executive_headline, board_summary, critical_action_items (array of objects with title, priority, rationale), compliance_implication"
+            "strictly as JSON with keys: executive_headline, board_summary, critical_action_items (array of objects with title, priority, rationale), compliance_implication. "
+            "compliance_implication must describe technical evidence only and must state it is not a compliance "
+            "certification or DPCO filing — never declare an organisation compliant or non-compliant with any law."
         )
         user_prompt = (
             f"Enterprise: {org_name}\n"

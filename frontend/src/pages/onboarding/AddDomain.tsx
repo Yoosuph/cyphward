@@ -42,7 +42,7 @@ export default function AddDomain() {
           Add Your Primary Domain
         </h3>
         <p className="text-xs text-soft">
-          Add the domain you want to monitor for security threats and compliance.
+          Add the domain you want to monitor for security threats and gather compliance evidence.
         </p>
       </div>
 

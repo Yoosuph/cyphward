@@ -192,7 +192,7 @@ export default function Domains() {
           </div>
         </div>
         <span className="text-[11px] text-accent bg-accent-soft px-2.5 py-1 rounded border border-accent/20 shrink-0 self-start sm:self-center">
-          NDPA 2023 Compliant
+          Ownership-verified scanning
         </span>
       </div>
 

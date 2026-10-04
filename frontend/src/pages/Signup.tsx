@@ -167,7 +167,7 @@ export default function Signup() {
               </h1>
 
               <p className="login-sub">
-                Create an account to monitor your websites and apps for security issues, stay on top of NDPA and CBN rules, and catch threats early.
+                Create an account to monitor your websites and apps for security issues, stay audit-ready for NDPA and CBN programmes, and catch threats early.
               </p>
             </div>
 
@@ -214,7 +214,7 @@ export default function Signup() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <ShieldCheck size={14} className="text-ok flex-none" />
                     <div>
-                      <span className="font-semibold text-ink">NDPA 2023 checks</span>
+                      <span className="font-semibold text-ink">NDPA 2023 readiness checks</span>
                       <span className="text-soft ml-1.5 hidden sm:inline">(always on)</span>
                     </div>
                   </div>
@@ -244,7 +244,7 @@ export default function Signup() {
               {/* Compliance Badges */}
               <div className="auth-trust-strip mt-4">
                 <span className="auth-trust-item">
-                  <ShieldCheck size={12} className="text-accent" /> NDPA 2023 COMPLIANT
+                  <ShieldCheck size={12} className="text-accent" /> NDPA 2023 READINESS
                 </span>
                 <span className="auth-trust-item">
                   <Lock size={12} className="text-accent" /> BUILT FOR CBN RULES

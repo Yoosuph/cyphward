@@ -304,8 +304,8 @@ class HeuristicAIProvider(AIProvider):
                     }
                 ],
                 "compliance_verdict": (
-                    "Not assessed — compliance posture cannot be determined before a "
-                    "completed scan exists."
+                    "Not assessed — no completed scan exists yet. Cyphward reports "
+                    "technical evidence; it does not determine legal compliance."
                 ),
                 "generated_at": "Live Telemetry",
             }
@@ -360,7 +360,12 @@ class HeuristicAIProvider(AIProvider):
             "board_summary": narrative,
             "key_strengths": strengths,
             "critical_action_items": actions,
-            "compliance_verdict": "Partial Compliance. Immediate remediation of DMARC and HSTS is required to satisfy NDPA 2023 Part V technical safeguards and CBN Risk-Based Framework section 4.3.",
+            "compliance_verdict": (
+                "Readiness note: the gaps above (DMARC, HSTS) are relevant to NDPA 2023 "
+                "Part V technical safeguards and CBN expectations — confirm legal "
+                "compliance with your DPO or licensed DPCO. This assessment is "
+                "technical evidence, not a compliance certification or filing."
+            ),
             "generated_at": "Live Telemetry"
         }
 

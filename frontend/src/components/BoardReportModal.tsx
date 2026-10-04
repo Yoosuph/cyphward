@@ -227,7 +227,7 @@ ${summary.key_strengths.map(s => `• ${s}`).join('\n')}
 WHAT THE BOARD SHOULD DO:
 ${summary.critical_action_items.map(a => `[${a.priority}] ${a.title} (Owner: ${a.owner})\n  Impact: ${a.impact}`).join('\n')}
 
-COMPLIANCE STATUS:
+COMPLIANCE READINESS NOTE (technical evidence — not a certification or DPCO filing):
 ${summary.compliance_verdict}
     `.trim();
 
@@ -435,15 +435,18 @@ ${summary.compliance_verdict}
             </div>
           )}
 
-          {/* Regulatory Compliance Verdict */}
+          {/* Regulatory Readiness Note */}
           <div className="p-3 bg-accent/5 rounded border border-accent/20 text-[11.5px] report-card">
             <div className="flex items-center gap-1.5 mb-1">
               <ShieldCheck size={13} className="text-accent" />
               <span className="font-bold mono text-accent uppercase text-[10.5px]">
-                NDPA 2023 & CBN COMPLIANCE STATUS
+                NDPA 2023 & CBN READINESS NOTE
               </span>
             </div>
             <p className="text-ink leading-relaxed">{summary.compliance_verdict}</p>
+            <p className="text-soft text-[10.5px] mt-1">
+              Technical evidence for your compliance programme — not a certification or DPCO filing.
+            </p>
           </div>
 
           {/* Cryptographic Signature Footer */}
