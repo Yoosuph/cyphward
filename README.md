@@ -77,6 +77,10 @@ supabase db push
 # 20261001120000_own_auth.sql
 ```
 
+> Upgrading a database that already holds customer data? Read
+> `docs/database-upgrade-runbook.md` first — one migration drops legacy
+> tables and needs a backup + data decision beforehand.
+
 Optionally seed demo tenants:
 
 ```bash
