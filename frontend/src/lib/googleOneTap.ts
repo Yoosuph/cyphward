@@ -1,7 +1,7 @@
 // Google One Tap — the small side prompt from Google Identity Services.
 // We verify the ID token on OUR backend (/auth/google/one-tap), so no
 // Supabase and no client-secret ever touch the browser.
-import { getGoogleClientId, oneTapLogin } from './api';
+import { getGoogleClientId, oneTapLogin, type MfaChallenge } from './api';
 import type { AuthTokens } from './session';
 
 let scriptPromise: Promise<void> | null = null;
@@ -29,8 +29,9 @@ function loadGisScript(): Promise<void> {
 }
 
 export interface OneTapOptions {
-  /** Called once the backend accepts the verified Google credential. */
-  onSuccess: (tokens: AuthTokens) => void;
+  /** Called once the backend accepts the verified Google credential —
+      either a session or an MFA challenge for step-up accounts. */
+  onSuccess: (tokens: AuthTokens | MfaChallenge) => void;
   /** Called when the backend rejects the credential (silent — no alert). */
   onError?: (message: string) => void;
 }

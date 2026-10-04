@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
+import type { MfaChallenge } from '../lib/api';
+import { stashMfaChallenge } from '../lib/session';
+import type { AuthTokens } from '../lib/session';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
@@ -49,7 +52,14 @@ export default function Signup() {
     startGoogleOneTap({
       onSuccess: async tokens => {
         try {
-          const step = await completeExternalLogin(tokens);
+          if ((tokens as MfaChallenge).mfa_required) {
+            if (cancelled) return;
+            const c = tokens as MfaChallenge;
+            stashMfaChallenge(c.mfa_token, c.email_hint || '');
+            nav(`/login${inviteParam}`, { replace: true });
+            return;
+          }
+          const step = await completeExternalLogin(tokens as AuthTokens);
           if (step && step !== 'complete' && step !== 'none') {
             nav(`/onboarding${inviteParam}`, { replace: true });
           } else if (step === 'none') {

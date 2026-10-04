@@ -56,8 +56,7 @@ export function loadSession(): AuthTokens | null {
   }
 }
 
-export function saveSession(tokens: AuthTokens): void {
-  try {
+export function saveSession(tokens: AuthTokens): void {  try {
     const enriched: AuthTokens = {
       ...tokens,
       _expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
@@ -166,4 +165,33 @@ export async function ensureFreshAccessToken(): Promise<string | null> {
     return rotated?.access_token ?? null;
   }
   return stored.access_token;
+}
+
+const MFA_CHALLENGE_KEY = 'cyphward-mfa-challenge';
+
+export interface StashedMfaChallenge {
+  token: string;
+  hint: string;
+}
+
+/** Park a step-up challenge (e.g. from One Tap on the signup page) for the Login MFA screen. */
+export function stashMfaChallenge(token: string, hint: string): void {
+  try {
+    sessionStorage.setItem(MFA_CHALLENGE_KEY, JSON.stringify({ token, hint }));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Take (and clear) a parked step-up challenge, if any. */
+export function takeMfaChallenge(): StashedMfaChallenge | null {
+  try {
+    const raw = sessionStorage.getItem(MFA_CHALLENGE_KEY);
+    sessionStorage.removeItem(MFA_CHALLENGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StashedMfaChallenge;
+    return parsed?.token ? parsed : null;
+  } catch {
+    return null;
+  }
 }

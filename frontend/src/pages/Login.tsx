@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
+import type { MfaChallenge } from '../lib/api';
+import { takeMfaChallenge } from '../lib/session';
+import type { AuthTokens } from '../lib/session';
 import { getTheme, toggleTheme } from '../lib/theme';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
@@ -73,6 +76,17 @@ export default function Login() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A parked step-up challenge (One Tap on another page) lands in the MFA screen.
+  useEffect(() => {
+    const stashed = takeMfaChallenge();
+    if (stashed) {
+      setMfaToken(stashed.token);
+      setMfaHint(stashed.hint);
+      setMfaCode('');
+      setResendNote('');
+    }
+  }, []);
+
   // Google One Tap — the small side prompt, verified by our own backend.
   useEffect(() => {
     if (tenant) return;
@@ -81,7 +95,17 @@ export default function Login() {
     startGoogleOneTap({
       onSuccess: async tokens => {
         try {
-          const step = await completeExternalLogin(tokens);
+          if ((tokens as MfaChallenge).mfa_required) {
+            if (cancelled) return;
+            const c = tokens as MfaChallenge;
+            setMfaToken(c.mfa_token);
+            setMfaHint(c.email_hint || '');
+            setMfaCode('');
+            setResendNote('');
+            toast('Extra check — enter the code we emailed you.');
+            return;
+          }
+          const step = await completeExternalLogin(tokens as AuthTokens);
           if (step && step !== 'complete' && step !== 'none') {
             nav(`/onboarding${inviteParam}`, { replace: true });
           } else if (step === 'none') {

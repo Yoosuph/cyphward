@@ -912,6 +912,6 @@ export async function getGoogleClientId(): Promise<{ client_id: string | null }>
   return res;
 }
 
-export async function oneTapLogin(credential: string): Promise<AuthTokens> {
-  return authPost<AuthTokens>('/auth/google/one-tap', { credential });
+export async function oneTapLogin(credential: string): Promise<AuthTokens | MfaChallenge> {
+  return authPost<AuthTokens | MfaChallenge>('/auth/google/one-tap', { credential });
 }
