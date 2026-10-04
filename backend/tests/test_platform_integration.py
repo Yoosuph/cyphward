@@ -85,10 +85,16 @@ def test_app_role_privilege_matrix_on_staff_tables():
                     ).fetchone()
                     assert n is not None
         finally:
-            with psycopg.connect(os.environ["DATABASE_URL"]) as cleanup:
+            with psycopg.connect(os.environ["DATABASE_URL"],
+                                 row_factory=psycopg.rows.dict_row) as cleanup:
                 with cleanup.transaction():
                     cleanup.execute("DELETE FROM audit_log WHERE action LIKE 'integration-probe%'")
                     cleanup.execute("DELETE FROM platform_staff WHERE id = %s", (STAFF_ID,))
+                    left = cleanup.execute(
+                        "SELECT count(*) AS n FROM platform_staff WHERE id = %s",
+                        (STAFF_ID,),
+                    ).fetchone()["n"]
+                    assert left == 0, "probe grant leaked — cleanup failed"
 
 
 def test_gate_queries_behave_as_app_role():
@@ -146,9 +152,15 @@ def test_gate_queries_behave_as_app_role():
                 ).fetchall()
                 assert isinstance(overdue, list)
         finally:
-            with psycopg.connect(os.environ["DATABASE_URL"]) as cleanup:
+            with psycopg.connect(os.environ["DATABASE_URL"],
+                                 row_factory=psycopg.rows.dict_row) as cleanup:
                 with cleanup.transaction():
                     cleanup.execute(
                         "DELETE FROM platform_staff WHERE reason LIKE 'probe-%'"
                     )
+                    left = cleanup.execute(
+                        "SELECT count(*) AS n FROM platform_staff "
+                        "WHERE reason LIKE 'probe-%'"
+                    ).fetchone()["n"]
+                    assert left == 0, "probe grants leaked — cleanup failed"
 
