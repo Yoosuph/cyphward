@@ -748,6 +748,12 @@ export async function closeOrganization(slug: string): Promise<{ closed: boolean
   }, true);
 }
 
+export async function deleteOwnAccount(email: string, password: string): Promise<{ deleted: boolean } | null> {
+  return apiFetch<{ deleted: boolean }>('/auth/account/delete', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  }, true);
+}
 export interface SubscriptionInfo {
   subscription: any | null;
   effective_status: string | null;
@@ -840,8 +846,7 @@ export interface PlatformOverdueScan {
   lease_expires_at: string | null;
 }
 
-export async function platformOverdueScans(reason: string, limit = 50): Promise<{ count: number; scans: PlatformOverdueScan[] }> {
-  const res = await apiFetch<{ count: number; scans: PlatformOverdueScan[] }>(
+export async function platformOverdueScans(reason: string, limit = 50): Promise<{ count: number; scans: PlatformOverdueScan[] }> {  const res = await apiFetch<{ count: number; scans: PlatformOverdueScan[] }>(
     `/platform/scans/overdue?reason=${encodeURIComponent(reason)}&limit=${limit}`, {}, true);
   if (!res) throw new Error('Lookup failed.');
   return res;

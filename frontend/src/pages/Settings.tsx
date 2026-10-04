@@ -8,7 +8,8 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
@@ -38,6 +39,32 @@ export default function Settings() {
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // Account self-service deletion (typed email + password when set).
+  const { user: sessionUser, signOut } = useAuth();
+  const [delEmail, setDelEmail] = useState('');
+  const [delPw, setDelPw] = useState('');
+  const [delBusy, setDelBusy] = useState(false);
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!delEmail.trim()) return;
+    if (!window.confirm('Permanently delete your account and all its sessions? This cannot be undone.')) return;
+    setDelBusy(true);
+    try {
+      const res = await deleteOwnAccount(delEmail.trim(), delPw);
+      if (res?.deleted) {
+        toast('Account deleted');
+        await signOut();
+        window.location.href = '/login';
+      } else {
+        toast('Could not delete the account');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Could not delete the account');
+    } finally {
+      setDelBusy(false);
+    }
+  };
   // Workspace export + closure (owner-only danger zone).
   const [exportBusy, setExportBusy] = useState(false);
   const [closeSlug, setCloseSlug] = useState('');
@@ -752,6 +779,41 @@ export default function Settings() {
                 </button>
               </form>
             )}
+          </div>
+
+          {/* Self-service account deletion */}
+          <div className="pt-4 border-t border-red-500/20 space-y-3">
+            <h4 className="mono font-semibold text-ink text-xs">DELETE MY ACCOUNT</h4>
+            <p className="text-xs text-soft mono leading-relaxed">
+              Removes your profile, sessions and memberships. Blocked while you solely own a
+              workspace — transfer ownership or close it first.
+            </p>
+            <form onSubmit={handleDeleteAccount} className="flex flex-wrap items-center gap-2">
+              <input
+                type="email"
+                placeholder={sessionUser?.email || 'you@example.com'}
+                value={delEmail}
+                onChange={e => setDelEmail(e.target.value)}
+                className="flex-1 min-w-[200px] bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-red-500"
+              />
+              {sessionUser?.provider !== 'google' && (
+                <input
+                  type="password"
+                  placeholder="Current password"
+                  value={delPw}
+                  onChange={e => setDelPw(e.target.value)}
+                  autoComplete="current-password"
+                  className="w-48 bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-red-500"
+                />
+              )}
+              <button
+                type="submit"
+                disabled={delBusy || !delEmail.trim()}
+                className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                {delBusy ? 'DELETING…' : 'DELETE ACCOUNT'}
+              </button>
+            </form>
           </div>
         </div>
       )}

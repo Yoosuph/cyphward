@@ -680,6 +680,35 @@ class FakeStore:
         if s.startswith("SELECT id, plan FROM organizations"):
             return [{"id": o["id"], "plan": o.get("plan")} for o in self.organizations.values()]
 
+        # --- account self-service deletion ----------------------------------
+        if s.startswith("SELECT o.id, o.name, o.slug FROM organization_members m"):
+            uid = params[0]
+            rows = []
+            for m in self.memberships:
+                if m["user_id"] != uid or m["role"] != "owner":
+                    continue
+                owners = [x for x in self.memberships
+                          if x["org_id"] == m["org_id"] and x["role"] == "owner"]
+                if len(owners) == 1:
+                    o = self.organizations.get(m["org_id"], {})
+                    rows.append({"id": m["org_id"], "name": o.get("name"),
+                                 "slug": o.get("slug")})
+            return rows
+
+        if s.startswith("DELETE FROM profiles WHERE id = %s"):
+            uid = str(params[0])
+            if uid not in self.profiles:
+                return []
+            del self.profiles[uid]
+            # mirror ON DELETE CASCADE / SET NULL
+            self.sessions = [x for x in self.sessions if x["user_id"] != uid]
+            self.email_otps = [x for x in self.email_otps if x["user_id"] != uid]
+            self.password_reset_tokens = [
+                x for x in self.password_reset_tokens if str(x["user_id"]) != uid]
+            self.memberships = [x for x in self.memberships if x["user_id"] != uid]
+            self.staff_grants = [g for g in self.staff_grants if g["user_id"] != uid]
+            return [{"id": uid}]
+
         # --- billing model (subscriptions + invoices, manual provider) ---
         if s.startswith("SELECT * FROM subscriptions WHERE org_id = %s"):
             sub = next((x for x in self.subscriptions if x["org_id"] == params[0]), None)

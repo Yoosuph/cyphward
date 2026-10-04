@@ -581,6 +581,56 @@ class MfaDisableBody(BaseModel):
     code: str = ""
 
 
+class DeleteAccountBody(BaseModel):
+    email: str = ""
+    password: str = ""
+
+
+@router.post("/account/delete")
+async def delete_own_account(
+    body: DeleteAccountBody,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Self-service account deletion (data-rights follow-up).
+
+    Typed-email confirmation plus the password when one is set (Google-only
+    accounts rely on the session + typed email). Sole owners are blocked
+    until ownership is transferred or the workspace is closed — otherwise
+    the org would be orphaned. Profile DELETE cascades sessions, tokens,
+    OTPs, memberships and staff grants; references (invites, reports,
+    remediation) null out; a NULL-user tombstone keeps the deletion itself
+    on record.
+    """
+    email = (body.email or "").strip().lower()
+    if email != (user.get("email") or "").strip().lower():
+        raise HTTPException(status_code=400, detail="Type your account email to confirm deletion.")
+    if user.get("password_hash"):
+        if not body.password or not verify_password(user.get("password_hash"), body.password):
+            raise HTTPException(status_code=401, detail="Password is incorrect.")
+    sole_owned = execute_query(
+        """
+        SELECT o.id, o.name, o.slug FROM organization_members m
+        JOIN organizations o ON o.id = m.org_id
+        WHERE m.user_id = %s AND m.role = 'owner'
+          AND (SELECT count(*) FROM organization_members
+               WHERE org_id = m.org_id AND role = 'owner') = 1
+        """,
+        (user["id"],),
+    )
+    if sole_owned:
+        names = ", ".join(sorted({(r.get("name") or r.get("slug") or "?") for r in sole_owned}))
+        raise HTTPException(
+            status_code=409,
+            detail=f"Transfer ownership or close these workspaces first: {names}.",
+        )
+    log_audit(None, None, "account.deleted", "user", str(user["id"]),
+              {"email": email})
+    deleted = execute_one("DELETE FROM profiles WHERE id = %s RETURNING id", (user["id"],))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    return {"deleted": True}
+
+
 @router.post("/mfa/disable/confirm")
 async def confirm_mfa_disable(
     body: MfaDisableBody,
