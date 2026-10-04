@@ -19,6 +19,7 @@ def test_discovery_returns_only_apex_when_passive_sources_fail(monkeypatch):
     monkeypatch.setattr(discovery, "query_crt_sh", empty)
     monkeypatch.setattr(discovery, "query_hackertarget", empty)
     monkeypatch.setattr(discovery, "run_subfinder_async", empty)
+    monkeypatch.setattr(discovery, "query_certspotter", empty)
 
     hosts = asyncio.run(discovery.discover_subdomains(REAL_DOMAIN))
 
@@ -102,3 +103,55 @@ def test_observed_expired_cert_is_still_reported():
         and f["severity"] == "critical"
         for f in findings
     ), "a genuinely observed expired certificate must still raise a critical"
+
+
+class _CertSpotterResp:
+    status_code = 200
+
+    def json(self):
+        return [
+            {"dns_names": ["auth.example.com", "*.example.com", "other.test"]},
+            {"dns_names": ["WWW.EXAMPLE.COM", "bad name.example.com"]},
+        ]
+
+
+class _CertSpotterClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, headers=None, **kwargs):
+        assert "certspotter.com" in url
+        assert "include_subdomains=true" in url
+        return _CertSpotterResp()
+
+
+def test_certspotter_ct_redundancy_parses_names(monkeypatch):
+    """crt.sh outages must not blind CT discovery: certspotter is the
+    redundant CT source (incident: auth.cyphward.com missed while crt.sh
+    returned 502)."""
+    monkeypatch.setattr(discovery.httpx, "AsyncClient", _CertSpotterClient)
+    names = asyncio.run(discovery.query_certspotter("example.com"))
+    assert names == {"auth.example.com", "example.com", "www.example.com"}
+
+
+def test_discovery_merges_redundant_ct_source(monkeypatch):
+    async def empty(_domain):
+        return set()
+
+    async def ct_names(_domain):
+        return {"auth.example.com"}
+
+    monkeypatch.setattr(discovery, "query_crt_sh", empty)
+    monkeypatch.setattr(discovery, "query_hackertarget", empty)
+    monkeypatch.setattr(discovery, "run_subfinder_async", empty)
+    monkeypatch.setattr(discovery, "query_certspotter", ct_names)
+    assert asyncio.run(discovery.discover_subdomains("example.com")) == [
+        "auth.example.com",
+        "example.com",
+    ]

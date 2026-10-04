@@ -89,6 +89,35 @@ async def query_hackertarget(domain: str) -> Set[str]:
 
 
 
+async def query_certspotter(domain: str) -> Set[str]:
+    """Query Certificate Transparency logs via CertSpotter.
+
+    Redundant CT source alongside crt.sh: when crt.sh is down (502s), CT
+    names like auth.<domain> would otherwise vanish from discovery with
+    no error surfaced. Keyless, rate-limited — failures degrade silently
+    to the other sources, same as every source here.
+    """
+    subdomains = set()
+    try:
+        url = (
+            "https://api.certspotter.com/v1/issuances"
+            f"?domain={domain}&include_subdomains=true&expand=dns_names"
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers={"User-Agent": "Cyphward-Security-Scanner/1.0"})
+            if resp.status_code == 200:
+                for issuance in resp.json():
+                    for name in issuance.get("dns_names", []):
+                        name = name.strip().lower()
+                        if name.startswith("*."):
+                            name = name[2:]
+                        if name.endswith(domain) and " " not in name and len(name) < 120:
+                            subdomains.add(name)
+    except Exception:
+        pass
+    return subdomains
+
+
 async def discover_subdomains(domain: str) -> List[str]:
     """
     Perform passive subdomain discovery for target domain.
@@ -102,8 +131,9 @@ async def discover_subdomains(domain: str) -> List[str]:
     crt_task = asyncio.create_task(query_crt_sh(domain))
     ht_task = asyncio.create_task(query_hackertarget(domain))
     sf_task = asyncio.create_task(run_subfinder_async(domain))
+    cs_task = asyncio.create_task(query_certspotter(domain))
 
-    results = await asyncio.gather(crt_task, ht_task, sf_task, return_exceptions=True)
+    results = await asyncio.gather(crt_task, ht_task, sf_task, cs_task, return_exceptions=True)
     for res in results:
         if isinstance(res, set):
             discovered.update(res)
