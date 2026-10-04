@@ -25,7 +25,7 @@ from scanner.client import CoreClient, CoreError, JobLost
 from scanner.config import load_config
 from scanner.scope import ScopeError, assert_job_in_scope, filter_hosts, host_in_scope
 
-from backend.app.scanner.discovery import discover_subdomains
+from backend.app.scanner.discovery import discover_subdomains_with_health
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.naabu_runner import run_naabu_batch
@@ -157,15 +157,21 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     stats: Dict[str, Any] = {}
 
     # --- STAGE 1: discovery (fatal) --------------------------------------
-    hosts_raw = await run_stage(client, cfg, job, "discovery", lambda: discover_subdomains(job.target))
+    hosts_raw, sources_failed = await run_stage(
+        client, cfg, job, "discovery",
+        lambda: discover_subdomains_with_health(job.target))
     assert hosts_raw is not None
+    if sources_failed:
+        logger.warning("scan=%s discovery sources failed: %s", job.scan_id, sources_failed)
     # Owner-registered hosts ride along (scope filter below still applies).
     # Re-post the observation: run_stage already stored the raw passive set.
     if getattr(job, "seed_hosts", None):
         seeds = {h.strip().lower() for h in job.seed_hosts if h}
         if seeds - set(hosts_raw):
             hosts_raw = sorted(set(hosts_raw) | seeds)
-            await client.observations(job.scan_id, "discovery", {"discovered_hosts": hosts_raw})
+            await client.observations(job.scan_id, "discovery",
+                                      {"discovered_hosts": hosts_raw,
+                                       "sources_failed": sources_failed})
             logger.info("scan=%s discovery: +%d registered seed hosts",
                         job.scan_id, len(seeds))
     # Per-host suffix validation (§40) + de-dup + cap (first scope check).

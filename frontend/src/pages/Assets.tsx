@@ -86,9 +86,12 @@ export default function Assets() {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
             Assets we found
           </h1>
-          <p className="text-xs mono text-soft mt-1">
-            Subdomains, IP addresses, open services, and the software running on them.
-          </p>
+            <p className="text-xs mono text-soft mt-1">
+              Subdomains, IP addresses, open services, and the software running on them.
+              Found via Certificate Transparency and passive DNS during scans — plus
+              hosts you register on the Domains page. Names without a public footprint
+              may take time to appear.
+            </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">

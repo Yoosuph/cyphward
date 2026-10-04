@@ -155,3 +155,19 @@ def test_discovery_merges_redundant_ct_source(monkeypatch):
         "auth.example.com",
         "example.com",
     ]
+
+
+def test_discovery_reports_failed_sources_not_empty_ones(monkeypatch):
+    async def ok(_domain):
+        return set()
+
+    async def boom(_domain):
+        raise RuntimeError("crt.sh 502")
+
+    monkeypatch.setattr(discovery, "query_crt_sh", boom)
+    monkeypatch.setattr(discovery, "query_certspotter", boom)
+    monkeypatch.setattr(discovery, "query_hackertarget", ok)
+    monkeypatch.setattr(discovery, "run_subfinder_async", ok)
+    hosts, failed = asyncio.run(discovery.discover_subdomains_with_health("example.com"))
+    assert hosts == ["example.com"]
+    assert failed == ["certspotter", "crt.sh"]

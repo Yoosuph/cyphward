@@ -124,18 +124,34 @@ async def discover_subdomains(domain: str) -> List[str]:
     Aggregates results from multiple passive sources.
     Always includes the apex domain itself.
     """
+    hosts, _ = await discover_subdomains_with_health(domain)
+    return hosts
+
+
+async def discover_subdomains_with_health(domain: str) -> tuple[List[str], List[str]]:
+    """Same as discover_subdomains, plus the names of sources that raised.
+
+    A source returning zero hosts is NOT a failure (it may genuinely know
+    nothing); only exceptions are reported — e.g. crt.sh 502s. Callers
+    store `sources_failed` on the discovery observation so degraded scans
+    are auditable instead of silently smaller.
+    """
     domain = domain.strip().lower()
     discovered: Set[str] = {domain}
+    failed: List[str] = []
 
     # Run all passive queries concurrently
-    crt_task = asyncio.create_task(query_crt_sh(domain))
-    ht_task = asyncio.create_task(query_hackertarget(domain))
-    sf_task = asyncio.create_task(run_subfinder_async(domain))
-    cs_task = asyncio.create_task(query_certspotter(domain))
-
-    results = await asyncio.gather(crt_task, ht_task, sf_task, cs_task, return_exceptions=True)
-    for res in results:
-        if isinstance(res, set):
+    tasks = {
+        "crt.sh": asyncio.create_task(query_crt_sh(domain)),
+        "hackertarget": asyncio.create_task(query_hackertarget(domain)),
+        "subfinder": asyncio.create_task(run_subfinder_async(domain)),
+        "certspotter": asyncio.create_task(query_certspotter(domain)),
+    }
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    for (name, res) in zip(tasks.keys(), results):
+        if isinstance(res, BaseException):
+            failed.append(name)
+        elif isinstance(res, set):
             discovered.update(res)
 
     # Passive sources only — never invent hostnames. A fabricated wordlist
@@ -144,4 +160,4 @@ async def discover_subdomains(domain: str) -> List[str]:
     # If discovery found nothing beyond the apex, that IS the answer.
 
     # Return sorted list
-    return sorted(list(discovered))
+    return sorted(list(discovered)), sorted(failed)

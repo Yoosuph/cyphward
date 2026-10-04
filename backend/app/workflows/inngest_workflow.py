@@ -43,7 +43,7 @@ from backend.app.core.cron_claim import (
     complete_cron_run,
     release_cron_run,
 )
-from backend.app.scanner.discovery import discover_subdomains
+from backend.app.scanner.discovery import discover_subdomains, discover_subdomains_with_health
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.naabu_runner import run_naabu_batch
@@ -258,8 +258,10 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
         # STAGE 1: Passive Subdomain Discovery
         # ---------------------------------------------------------------------
         t0 = time.time()
-        discovered_hosts = await discover_subdomains(domain)
+        discovered_hosts, sources_failed = await discover_subdomains_with_health(domain)
         d_dur = int((time.time() - t0) * 1000)
+        if sources_failed:
+            logger.warning("scan=%s discovery sources failed: %s", scan_id, sources_failed)
 
         # Owner-registered hosts ride along (scope-enforced at registration).
         registered = _registered_hosts(str(scan["org_id"]), str(scan["domain_id"]))
@@ -271,7 +273,8 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
             return {"scan_id": scan_id, "cancelled": True}
         progress["dns"]["status"] = "running"
         _save_progress(scan_id, progress, "dns")
-        _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts})
+        _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts,
+                                                  "sources_failed": sources_failed})
 
         # ---------------------------------------------------------------------
         # STAGE 2: DNS Resolution

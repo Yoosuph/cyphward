@@ -52,11 +52,11 @@ def test_cancelled_scan_never_resurrected_by_dispatch(store, monkeypatch):
     sid = _add_scan(store, status="cancelled")
     ran = []
 
-    async def discover(domain):
+    async def discover_h(domain):
         ran.append(domain)
-        return []
+        return [], []
 
-    monkeypatch.setattr(wf, "discover_subdomains", discover)
+    monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
 
     result = asyncio.run(wf.execute_recon_local(sid))
 
@@ -107,16 +107,16 @@ def test_cancel_during_scan_stops_before_next_stage(store, monkeypatch):
     sid = _add_scan(store, status="queued")
     dns_calls = []
 
-    async def discover(domain):
+    async def discover_h(domain):
         # user cancels while discovery is in flight
         _row(store, sid)["status"] = "cancelled"
-        return ["www.acme.test", "mail.acme.test"]
+        return ["www.acme.test", "mail.acme.test"], []
 
     async def resolve(host):
         dns_calls.append(host)
         return {"hostname": host, "primary_ip": "198.51.100.10", "records": {}}
 
-    monkeypatch.setattr(wf, "discover_subdomains", discover)
+    monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
     monkeypatch.setattr(wf, "resolve_host_dns", resolve)
 
     result = asyncio.run(wf.execute_recon_local(sid))
@@ -132,15 +132,15 @@ def test_pipeline_skips_finalize_when_cancelled_during_recon(store, monkeypatch)
     sid = _add_scan(store, status="queued")
     fin_calls = []
 
-    async def discover(domain):
+    async def discover_h(domain):
         _row(store, sid)["status"] = "cancelled"
-        return ["www.acme.test"]
+        return ["www.acme.test"], []
 
     async def fake_fin(scan_id):
         fin_calls.append(scan_id)
         return {}
 
-    monkeypatch.setattr(wf, "discover_subdomains", discover)
+    monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
     monkeypatch.setattr(wf, "finalize_scan", fake_fin)
 
     result = asyncio.run(wf.execute_scan_pipeline(sid))
@@ -153,11 +153,11 @@ def test_pipeline_skips_finalize_when_cancelled_during_recon(store, monkeypatch)
 def test_recon_error_after_cancel_keeps_cancelled_status(store, monkeypatch):
     sid = _add_scan(store, status="queued")
 
-    async def discover(domain):
+    async def discover_h(domain):
         _row(store, sid)["status"] = "cancelled"
         raise RuntimeError("provider exploded")
 
-    monkeypatch.setattr(wf, "discover_subdomains", discover)
+    monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
 
     with pytest.raises(RuntimeError):
         asyncio.run(wf.execute_recon_local(sid))
