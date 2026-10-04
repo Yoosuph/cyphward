@@ -456,7 +456,16 @@ async def login(body: LoginBody) -> Dict[str, Any]:
             or user.get("mfa_enrolled_at") is not None
             or user.get("totp_enrolled_at") is not None):
         check_rate_limit(f"mfa:{user['id']}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
-        _send_mfa_code(user)
+        # Reuse a still-valid code instead of spamming the inbox: repeated
+        # password logins (ours, the user's, or an attacker's) must not each
+        # mint a fresh email.
+        fresh = execute_one(
+            "SELECT id FROM email_otps WHERE user_id = %s AND purpose = 'mfa' "
+            "AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+            (user["id"],),
+        )
+        if fresh is None:
+            _send_mfa_code(user)
         return {
             "mfa_required": True,
             "mfa_token": _issue_mfa_token(str(user["id"])),

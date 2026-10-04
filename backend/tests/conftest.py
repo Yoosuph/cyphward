@@ -485,6 +485,18 @@ class FakeStore:
                 return []
             return [{"created_at": max(r["created_at"] for r in rows)}]
 
+        if s.startswith("SELECT id FROM email_otps WHERE user_id = %s AND purpose = 'mfa'"):
+            uid = params[0]
+            now = datetime.now(timezone.utc)
+            rows = sorted(
+                [r for r in self.email_otps
+                 if r["user_id"] == uid and r.get("purpose") == "mfa"
+                 and r.get("expires_at") is not None and r["expires_at"] > now],
+                key=lambda r: r["created_at"],
+                reverse=True,
+            )
+            return [{"id": rows[0]["id"]}] if rows else []
+
         if s.startswith("SELECT id, code_hash, attempts, expires_at") and "email_otps" in s:
             uid = params[0]
             purpose = "mfa" if "purpose = 'mfa'" in s else (

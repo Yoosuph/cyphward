@@ -232,3 +232,14 @@ def test_totp_wrong_falls_back_to_email_code(client, auth_headers, store, monkey
                          json={"mfa_token": login["mfa_token"], "code": "000042"})
     assert verify.status_code == 200
     assert "access_token" in verify.json()
+
+
+def test_repeated_logins_reuse_valid_code_without_resending(client, auth_headers, store, monkeypatch):
+    sent = []
+    monkeypatch.setattr(auth_mod, "send_email_sync",
+                        lambda *a, **k: sent.append(a) or {"success": True})
+    _set_password(store, ALICE)
+    first = _login(client, f"{ALICE[:8]}@acme.test").json()
+    second = _login(client, f"{ALICE[:8]}@acme.test").json()
+    assert first.get("mfa_required") is True and second.get("mfa_required") is True
+    assert len(sent) == 1, "second login must reuse the still-valid code"
