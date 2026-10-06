@@ -18,6 +18,8 @@ import ButtonPlate from './components/ButtonPlate';
 import Landing from './pages/Landing';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
+import Pricing from './pages/Pricing';
+import About from './pages/About';
 
 // Route-split pages: loaded on demand so the public landing payload doesn't
 // ship the dashboard, auth screens and chart library (recharts).
@@ -313,6 +315,8 @@ export default function App() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/pricing" element={<Pricing />} />
+            <Route path="/about" element={<About />} />
 
             {/* Onboarding Routes */}
             <Route path="/onboarding" element={<OnboardingLayout />}>

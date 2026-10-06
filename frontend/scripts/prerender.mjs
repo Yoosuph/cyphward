@@ -23,7 +23,27 @@ const PAGES = [
     title: 'Terms of Service — Cyphward',
     canonical: 'https://cyphward.com/terms',
   },
+  {
+    url: '/pricing',
+    file: 'pricing/index.html',
+    title: 'Pricing — Cyphward',
+    description: 'Starter is ₦7,000 a month. Growth is ₦15,000 a month. Both plans scan a verified domain and return a 0–100 security score with a fix for every finding.',
+    canonical: 'https://cyphward.com/pricing',
+  },
+  {
+    url: '/about',
+    file: 'about/index.html',
+    title: 'About — Cyphward',
+    description: 'Cyphward Ltd builds external security scoring for Nigerian businesses. Founded in 2026 by Yusuf Lawan Nuhu. Verify a domain, then read one score and a report a board can use.',
+    canonical: 'https://cyphward.com/about',
+  },
 ];
+
+function setMeta(html, attr, value) {
+  const pattern = new RegExp(`(<meta ${attr} content=")[^"]*(")`);
+  if (!pattern.test(html)) throw new Error(`prerender: missing meta ${attr}`);
+  return html.replace(pattern, `$1${value}$2`);
+}
 
 const vite = await createServer({
   root,
@@ -65,6 +85,8 @@ try {
     let html = template.replace('<div id="root"></div>', `<div id="root">${appHtml}</div>`);
     if (page.title && page.canonical) {
       html = html.replace(/<title>[^<]*<\/title>/, `<title>${page.title}</title>`);
+      html = setMeta(html, 'property="og:title"', page.title);
+      html = setMeta(html, 'name="twitter:title"', page.title);
       html = html.replace(
         /<link rel="canonical" href="[^"]*" \/>/,
         `<link rel="canonical" href="${page.canonical}" />`
@@ -73,6 +95,11 @@ try {
         /<meta property="og:url" content="[^"]*" \/>/,
         `<meta property="og:url" content="${page.canonical}" />`
       );
+    }
+    if (page.description) {
+      html = setMeta(html, 'name="description"', page.description);
+      html = setMeta(html, 'property="og:description"', page.description);
+      html = setMeta(html, 'name="twitter:description"', page.description);
     }
     const out = join(root, 'dist', page.file);
     mkdirSync(dirname(out), { recursive: true });

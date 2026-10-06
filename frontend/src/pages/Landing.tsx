@@ -13,6 +13,7 @@ import StrataField from '../components/StrataField';
 import ScoreRing from '../components/ScoreRing';
 import Meter from '../components/Meter';
 import CyphwardLogo from '../components/CyphwardLogo';
+import { PUBLIC_PLANS } from '../lib/publicPlans';
 
 const LAYERS = [
   {
@@ -129,9 +130,9 @@ const CHECKS = [
 ];
 
 const CALCULATOR_SECTORS = [
-  { name: 'Commercial Banking & Merchant Banks', turnoverNGN: 22_500_000_000, recommended: 'Enterprise' },
-  { name: 'Fintech & Payment Gateway Switches', turnoverNGN: 9_000_000_000, recommended: 'Scale' },
-  { name: 'Telco VAS & Mobile Money Providers', turnoverNGN: 16_000_000_000, recommended: 'Enterprise' },
+  { name: 'Commercial Banking & Merchant Banks', turnoverNGN: 22_500_000_000, recommended: 'Growth' },
+  { name: 'Fintech & Payment Gateway Switches', turnoverNGN: 9_000_000_000, recommended: 'Growth' },
+  { name: 'Telco VAS & Mobile Money Providers', turnoverNGN: 16_000_000_000, recommended: 'Growth' },
   { name: 'Logistics & Supply Chain Conglomerates', turnoverNGN: 3_250_000_000, recommended: 'Growth' },
   { name: 'Healthcare & Healthtech Networks', turnoverNGN: 4_750_000_000, recommended: 'Growth' },
 ];
@@ -217,7 +218,7 @@ export default function Landing() {
             <a href="#checks" className="landing-link">WHAT WE CHECK</a>
             <a href="#compliance" className="landing-link">REGULATION</a>
             <a href="#teams" className="landing-link">TEAMS</a>
-            <a href="#pricing" className="landing-link">PRICING</a>
+            <Link to="/pricing" className="landing-link">PRICING</Link>
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -284,14 +285,14 @@ export default function Landing() {
                 <span>TEAMS &amp; ROLES</span>
                 <ChevronRight size={13} className="text-soft" />
               </a>
-              <a
-                href="#pricing"
+              <Link
+                to="/pricing"
                 className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <span>PLANS &amp; PRICING</span>
                 <ChevronRight size={13} className="text-soft" />
-              </a>
+              </Link>
             </nav>
 
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line/60">
@@ -756,71 +757,46 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Enterprise Enclaves & Pricing */}
+        {/* Pricing */}
         <section id="pricing" className="py-16">
           <div className="sec-head">
             <p className="eyebrow">SIMPLE PLANS</p>
-            <h2>Transparent pricing for every scale.</h2>
+            <h2>Two plans, priced in naira.</h2>
             <p className="sec-note">
-              For growing fintechs, banks, telcos and payment providers across Africa.
+              Starter is ₦7,000 a month. Growth is ₦15,000 a month. The checks are the same.
             </p>
           </div>
 
-          <div className="pricing-grid">
-            {/* Tier 1 */}
-            <div className="pricing-card">
-              <span className="tag w-fit mb-3">GROWTH</span>
-              <h3 className="font-display text-2xl font-medium mb-1">Standard Cloud</h3>
-              <p className="text-xs mono text-soft mb-4">For growing fintechs, logistics and tech ventures.</p>
-              <div className="font-display text-3xl font-medium my-2">₦450,000 <span className="text-xs font-mono text-soft">/ month</span></div>
-              <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Daily automated scans of your domains</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Email &amp; TLS hardening checks (DMARC, SPF, HSTS)</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Findings prioritized with step-by-step fixes</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Board-ready AI report after every scan</li>
-              </ul>
-              <button className="btn btn-ghost w-full justify-center" onClick={handleGetStarted}>
-                START WITH GROWTH
-              </button>
-            </div>
-
-            {/* Tier 2 */}
-            <div className="pricing-card featured">
-              <div className="flex justify-between items-center mb-3">
-                <span className="tag w-fit">SCALE</span>
-                <span className="tag acc text-[9px]">MOST POPULAR</span>
+          <div className="pricing-grid cols-2">
+            {PUBLIC_PLANS.map(plan => (
+              <div key={plan.id} className={`pricing-card ${plan.featured ? 'featured' : ''}`}>
+                <div className="flex justify-between items-center mb-3 gap-2">
+                  <span className="tag w-fit">{plan.name.toUpperCase()}</span>
+                  {plan.featured && <span className="tag acc text-[9px]">FOR TEAMS</span>}
+                </div>
+                <h3 className="font-display text-2xl font-medium mb-1">{plan.name}</h3>
+                <p className="text-xs mono text-soft mb-4">{plan.blurb}</p>
+                <div className="font-display text-3xl font-medium my-2">
+                  {plan.priceLabel} <span className="text-xs font-mono text-soft">/ month</span>
+                </div>
+                <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
+                  {plan.points.map(point => (
+                    <li key={point} className="flex items-start gap-2">
+                      <Check size={14} className="text-ok flex-none mt-0.5" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button className={`btn ${plan.featured ? 'btn-solid' : 'btn-ghost'} w-full justify-center`} onClick={handleGetStarted}>
+                  {plan.cta}
+                </button>
               </div>
-              <h3 className="font-display text-2xl font-medium mb-1">Dedicated Cloud</h3>
-              <p className="text-xs mono text-soft mb-4">For national banks, telcos and payment switches.</p>
-              <div className="font-display text-3xl font-medium my-2">₦1,850,000 <span className="text-xs font-mono text-soft">/ month</span></div>
-              <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Everything in Growth, plus:</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Unlimited verified domains</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Dedicated onboarding with our team</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Priority support</li>
-              </ul>
-              <button className="btn btn-solid w-full justify-center" onClick={handleGetStarted}>
-                START WITH SCALE
-              </button>
-            </div>
-
-            {/* Tier 3 */}
-            <div className="pricing-card">
-              <span className="tag w-fit mb-3">ENTERPRISE</span>
-              <h3 className="font-display text-2xl font-medium mb-1">Custom Plan</h3>
-              <p className="text-xs mono text-soft mb-4">For large institutions with bespoke requirements.</p>
-              <div className="font-display text-3xl font-medium my-2">CUSTOM <span className="text-xs font-mono text-soft">/ annual</span></div>
-              <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Everything in Scale, plus:</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Multi-domain portfolios under one roof</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Reports formatted for regulators and boards</li>
-                <li className="flex items-center gap-2"><Check size={14} className="text-ok" /> Personalized rollout with our team</li>
-              </ul>
-              <Link to="/signup" className="btn btn-ghost w-full justify-center">
-                CONTACT OUR TEAM
-              </Link>
-            </div>
+            ))}
           </div>
+          <p className="text-xs mono text-soft mt-6">
+            <Link to="/pricing" className="hover:text-ink">Read the full pricing page</Link>
+            {' '}· the checks are the same on both plans.
+          </p>
         </section>
 
         {/* Final CTA Banner */}
@@ -900,6 +876,8 @@ export default function Landing() {
             <div>
               <p className="eyebrow mb-3">ACCESS</p>
               <ul className="space-y-2 text-xs mono text-soft">
+                <li><Link to="/pricing" className="hover:text-ink">Pricing</Link></li>
+                <li><Link to="/about" className="hover:text-ink">About</Link></li>
                 <li><Link to="/login" className="hover:text-ink">Sign In</Link></li>
                 <li><Link to="/signup" className="hover:text-ink">Create a Business Account</Link></li>
                 <li><Link to="/forgot-password" className="hover:text-ink">Reset Password</Link></li>
@@ -919,7 +897,7 @@ export default function Landing() {
 
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs mono text-soft">
             <div>
-              © 2026 CYPHWARD TECHNOLOGIES LTD · ALL RIGHTS RESERVED · PLATFORM v0.1.0
+              © 2026 CYPHWARD LTD · ALL RIGHTS RESERVED · PLATFORM v0.1.0
             </div>
             <div className="flex items-center gap-4">
               <Link to="/terms" className="hover:text-ink transition-colors">TERMS</Link>

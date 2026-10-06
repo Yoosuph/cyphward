@@ -13,6 +13,8 @@ const TITLES: Record<string, string> = {
   '/auth/callback': 'Signing In — Cyphward',
   '/terms': 'Terms of Service — Cyphward',
   '/privacy': 'Privacy Policy — Cyphward',
+  '/pricing': 'Pricing — Cyphward',
+  '/about': 'About — Cyphward',
   '/overview': 'Overview — Cyphward',
   '/assets': 'Assets — Cyphward',
   '/findings': 'Findings — Cyphward',

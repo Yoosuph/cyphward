@@ -1,0 +1,4339 @@
+[
+  {
+    "url": "/onboarding/verify-email",
+    "width": 320,
+    "height": 844,
+    "scrollWidth": 320,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Digit 1 of 6",
+        "x": -3,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 2 of 6",
+        "x": 53,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 3 of 6",
+        "x": 109,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 4 of 6",
+        "x": 165,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 5 of 6",
+        "x": 221,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 6 of 6",
+        "x": 277,
+        "y": 528.1875,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      }
+    ],
+    "smallControls": [],
+    "dialog": [],
+    "name": "320-email-verification",
+    "errors": []
+  },
+  {
+    "url": "/onboarding/verify-email",
+    "width": 360,
+    "height": 844,
+    "scrollWidth": 360,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Digit 1 of 6",
+        "x": 17,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 2 of 6",
+        "x": 73,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 3 of 6",
+        "x": 129,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 4 of 6",
+        "x": 185,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 5 of 6",
+        "x": 241,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 6 of 6",
+        "x": 297,
+        "y": 505.40625,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      }
+    ],
+    "smallControls": [],
+    "dialog": [],
+    "name": "360-email-verification",
+    "errors": []
+  },
+  {
+    "url": "/onboarding/verify-email",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Digit 1 of 6",
+        "x": 32,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 2 of 6",
+        "x": 88,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 3 of 6",
+        "x": 144,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 4 of 6",
+        "x": 200,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 5 of 6",
+        "x": 256,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      },
+      {
+        "text": "Digit 6 of 6",
+        "x": 312,
+        "y": 494.609375,
+        "w": 46,
+        "h": 54,
+        "fontSize": "22px"
+      }
+    ],
+    "smallControls": [],
+    "dialog": [],
+    "name": "390-email-verification",
+    "errors": []
+  },
+  {
+    "url": "/remediation",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 437.390625,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 360
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "NEW TASK",
+        "x": 275.390625,
+        "y": 289.203125,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 347.203125,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 347.203125,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 347.203125,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 347.203125,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 14,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 98.8125,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 345,
+        "y": 385.09375,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 490.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 490.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 557.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 557.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 624.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 624.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 691.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 691.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 758.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 758.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      },
+      {
+        "text": "Close menu",
+        "x": 341,
+        "y": 509.625,
+        "w": 22,
+        "h": 22
+      },
+      {
+        "text": "05 · DOMAINS\nDNS VERIFICATION",
+        "x": 21,
+        "y": 550.625,
+        "w": 348,
+        "h": 37.59375
+      },
+      {
+        "text": "06 · REMEDIATION\nFIX & VERIFY",
+        "x": 21,
+        "y": 592.21875,
+        "w": 348,
+        "h": 37.59375
+      },
+      {
+        "text": "07 · REPORTS\nSUMMARIES",
+        "x": 21,
+        "y": 633.8125,
+        "w": 348,
+        "h": 37.59375
+      },
+      {
+        "text": "08 · SETTINGS\nCOMPANY & TEAM",
+        "x": 21,
+        "y": 675.40625,
+        "w": 348,
+        "h": 37.59375
+      },
+      {
+        "text": "COMMAND ⌘K",
+        "x": 25,
+        "y": 728.09375,
+        "w": 262,
+        "h": 30.796875
+      },
+      {
+        "text": "Toggle theme",
+        "x": 295,
+        "y": 728,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "Sign out",
+        "x": 334,
+        "y": 728,
+        "w": 31,
+        "h": 31
+      }
+    ],
+    "dialog": [
+      {
+        "text": "More pages menu",
+        "x": 12,
+        "y": 498.625,
+        "w": 366,
+        "h": 271.375
+      }
+    ],
+    "name": "390-menu",
+    "errors": [],
+    "menuDisplay": "flex",
+    "backgroundScroll": 300,
+    "focusAfterTab": "<button class=\"fixed bottom-[74px] right-3.5 z-[80] md:hidden group flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-accent/40 hover:border-accent bg-raised/95 hover:bg-inset text-ink shadow-xl hover:scale-105 active:scale-95 transiti",
+    "menuAfterEscape": false
+  },
+  {
+    "url": "/remediation",
+    "width": 768,
+    "height": 1024,
+    "scrollWidth": 768,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 336.609375,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 738
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "Open CyphBot",
+        "x": 487.625,
+        "y": 17,
+        "w": 127.8125,
+        "h": 34
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 629.4375,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Open Command Palette",
+        "x": 675.4375,
+        "y": 17.203125,
+        "w": 65.5625,
+        "h": 33.59375
+      },
+      {
+        "text": "NEW TASK",
+        "x": 573.390625,
+        "y": 218.015625,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 284.015625,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 284.015625,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 284.015625,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 284.015625,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 366.4375,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 451.25,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 723,
+        "y": 284.3125,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 389.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 389.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 456.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 456.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 523.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 523.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 590.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 590.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 657.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 657.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 724.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 724.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 791.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 791.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 858.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 858.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 173,
+        "y": 964.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 258,
+        "y": 964.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 343,
+        "y": 964.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 428,
+        "y": 964.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 513,
+        "y": 964.5,
+        "w": 82,
+        "h": 40.5
+      }
+    ],
+    "dialog": [],
+    "name": "768-menu",
+    "errors": [],
+    "menuDisplay": "none"
+  },
+  {
+    "url": "/remediation",
+    "width": 820,
+    "height": 1180,
+    "scrollWidth": 820,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 336.609375,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 790
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "Open CyphBot",
+        "x": 539.625,
+        "y": 17,
+        "w": 127.8125,
+        "h": 34
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 681.4375,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Open Command Palette",
+        "x": 727.4375,
+        "y": 17.203125,
+        "w": 65.5625,
+        "h": 33.59375
+      },
+      {
+        "text": "NEW TASK",
+        "x": 573.390625,
+        "y": 218.015625,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 284.015625,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 284.015625,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 284.015625,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 284.015625,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 366.4375,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 451.25,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 775,
+        "y": 284.3125,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 389.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 389.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 456.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 456.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 523.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 523.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 590.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 590.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 657.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 657.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 724.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 724.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 791.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 791.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 858.609375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 858.609375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 199,
+        "y": 1120.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 284,
+        "y": 1120.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 369,
+        "y": 1120.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 454,
+        "y": 1120.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 539,
+        "y": 1120.5,
+        "w": 82,
+        "h": 40.5
+      }
+    ],
+    "dialog": [],
+    "name": "820-menu",
+    "errors": [],
+    "menuDisplay": "none"
+  },
+  {
+    "url": "/remediation",
+    "width": 844,
+    "height": 390,
+    "scrollWidth": 844,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 336.609375,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 814
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "Open CyphBot",
+        "x": 563.625,
+        "y": 17,
+        "w": 127.8125,
+        "h": 34
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 705.4375,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Open Command Palette",
+        "x": 751.4375,
+        "y": 17.203125,
+        "w": 65.5625,
+        "h": 33.59375
+      },
+      {
+        "text": "NEW TASK",
+        "x": 573.390625,
+        "y": 218.015625,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 284.015625,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 284.015625,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 284.015625,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 284.015625,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 366.4375,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 451.25,
+        "y": 284.015625,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 799,
+        "y": 284.3125,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "Overview",
+        "x": 211,
+        "y": 330.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 296,
+        "y": 330.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 381,
+        "y": 330.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 466,
+        "y": 330.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 551,
+        "y": 330.5,
+        "w": 82,
+        "h": 40.5
+      }
+    ],
+    "dialog": [],
+    "name": "844-menu",
+    "errors": [],
+    "menuDisplay": "none"
+  },
+  {
+    "url": "/remediation",
+    "width": 900,
+    "height": 800,
+    "scrollWidth": 900,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 338.84375,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 870
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "Open CyphBot",
+        "x": 619.625,
+        "y": 17,
+        "w": 127.8125,
+        "h": 34
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 761.4375,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Open Command Palette",
+        "x": 807.4375,
+        "y": 17.203125,
+        "w": 65.5625,
+        "h": 33.59375
+      },
+      {
+        "text": "NEW TASK",
+        "x": 573.390625,
+        "y": 220.25,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 286.25,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 286.25,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 286.25,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 286.25,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 366.4375,
+        "y": 286.25,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 451.25,
+        "y": 286.25,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 855,
+        "y": 286.546875,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 391.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 391.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 458.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 458.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 525.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 525.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 592.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 592.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 659.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 659.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 726.84375,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 726.84375,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 239,
+        "y": 740.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 324,
+        "y": 740.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 409,
+        "y": 740.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 494,
+        "y": 740.5,
+        "w": 82,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 579,
+        "y": 740.5,
+        "w": 82,
+        "h": 40.5
+      }
+    ],
+    "dialog": [],
+    "name": "900-menu",
+    "errors": [],
+    "menuDisplay": "none"
+  },
+  {
+    "url": "/login",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "ciso@acmetraders.ng",
+        "x": 39,
+        "y": 231.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "••••••••••••••",
+        "x": 39,
+        "y": 327.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "",
+        "x": 39,
+        "y": 393.296875,
+        "w": 13,
+        "h": 13,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPHWARD",
+        "x": 20,
+        "y": 64,
+        "w": 100.8125,
+        "h": 20
+      },
+      {
+        "text": "Toggle theme",
+        "x": 182.15625,
+        "y": 58,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "VIEW WEBSITE ↗",
+        "x": 226.15625,
+        "y": 68,
+        "w": 143.84375,
+        "h": 24
+      },
+      {
+        "text": "FORGOT PASSWORD?",
+        "x": 255,
+        "y": 299.796875,
+        "w": 96,
+        "h": 16
+      },
+      {
+        "text": "Show password",
+        "x": 316,
+        "y": 340.296875,
+        "w": 23,
+        "h": 23
+      },
+      {
+        "text": "Create Account",
+        "x": 229.390625,
+        "y": 603.765625,
+        "w": 100.8125,
+        "h": 15
+      }
+    ],
+    "dialog": [],
+    "name": "390-public-login",
+    "errors": []
+  },
+  {
+    "url": "/signup",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "e.g. Ibrahim Abubakar",
+        "x": 39,
+        "y": 231.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "you@organization.africa",
+        "x": 39,
+        "y": 319.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "••••••••••••••",
+        "x": 39,
+        "y": 415.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "Type it again",
+        "x": 39,
+        "y": 539.796875,
+        "w": 312,
+        "h": 48,
+        "fontSize": "12.5px"
+      },
+      {
+        "text": "",
+        "x": 39,
+        "y": 605.296875,
+        "w": 13,
+        "h": 13,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPHWARD",
+        "x": 20,
+        "y": 64,
+        "w": 100.8125,
+        "h": 20
+      },
+      {
+        "text": "Toggle theme",
+        "x": 182.15625,
+        "y": 58,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "VIEW WEBSITE ↗",
+        "x": 226.15625,
+        "y": 68,
+        "w": 143.84375,
+        "h": 24
+      },
+      {
+        "text": "Show password",
+        "x": 316,
+        "y": 428.296875,
+        "w": 23,
+        "h": 23
+      },
+      {
+        "text": "Terms",
+        "x": 292.65625,
+        "y": 636.796875,
+        "w": 31.5,
+        "h": 14
+      },
+      {
+        "text": "Privacy Policy",
+        "x": 147.734375,
+        "y": 653.859375,
+        "w": 88.203125,
+        "h": 14
+      }
+    ],
+    "dialog": [],
+    "name": "390-public-signup",
+    "errors": []
+  },
+  {
+    "url": "/",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "CHECK\tWHAT YOU GET\nDNS & email authentication\tSPF and DMARC records validated; p",
+        "x": 17,
+        "y": 3574.109375,
+        "w": 520,
+        "h": 359.5625,
+        "containerWidth": 356
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPHWARD",
+        "x": 23,
+        "y": 19.390625,
+        "w": 99.8125,
+        "h": 34
+      },
+      {
+        "text": "Toggle visual theme",
+        "x": 184.078125,
+        "y": 20.390625,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "STARTED",
+        "x": 224.078125,
+        "y": 19,
+        "w": 102.921875,
+        "h": 34.796875
+      },
+      {
+        "text": "Open menu",
+        "x": 335,
+        "y": 20.390625,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "EXPLORE THE 6 LAYERS ↓",
+        "x": 16,
+        "y": 666.6875,
+        "w": 358,
+        "h": 34
+      },
+      {
+        "text": "LIVE DATA",
+        "x": 31,
+        "y": 804.28125,
+        "w": 92.15625,
+        "h": 34.796875
+      },
+      {
+        "text": "FINDINGS",
+        "x": 131.15625,
+        "y": 804.28125,
+        "w": 84.8125,
+        "h": 34.796875
+      },
+      {
+        "text": "FIX GUIDES",
+        "x": 223.96875,
+        "y": 804.28125,
+        "w": 99.5,
+        "h": 34.796875
+      },
+      {
+        "text": "Cyphward on X",
+        "x": 352,
+        "y": 371,
+        "w": 30,
+        "h": 30
+      },
+      {
+        "text": "Cyphward on Instagram",
+        "x": 352,
+        "y": 407,
+        "w": 30,
+        "h": 30
+      },
+      {
+        "text": "Cyphward on LinkedIn",
+        "x": 352,
+        "y": 443,
+        "w": 30,
+        "h": 30
+      }
+    ],
+    "dialog": [],
+    "name": "390-public-landing",
+    "errors": [],
+    "nav": [
+      {
+        "class": "landing-links",
+        "display": "none"
+      },
+      {
+        "class": "icon-btn md:hidden",
+        "display": "grid"
+      }
+    ]
+  },
+  {
+    "url": "/",
+    "width": 820,
+    "height": 844,
+    "scrollWidth": 820,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "CHECK\tWHAT YOU GET\nDNS & email authentication\tSPF and DMARC records validated; p",
+        "x": 29,
+        "y": 2837.65625,
+        "w": 762,
+        "h": 383.1875,
+        "containerWidth": 762
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPHWARD",
+        "x": 23,
+        "y": 26.390625,
+        "w": 99.8125,
+        "h": 20
+      },
+      {
+        "text": "Toggle visual theme",
+        "x": 528.46875,
+        "y": 20.390625,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "SIGN IN",
+        "x": 572.46875,
+        "y": 19,
+        "w": 78.921875,
+        "h": 34.796875
+      },
+      {
+        "text": "GET\nSTARTED",
+        "x": 663.390625,
+        "y": 19,
+        "w": 133.609375,
+        "h": 34.796875
+      },
+      {
+        "text": "EXPLORE THE 6 LAYERS ↓",
+        "x": 514.203125,
+        "y": 428.296875,
+        "w": 192.328125,
+        "h": 34
+      },
+      {
+        "text": "LIVE DATA",
+        "x": 478.53125,
+        "y": 531.296875,
+        "w": 92.15625,
+        "h": 34.796875
+      },
+      {
+        "text": "FINDINGS",
+        "x": 578.6875,
+        "y": 531.296875,
+        "w": 84.8125,
+        "h": 34.796875
+      },
+      {
+        "text": "FIX GUIDES",
+        "x": 671.5,
+        "y": 531.296875,
+        "w": 99.5,
+        "h": 34.796875
+      },
+      {
+        "text": "Cyphward on X",
+        "x": 772,
+        "y": 363,
+        "w": 34,
+        "h": 34
+      },
+      {
+        "text": "Cyphward on Instagram",
+        "x": 772,
+        "y": 405,
+        "w": 34,
+        "h": 34
+      },
+      {
+        "text": "Cyphward on LinkedIn",
+        "x": 772,
+        "y": 447,
+        "w": 34,
+        "h": 34
+      }
+    ],
+    "dialog": [],
+    "name": "820-public-landing",
+    "errors": [],
+    "nav": [
+      {
+        "class": "landing-links",
+        "display": "none"
+      },
+      {
+        "class": "icon-btn md:hidden",
+        "display": "none"
+      }
+    ]
+  },
+  {
+    "url": "/domains",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "DOMAIN NAME\tSTATUS\tVERIFICATION RECORD\tVERIFIED ON\tASSETS FOUND\tACTIONS\n\nexample",
+        "x": 15,
+        "y": 538.1875,
+        "w": 902.8125,
+        "h": 298,
+        "containerWidth": 360
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Refresh",
+        "x": 14,
+        "y": 179.59375,
+        "w": 362,
+        "h": 38
+      },
+      {
+        "text": "ADD DOMAIN",
+        "x": 14,
+        "y": 225.59375,
+        "w": 362,
+        "h": 38
+      },
+      {
+        "text": "Copy verification TXT value",
+        "x": 634.796875,
+        "y": 651.1875,
+        "w": 20,
+        "h": 20
+      },
+      {
+        "text": "Check again",
+        "x": 846.8125,
+        "y": 607.1875,
+        "w": 55,
+        "h": 42
+      },
+      {
+        "text": "How to verify",
+        "x": 880.8125,
+        "y": 649.1875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Remove domain",
+        "x": 880.8125,
+        "y": 670.1875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Hosts probed on every scan",
+        "x": 855.8125,
+        "y": 691.1875,
+        "w": 46,
+        "h": 24
+      },
+      {
+        "text": "Copy verification TXT value",
+        "x": 634.796875,
+        "y": 772.1875,
+        "w": 20,
+        "h": 20
+      },
+      {
+        "text": "Check now",
+        "x": 846.8125,
+        "y": 740.1875,
+        "w": 55,
+        "h": 42
+      },
+      {
+        "text": "How to verify",
+        "x": 880.8125,
+        "y": 782.1875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Remove domain",
+        "x": 880.8125,
+        "y": 803.1875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      }
+    ],
+    "dialog": [],
+    "name": "390-domains",
+    "errors": []
+  },
+  {
+    "url": "/remediation",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 437.390625,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 360
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "NEW TASK",
+        "x": 275.390625,
+        "y": 289.203125,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 347.203125,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 347.203125,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 347.203125,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 347.203125,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 14,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 98.8125,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 345,
+        "y": 385.09375,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 490.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 490.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 557.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 557.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 624.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 624.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 691.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 691.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 758.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 758.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      }
+    ],
+    "dialog": [],
+    "name": "390-remediation",
+    "errors": []
+  },
+  {
+    "url": "/remediation",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "loaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "unloaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "TASK\tFINDING\tPRIORITY\tSTATUS\tASSIGNEE\tACTIONS\nConfigure Content Security Policy\t",
+        "x": 15,
+        "y": 437.390625,
+        "w": 892.59375,
+        "h": 576,
+        "containerWidth": 360
+      }
+    ],
+    "inputs": [
+      {
+        "text": "",
+        "x": 33,
+        "y": 358,
+        "w": 324,
+        "h": 34,
+        "fontSize": "12px"
+      },
+      {
+        "text": "",
+        "x": 33,
+        "y": 428,
+        "w": 324,
+        "h": 82,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "NEW TASK",
+        "x": 275.390625,
+        "y": 289.203125,
+        "w": 100.609375,
+        "h": 28
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 347.203125,
+        "w": 45.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "OPEN",
+        "x": 65.8125,
+        "y": 347.203125,
+        "w": 52.40625,
+        "h": 31.59375
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 124.21875,
+        "y": 347.203125,
+        "w": 98.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "READY FOR VERIFY",
+        "x": 228.828125,
+        "y": 347.203125,
+        "w": 131.609375,
+        "h": 31.59375
+      },
+      {
+        "text": "REOPENED",
+        "x": 14,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "VERIFIED",
+        "x": 98.8125,
+        "y": 384.796875,
+        "w": 78.8125,
+        "h": 31.59375
+      },
+      {
+        "text": "Refresh",
+        "x": 345,
+        "y": 385.09375,
+        "w": 31,
+        "h": 31
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 490.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 490.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 557.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 557.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 624.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 624.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 691.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 691.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "MARK READY",
+        "x": 775.59375,
+        "y": 758.390625,
+        "w": 52,
+        "h": 42
+      },
+      {
+        "text": "VERIFY",
+        "x": 833.59375,
+        "y": 758.390625,
+        "w": 58,
+        "h": 42
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      },
+      {
+        "text": "Close dialog",
+        "x": 323,
+        "y": 202,
+        "w": 34,
+        "h": 34
+      },
+      {
+        "text": "Cancel",
+        "x": 168.59375,
+        "y": 612,
+        "w": 69.203125,
+        "h": 30
+      },
+      {
+        "text": "Create Task",
+        "x": 245.796875,
+        "y": 612,
+        "w": 111.203125,
+        "h": 30
+      }
+    ],
+    "dialog": [
+      {
+        "text": "NEW FIX TASK\nLINK OPEN FINDING (OPTIONAL)\n— none —\n[high] Missing Content Securi",
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 844
+      }
+    ],
+    "name": "390-task-dialog",
+    "errors": []
+  },
+  {
+    "url": "/findings",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Search issues...",
+        "x": 14,
+        "y": 330.59375,
+        "w": 362,
+        "h": 26,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Refresh",
+        "x": 14,
+        "y": 179.59375,
+        "w": 362,
+        "h": 30
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 255.59375,
+        "w": 45.609375,
+        "h": 24
+      },
+      {
+        "text": "CRITICAL",
+        "x": 67.609375,
+        "y": 254.59375,
+        "w": 83.609375,
+        "h": 26
+      },
+      {
+        "text": "HIGH",
+        "x": 159.21875,
+        "y": 254.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "MEDIUM",
+        "x": 222.03125,
+        "y": 254.59375,
+        "w": 69.203125,
+        "h": 26
+      },
+      {
+        "text": "LOW",
+        "x": 299.234375,
+        "y": 254.59375,
+        "w": 47.609375,
+        "h": 26
+      },
+      {
+        "text": "INFO",
+        "x": 14,
+        "y": 288.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 533.1875,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 532.1875,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 532.1875,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 741.78125,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 740.78125,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 740.78125,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      }
+    ],
+    "dialog": [],
+    "name": "390-findings",
+    "errors": []
+  },
+  {
+    "url": "/findings",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Search issues...",
+        "x": 14,
+        "y": 330.59375,
+        "w": 362,
+        "h": 26,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Refresh",
+        "x": 14,
+        "y": 179.59375,
+        "w": 362,
+        "h": 30
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 255.59375,
+        "w": 45.609375,
+        "h": 24
+      },
+      {
+        "text": "CRITICAL",
+        "x": 67.609375,
+        "y": 254.59375,
+        "w": 83.609375,
+        "h": 26
+      },
+      {
+        "text": "HIGH",
+        "x": 159.21875,
+        "y": 254.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "MEDIUM",
+        "x": 222.03125,
+        "y": 254.59375,
+        "w": 69.203125,
+        "h": 26
+      },
+      {
+        "text": "LOW",
+        "x": 299.234375,
+        "y": 254.59375,
+        "w": 47.609375,
+        "h": 26
+      },
+      {
+        "text": "INFO",
+        "x": 14,
+        "y": 288.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 533.1875,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 532.1875,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 532.1875,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 741.78125,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 740.78125,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 740.78125,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      },
+      {
+        "text": "Close detail drawer",
+        "x": 334,
+        "y": 160.609375,
+        "w": 36,
+        "h": 36
+      },
+      {
+        "text": "OPEN",
+        "x": 29,
+        "y": 481.203125,
+        "w": 46,
+        "h": 26
+      },
+      {
+        "text": "RESOLVED",
+        "x": 81,
+        "y": 481.203125,
+        "w": 70,
+        "h": 26
+      },
+      {
+        "text": "ACKNOWLEDGED",
+        "x": 157,
+        "y": 481.203125,
+        "w": 94,
+        "h": 26
+      },
+      {
+        "text": "IN PROGRESS",
+        "x": 257,
+        "y": 481.203125,
+        "w": 88,
+        "h": 26
+      },
+      {
+        "text": "Ask CyphBot",
+        "x": 16,
+        "y": 759.703125,
+        "w": 358,
+        "h": 34
+      },
+      {
+        "text": "How to fix",
+        "x": 16,
+        "y": 803.703125,
+        "w": 358,
+        "h": 32
+      }
+    ],
+    "dialog": [
+      {
+        "text": "ISSUE DETAILS\n\nISSUE DETAILS\nHIGH\nHTTP Security\nMissing Content Security Policy ",
+        "x": 0,
+        "y": 126.609375,
+        "w": 390,
+        "h": 717.390625
+      }
+    ],
+    "name": "390-finding-drawer",
+    "errors": []
+  },
+  {
+    "url": "/findings",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Search issues...",
+        "x": 14,
+        "y": 330.59375,
+        "w": 362,
+        "h": 26,
+        "fontSize": "12px"
+      },
+      {
+        "text": "Ask CyphBot...",
+        "x": 79,
+        "y": 710.40625,
+        "w": 253,
+        "h": 24,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Refresh",
+        "x": 14,
+        "y": 179.59375,
+        "w": 362,
+        "h": 30
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 255.59375,
+        "w": 45.609375,
+        "h": 24
+      },
+      {
+        "text": "CRITICAL",
+        "x": 67.609375,
+        "y": 254.59375,
+        "w": 83.609375,
+        "h": 26
+      },
+      {
+        "text": "HIGH",
+        "x": 159.21875,
+        "y": 254.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "MEDIUM",
+        "x": 222.03125,
+        "y": 254.59375,
+        "w": 69.203125,
+        "h": 26
+      },
+      {
+        "text": "LOW",
+        "x": 299.234375,
+        "y": 254.59375,
+        "w": 47.609375,
+        "h": 26
+      },
+      {
+        "text": "INFO",
+        "x": 14,
+        "y": 288.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 533.1875,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 532.1875,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 532.1875,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Ask CyphBot about this issue",
+        "x": 166.984375,
+        "y": 741.78125,
+        "w": 34,
+        "h": 26
+      },
+      {
+        "text": "How to fix",
+        "x": 208.984375,
+        "y": 740.78125,
+        "w": 114.015625,
+        "h": 28
+      },
+      {
+        "text": "Open issue details",
+        "x": 331,
+        "y": 740.78125,
+        "w": 28,
+        "h": 28
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Reset Conversation",
+        "x": 316,
+        "y": 372.6875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Minimize Chatbot",
+        "x": 341,
+        "y": 372.1875,
+        "w": 22,
+        "h": 22
+      },
+      {
+        "text": "Review Findings",
+        "x": 96.00006103515625,
+        "y": 611.2660522460938,
+        "w": 120.51556396484375,
+        "h": 22
+      },
+      {
+        "text": "Start a scan",
+        "x": 222.515625,
+        "y": 611.2660522460938,
+        "w": 103.40621948242188,
+        "h": 22
+      },
+      {
+        "text": "Email spoofing (DMARC)",
+        "x": 76.00003051757812,
+        "y": 685.265869140625,
+        "w": 288.99993896484375,
+        "h": 34
+      },
+      {
+        "text": "NDPA 2023 duties",
+        "x": 76.00003051757812,
+        "y": 725.265869140625,
+        "w": 288.99993896484375,
+        "h": 34
+      },
+      {
+        "text": "Nginx HSTS & TLS 1.3",
+        "x": 76.00003051757812,
+        "y": 765.265869140625,
+        "w": 288.99993896484375,
+        "h": 34
+      },
+      {
+        "text": "Board security update",
+        "x": 76.00003051757812,
+        "y": 805.265869140625,
+        "w": 288.99993896484375,
+        "h": 34
+      },
+      {
+        "text": "Send (Enter)",
+        "x": 338,
+        "y": 710.40625,
+        "w": 24,
+        "h": 24
+      }
+    ],
+    "dialog": [
+      {
+        "text": "CyphBot chat",
+        "x": 63,
+        "y": 355,
+        "w": 315,
+        "h": 415
+      }
+    ],
+    "name": "390-chat",
+    "errors": []
+  },
+  {
+    "url": "/findings",
+    "width": 390,
+    "height": 420,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [],
+    "inputs": [
+      {
+        "text": "Search issues...",
+        "x": 14,
+        "y": 330.59375,
+        "w": 362,
+        "h": 26,
+        "fontSize": "12px"
+      },
+      {
+        "text": "Ask CyphBot...",
+        "x": 79,
+        "y": 286.40625,
+        "w": 253,
+        "h": 24,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Refresh",
+        "x": 14,
+        "y": 179.59375,
+        "w": 362,
+        "h": 30
+      },
+      {
+        "text": "ALL",
+        "x": 14,
+        "y": 255.59375,
+        "w": 45.609375,
+        "h": 24
+      },
+      {
+        "text": "CRITICAL",
+        "x": 67.609375,
+        "y": 254.59375,
+        "w": 83.609375,
+        "h": 26
+      },
+      {
+        "text": "HIGH",
+        "x": 159.21875,
+        "y": 254.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "MEDIUM",
+        "x": 222.03125,
+        "y": 254.59375,
+        "w": 69.203125,
+        "h": 26
+      },
+      {
+        "text": "LOW",
+        "x": 299.234375,
+        "y": 254.59375,
+        "w": 47.609375,
+        "h": 26
+      },
+      {
+        "text": "INFO",
+        "x": 14,
+        "y": 288.59375,
+        "w": 54.8125,
+        "h": 26
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 360.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 360.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 360.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 360.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 360.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Reset Conversation",
+        "x": 316,
+        "y": 145.296875,
+        "w": 21,
+        "h": 21
+      },
+      {
+        "text": "Minimize Chatbot",
+        "x": 341,
+        "y": 144.796875,
+        "w": 22,
+        "h": 22
+      },
+      {
+        "text": "Review Findings",
+        "x": 96,
+        "y": 383.875,
+        "w": 120.515625,
+        "h": 22
+      },
+      {
+        "text": "Start a scan",
+        "x": 222.515625,
+        "y": 383.875,
+        "w": 103.40625,
+        "h": 22
+      },
+      {
+        "text": "Send (Enter)",
+        "x": 338,
+        "y": 286.40625,
+        "w": 24,
+        "h": 24
+      }
+    ],
+    "dialog": [
+      {
+        "text": "CyphBot chat",
+        "x": 63,
+        "y": 127.609375,
+        "w": 315,
+        "h": 218.390625
+      }
+    ],
+    "name": "390-chat-short",
+    "errors": []
+  },
+  {
+    "url": "/settings",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "MEMBER\tEMAIL\tROLE\tJOINED\n\nM\nMobile Reviewer\nreviewer@example.test\t\nowner\nadmin\nm",
+        "x": 39,
+        "y": 388.59375,
+        "w": 560,
+        "h": 71,
+        "containerWidth": 312
+      }
+    ],
+    "inputs": [],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "GENERATE BOARD REPORT",
+        "x": 14,
+        "y": 163.59375,
+        "w": 362,
+        "h": 38
+      },
+      {
+        "text": "GENERAL",
+        "x": 14,
+        "y": 246.59375,
+        "w": 104.40625,
+        "h": 34
+      },
+      {
+        "text": "TEAM & ROLES (1)",
+        "x": 122.40625,
+        "y": 246.59375,
+        "w": 169.21875,
+        "h": 34
+      },
+      {
+        "text": "AUTHENTICATION",
+        "x": 295.625,
+        "y": 246.59375,
+        "w": 154.8125,
+        "h": 34
+      },
+      {
+        "text": "Invite Member",
+        "x": 214.390625,
+        "y": 331.59375,
+        "w": 136.609375,
+        "h": 28
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      }
+    ],
+    "dialog": [],
+    "name": "390-team",
+    "errors": []
+  },
+  {
+    "url": "/settings",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "fonts": [
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "Fraunces",
+        "status": "unloaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "IBM Plex Mono",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      },
+      {
+        "family": "Space Grotesk",
+        "status": "loaded"
+      }
+    ],
+    "tables": [
+      {
+        "text": "MEMBER\tEMAIL\tROLE\tJOINED\n\nM\nMobile Reviewer\nreviewer@example.test\t\nowner\nadmin\nm",
+        "x": 39,
+        "y": 388.59375,
+        "w": 560,
+        "h": 71,
+        "containerWidth": 312
+      }
+    ],
+    "inputs": [
+      {
+        "text": "e.g. Fatima Bello",
+        "x": 33,
+        "y": 348.5,
+        "w": 324,
+        "h": 34,
+        "fontSize": "12px"
+      },
+      {
+        "text": "name@organization.ng",
+        "x": 33,
+        "y": 418.5,
+        "w": 324,
+        "h": 34,
+        "fontSize": "12px"
+      }
+    ],
+    "smallControls": [
+      {
+        "text": "CYPH Command Center",
+        "x": 27,
+        "y": 24,
+        "w": 62.203125,
+        "h": 20
+      },
+      {
+        "text": "Toggle color theme",
+        "x": 285,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "Sign out",
+        "x": 331,
+        "y": 18,
+        "w": 32,
+        "h": 32
+      },
+      {
+        "text": "GENERATE BOARD REPORT",
+        "x": 14,
+        "y": 163.59375,
+        "w": 362,
+        "h": 38
+      },
+      {
+        "text": "GENERAL",
+        "x": 14,
+        "y": 246.59375,
+        "w": 104.40625,
+        "h": 34
+      },
+      {
+        "text": "TEAM & ROLES (1)",
+        "x": 122.40625,
+        "y": 246.59375,
+        "w": 169.21875,
+        "h": 34
+      },
+      {
+        "text": "AUTHENTICATION",
+        "x": 295.625,
+        "y": 246.59375,
+        "w": 154.8125,
+        "h": 34
+      },
+      {
+        "text": "Invite Member",
+        "x": 214.390625,
+        "y": 331.59375,
+        "w": 136.609375,
+        "h": 28
+      },
+      {
+        "text": "Overview",
+        "x": 21,
+        "y": 784.5,
+        "w": 67.1875,
+        "h": 40.5
+      },
+      {
+        "text": "Assets",
+        "x": 91.1875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Security findings",
+        "x": 161.390625,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Scans",
+        "x": 231.59375,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open menu",
+        "x": 301.796875,
+        "y": 784.5,
+        "w": 67.203125,
+        "h": 40.5
+      },
+      {
+        "text": "Open CyphBot",
+        "x": 245.125,
+        "y": 731.609375,
+        "w": 130.875,
+        "h": 38.390625
+      },
+      {
+        "text": "Close dialog",
+        "x": 323,
+        "y": 263.5,
+        "w": 34,
+        "h": 34
+      },
+      {
+        "text": "Cancel",
+        "x": 154.1875,
+        "y": 550.5,
+        "w": 69.203125,
+        "h": 30
+      },
+      {
+        "text": "Invite Member",
+        "x": 231.390625,
+        "y": 550.5,
+        "w": 125.609375,
+        "h": 30
+      }
+    ],
+    "dialog": [
+      {
+        "text": "INVITE TEAM MEMBER\nFULL NAME\nEMAIL (they'll get an invite link)\nROLE\nmember — vi",
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 844
+      }
+    ],
+    "name": "390-invite-dialog",
+    "errors": []
+  }
+]

@@ -17,21 +17,32 @@
       {
         "@type": "Organization",
         "@id": "https://cyphward.com/#organization",
-        "name": "Cyphward Technologies Ltd",
-        "description": "African-built cyber security, protection and compliance platform — layer by layer defense for the continent.",
+        "name": "Cyphward",
+        "legalName": "Cyphward Ltd",
+        "alternateName": ["cyphward.com"],
         "url": "https://cyphward.com/",
         "logo": {
           "@type": "ImageObject",
-          "url": "https://cyphward.com/og-image.png",
-          "width": 1200,
-          "height": 630
-        }
+          "url": "https://cyphward.com/logo-512.png",
+          "width": 512,
+          "height": 512
+        },
+        "founder": { "@type": "Person", "name": "Yusuf Lawan Nuhu" },
+        "foundingDate": "2026",
+        "address": { "@type": "PostalAddress", "addressCountry": "NG" },
+        "email": "info@cyphward.com",
+        "sameAs": [
+          "https://x.com/cyphward",
+          "https://www.instagram.com/cyphward_/",
+          "https://www.linkedin.com/company/cyphward/"
+        ]
       },
       {
         "@type": "WebSite",
         "@id": "https://cyphward.com/#website",
         "url": "https://cyphward.com/",
         "name": "Cyphward",
+        "alternateName": ["cyphward.com"],
         "inLanguage": "en",
         "publisher": { "@id": "https://cyphward.com/#organization" }
       },
@@ -44,9 +55,11 @@
         "description": "Cyphward protects African enterprises with 0–100 security scoring, continuous scans, fix guides and board-ready reports — plus data-protection compliance support and a hands-on security Academy. Built with NDPA 2023 in mind.",
         "publisher": { "@id": "https://cyphward.com/#organization" },
         "offers": {
-          "@type": "Offer",
-          "price": "450000",
-          "priceCurrency": "NGN"
+          "@type": "AggregateOffer",
+          "lowPrice": "7000",
+          "highPrice": "15000",
+          "priceCurrency": "NGN",
+          "offerCount": "2"
         }
       }
     ]

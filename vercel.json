@@ -65,7 +65,7 @@
       "permanent": false
     },
     {
-      "source": "/(terms|privacy|landing)",
+      "source": "/(terms|privacy|landing|pricing|about)",
       "has": [{ "type": "host", "value": "auth.cyphward.com" }],
       "destination": "https://cyphward.com/$1",
       "permanent": false
@@ -83,7 +83,7 @@
       "permanent": false
     },
     {
-      "source": "/(terms|privacy|landing)",
+      "source": "/(terms|privacy|landing|pricing|about)",
       "has": [{ "type": "host", "value": "app.cyphward.com" }],
       "destination": "https://cyphward.com/$1",
       "permanent": false
@@ -147,7 +147,7 @@
       ]
     },
     {
-      "source": "/(index.html|app.html|privacy/index.html|terms/index.html)",
+      "source": "/(index.html|app.html|privacy/index.html|terms/index.html|pricing/index.html|about/index.html)",
       "headers": [
         {
           "key": "Cache-Control",

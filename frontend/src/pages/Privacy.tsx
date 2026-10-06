@@ -27,7 +27,7 @@ export default function Privacy() {
     >
       <Section n="01" heading="Who we are">
         <p>
-          CYPHWARD TECHNOLOGIES LTD (“Cyphward”, “we”, “us”) runs the Cyphward security
+          CYPHWARD LTD (“Cyphward”, “we”, “us”) runs the Cyphward security
           platform at cyphward.com. This policy explains what we collect, why, and what
           you can ask us to do about it. It follows Nigeria's Data Protection Act
           (NDPA 2023) and comparable rules in the countries where we operate.
@@ -164,7 +164,7 @@ export default function Privacy() {
 
       <Section n="12" heading="Contact">
         <p>
-          CYPHWARD TECHNOLOGIES LTD — Data protection questions:{' '}
+          CYPHWARD LTD — Data protection questions:{' '}
           <span className="text-ink mono">privacy@cyphward.com</span>
         </p>
         <p>

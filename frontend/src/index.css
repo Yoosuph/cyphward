@@ -1089,6 +1089,7 @@ body.drawer-open {
 .calc-panel{background:var(--raised); border:1px solid var(--line-strong); border-radius:4px; padding:32px}
 .pricing-grid{display:grid; grid-template-columns:1fr; gap:24px}
 @media (min-width:860px){ .pricing-grid{grid-template-columns:repeat(3,1fr)} }
+@media (min-width:860px){ .pricing-grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .pricing-card{background:var(--raised); border:1px solid var(--line-strong); border-radius:4px; padding:32px; display:flex; flex-direction:column; position:relative; transition:transform .2s, box-shadow .2s}
 .pricing-card:hover{transform:translateY(-3px); box-shadow:0 16px 40px rgba(0,0,0,.08)}
 .pricing-card.featured{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}

@@ -28,7 +28,7 @@ export default function Terms() {
       <Section n="01" heading="Acceptance">
         <p>
           These Terms are an agreement between you (the person or company using the
-          service) and CYPHWARD TECHNOLOGIES LTD (“Cyphward”, “we”). By creating an
+          service) and CYPHWARD LTD (“Cyphward”, “we”). By creating an
           account or using cyphward.com, you agree to them and to our{' '}
           <Link to="/privacy" className="text-accent underline">Privacy Policy</Link>.
           If you use Cyphward for a company, you confirm you have authority to bind
@@ -151,7 +151,7 @@ export default function Terms() {
 
       <Section n="12" heading="Contact">
         <p>
-          CYPHWARD TECHNOLOGIES LTD — <span className="text-ink mono">legal@cyphward.com</span>{' '}
+          CYPHWARD LTD — <span className="text-ink mono">legal@cyphward.com</span>{' '}
           · security issues: <span className="text-ink mono">security@cyphward.com</span>
         </p>
         <p>

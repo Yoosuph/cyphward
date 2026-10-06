@@ -88,6 +88,8 @@ def main() -> None:
     svg_to_png(180, PUBLIC / "apple-touch-icon.png")
     svg_to_png(32, PUBLIC / "favicon-32x32.png")
     svg_to_png(16, PUBLIC / "favicon-16x16.png")
+    # Square mark for Organization.logo. The wide OG image is not a logo.
+    svg_to_png(512, PUBLIC / "logo-512.png")
 
     # favicon.ico (multi-size from 32px render)
     Image.open(ICONS / "icon-32x32.png").save(
