@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight, ShieldCheck, Radar, Gauge, Wrench, MessageSquare,
-  Activity, Lock, Globe, Check, AlertTriangle, Terminal, ChevronRight,
-  Sun, Moon, Laptop, Sparkles, Building2, Zap, Shield, Menu, X,
+  Activity, Lock, Globe, Check, AlertTriangle, Terminal,
+  Laptop, Sparkles, Building2, Zap, Shield,
   Twitter, Instagram, Linkedin
 } from 'lucide-react';
-import { getTheme, toggleTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
+import PublicHeader from '../components/PublicHeader';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import ScoreRing from '../components/ScoreRing';
@@ -182,18 +182,10 @@ const COUNTRY_REGULATION: Record<string, string> = {
 export default function Landing() {
   const nav = useNavigate();
   const toast = useToast();
-  const [theme, setTheme] = useState(getTheme());
   const [activeLayer, setActiveLayer] = useState(0);
   const [calcSector, setCalcSector] = useState(0);
   const [calcCountry, setCalcCountry] = useState('Nigeria');
   const [previewTab, setPreviewTab] = useState<'telemetry' | 'findings' | 'fixes'>('telemetry');
-
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const onToggleTheme = () => {
-    toggleTheme();
-    setTheme(getTheme());
-  };
 
   const handleGetStarted = () => {
     // Real flow only: no mock sessions. Send visitors to create a real account.
@@ -205,117 +197,7 @@ export default function Landing() {
       {/* Background Strata field */}
       <StrataField variant="hero" opacity={0.6} />
 
-      {/* Fixed Floating Navigation Header */}
-      <header className={`landing-nav ${mobileMenuOpen ? 'menu-open' : ''}`}>
-        <div className="landing-nav-inner">
-          <Link to="/" className="landing-brand" onClick={() => setMobileMenuOpen(false)}>
-            <CyphwardLogo variant="compact" size={19} />
-            <span className="!hidden lg:!inline-block tag text-[9px] ml-1">STRATA 2.0</span>
-          </Link>
-
-          <nav className="landing-links">
-            <a href="#layers" className="landing-link">LAYERS</a>
-            <a href="#checks" className="landing-link">WHAT WE CHECK</a>
-            <a href="#compliance" className="landing-link">REGULATION</a>
-            <a href="#teams" className="landing-link">TEAMS</a>
-            <Link to="/pricing" className="landing-link">PRICING</Link>
-          </nav>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              className="icon-btn"
-              onClick={onToggleTheme}
-              aria-label="Toggle visual theme"
-              title="Switch light/dark theme"
-            >
-              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-            </button>
-
-            <Link to="/login" className="btn-mini !hidden sm:!inline-flex">
-              SIGN IN
-            </Link>
-
-            <button className="btn btn-solid btn-mini hover-lift text-[11px] py-1.5 px-3 flex-none" onClick={handleGetStarted}>
-              <span className="hidden sm:inline">GET </span>STARTED <ArrowRight size={11} className="ml-1 inline" />
-            </button>
-
-            <button
-              className="icon-btn md:hidden"
-              onClick={() => setMobileMenuOpen(o => !o)}
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-            >
-              {mobileMenuOpen ? <X size={15} /> : <Menu size={15} />}
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Dropdown Menu Panel */}
-        {mobileMenuOpen && (
-          <div className="landing-mobile-menu md:hidden border-t border-line px-4 py-3 flex flex-col gap-2.5 bg-raised/95 backdrop-blur-md rounded-b-2xl">
-            <nav className="flex flex-col gap-1 pt-1">
-              <a
-                href="#layers"
-                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span>01–06 · DEFENSE LAYERS</span>
-                <ChevronRight size={13} className="text-soft" />
-              </a>
-              <a
-                href="#checks"
-                className="py-2 px-2.5 rounded text-xs mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span>WHAT WE CHECK</span>
-                <ChevronRight size={13} className="text-soft" />
-              </a>
-              <a
-                href="#compliance"
-                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span>PENALTY CALCULATOR</span>
-                <ChevronRight size={13} className="text-soft" />
-              </a>
-              <a
-                href="#teams"
-                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span>TEAMS &amp; ROLES</span>
-                <ChevronRight size={13} className="text-soft" />
-              </a>
-              <Link
-                to="/pricing"
-                className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span>PLANS &amp; PRICING</span>
-                <ChevronRight size={13} className="text-soft" />
-              </Link>
-            </nav>
-
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line/60">
-              <Link
-                to="/login"
-                className="btn btn-ghost text-xs justify-center py-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                SIGN IN
-              </Link>
-              <button
-                className="btn btn-solid text-xs justify-center py-2"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  handleGetStarted();
-                }}
-              >
-                GET STARTED ↗
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
+      <PublicHeader anchorPrefix="" />
 
       {/* Hero Section */}
       <main className="landing-container relative z-10">
