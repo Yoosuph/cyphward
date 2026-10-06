@@ -757,46 +757,20 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Pricing */}
+        {/* Pricing — prices live on the dedicated page */}
         <section id="pricing" className="py-16">
           <div className="sec-head">
             <p className="eyebrow">SIMPLE PLANS</p>
             <h2>Two plans, priced in naira.</h2>
             <p className="sec-note">
-              Starter is ₦7,000 a month. Growth is ₦15,000 a month. The checks are the same.
+              Starter for one business, Growth for teams. The checks are the same.
             </p>
           </div>
-
-          <div className="pricing-grid cols-2">
-            {PUBLIC_PLANS.map(plan => (
-              <div key={plan.id} className={`pricing-card ${plan.featured ? 'featured' : ''}`}>
-                <div className="flex justify-between items-center mb-3 gap-2">
-                  <span className="tag w-fit">{plan.name.toUpperCase()}</span>
-                  {plan.featured && <span className="tag acc text-[9px]">FOR TEAMS</span>}
-                </div>
-                <h3 className="font-display text-2xl font-medium mb-1">{plan.name}</h3>
-                <p className="text-xs mono text-soft mb-4">{plan.blurb}</p>
-                <div className="font-display text-3xl font-medium my-2">
-                  {plan.priceLabel} <span className="text-xs font-mono text-soft">/ month</span>
-                </div>
-                <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
-                  {plan.points.map(point => (
-                    <li key={point} className="flex items-start gap-2">
-                      <Check size={14} className="text-ok flex-none mt-0.5" />
-                      <span>{point}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button className={`btn ${plan.featured ? 'btn-solid' : 'btn-ghost'} w-full justify-center`} onClick={handleGetStarted}>
-                  {plan.cta}
-                </button>
-              </div>
-            ))}
+          <div className="flex justify-center">
+            <Link to="/pricing" className="btn btn-solid justify-center">
+              SEE PLANS & PRICING <ArrowRight size={14} className="ml-1" />
+            </Link>
           </div>
-          <p className="text-xs mono text-soft mt-6">
-            <Link to="/pricing" className="hover:text-ink">Read the full pricing page</Link>
-            {' '}· the checks are the same on both plans.
-          </p>
         </section>
 
         {/* Final CTA Banner */}
