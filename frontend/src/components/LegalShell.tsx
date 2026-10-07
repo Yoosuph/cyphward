@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import StrataField from './StrataField';
 import PublicHeader from './PublicHeader';
+import PublicFooter from './PublicFooter';
 
 /**
  * Shared landing-style chrome for the legal pages (/terms, /privacy).
@@ -35,23 +35,7 @@ export default function LegalShell({
         </div>
       </main>
 
-      {/* Minimal footer */}
-      <footer className="landing-footer">
-        <div className="landing-container flex flex-col sm:flex-row items-center justify-between gap-4 text-xs mono text-soft">
-          <div className="flex items-center gap-4">
-            <Link to="/pricing" className="hover:text-ink transition-colors">PRICING</Link>
-            <span className="text-line">·</span>
-            <Link to="/about" className="hover:text-ink transition-colors">ABOUT</Link>
-            <span className="text-line">·</span>
-            <Link to="/terms" className="hover:text-ink transition-colors">TERMS OF SERVICE</Link>
-            <span className="text-line">·</span>
-            <Link to="/privacy" className="hover:text-ink transition-colors">PRIVACY POLICY</Link>
-            <span className="text-line">·</span>
-            <Link to="/login" className="hover:text-ink transition-colors">SIGN IN</Link>
-          </div>
-          <div>© 2026 CYPHWARD LTD</div>
-        </div>
-      </footer>
+      <PublicFooter anchorPrefix="/" />
     </div>
   );
 }

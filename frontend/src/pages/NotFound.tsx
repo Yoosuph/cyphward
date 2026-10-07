@@ -23,6 +23,7 @@ export default function NotFound() {
   return (
     <PublicShell
       eyebrow="NOT FOUND"
+      centered
       title={<>Nothing lives <em>here.</em></>}
       lede="The page you asked for does not exist or moved. If you typed the address, check the spelling."
     >
