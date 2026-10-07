@@ -25,20 +25,24 @@ export default function Status() {
   const [roundtripMs, setRoundtripMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [failureDetail, setFailureDetail] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setFailed(false);
+    setFailureDetail('');
     const t0 = performance.now();
     try {
       const res = await fetch(HEALTH_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`API answered HTTP ${res.status}`);
       setHealth(await res.json());
       setRoundtripMs(Math.round(performance.now() - t0));
-    } catch {
+    } catch (e: any) {
       setHealth(null);
       setFailed(true);
-      toast('Could not reach the API');
+      const detail = e?.message || 'network error';
+      setFailureDetail(`${HEALTH_URL} — ${detail}`);
+      toast(`Could not reach the API (${detail})`);
     } finally {
       setLoading(false);
     }
@@ -100,7 +104,13 @@ export default function Status() {
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {loading ? 'CHECKING…' : 'CHECK AGAIN'}
         </button>
-        <span className="mono text-[11px] text-soft">Scanner internals live in the staff platform console.</span>
+        {failed ? (
+          <span className="mono text-[11px] text-accent">
+            {failureDetail || 'Unreachable — check your connection, then try again.'}
+          </span>
+        ) : (
+          <span className="mono text-[11px] text-soft">Scanner internals live in the staff platform console.</span>
+        )}
       </div>
     </PublicShell>
   );

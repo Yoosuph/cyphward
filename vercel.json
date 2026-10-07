@@ -2,7 +2,12 @@
   "redirects": [
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "www.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "www.cyphward.com"
+        }
+      ],
       "destination": "https://cyphward.com/$1",
       "permanent": true
     },
@@ -18,73 +23,133 @@
     },
     {
       "source": "/robots.txt",
-      "has": [{ "type": "host", "value": "app.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
       "destination": "/robots-noindex.txt",
       "permanent": false
     },
     {
       "source": "/robots.txt",
-      "has": [{ "type": "host", "value": "auth.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
       "destination": "/robots-noindex.txt",
       "permanent": false
     },
     {
       "source": "/(login|signup|forgot-password|reset-password|auth/callback)",
-      "has": [{ "type": "host", "value": "cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "cyphward.com"
+        }
+      ],
       "destination": "https://auth.cyphward.com/$1",
       "permanent": false
     },
     {
       "source": "/onboarding/:path*",
-      "has": [{ "type": "host", "value": "cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "cyphward.com"
+        }
+      ],
       "destination": "https://app.cyphward.com/onboarding/:path*",
       "permanent": false
     },
     {
       "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|dashboard|copilot|detect|score|academy|sso|platform)",
-      "has": [{ "type": "host", "value": "cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "cyphward.com"
+        }
+      ],
       "destination": "https://app.cyphward.com/$1",
       "permanent": false
     },
     {
       "source": "/onboarding/:path*",
-      "has": [{ "type": "host", "value": "auth.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
       "destination": "https://app.cyphward.com/onboarding/:path*",
       "permanent": false
     },
     {
       "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|dashboard|copilot|detect|score|academy|sso|platform)",
-      "has": [{ "type": "host", "value": "auth.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
       "destination": "https://app.cyphward.com/$1",
       "permanent": false
     },
     {
       "source": "/",
-      "has": [{ "type": "host", "value": "auth.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
       "destination": "/login",
       "permanent": false
     },
     {
       "source": "/(terms|privacy|landing|pricing|about)",
-      "has": [{ "type": "host", "value": "auth.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
       "destination": "https://cyphward.com/$1",
       "permanent": false
     },
     {
       "source": "/(login|signup|forgot-password|reset-password|auth/callback)",
-      "has": [{ "type": "host", "value": "app.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
       "destination": "https://auth.cyphward.com/$1",
       "permanent": false
     },
     {
       "source": "/",
-      "has": [{ "type": "host", "value": "app.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
       "destination": "/overview",
       "permanent": false
     },
     {
       "source": "/(terms|privacy|landing|pricing|about)",
-      "has": [{ "type": "host", "value": "app.cyphward.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
       "destination": "https://cyphward.com/$1",
       "permanent": false
     }
@@ -104,6 +169,10 @@
     },
     {
       "source": "/auth/callback",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/app.html"
     }
   ],
