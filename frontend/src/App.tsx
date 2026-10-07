@@ -20,6 +20,8 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
+import Health from './pages/Health';
+import NotFound from './pages/NotFound';
 
 // Route-split pages: loaded on demand so the public landing payload doesn't
 // ship the dashboard, auth screens and chart library (recharts).
@@ -315,6 +317,7 @@ export default function App() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/health" element={<Health />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/about" element={<About />} />
 
@@ -352,7 +355,7 @@ export default function App() {
               <Route path="/sso" element={<Navigate to="/login" replace />} />
             </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
           </HostGate>

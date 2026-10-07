@@ -37,6 +37,13 @@ const PAGES = [
     description: 'Cyphward Ltd builds external security scoring for Nigerian businesses. Founded in 2026 by Yusuf Lawan Nuhu. Verify a domain, then read one score and a report a board can use.',
     canonical: 'https://cyphward.com/about',
   },
+  {
+    url: '/health',
+    file: 'health/index.html',
+    title: 'System Status — Cyphward',
+    description: 'Live public status of the Cyphward API. No sign-in required.',
+    canonical: 'https://cyphward.com/health',
+  },
 ];
 
 function setMeta(html, attr, value) {
