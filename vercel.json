@@ -156,6 +156,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "https://cyphward-core.onrender.com/health"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://cyphward-core.onrender.com/api/$1"
     },

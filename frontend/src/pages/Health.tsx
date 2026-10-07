@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast';
 
 const HEALTH_URL = import.meta.env.DEV
   ? 'http://localhost:8000/health'
-  : 'https://cyphward-core.onrender.com/health';
+  : '/api/health';
 
 interface HealthState {
   status: string;
