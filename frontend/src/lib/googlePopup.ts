@@ -13,6 +13,20 @@ export interface GooglePopupResult {
 
 const POPUP_TIMEOUT_MS = 180000;
 
+const FIRST_PARTY_ORIGINS = new Set([
+  'https://cyphward.com',
+  'https://www.cyphward.com',
+  'https://auth.cyphward.com',
+  'https://app.cyphward.com',
+]);
+
+function isTrustedOrigin(origin: string): boolean {
+  if (origin === window.location.origin) return true;
+  if (FIRST_PARTY_ORIGINS.has(origin)) return true;
+  if (window.location.hostname === 'localhost' && origin.startsWith('http://localhost:')) return true;
+  return false;
+}
+
 export function signInWithGooglePopup(): Promise<GooglePopupResult> {
   return new Promise(resolve => {
     let settled = false;
@@ -27,8 +41,11 @@ export function signInWithGooglePopup(): Promise<GooglePopupResult> {
     };
 
     const onMessage = (event: MessageEvent) => {
-      // Same-origin only: the popup serves our own backend callback page.
-      if (event.origin !== window.location.origin) return;
+      // The popup finishes on the OAuth redirect host (apex), while the
+      // opener tab lives on the auth subdomain — accept our first-party
+      // origins only. Payloads are server-minted single-use codes, so a
+      // foreign origin still cannot forge a sign-in.
+      if (!isTrustedOrigin(event.origin)) return;
       const data = event.data;
       if (!data || data.type !== 'cyphward-google-auth') return;
       if (data.otc || data.mfa_token) {

@@ -96,7 +96,7 @@ def _popup_result_page(payload: Dict[str, Any]) -> HTMLResponse:
     html = (
         "<!DOCTYPE html><html><body><script>"
         f"try {{ window.opener.postMessage({data}, {target}); }} catch (e) {{}}"
-        "window.close();"
+        "setTimeout(function () { window.close(); }, 300);"
         "</script></body></html>"
     )
     return HTMLResponse(content=html)
