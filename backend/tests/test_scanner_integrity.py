@@ -171,3 +171,33 @@ def test_discovery_reports_failed_sources_not_empty_ones(monkeypatch):
     hosts, failed = asyncio.run(discovery.discover_subdomains_with_health("example.com"))
     assert hosts == ["example.com"]
     assert failed == ["certspotter", "crt.sh"]
+
+
+def test_worker_discovery_stage_keeps_tuple_shape_and_seeds(monkeypatch):
+    """Regression: run_stage coerces non-lists to [] — the worker discovery
+    stage must NOT route the (hosts, failed) tuple through it (Oct 2026
+    incident: every scan crashed with 'not enough values to unpack')."""
+    import asyncio
+    from types import SimpleNamespace
+    from scanner import runner as runner_mod
+
+    async def fake_discover(_domain):
+        return ["b.test"], ["crt.sh"]
+
+    monkeypatch.setattr(runner_mod, "discover_subdomains_with_health", fake_discover)
+
+    posted = {}
+
+    class FakeClient:
+        async def progress(self, scan_id, stage, status, **kw):
+            posted.setdefault("progress", []).append((stage, status))
+
+        async def observations(self, scan_id, stage, data):
+            posted[stage] = data
+
+    cfg = SimpleNamespace(heartbeat_seconds=9999)
+    job = SimpleNamespace(scan_id="s1", target="example.com", seed_hosts=["extra.example.com"])
+
+    hosts = asyncio.run(runner_mod.run_discovery_stage(FakeClient(), cfg, job))
+    assert hosts == ["b.test", "extra.example.com"]
+    assert posted["discovery"] == {"discovered_hosts": hosts, "sources_failed": ["crt.sh"]}

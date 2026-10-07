@@ -148,6 +148,44 @@ async def _gather_dicts(awaitables) -> List[Dict[str, Any]]:
     return [r for r in results if isinstance(r, dict)]
 
 
+async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str]:
+    """Stage 1 (fatal): passive discovery + health + seed union.
+
+    Not via run_stage — it coerces stage results to lists, but discovery
+    yields (hosts, sources_failed). Progress, heartbeat and the observation
+    are handled explicitly here instead. Returns the raw (pre-scope-filter)
+    host list; raises on total failure.
+    """
+    _t0 = time.time()
+    await client.progress(job.scan_id, "discovery", "running")
+    _stop = asyncio.Event()
+    _beat = asyncio.create_task(
+        _heartbeat(client, job.scan_id, "discovery", max(30.0, cfg.heartbeat_seconds), _stop))
+    try:
+        hosts_raw, sources_failed = await discover_subdomains_with_health(job.target)
+    except Exception:
+        await _stop_beat(_stop, _beat)
+        raise
+    else:
+        await _stop_beat(_stop, _beat)
+    # Owner-registered hosts ride along (scope filter below still applies).
+    if getattr(job, "seed_hosts", None):
+        seeds = {h.strip().lower() for h in job.seed_hosts if h}
+        new_seeds = seeds - set(hosts_raw)
+        if new_seeds:
+            hosts_raw = sorted(set(hosts_raw) | seeds)
+            logger.info("scan=%s discovery: +%d registered seed hosts",
+                        job.scan_id, len(new_seeds))
+    if sources_failed:
+        logger.warning("scan=%s discovery sources failed: %s", job.scan_id, sources_failed)
+    await client.observations(job.scan_id, "discovery",
+                              {"discovered_hosts": hosts_raw,
+                               "sources_failed": sources_failed})
+    await client.progress(job.scan_id, "discovery", "completed",
+                          items=len(hosts_raw), duration_ms=_ms(_t0))
+    return hosts_raw
+
+
 async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     """Run all recon stages for one claimed job (sequential, §16)."""
     assert_job_in_scope(job)
@@ -157,23 +195,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     stats: Dict[str, Any] = {}
 
     # --- STAGE 1: discovery (fatal) --------------------------------------
-    hosts_raw, sources_failed = await run_stage(
-        client, cfg, job, "discovery",
-        lambda: discover_subdomains_with_health(job.target))
-    assert hosts_raw is not None
-    if sources_failed:
-        logger.warning("scan=%s discovery sources failed: %s", job.scan_id, sources_failed)
-    # Owner-registered hosts ride along (scope filter below still applies).
-    # Re-post the observation: run_stage already stored the raw passive set.
-    if getattr(job, "seed_hosts", None):
-        seeds = {h.strip().lower() for h in job.seed_hosts if h}
-        if seeds - set(hosts_raw):
-            hosts_raw = sorted(set(hosts_raw) | seeds)
-            await client.observations(job.scan_id, "discovery",
-                                      {"discovered_hosts": hosts_raw,
-                                       "sources_failed": sources_failed})
-            logger.info("scan=%s discovery: +%d registered seed hosts",
-                        job.scan_id, len(seeds))
+    hosts_raw = await run_discovery_stage(client, cfg, job)
     # Per-host suffix validation (§40) + de-dup + cap (first scope check).
     discovered = filter_hosts(hosts_raw, job.scope, max_hosts)
     if len(hosts_raw) > len(discovered):
