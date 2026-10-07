@@ -1,4 +1,4 @@
-import { FormEvent, useState, useEffect } from 'react';
+import { FormEvent, useState, useEffect, useRef } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, ShieldCheck, KeyRound, Lock,
@@ -30,9 +30,10 @@ export default function Login() {
   // Admin step-up: password accepted, 6-digit email code pending.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaHint, setMfaHint] = useState('');
-  const [mfaCode, setMfaCode] = useState('');
+  const [mfaDigits, setMfaDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [mfaBusy, setMfaBusy] = useState(false);
   const [resendNote, setResendNote] = useState('');
+  const digitRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     const onThemeChange = () => setTheme(getTheme());
@@ -82,7 +83,7 @@ export default function Login() {
     if (stashed) {
       setMfaToken(stashed.token);
       setMfaHint(stashed.hint);
-      setMfaCode('');
+      setMfaDigits(['', '', '', '', '', '']);
       setResendNote('');
     }
   }, []);
@@ -100,7 +101,7 @@ export default function Login() {
             const c = tokens as MfaChallenge;
             setMfaToken(c.mfa_token);
             setMfaHint(c.email_hint || '');
-            setMfaCode('');
+            setMfaDigits(['', '', '', '', '', '']);
             setResendNote('');
             toast('Extra check — enter the code we emailed you.');
             return;
@@ -155,7 +156,7 @@ export default function Login() {
       setBusy(false);
       setMfaToken(result.mfa_token || null);
       setMfaHint(result.email_hint || '');
-      setMfaCode('');
+      setMfaDigits(['', '', '', '', '', '']);
       setResendNote('');
       return;
     }
@@ -175,20 +176,70 @@ export default function Login() {
     }
   };
 
-  const submitMfa = async (e: FormEvent) => {
-    e.preventDefault();
-    if (mfaBusy || !mfaToken) return;
+  const clearMfa = () => {
+    setMfaToken(null);
+    setMfaDigits(['', '', '', '', '', '']);
+    setError('');
+  };
+
+  const submitMfaCode = async (code: string) => {
+    if (mfaBusy || !mfaToken || code.length !== 6) return;
     setMfaBusy(true);
     setError('');
 
-    const result = await completeMfaSignIn(mfaToken, mfaCode);
+    const result = await completeMfaSignIn(mfaToken, code);
     setMfaBusy(false);
     if (!result.ok) {
       setError(result.error || 'Invalid code. Please try again.');
+      setMfaDigits(['', '', '', '', '', '']);
+      digitRefs.current[0]?.focus();
       return;
     }
     setMfaToken(null);
     finishLogin(result.name || '', result.onboarding);
+  };
+
+  const submitMfa = async (e: FormEvent) => {
+    e.preventDefault();
+    await submitMfaCode(mfaDigits.join(''));
+  };
+
+  const handleDigit = (i: number, raw: string) => {
+    const d = raw.replace(/\D/g, '').slice(-1);
+    setMfaDigits(prev => {
+      const next = [...prev];
+      next[i] = d;
+      if (d && i < 5) {
+        requestAnimationFrame(() => digitRefs.current[i + 1]?.focus());
+      }
+      if (d && next.every(x => x !== '')) {
+        // Auto-send the moment the sixth box fills.
+        requestAnimationFrame(() => submitMfaCode(next.join('')));
+      }
+      return next;
+    });
+  };
+
+  const handleDigitKey = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !mfaDigits[i] && i > 0) {
+      const prev = [...mfaDigits];
+      prev[i - 1] = '';
+      setMfaDigits(prev);
+      digitRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const handleDigitPaste = (e: React.ClipboardEvent) => {
+    const text = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+    if (!text) return;
+    e.preventDefault();
+    const next = Array.from({ length: 6 }, (_, i) => text[i] || '');
+    setMfaDigits(next);
+    if (text.length === 6) {
+      requestAnimationFrame(() => submitMfaCode(text));
+    } else {
+      requestAnimationFrame(() => digitRefs.current[text.length]?.focus());
+    }
   };
 
   const resendCode = async () => {
@@ -367,24 +418,32 @@ export default function Login() {
               </div>
 
               {mfaToken ? (
-              <form onSubmit={submitMfa}>
+              <form onSubmit={submitMfa} key="mfa" className="content-fade-in">
                   {/* Admin step-up: 6-digit code emailed after password check */}
                   <div className="p-3 mb-4 bg-accent/10 border border-accent/30 rounded text-xs mono text-ink">
                     Extra check for workspace admins — enter the 6-digit code we sent
                     {mfaHint ? ` to ${mfaHint}` : ''}.
                   </div>
                   <div className="field">
-                    <label htmlFor="mfa-code">SIGN-IN CODE</label>
-                    <input
-                      id="mfa-code"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="123456"
-                      value={mfaCode}
-                      onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      autoComplete="one-time-code"
-                      required
-                    />
+                    <label>SIGN-IN CODE</label>
+                    <div className="flex items-center justify-between gap-2" onPaste={handleDigitPaste}>
+                      {[0, 1, 2, 3, 4, 5].map(i => (
+                        <input
+                          key={i}
+                          ref={el => { digitRefs.current[i] = el; }}
+                          type="text"
+                          inputMode="numeric"
+                          autoFocus={i === 0}
+                          autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                          aria-label={`Digit ${i + 1}`}
+                          value={mfaDigits[i]}
+                          onChange={e => handleDigit(i, e.target.value)}
+                          onKeyDown={e => handleDigitKey(i, e)}
+                          disabled={mfaBusy}
+                          className="w-11 h-12 text-center text-lg mono font-semibold bg-inset border border-line rounded text-ink focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+                        />
+                      ))}
+                    </div>
                   </div>
 
                   {error && (
@@ -394,23 +453,20 @@ export default function Login() {
                     </div>
                   )}
 
-                  <button className="btn btn-solid w-full justify-center mt-5" type="submit" disabled={mfaBusy}>
-                    {mfaBusy ? <>VERIFYING…</> : (<>VERIFY & SIGN IN <ArrowRight size={14} className="ml-1" /></>)}
-                  </button>
-
                   <div className="mt-4 pt-3.5 border-t border-line text-center">
+                    {mfaBusy && <p className="text-xs mono text-soft mb-2">VERIFYING…</p>}
                     {resendNote && <p className="text-xs mono text-soft mb-2">{resendNote}</p>}
                     <button type="button" onClick={resendCode} className="text-xs mono text-soft hover:text-accent transition-colors">
                       RESEND CODE
                     </button>
                     <span className="text-xs mono text-soft mx-2">·</span>
-                    <button type="button" onClick={() => { setMfaToken(null); setMfaCode(''); setError(''); }} className="text-xs mono text-soft hover:text-accent transition-colors">
+                    <button type="button" onClick={() => { clearMfa(); }} className="text-xs mono text-soft hover:text-accent transition-colors">
                       BACK
                     </button>
                   </div>
               </form>
               ) : (
-              <form onSubmit={submit}>
+              <form onSubmit={submit} key="login" className="content-fade-in">
                   {/* Email Field */}
                   <div className="field">
                     <label htmlFor="email">WORK EMAIL</label>
