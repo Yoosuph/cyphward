@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
+import { signInWithGooglePopup } from '../lib/googlePopup';
+import { exchangeOtp } from '../lib/api';
 import type { MfaChallenge } from '../lib/api';
 import { takeMfaChallenge } from '../lib/session';
 import type { AuthTokens } from '../lib/session';
@@ -249,10 +251,48 @@ export default function Login() {
     setResendNote(result.ok ? 'A fresh code is on its way.' : (result.error || 'Could not resend the code.'));
   };
 
-  const signInWithGoogle = () => {
-    // Full-page redirect to our own backend OAuth flow; the callback lands
-    // on /auth/callback with a one-time code.
-    window.location.href = '/api/v1/auth/google';
+  const signInWithGoogle = async () => {
+    // Popup first (stays on this page); full-page redirect if blocked.
+    try {
+      const result = await signInWithGooglePopup();
+      if (result.error === 'popup_blocked') {
+        window.location.href = '/api/v1/auth/google';
+        return;
+      }
+      if (result.error) {
+        if (result.error !== 'closed') {
+          setError('Google sign-in failed. Please try again, or use your email and password.');
+        }
+        return;
+      }
+      if (result.mfa_token) {
+        setMfaToken(result.mfa_token);
+        setMfaHint(result.email_hint || '');
+        setMfaDigits(['', '', '', '', '', '']);
+        setResendNote('');
+        toast('Extra check — enter the code we emailed you.');
+        return;
+      }
+      if (result.otc) {
+        try {
+          const tokens = await exchangeOtp(result.otc);
+          const step = await completeExternalLogin(tokens);
+          if (step && step !== 'complete' && step !== 'none') {
+            nav(`/onboarding${inviteParam}`, { replace: true });
+          } else if (step === 'none') {
+            setError('Your session could not be restored. Please sign in again.');
+          } else {
+            nav(`/overview${inviteParam}`, { replace: true });
+          }
+        } catch {
+          setError('Google sign-in failed. Please try again.');
+        }
+        return;
+      }
+      setError('Google sign-in failed. Please try again.');
+    } catch {
+      setError('Google sign-in failed. Please try again.');
+    }
   };
 
   return (

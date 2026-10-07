@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 import httpx
 import jwt as pyjwt
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from backend.app.core.auth import log_audit
@@ -51,12 +51,13 @@ _GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 _STATE_TTL_SECONDS = 600
 
 
-def _make_state() -> str:
+def _make_state(popup: bool = False) -> str:
     now = int(time.time())
     return pyjwt.encode(
         {
             "purpose": "google_oauth",
             "nonce": secrets.token_urlsafe(16),
+            "popup": bool(popup),
             "iat": now,
             "exp": now + _STATE_TTL_SECONDS,
         },
@@ -73,6 +74,32 @@ def _check_state(state: str) -> bool:
         return claims.get("purpose") == "google_oauth"
     except pyjwt.PyJWTError:
         return False
+
+
+def _state_is_popup(state: str) -> bool:
+    try:
+        claims = pyjwt.decode(
+            state, AUTH_JWT_SECRET, algorithms=["HS256"], options={"require": ["exp"]}
+        )
+        return bool(claims.get("popup"))
+    except pyjwt.PyJWTError:
+        return False
+
+
+def _popup_result_page(payload: Dict[str, Any]) -> HTMLResponse:
+    """Answer a popup-mode OAuth flow: post the result to the opener tab
+    (same origin) and close. Values are JSON-encoded — never interpolated."""
+    import json as _json
+
+    data = _json.dumps({"type": "cyphward-google-auth", **payload})
+    target = _json.dumps(FRONTEND_URL)
+    html = (
+        "<!DOCTYPE html><html><body><script>"
+        f"try {{ window.opener.postMessage({data}, {target}); }} catch (e) {{}}"
+        "window.close();"
+        "</script></body></html>"
+    )
+    return HTMLResponse(content=html)
 
 
 def _login_error_url(reason: str) -> str:
@@ -165,8 +192,12 @@ def _upsert_google_profile(email: str, name: str) -> Optional[Dict[str, Any]]:
 
 
 @google_router.get("/google")
-async def google_start() -> RedirectResponse:
-    """Send the browser to Google's consent screen."""
+async def google_start(mode: Optional[str] = None) -> RedirectResponse:
+    """Send the browser to Google's consent screen.
+
+    `?mode=popup` rides along in the signed state: the callback then answers
+    with a postMessage page (for the popup flow) instead of a redirect.
+    """
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not AUTH_JWT_SECRET:
         # Browsers only hit this route — bounce back with a friendly error
         # instead of a raw JSON 400.
@@ -179,7 +210,7 @@ async def google_start() -> RedirectResponse:
             "scope": "openid email profile",
             "access_type": "offline",
             "prompt": "select_account",
-            "state": _make_state(),
+            "state": _make_state(popup=(mode == "popup")),
         }
     )
     return RedirectResponse(f"{_GOOGLE_AUTH_URL}?{params}")
@@ -190,10 +221,18 @@ async def google_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
-) -> RedirectResponse:
-    """Finish the Google flow and hand the frontend a single-use exchange code."""
+) -> Response:
+    """Finish the Google flow: redirect mode hands the frontend a single-use
+    exchange code; popup mode answers with a postMessage page instead."""
+    popup = bool(state) and _state_is_popup(state)
+
+    def fail(reason: str):
+        if popup:
+            return _popup_result_page({"error": reason})
+        return RedirectResponse(_login_error_url(reason))
+
     if error or not code or not state or not _check_state(state):
-        return RedirectResponse(_login_error_url("oauth_failed"))
+        return fail("oauth_failed")
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -210,7 +249,7 @@ async def google_callback(
             token_resp.raise_for_status()
             access_token = token_resp.json().get("access_token")
             if not access_token:
-                return RedirectResponse(_login_error_url("oauth_failed"))
+                return fail("oauth_failed")
 
             userinfo_resp = await client.get(
                 _GOOGLE_USERINFO_URL,
@@ -219,30 +258,36 @@ async def google_callback(
             userinfo_resp.raise_for_status()
             info: Dict[str, Any] = userinfo_resp.json()
     except Exception:
-        return RedirectResponse(_login_error_url("oauth_failed"))
+        return fail("oauth_failed")
 
     email = (info.get("email") or "").strip().lower()
     if not email or not info.get("email_verified"):
-        return RedirectResponse(_login_error_url("email_unverified"))
+        return fail("email_unverified")
     name = (info.get("name") or "").strip() or email.split("@")[0]
 
     user = _upsert_google_profile(email, name)
     if not user:
-        return RedirectResponse(_login_error_url("oauth_failed"))
+        return fail("oauth_failed")
 
-    # Admins and enrolled users clear the same step-up as password logins —
-    # the frontend lands on /auth/callback?mfa=… instead of receiving a session.
+    # Admins and enrolled users clear the same step-up as password logins.
     try:
         stepped = _google_step_up(user)
     except HTTPException:
-        return RedirectResponse(_login_error_url("oauth_failed"))
+        return fail("oauth_failed")
     if stepped:
+        if popup:
+            return _popup_result_page({
+                "mfa_token": stepped,
+                "email_hint": _mask_email((user.get("email") or "").strip().lower()),
+            })
         return RedirectResponse(f"{FRONTEND_URL}/auth/callback?mfa={stepped}")
 
     # Single-use exchange code; the frontend trades it for real session tokens.
     otc = new_opaque_token()
     issue_session(user, otc=otc)
     log_audit(None, str(user["id"]), "auth.google_signin", "user", str(user["id"]))
+    if popup:
+        return _popup_result_page({"otc": otc})
     return RedirectResponse(f"{FRONTEND_URL}/auth/callback?otc={otc}")
 
 

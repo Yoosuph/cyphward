@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
+import { signInWithGooglePopup } from '../lib/googlePopup';
+import { exchangeOtp } from '../lib/api';
 import type { MfaChallenge } from '../lib/api';
 import { stashMfaChallenge } from '../lib/session';
 import type { AuthTokens } from '../lib/session';
@@ -118,10 +120,45 @@ export default function Signup() {
     }
   };
 
-  const signUpWithGoogle = () => {
-    // Full-page redirect to our own backend OAuth flow; the callback lands
-    // on /auth/callback with a one-time code.
-    window.location.href = '/api/v1/auth/google';
+  const signUpWithGoogle = async () => {
+    // Popup first (stays on this page); full-page redirect if blocked.
+    try {
+      const result = await signInWithGooglePopup();
+      if (result.error === 'popup_blocked') {
+        window.location.href = '/api/v1/auth/google';
+        return;
+      }
+      if (result.error) {
+        if (result.error !== 'closed') {
+          setError('Google sign-up failed. Please try again, or use email and password.');
+        }
+        return;
+      }
+      if (result.mfa_token) {
+        stashMfaChallenge(result.mfa_token, result.email_hint || '');
+        nav(`/login${inviteParam}`, { replace: true });
+        return;
+      }
+      if (result.otc) {
+        try {
+          const tokens = await exchangeOtp(result.otc);
+          const step = await completeExternalLogin(tokens);
+          if (step && step !== 'complete' && step !== 'none') {
+            nav(`/onboarding${inviteParam}`, { replace: true });
+          } else if (step === 'none') {
+            setError('Your session could not be restored. Please try again.');
+          } else {
+            nav(`/overview${inviteParam}`, { replace: true });
+          }
+        } catch {
+          setError('Google sign-up failed. Please try again.');
+        }
+        return;
+      }
+      setError('Google sign-up failed. Please try again.');
+    } catch {
+      setError('Google sign-up failed. Please try again.');
+    }
   };
 
   return (

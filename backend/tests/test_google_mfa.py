@@ -39,3 +39,33 @@ def test_google_step_up_unit_respects_role_and_enrollment(store, monkeypatch):
     enrolled = google_mod._google_step_up({"id": BOB, "email": f"{BOB[:8]}@acme.test",
                                            "mfa_enrolled_at": "2026-10-04T00:00:00"})
     assert isinstance(enrolled, str)
+
+
+def test_google_start_popup_mode_embeds_flag(monkeypatch):
+    import asyncio
+    import jwt as pyjwt
+    from urllib.parse import parse_qs, urlparse
+    monkeypatch.setattr(google_mod, "GOOGLE_CLIENT_ID", "test.apps.googleusercontent.com")
+    monkeypatch.setattr(google_mod, "GOOGLE_CLIENT_SECRET", "test-secret")
+    monkeypatch.setattr(google_mod, "AUTH_JWT_SECRET", "test-secret")
+    plain = asyncio.run(google_mod.google_start())
+    popup = asyncio.run(google_mod.google_start(mode="popup"))
+    assert plain.status_code in (302, 307)
+    assert popup.status_code in (302, 307)
+
+    def popup_flag(resp):
+        q = parse_qs(urlparse(resp.headers["location"]).query)
+        claims = pyjwt.decode(q["state"][0], "test-secret", algorithms=["HS256"])
+        return claims.get("popup")
+
+    assert popup_flag(plain) is False
+    assert popup_flag(popup) is True
+
+
+def test_popup_result_page_posts_to_opener_not_redirect():
+    resp = google_mod._popup_result_page({"otc": "abc"})
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    assert "postMessage" in body and "window.close()" in body
+    assert '"otc": "abc"' in body
+    assert google_mod._state_is_popup("garbage") is False
