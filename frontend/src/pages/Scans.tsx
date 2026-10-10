@@ -216,7 +216,9 @@ export default function Scans() {
 
             {activeScan.score !== null && activeScan.score !== undefined && (
               <div className="text-right">
-                <span className="text-xs mono text-soft">SCORE</span>
+                <span className="text-xs mono text-soft">
+                  {activeScan.stage_progress?.scoring?.scope === 'organization' ? 'ORGANIZATION SCORE' : 'LEGACY SCAN SCORE'}
+                </span>
                 <div className="text-2xl font-bold mono text-accent">{activeScan.score}/100</div>
               </div>
             )}
@@ -377,7 +379,12 @@ export default function Scans() {
                     </td>
 
                     <td className="py-3 px-4 font-bold text-ink">
-                      {scan.score ? `${scan.score}/100` : '—'}
+                      {scan.score != null ? `${scan.score}/100` : '—'}
+                      {scan.score != null && (
+                        <div className="text-[10px] font-normal text-soft">
+                          {scan.stage_progress?.scoring?.scope === 'organization' ? 'Organization at scan completion' : 'Legacy scan score'}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3 px-4 text-soft">
@@ -447,7 +454,9 @@ export default function Scans() {
               </div>
               {scanDetailForModal.scan.score !== null && scanDetailForModal.scan.score !== undefined && (
                 <div className="text-right">
-                  <span className="text-xs mono text-soft">SCORE</span>
+                  <span className="text-xs mono text-soft">
+                    {scanDetailForModal.scan.stage_progress?.scoring?.scope === 'organization' ? 'ORGANIZATION SCORE' : 'LEGACY SCAN SCORE'}
+                  </span>
                   <div className="text-2xl font-bold mono text-accent">{scanDetailForModal.scan.score}/100</div>
                 </div>
               )}

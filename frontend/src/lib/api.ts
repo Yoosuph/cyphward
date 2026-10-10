@@ -91,7 +91,7 @@ async function apiFetch<T>(
 export async function getOverview(): Promise<OverviewData | null> {
   // No mock fallback: a failed/forbidden call must surface as null so the UI
   // shows an honest loading/empty state instead of fabricated tenant data.
-  return await apiFetch<OverviewData>('/overview');
+  return await apiFetch<OverviewData>('/overview', { cache: 'no-store' });
 }
 
 // ============================================================================

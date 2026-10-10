@@ -52,7 +52,7 @@ from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
 from backend.app.scanner.detectors import classify_detector, detector_key
-from backend.app.risk.engine import compute_risk_score, SCORE_MODEL
+from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
@@ -918,8 +918,14 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         # This scan is the assessment being completed right now — score it
         # against its own evidence instead of the "no scan" gate.
         scan_completed_at = datetime.now(timezone.utc).isoformat()
+        # Reconciliation may retain findings from failed/unattempted detectors
+        # and other domains. Score the same open organization risk as Overview.
+        open_findings = execute_query(
+            "SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'",
+            (org_id,),
+        ) or []
         score_result = compute_risk_score(
-            normalized_all,
+            open_findings,
             assessment={
                 "scan_id": str(scan_id),
                 "status": "completed",
@@ -930,7 +936,11 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         final_score = score_result["score"]
         score_dur = int((time.time() - t0) * 1000)
 
-        progress["scoring"] = {"status": "completed", "score": final_score, "duration_ms": score_dur}
+        progress["scoring"] = {
+            "status": "completed", "score": final_score, "duration_ms": score_dur,
+            "model": SCORE_MODEL, "scope": SCORE_SCOPE,
+            "risk_points": score_result.get("risk_points"),
+        }
 
         completed = execute_one("""
             UPDATE scans
@@ -949,9 +959,10 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
 
         # Record Score Snapshot
         execute_query("""
-            INSERT INTO score_snapshots (org_id, domain_id, score, subscores, factors)
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb)
-        """, (org_id, domain_id, final_score, json.dumps(score_result["subscores"]), json.dumps(score_result["factors"])))
+            INSERT INTO score_snapshots (org_id, domain_id, score, subscores, factors, model, scope, risk_points)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s)
+        """, (org_id, None, final_score, json.dumps(score_result["subscores"]), json.dumps(score_result["factors"]),
+              SCORE_MODEL, SCORE_SCOPE, score_result["risk_points"]))
 
         not_evaluated_msg = (
             f" · {len(baseline['not_evaluated'])} not evaluated"
@@ -960,7 +971,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         notify(
             org_id, "scan_completed",
             f"Scan completed for {domain}",
-            f"Score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
+            f"Organization score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
             "info" if final_score >= 70 else "medium",
             "/scans",
         )
@@ -984,7 +995,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                     result["finding_id"] = critical_high_findings[idx].get("id")
                     ai_explanations.append(result)
 
-            executive_summary = await ai.generate_executive_summary(org_name, score_result, normalized_all)
+            executive_summary = await ai.generate_executive_summary(org_name, score_result, open_findings)
 
             ai_data = {
                 "explanations_count": len(ai_explanations),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
@@ -26,6 +26,9 @@ import { useToast } from '../components/Toast';
 export default function Overview() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const requestId = useRef(0);
   const [launching, setLaunching] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -58,28 +61,41 @@ export default function Overview() {
     }
   }, [user]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    const id = ++requestId.current;
     try {
-      const [overviewData, domainsList] = await Promise.all([getOverview(), getDomains()]);
-      // Keep the last good snapshot on transient API failures instead of
-      // blanking the dashboard (stale-but-real beats fabricated).
-      if (overviewData) setData(overviewData);
-      setDomains(domainsList);
-      if (domainsList.length > 0 && !selectedDomain) {
-        setSelectedDomain(domainsList[0].id);
+      const [overview, domainResult] = await Promise.allSettled([getOverview(), getDomains()]);
+      if (id !== requestId.current) return;
+      if (overview.status === 'fulfilled' && overview.value) {
+        setData(overview.value);
+        setRefreshFailed(false);
+        setLastRefreshed(new Date());
+      } else {
+        setRefreshFailed(true);
+      }
+      if (domainResult.status === 'fulfilled') {
+        setDomains(domainResult.value);
+        setSelectedDomain(current => current || domainResult.value[0]?.id || '');
       }
     } catch (e) {
-      console.error(e);
+      if (id === requestId.current) setRefreshFailed(true);
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    window.addEventListener('focus', loadData);
+    window.addEventListener('online', loadData);
+    return () => {
+      ++requestId.current;
+      clearInterval(interval);
+      window.removeEventListener('focus', loadData);
+      window.removeEventListener('online', loadData);
+    };
+  }, [loadData]);
 
   const handleLaunchScan = async () => {
     setLaunching(true);
@@ -182,12 +198,22 @@ export default function Overview() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs mono">
+        <p role="status" className={refreshFailed ? 'text-accent' : 'text-soft'}>
+          {refreshFailed ? 'Refresh failed — showing previously loaded data.' : 'Overview up to date.'}
+          {lastRefreshed && ` Last loaded ${lastRefreshed.toLocaleTimeString()}.`}
+        </p>
+        <button className="btn btn-mini" onClick={loadData}>
+          <RefreshCw size={12} className="mr-1" /> REFRESH
+        </button>
+      </div>
+
       {/* Top Grid: Radial Score Ring & High-level Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Main Score Gauge */}
         <div className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
           <div className="absolute top-3 left-4 text-[10px] mono text-soft tracking-wider">
-            SECURITY SCORE
+            ORGANIZATION SCORE
           </div>
           <div className="absolute top-3 right-4">
             <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
@@ -214,9 +240,22 @@ export default function Overview() {
               {posture_label}
             </div>
             {assessed ? (
-              <p className="text-xs mono text-soft mt-2">
-                7-Day Change: <span className="text-ok font-medium">+{trend} pts</span> · Checks run around the clock
-              </p>
+              <div className="text-xs mono text-soft mt-2 space-y-2">
+                <p title={data.trend_baseline_at ? `Compared with posture recorded ${new Date(data.trend_baseline_at).toLocaleString()}` : undefined}>
+                  7-Day Change: {trend == null ? 'Not enough comparable history' : (
+                    <span className={trend > 0 ? 'text-ok font-medium' : trend < 0 ? 'text-accent font-medium' : 'text-soft'}>
+                      {trend > 0 ? '+' : ''}{trend.toFixed(1)} pts
+                    </span>
+                  )}
+                </p>
+                {assessment?.completed_at && (
+                  <p>Latest completed scan: {new Date(assessment.completed_at).toLocaleString()}</p>
+                )}
+                {data.risk_points != null && (
+                  <p>{data.risk_points} risk points across {counts.total_findings} open findings</p>
+                )}
+                <p>Scores change when open risk changes. Scan coverage determines what was checked.</p>
+              </div>
             ) : (
               <p className="text-xs mono text-soft mt-2">
                 Run your first scan to get a score.
@@ -356,7 +395,7 @@ export default function Overview() {
         <div className="lg:col-span-7 p-5 rounded-lg border border-line bg-raised">
           <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
             <h3 className="mono text-xs font-semibold tracking-wider text-ink">
-              SCORE BREAKDOWN
+              CATEGORY HEALTH
             </h3>
             <span className="text-[10px] mono text-soft">
               {assessed && assessment?.completed_at
@@ -365,6 +404,9 @@ export default function Overview() {
             </span>
           </div>
 
+          <p className="text-xs text-soft mb-4">
+            Each category is rated independently. The organization score accounts for all open findings.
+          </p>
           <div className="space-y-4">
             {subscores.length === 0 ? (
               <p className="text-xs mono text-soft py-6 text-center">
@@ -515,7 +557,12 @@ export default function Overview() {
                       </div>
                     </td>
                     <td className="py-3 font-bold text-ink">
-                      {scan.score ? `${scan.score}/100` : '—'}
+                      {scan.score != null ? `${scan.score}/100` : '—'}
+                      {scan.score != null && (
+                        <div className="text-[10px] font-normal text-soft">
+                          {scan.stage_progress?.scoring?.scope === 'organization' ? 'Organization at scan completion' : 'Legacy scan score'}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 text-soft text-[11px]">
                       {new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

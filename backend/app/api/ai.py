@@ -92,7 +92,7 @@ async def generate_executive_summary(
     Generate an AI-synthesized, board-ready executive security summary report.
     """
     org_id = org["id"]
-    findings = execute_query("SELECT * FROM findings WHERE org_id = %s AND status = 'open'", (org_id,))
+    findings = execute_query("SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'", (org_id,))
     score_data = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
     ai = get_ai_provider()

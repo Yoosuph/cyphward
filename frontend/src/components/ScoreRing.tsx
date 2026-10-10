@@ -68,7 +68,7 @@ export default function ScoreRing({ score, max, size = 190, trend, loading = fal
         />
       </svg>
       <div className="ring-center">
-        <span className="ring-num" style={{ fontSize: Math.round(size * 0.2) }}>{Math.round(v)}</span>
+        <span className="ring-num" style={{ fontSize: Math.round(size * 0.2) }}>{v.toFixed(1)}</span>
         <span className="ring-max mono">/ {max}</span>
         {trend != null && (
           <span className={`ring-trend mono ${trend >= 0 ? 'up' : 'down'}`}>

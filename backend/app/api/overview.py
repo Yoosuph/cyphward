@@ -2,10 +2,10 @@
 Cyphward Overview API Router
 Aggregates deterministic risk score, asset telemetry, severity distribution, and recent scans.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from typing import Dict, Any
 from backend.app.core.database import get_db
-from backend.app.risk.engine import compute_risk_score, latest_assessment
+from backend.app.risk.engine import compute_risk_score, latest_assessment, seven_day_baseline
 from backend.app.core.auth import get_current_org
 
 router = APIRouter(prefix="/api/v1/overview", tags=["Overview"])
@@ -31,7 +31,7 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
 
             # 3. Findings (anything not resolved still represents risk)
             cur.execute("""
-                SELECT id, title, severity, category, status, evidence, remediation
+                SELECT id, title, severity, category, status, evidence, remediation, scan_id, last_seen_at
                 FROM findings
                 WHERE org_id = %s AND status != 'resolved'
             """, (org_id,))
@@ -49,23 +49,12 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
             """, (org_id,))
             recent_scans = cur.fetchall() or []
 
-            # 5. Trend snapshots
-            cur.execute("""
-                SELECT score, created_at
-                FROM score_snapshots
-                WHERE org_id = %s
-                ORDER BY created_at DESC
-                LIMIT 2
-            """, (org_id,))
-            snapshots = cur.fetchall() or []
-
     # Compute deterministic score — only when a completed scan exists;
     # otherwise the payload reports "Not assessed" instead of an empty 100.
     scoring = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
-    trend = 0
-    if len(snapshots) >= 2:
-        trend = snapshots[0]["score"] - snapshots[1]["score"]
+    baseline = seven_day_baseline(org_id) if scoring["assessed"] else None
+    trend = round(scoring["score"] - float(baseline["score"]), 1) if baseline else None
 
     return {
         "organization": {
@@ -87,7 +76,10 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
         "assessed": scoring["assessed"],
         "assessment": scoring["assessment"],
         "model": scoring["model"],
+        "scope": scoring["scope"],
+        "risk_points": scoring["risk_points"],
         "trend": trend,
+        "trend_baseline_at": baseline["created_at"] if baseline else None,
         "counts": {
             "total_assets": total_assets,
             "total_findings": len(findings),

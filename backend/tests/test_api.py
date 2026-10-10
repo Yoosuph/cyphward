@@ -243,7 +243,7 @@ def test_overview_shape(client, auth_headers):
     assert data["counts"]["critical"] == 1
     assert data["counts"]["high"] == 1
     assert data["counts"]["total_assets"] == 2
-    assert data["trend"] == 5  # 75 - 70
+    assert data["trend"] is None  # legacy scores cannot be compared to v2
     assert len(data["recent_scans"]) == 1
 
 
@@ -307,7 +307,7 @@ ASSESSMENT = {
     "scan_id": SCAN_A1,
     "status": "completed",
     "completed_at": "2026-03-01T00:10:00",
-    "model": "cyphward-risk-v1",
+    "model": "cyphward-risk-v2",
 }
 
 
@@ -320,7 +320,7 @@ def test_risk_engine_not_assessed_without_completed_scan():
     assert res["subscores"] == []
     assert res["factors"] == []
     assert res["assessment"] is None
-    assert res["model"] == "cyphward-risk-v1"
+    assert res["model"] == "cyphward-risk-v2"
 
 
 def test_risk_engine_counts_but_never_scores_without_assessment():
@@ -359,7 +359,8 @@ def test_risk_engine_reduces_for_open_findings():
     assert res["counts"]["high"] == 1
     negative = [f for f in res["factors"] if f["type"] == "negative"]
     assert negative
-    assert all(f["scan_id"] == ASSESSMENT["scan_id"] for f in negative)
+    # Findings without provenance must not inherit another scan's identity.
+    assert all("scan_id" not in f for f in negative)
 
 
 def test_risk_engine_skips_resolved_findings():

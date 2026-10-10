@@ -95,6 +95,9 @@ export interface StageInfo {
   items?: number;
   duration_ms?: number;
   score?: number | null;
+  model?: string;
+  scope?: string;
+  risk_points?: number;
   error?: string;
 }
 
@@ -159,7 +162,11 @@ export interface OverviewData {
   status_color: string;
   assessed: boolean;
   assessment: ScoreAssessment | null;
-  trend: number;
+  trend: number | null;
+  model: string;
+  scope: string;
+  risk_points: number | null;
+  trend_baseline_at: string | null;
   counts: {
     total_assets: number;
     total_findings: number;

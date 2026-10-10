@@ -9,6 +9,7 @@ Strategy:
       network and no Postgres.
 """
 import os
+import json
 import re
 import time
 import uuid
@@ -1249,6 +1250,12 @@ class FakeStore:
                 key=lambda r: r["created_at"],
                 reverse=True,
             )
+            if "model = %s AND scope = %s" in s:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+                rows = [row for row in rows
+                        if row.get("model") == params[1] and row.get("scope") == params[2]
+                        and datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= cutoff]
+                return rows[:1]
             return rows[:2]
 
         # completed-scan assessment lookup (risk engine "not assessed" gate)
@@ -1433,9 +1440,11 @@ class FakeStore:
 
         # score snapshot insert (completion evidence)
         if s.startswith("INSERT INTO score_snapshots"):
-            org_id, domain_id, score, subscores, factors = params
+            org_id, domain_id, score, subscores, factors, model, scope, risk_points = params
             self.snapshots.append({
-                "org_id": str(org_id), "score": score,
+                "org_id": str(org_id), "domain_id": domain_id, "score": score,
+                "model": model, "scope": scope, "risk_points": risk_points,
+                "subscores": json.loads(subscores), "factors": json.loads(factors),
                 "created_at": "2026-10-03T00:10:00",
             })
             return []

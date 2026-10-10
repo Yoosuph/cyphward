@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 
 from backend.app.core.auth import get_current_org
 from backend.app.core.database import execute_one, execute_query
-from backend.app.risk.engine import compute_risk_score, latest_assessment
+from backend.app.risk.engine import compute_risk_score, latest_assessment, seven_day_baseline
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
@@ -104,16 +104,8 @@ def dashboard_security_score(org: Dict[str, Any] = Depends(get_current_org)) -> 
     ) or []
     scoring = compute_risk_score(findings, assessment=latest_assessment(org_id))
 
-    snapshots = execute_query(
-        """
-        SELECT score, created_at FROM score_snapshots
-        WHERE org_id = %s ORDER BY created_at DESC LIMIT 2
-        """,
-        (org_id,),
-    ) or []
-
-    previous = snapshots[1]["score"] if len(snapshots) >= 2 else None
-    current = snapshots[0]["score"] if snapshots else scoring["score"]
+    baseline = seven_day_baseline(org_id) if scoring["assessed"] else None
+    previous = float(baseline["score"]) if baseline else None
     score_val = scoring["score"]
 
     return {
@@ -123,10 +115,15 @@ def dashboard_security_score(org: Dict[str, Any] = Depends(get_current_org)) -> 
         "posture_label": scoring["posture_label"],
         "assessed": scoring["assessed"],
         "assessment": scoring["assessment"],
+        "model": scoring["model"],
+        "scope": scoring["scope"],
+        "risk_points": scoring["risk_points"],
         "subscores": scoring["subscores"],
         "factors": scoring["factors"],
         "previous_score": previous,
-        "change": (score_val - previous) if (previous is not None and score_val is not None) else None,
+        "change": round(score_val - previous, 1) if (previous is not None and score_val is not None) else None,
+        "change_period_days": 7,
+        "trend_baseline_at": baseline["created_at"] if baseline else None,
         "reasons": scoring["factors"],
     }
 
