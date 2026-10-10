@@ -13,11 +13,10 @@ logger = logging.getLogger("cyphward.billing")
 
 PROVIDER_NAME = "manual"
 
-# NGN per month. Sovereign is custom-scoped (no automatic invoice).
+# NGN per month. Retired tiers never invoice (custom/legacy handling).
 PLAN_PRICES_KOBO = {
-    "growth": 45_000_000,    # ₦450,000
-    "scale": 185_000_000,    # ₦1,850,000
-    "sovereign": 0,
+    "starter": 700_000,      # ₦7,000
+    "growth": 1_500_000,     # ₦15,000
 }
 
 

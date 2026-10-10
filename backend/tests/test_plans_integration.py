@@ -25,7 +25,7 @@ def test_plan_values_satisfy_allowlist():
                          row_factory=psycopg.rows.dict_row) as conn:
         bad = conn.execute(
             "SELECT count(*) AS n FROM organizations "
-            "WHERE plan NOT IN ('growth', 'scale', 'sovereign')"
+            "WHERE plan NOT IN ('starter', 'growth')"
         ).fetchone()["n"]
         assert bad == 0
         assert conn.execute(
@@ -36,7 +36,7 @@ def test_plan_values_satisfy_allowlist():
             "SELECT column_default AS d FROM information_schema.columns "
             "WHERE table_name = 'organizations' AND column_name = 'plan'"
         ).fetchone()["d"]
-        assert "scale" in default
+        assert "growth" in default
 
 
 def test_quota_usage_queries_run_as_app_role():

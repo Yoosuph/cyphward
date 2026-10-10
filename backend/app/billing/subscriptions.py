@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from backend.app.core.plans import PLANS, LEGACY_PLAN_FALLBACK
 
-FLOOR_PLAN = "growth"
+FLOOR_PLAN = "starter"
 
 
 def _parse_ts(value: Any) -> Optional[datetime]:

@@ -29,6 +29,20 @@ export default function Signup() {
     const t = searchParams.get('invite');
     return t ? `?invite=${encodeURIComponent(t)}` : '';
   })();
+  // Pricing-page plan choice (?plan=starter|growth) survives signup so the
+  // workspace form opens with the chosen plan preselected.
+  const planParam = (() => {
+    const p = (searchParams.get('plan') || '').toLowerCase();
+    return p === 'starter' || p === 'growth' ? p : '';
+  })();
+  const carryParams = (() => {
+    const q = new URLSearchParams();
+    const invite = searchParams.get('invite');
+    if (invite) q.set('invite', invite);
+    if (planParam) q.set('plan', planParam);
+    const s = q.toString();
+    return s ? `?${s}` : '';
+  })();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -63,7 +77,7 @@ export default function Signup() {
           }
           const step = await completeExternalLogin(tokens as AuthTokens);
           if (step && step !== 'complete' && step !== 'none') {
-            nav(`/onboarding${inviteParam}`, { replace: true });
+            nav(`/onboarding${carryParams}`, { replace: true });
           } else if (step === 'none') {
             setError('Your session could not be restored. Please try again.');
           } else {
@@ -92,7 +106,7 @@ export default function Signup() {
 
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
-      return <Navigate to={`/onboarding${inviteParam}`} replace />;
+      return <Navigate to={`/onboarding${carryParams}`} replace />;
     }
     return <Navigate to={`/overview${inviteParam}`} replace />;
   }
@@ -114,7 +128,7 @@ export default function Signup() {
     const first = (name || '').trim().split(' ')[0] || email.split('@')[0];
     toast(`Welcome to Cyphward${first ? `, ${first}` : ''}! Check your inbox for your welcome email.`);
     if (result.needsOnboarding) {
-      nav(`/onboarding${inviteParam}`, { replace: true });
+      nav(`/onboarding${carryParams}`, { replace: true });
     } else {
       nav(`/overview${inviteParam}`, { replace: true });
     }
@@ -144,7 +158,7 @@ export default function Signup() {
           const tokens = await exchangeOtp(result.otc);
           const step = await completeExternalLogin(tokens);
           if (step && step !== 'complete' && step !== 'none') {
-            nav(`/onboarding${inviteParam}`, { replace: true });
+            nav(`/onboarding${carryParams}`, { replace: true });
           } else if (step === 'none') {
             setError('Your session could not be restored. Please try again.');
           } else {

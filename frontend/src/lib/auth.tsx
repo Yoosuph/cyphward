@@ -223,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       id: org.id,
       slug: org.slug,
       name: org.name,
-      plan: org.plan || 'Scale',
+      plan: org.plan || 'growth',
       region: 'ng-lagos',
       email: userEmail,
     };

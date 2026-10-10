@@ -49,11 +49,10 @@ def test_register_requires_member_admin_and_verified_domain(client, auth_headers
 
 
 def test_register_shares_domain_budget(client, auth_headers, store):
-    store.organizations[ORG_A]["plan"] = "growth"  # 3-domain budget, 1 domain used
-    for i in range(2):
-        resp = client.post(f"/api/v1/domains/{DOM_A1}/hosts", json={"hostname": f"h{i}.acme.test"},
-                           headers=_h(auth_headers, ADMI, ORG_A))
-        assert resp.status_code == 201
+    store.organizations[ORG_A]["plan"] = "starter"  # 1-domain budget, 1 domain used
+    over_first = client.post(f"/api/v1/domains/{DOM_A1}/hosts", json={"hostname": "h0.acme.test"},
+                               headers=_h(auth_headers, ADMI, ORG_A))
+    assert over_first.status_code == 402
     over = client.post(f"/api/v1/domains/{DOM_A1}/hosts", json={"hostname": "over.acme.test"},
                        headers=_h(auth_headers, ADMI, ORG_A))
     assert over.status_code == 402

@@ -112,6 +112,21 @@ def create_organization(
         (user["id"], org["id"]),
     )
 
+    # Paid/trial entitlement is a separate record from the desired plan:
+    # every new workspace starts a 30-day trial on the chosen plan.
+    execute_one(
+        """
+        INSERT INTO subscriptions (org_id, plan, status, provider,
+                                   current_period_start, current_period_end,
+                                   trial_ends_at)
+        VALUES (%s, %s, 'trialing', 'manual', now(),
+                now() + interval '30 days', now() + interval '30 days')
+        ON CONFLICT (org_id) DO NOTHING
+        RETURNING id
+        """,
+        (org["id"], plan),
+    )
+
     log_audit(org["id"], user["id"], "org.created", "organization", str(org["id"]), {"slug": slug, "plan": plan})
     return {"organization": org, "role": "owner"}
 

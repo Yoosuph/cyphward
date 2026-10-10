@@ -1,22 +1,27 @@
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Building, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
 
 const PLANS = [
-  { id: 'Growth', label: 'Growth', desc: 'Small teams, single region' },
-  { id: 'Scale', label: 'Scale', desc: 'Bigger teams, more regions' },
-  { id: 'Sovereign', label: 'Sovereign', desc: 'Large organizations — dedicated rollout scoped with our team' },
+  { id: 'starter', label: 'Starter', price: '₦7,000/mo', desc: 'One business, one domain' },
+  { id: 'growth', label: 'Growth', price: '₦15,000/mo', desc: 'Teams, more domains and reports' },
 ];
+
+function initialPlan(searchParams: URLSearchParams): string {
+  const p = (searchParams.get('plan') || '').toLowerCase();
+  return p === 'starter' || p === 'growth' ? p : 'growth';
+}
 
 export default function CreateOrganization() {
   const { createOrganization } = useAuth();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
 
   const [orgName, setOrgName] = useState('');
-  const [plan, setPlan] = useState('Scale');
+  const [plan, setPlan] = useState(() => initialPlan(searchParams));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -63,8 +68,8 @@ export default function CreateOrganization() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs mono text-soft">PLAN</label>
-        <div className="grid grid-cols-3 gap-2">
+        <label className="text-xs mono text-soft">PLAN · 30-DAY TRIAL INCLUDED</label>
+        <div className="grid grid-cols-2 gap-2">
           {PLANS.map(p => (
             <button
               key={p.id}
@@ -82,10 +87,18 @@ export default function CreateOrganization() {
                 </span>
                 {plan === p.id && <div className="w-2 h-2 rounded-full bg-accent" />}
               </div>
+              <div className={`text-sm font-medium mt-1 ${plan === p.id ? 'text-accent' : 'text-ink'}`}>
+                {p.price}
+              </div>
               <p className="text-[10px] text-soft mt-1">{p.desc}</p>
             </button>
           ))}
         </div>
+        <p className="text-[10px] text-soft">
+          Need single sign-on, a private deployment, or a custom agreement?{' '}
+          <a className="underline" href="mailto:info@cyphward.com">Talk to us</a> — enterprise
+          onboarding is assisted, not self-serve.
+        </p>
       </div>
 
       {error && (

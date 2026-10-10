@@ -701,7 +701,7 @@ class FakeStore:
                 "slug": params[1],
                 "cac_rc": params[2],
                 "sector": params[3],
-                "plan": params[4] if len(params) > 4 else "scale",
+                "plan": params[4] if len(params) > 4 else "growth",
                 "created_at": "2026-01-01T00:00:00",
             }
             self.organizations[org["id"]] = org
@@ -1457,7 +1457,7 @@ class FakeStore:
         self.organizations = {
             ORG_A: {
                 "id": ORG_A, "name": "Acme Traders", "slug": "acme-traders",
-                "cac_rc": "RC-123", "sector": "fintech", "plan": "scale",
+                "cac_rc": "RC-123", "sector": "fintech", "plan": "growth",
                 "created_at": "2026-01-01T00:00:00",
             },
             ORG_B: {

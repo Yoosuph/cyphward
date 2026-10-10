@@ -42,8 +42,8 @@ def _recent_invoices(org_id: str) -> List[Dict[str, Any]]:
 
 
 def _open_invoice(org_id: str, plan: str) -> Optional[Dict[str, Any]]:
-    if plan == "sovereign":
-        return None  # custom-scoped: no automatic invoice
+    if plan not in PLAN_PRICES_KOBO:
+        return None  # retired/custom tiers never auto-invoice
     return execute_one(
         """
         INSERT INTO invoices (org_id, plan, amount_kobo, currency, status)

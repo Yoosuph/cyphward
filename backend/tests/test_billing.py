@@ -22,7 +22,7 @@ def test_set_plan_creates_subscription_and_invoice(client, auth_headers, store):
     body = resp.json()
     assert body["subscription"]["plan"] == "growth"
     assert body["subscription"]["status"] == "active"
-    assert body["invoice"]["amount_kobo"] == 45_000_000
+    assert body["invoice"]["amount_kobo"] == 1_500_000
     assert body["invoice"]["currency"] == "NGN"
 
     got = client.get("/api/v1/billing/subscription", headers=_h(auth_headers, ALICE, ORG_A))
@@ -33,11 +33,9 @@ def test_set_plan_creates_subscription_and_invoice(client, auth_headers, store):
     assert len(inv.json()["invoices"]) == 1
 
 
-def test_sovereign_raises_no_invoice(client, auth_headers, store):
-    resp = client.post("/api/v1/billing/subscription", json={"plan": "Sovereign"},
-                       headers=_h(auth_headers, ALICE, ORG_A))
-    assert resp.status_code == 200
-    assert resp.json()["invoice"] is None
+def test_retired_plan_rejected(client, auth_headers, store):
+    assert client.post("/api/v1/billing/subscription", json={"plan": "Sovereign"},
+                       headers=_h(auth_headers, ALICE, ORG_A)).status_code == 422
     assert store.invoices == []
 
 
@@ -51,7 +49,7 @@ def test_invalid_plan_rejected_and_member_forbidden(client, auth_headers, store)
 
 
 def test_cancel_and_renew_lifecycle(client, auth_headers, store):
-    client.post("/api/v1/billing/subscription", json={"plan": "scale"},
+    client.post("/api/v1/billing/subscription", json={"plan": "growth"},
                 headers=_h(auth_headers, ALICE, ORG_A))
     cancel = client.post("/api/v1/billing/subscription/cancel",
                          headers=_h(auth_headers, ALICE, ORG_A))
@@ -65,18 +63,18 @@ def test_cancel_and_renew_lifecycle(client, auth_headers, store):
 
 def test_past_due_and_lapsed_fall_back_to_growth_floor():
     from backend.app.billing.subscriptions import effective_status, resolve_plan
-    org = {"id": "x", "plan": "scale"}
-    past = {"plan": "scale", "status": "past_due",
+    org = {"id": "x", "plan": "growth"}
+    past = {"plan": "growth", "status": "past_due",
             "current_period_end": datetime.now(timezone.utc).isoformat(),
             "cancel_at_period_end": False}
-    assert resolve_plan(org, past)["plan"] == "growth"
+    assert resolve_plan(org, past)["plan"] == "starter"
     live = {"plan": "growth", "status": "active",
             "current_period_end": (datetime.now(timezone.utc) + timedelta(days=5)).isoformat(),
             "cancel_at_period_end": False}
     assert resolve_plan(org, live)["plan"] == "growth"
-    assert resolve_plan({"id": "x", "plan": "Enterprise Defense"}, None)["plan"] == "scale"
-    lapsed = {"plan": "scale", "status": "active",
+    assert resolve_plan({"id": "x", "plan": "Enterprise Defense"}, None)["plan"] == "growth"
+    lapsed = {"plan": "growth", "status": "active",
               "current_period_end": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
               "cancel_at_period_end": False}
     assert effective_status(lapsed) == "past_due"
-    assert resolve_plan(org, lapsed)["plan"] == "growth"
+    assert resolve_plan(org, lapsed)["plan"] == "starter"

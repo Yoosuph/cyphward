@@ -74,7 +74,7 @@ export default function Settings() {
   const [billing, setBilling] = useState<any | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [billingBusy, setBillingBusy] = useState(false);
-  const [newPlan, setNewPlan] = useState('scale');
+  const [newPlan, setNewPlan] = useState('growth');
   // MFA (step-up sign-in code): status + enroll/disable flows.
   const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean; totp_enrolled: boolean; totp_pending: boolean } | null>(null);
   // Authenticator app (TOTP): enroll/confirm/disable flows.
@@ -596,9 +596,8 @@ export default function Settings() {
                     onChange={e => setNewPlan(e.target.value)}
                     className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
                   >
-                    <option value="growth">Growth — ₦450,000/mo</option>
-                    <option value="scale">Scale — ₦1,850,000/mo</option>
-                    <option value="sovereign">Sovereign — custom</option>
+                    <option value="starter">Starter — ₦7,000/mo</option>
+                    <option value="growth">Growth — ₦15,000/mo</option>
                   </select>
                   <button
                     type="button"

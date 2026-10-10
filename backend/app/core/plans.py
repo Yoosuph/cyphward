@@ -18,33 +18,29 @@ from fastapi import HTTPException
 from backend.app.core.database import execute_one
 
 PLANS: Dict[str, Dict[str, Any]] = {
+    "starter": {
+        "label": "Starter",
+        "monthly_scans": 30,
+        "max_domains": 1,
+        "monthly_reports": 30,
+        "max_members": 1,
+    },
     "growth": {
         "label": "Growth",
-        "monthly_scans": 100,
-        "max_domains": 3,
-        "monthly_reports": 100,
-        "max_members": 5,
-    },
-    "scale": {
-        "label": "Scale",
-        "monthly_scans": 1000,
-        "max_domains": None,
-        "monthly_reports": 1000,
-        "max_members": 50,
-    },
-    "sovereign": {
-        "label": "Sovereign",
-        "monthly_scans": None,
-        "max_domains": None,
-        "monthly_reports": None,
-        "max_members": None,
+        "monthly_scans": 300,
+        "max_domains": 10,
+        "monthly_reports": 300,
+        "max_members": 25,
     },
 }
 
-DEFAULT_PLAN = "scale"
-# Pre-entitlement rows (e.g. the old 'Enterprise Defense' database default)
-# resolve to this plan so legacy organizations keep working.
-LEGACY_PLAN_FALLBACK = "scale"
+DEFAULT_PLAN = "growth"
+# Pre-catalog rows (growth/scale/sovereign/Enterprise Defense) resolve here
+# so existing tenants keep working after the catalog cutover.
+LEGACY_PLAN_FALLBACK = "growth"
+
+# Retired tiers: selectable nowhere new, but recognized for old rows.
+RETIRED_PLANS = {"scale": "growth", "sovereign": "growth", "enterprise defense": "growth"}
 
 # quota key -> (usage key, unit noun)
 QUOTA_DEFS = {
@@ -67,11 +63,11 @@ def parse_plan(raw: Any) -> str:
 
 
 def entitlements_for(org: Dict[str, Any]) -> Dict[str, Any]:
-    """Tolerant entitlement resolution for reads — legacy plan text falls
-    back to the continuity tier instead of breaking existing tenants."""
+    """Tolerant entitlement resolution for reads — legacy plan text maps
+    through the retired-tier table instead of breaking existing tenants."""
     slug = (org.get("plan") or "").strip().lower() if isinstance(org.get("plan"), str) else ""
     if slug not in PLANS:
-        slug = LEGACY_PLAN_FALLBACK
+        slug = RETIRED_PLANS.get(slug, LEGACY_PLAN_FALLBACK)
     return {"plan": slug, **PLANS[slug]}
 
 

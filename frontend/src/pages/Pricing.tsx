@@ -44,7 +44,7 @@ export default function Pricing() {
                 </li>
               ))}
             </ul>
-            <Link to="/signup" className={`btn ${plan.featured ? 'btn-solid' : 'btn-ghost'} w-full justify-center`}>
+            <Link to={`/signup?plan=${plan.id}`} className={`btn ${plan.featured ? 'btn-solid' : 'btn-ghost'} w-full justify-center`}>
               {plan.cta} <ArrowRight size={14} />
             </Link>
           </article>

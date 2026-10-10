@@ -134,8 +134,8 @@ const CALCULATOR_SECTORS = [
   { name: 'Commercial Banking & Merchant Banks', turnoverNGN: 22_500_000_000, recommended: 'Growth' },
   { name: 'Fintech & Payment Gateway Switches', turnoverNGN: 9_000_000_000, recommended: 'Growth' },
   { name: 'Telco VAS & Mobile Money Providers', turnoverNGN: 16_000_000_000, recommended: 'Growth' },
-  { name: 'Logistics & Supply Chain Conglomerates', turnoverNGN: 3_250_000_000, recommended: 'Growth' },
-  { name: 'Healthcare & Healthtech Networks', turnoverNGN: 4_750_000_000, recommended: 'Growth' },
+  { name: 'Logistics & Supply Chain Conglomerates', turnoverNGN: 3_250_000_000, recommended: 'Starter' },
+  { name: 'Healthcare & Healthtech Networks', turnoverNGN: 4_750_000_000, recommended: 'Starter' },
 ];
 
 // Illustrative FX for the estimator only (foreign currency per ₦1).
