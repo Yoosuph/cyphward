@@ -33,6 +33,15 @@ try {
     ],
   };
   let mode = 'success';
+  let role = 'owner';
+  const partialScan = {
+    id: 'partial-scan', domain: 'example.test', status: 'completed', score: 55.6,
+    created_at: '2026-10-11T00:00:00Z', current_stage: 'completed', stage_progress: {
+      nuclei: { status: 'failed', items: 1, error: '1 of 2 targets could not be assessed.' },
+      ports: { status: 'skipped', error: 'naabu not installed' },
+      scoring: { status: 'completed', scope: 'organization' },
+    },
+  };
   let delayed;
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -40,8 +49,15 @@ try {
     if (url.pathname.startsWith('/api/')) {
       let body = {};
       let status = 200;
-      if (url.pathname.endsWith('/auth/bootstrap')) body = { user, email_verified: true, memberships: [{ org, role: 'owner', domains: [domain] }] };
+      if (url.pathname.endsWith('/auth/bootstrap')) body = { user, email_verified: true, memberships: [{ org, role, domains: [domain] }] };
       else if (url.pathname.endsWith('/domains')) body = [domain];
+      else if (url.pathname.endsWith('/scans')) body = [partialScan];
+      else if (url.pathname.endsWith('/scans/partial-scan')) body = {
+        scan: partialScan, raw_results: [{ stage: 'nuclei', raw_data: {
+          attempted_hosts: ['example.test', 'www.example.test'],
+          successful_hosts: ['example.test'], failed_hosts: { 'www.example.test': 'timeout' },
+        } }],
+      };
       else if (url.pathname.endsWith('/overview')) {
         if (mode === 'delay') { delayed = request; return; }
         if (mode === 'failure') { status = 503; body = { detail: 'Simulated outage' }; }
@@ -93,12 +109,39 @@ try {
   await new Promise(resolve => setTimeout(resolve, 150));
   await ringIs('55.6');
 
-  for (const width of [320, 390, 1280]) {
+  for (const width of [320, 390, 820, 1280]) {
     await page.setViewport({ width, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `No horizontal overflow at ${width}px`);
+    if (width <= 900) {
+      const brand = await page.$eval('header.topbar a[aria-label="Cyphward dashboard"]', element => ({
+        shield: element.querySelector('svg').getBoundingClientRect().height,
+        text: element.textContent.trim(), visible: element.getBoundingClientRect().width > 0,
+      }));
+      assert.ok(brand.visible && brand.shield >= 32 && brand.text === 'CYPHWARD', `Readable full brand at ${width}px`);
+      assert.ok(await page.evaluate(() => {
+        const svg = document.querySelector('header.topbar a[aria-label="Cyphward dashboard"] svg');
+        return [...svg.querySelectorAll('defs [id]')].every(definition => document.querySelectorAll(`[id="${definition.id}"]`).length === 1);
+      }), 'Visible shield owns unique SVG paint IDs, independent of the hidden sidebar');
+    }
   }
+  await page.setViewport({ width: 390, height: 900 });
+  if (process.env.CYPHWARD_REVIEW_SCREENSHOT) {
+    await page.screenshot({ path: process.env.CYPHWARD_REVIEW_SCREENSHOT, fullPage: false });
+  }
+  await page.goto(`${origin}/scans`);
+  await page.waitForFunction(() => document.body.textContent.includes('Completed with limited coverage'));
+  await page.waitForFunction(() => document.body.textContent.includes('1 of 2 targets checked'));
+  assert.ok(await page.evaluate(() => document.body.textContent.includes('Failed') && document.body.textContent.includes('Skipped')));
+  role = 'member';
+  await page.reload();
+  await page.waitForFunction(() => document.body.textContent.includes('Completed with limited coverage'));
+  assert.ok(!await page.evaluate(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'START SCAN')), 'Member is not offered admin-only scan launch');
+  role = 'owner';
+  domain.verification_status = 'pending';
+  await page.reload();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'VERIFY DOMAIN'));
   assert.deepEqual(errors, []);
-  console.log('PASS: decimal/zero scores, historical scope labels, missing history, failed refresh, recovery, negative trend, response ordering, and 320/390/1280px layouts');
+  console.log('PASS: score refresh/history, full mobile logo, partial coverage, and role/verification-aware scan launch');
 } finally {
   if (browser) await browser.close();
   await server.close();

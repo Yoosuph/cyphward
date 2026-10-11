@@ -9,6 +9,7 @@ import shutil
 from typing import List, Dict, Any
 
 from backend.app.scanner import ip_guard
+from backend.app.scanner.tool_results import ToolExecutionError, collect_tool_results
 
 
 SEVERITY_MAP = {
@@ -20,7 +21,7 @@ SEVERITY_MAP = {
 }
 
 
-def _parse_nuclei_stdout(stdout: bytes, hostname: str) -> List[Dict[str, Any]]:
+def _parse_nuclei_stdout(stdout: bytes, hostname: str, strict: bool = False) -> List[Dict[str, Any]]:
     """Decode Nuclei JSONL output into normalized finding dicts."""
     findings: List[Dict[str, Any]] = []
     for line in stdout.decode(errors="replace").splitlines():
@@ -30,6 +31,13 @@ def _parse_nuclei_stdout(stdout: bytes, hostname: str) -> List[Dict[str, Any]]:
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
+            if strict:
+                raise ToolExecutionError("Nuclei returned malformed JSON output")
+            continue
+
+        if not isinstance(data, dict) or not isinstance(data.get("info"), dict):
+            if strict:
+                raise ToolExecutionError("Nuclei returned an invalid finding record")
             continue
 
         info = data.get("info", {})
@@ -123,13 +131,24 @@ async def run_nuclei_template(
             except ProcessLookupError:
                 pass
         return {"ok": False, "findings": [], "error": str(exc)[:300]}
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
 
     rc = proc.returncode if proc.returncode is not None else -1
-    # 0 = success, 1 = "no matches" convention; anything else is a crash.
-    if rc < 0 or rc > 1:
+    # A non-zero process exit is not proof that a finding is fixed.
+    if rc != 0:
         return {"ok": False, "findings": [], "error": f"nuclei exited with code {rc}"}
 
-    return {"ok": True, "findings": _parse_nuclei_stdout(stdout, hostname), "error": None}
+    try:
+        findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
+    except ToolExecutionError as error:
+        return {"ok": False, "findings": [], "error": str(error)}
+    return {"ok": True, "findings": findings, "error": None}
 
 
 async def run_nuclei(
@@ -138,6 +157,7 @@ async def run_nuclei(
     severity: str = "low,medium,high,critical",
     timeout: int = 300,
     rate_limit: int = 50,
+    strict: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Run Nuclei against a hostname and return normalized findings.
@@ -146,10 +166,14 @@ async def run_nuclei(
     # SSRF boundary: validate resolution before handing the name to nuclei
     # (it needs the hostname for SNI/Host; redirects stay off by default).
     if not ip_guard.resolve_connect_ip(hostname):
+        if strict:
+            raise ToolExecutionError("Nuclei target is unresolved or not a public address")
         return []
 
     nuclei_path = shutil.which("nuclei")
     if not nuclei_path:
+        if strict:
+            raise ToolExecutionError("Nuclei is not installed")
         return []
 
     findings = []
@@ -175,7 +199,9 @@ async def run_nuclei(
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        findings = _parse_nuclei_stdout(stdout, hostname)
+        if proc.returncode != 0:
+            raise ToolExecutionError(f"Nuclei exited with code {proc.returncode}")
+        findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
 
     except asyncio.TimeoutError:
         if proc and proc.returncode is None:
@@ -184,7 +210,18 @@ async def run_nuclei(
                 await proc.wait()
             except ProcessLookupError:
                 pass
-    except Exception:
+        if strict:
+            raise ToolExecutionError(f"Nuclei timed out after {timeout}s")
+    except Exception as error:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
+        if strict:
+            raise ToolExecutionError(str(error)) from error
+    finally:
         if proc and proc.returncode is None:
             try:
                 proc.kill()
@@ -203,22 +240,14 @@ async def run_nuclei_batch(
     timeout: int = 300,
 ) -> List[Dict[str, Any]]:
     """Run Nuclei across multiple hosts concurrently."""
-    semaphore = asyncio.Semaphore(concurrency)
+    hostnames = list(dict.fromkeys(hostnames))
+    semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def _run_with_semaphore(host: str) -> List[Dict[str, Any]]:
         async with semaphore:
-            return await run_nuclei(host, templates, severity, timeout)
+            return await run_nuclei(host, templates, severity, timeout, strict=True)
 
     tasks = [_run_with_semaphore(h) for h in hostnames]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    all_findings = []
-    for idx, result in enumerate(results):
-        if isinstance(result, list):
-            host = hostnames[idx] if idx < len(hostnames) else ""
-            for finding in result:
-                if not finding.get("_hostname"):
-                    finding["_hostname"] = host
-            all_findings.extend(result)
-
-    return all_findings
+    return collect_tool_results(hostnames, results)

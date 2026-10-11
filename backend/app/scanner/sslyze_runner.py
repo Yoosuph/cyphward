@@ -12,6 +12,7 @@ import tempfile
 from typing import Any, Dict, List, Optional
 
 from backend.app.scanner import ip_guard
+from backend.app.scanner.tool_results import ToolExecutionError, collect_tool_results
 
 logger = logging.getLogger("cyphward.scanner.sslyze")
 
@@ -91,7 +92,7 @@ def _parse_sslyze_json(raw: Dict[str, Any], hostname: str, port: int) -> Dict[st
     accepted_ciphers: List[str] = []
     for version, key in _TLS_VERSION_KEYS.items():
         node = scan_result.get(key)
-        if not isinstance(node, dict):
+        if not isinstance(node, dict) or node.get("status") not in (None, "COMPLETED") or not isinstance(node.get("result"), dict):
             continue
         result = node.get("result") or {}
         accepted = result.get("accepted_cipher_suites") or []
@@ -114,6 +115,7 @@ async def run_sslyze(
     hostname: str,
     port: int = 443,
     timeout: int = 60,
+    strict: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Run sslyze against host:port. Returns a normalized TLS observation, or
@@ -122,11 +124,15 @@ async def run_sslyze(
     # SSRF boundary: sslyze connects by name (SNI matters), so validate the
     # resolution first and refuse non-public targets.
     if not ip_guard.resolve_connect_ip(hostname):
+        if strict:
+            raise ToolExecutionError("SSLyze target is unresolved or not a public address")
         logger.info("sslyze skip %s:%s: unresolved or non-public address", hostname, port)
         return None
 
     sslyze_path = shutil.which("sslyze")
     if not sslyze_path:
+        if strict:
+            raise ToolExecutionError("SSLyze is not installed")
         return None
 
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tmp:
@@ -142,19 +148,38 @@ async def run_sslyze(
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if strict and proc.returncode != 0:
+            raise ToolExecutionError(f"SSLyze exited with code {proc.returncode}")
 
         with open(out_path, "r") as f:
             raw = json.load(f)
         if not isinstance(raw, dict):
+            if strict:
+                raise ToolExecutionError("SSLyze returned invalid JSON output")
             return None
-        return _parse_sslyze_json(raw, hostname, port)
+        if strict:
+            results = raw.get("server_scan_results") or []
+            scan_result = (results[0].get("scan_result") or {}) if results and isinstance(results[0], dict) else raw
+            if isinstance(scan_result, dict) and any(
+                isinstance(node, dict) and node.get("status") in ("ERROR", "NOT_SCHEDULED")
+                for node in scan_result.values()
+            ):
+                raise ToolExecutionError("SSLyze did not complete every requested check")
+        observation = _parse_sslyze_json(raw, hostname, port)
+        if strict and not observation.get("certificate") and not observation.get("tls_versions"):
+            raise ToolExecutionError("SSLyze returned no usable certificate or protocol assessment")
+        return observation
     except asyncio.TimeoutError:
         logger.warning("sslyze %s:%s timed out after %ss", hostname, port, timeout)
+        if strict:
+            raise ToolExecutionError(f"SSLyze timed out after {timeout}s")
         return None
     except Exception as e:
         # sslyze exits non-zero on some TLS failures but may still write JSON;
         # any parse/execution error degrades the stage without failing the scan.
         logger.warning("sslyze %s:%s failed: %s", hostname, port, e)
+        if strict:
+            raise ToolExecutionError(str(e)) from e
         return None
     finally:
         if proc and proc.returncode is None:
@@ -177,11 +202,12 @@ async def run_sslyze_batch(
     concurrency: int = 2,
 ) -> List[Dict[str, Any]]:
     """Run sslyze against many hosts, sequentially-bounded (§16/§17)."""
+    hostnames = list(dict.fromkeys(hostnames))
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def _one(host: str) -> Optional[Dict[str, Any]]:
         async with semaphore:
-            return await run_sslyze(host, port=port, timeout=timeout)
+            return await run_sslyze(host, port=port, timeout=timeout, strict=True)
 
     results = await asyncio.gather(*[_one(h) for h in hostnames], return_exceptions=True)
-    return [r for r in results if isinstance(r, dict)]
+    return collect_tool_results(hostnames, results)

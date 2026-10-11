@@ -52,6 +52,7 @@ from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
 from backend.app.scanner.detectors import classify_detector, detector_key
+from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
@@ -331,8 +332,10 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                 )
                 ports_dur = int((time.time() - t0) * 1000)
                 progress["ports"] = {"status": "completed", "items": len(open_ports),
-                                     "duration_ms": ports_dur}
-                _store_observation(scan_id, "ports", {"open_ports": open_ports})
+                                     "duration_ms": ports_dur,
+                                     **(open_ports.progress() if isinstance(open_ports, ToolBatchResult) else {})}
+                _store_observation(scan_id, "ports", {"open_ports": open_ports,
+                    **(open_ports.coverage() if isinstance(open_ports, ToolBatchResult) else {})})
             except Exception as ports_err:
                 ports_dur = int((time.time() - t0) * 1000)
                 progress["ports"] = {"status": "failed", "items": 0, "duration_ms": ports_dur,
@@ -363,8 +366,10 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                 )
                 tls_dur = int((time.time() - t0) * 1000)
                 progress["tls"] = {"status": "completed", "items": len(tls_profiles),
-                                   "duration_ms": tls_dur}
-                _store_observation(scan_id, "tls", {"tls_profiles": tls_profiles})
+                                   "duration_ms": tls_dur,
+                                   **(tls_profiles.progress() if isinstance(tls_profiles, ToolBatchResult) else {})}
+                _store_observation(scan_id, "tls", {"tls_profiles": tls_profiles,
+                    **(tls_profiles.coverage() if isinstance(tls_profiles, ToolBatchResult) else {})})
             except Exception as tls_err:
                 tls_dur = int((time.time() - t0) * 1000)
                 progress["tls"] = {"status": "failed", "items": 0, "duration_ms": tls_dur,
@@ -398,15 +403,21 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
                         nf["_hostname"] = nf.get("evidence", {}).get("host") or domain
                 nuclei_dur = int((time.time() - t0) * 1000)
                 progress["nuclei"] = {"status": "completed", "items": len(nuclei_findings),
-                                      "duration_ms": nuclei_dur}
+                                      "duration_ms": nuclei_dur,
+                                      **(nuclei_findings.progress() if isinstance(nuclei_findings, ToolBatchResult) else {})}
                 _store_observation(scan_id, "nuclei", {
                     "nuclei_findings": nuclei_findings,
                     "attempted_hosts": active_hosts,
+                    **(nuclei_findings.coverage() if isinstance(nuclei_findings, ToolBatchResult) else {}),
                 })
             except Exception as nuclei_err:
                 nuclei_dur = int((time.time() - t0) * 1000)
                 progress["nuclei"] = {"status": "failed", "items": 0, "duration_ms": nuclei_dur,
                                       "error": str(nuclei_err)[:500]}
+                _store_observation(scan_id, "nuclei", {
+                    "nuclei_findings": [], "attempted_hosts": [],
+                    "successful_hosts": [], "failed_hosts": {},
+                })
 
         _save_progress(scan_id, progress)
 
@@ -637,8 +648,10 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         raw_check_findings.extend(nuclei_findings)
 
         sec_dur = int((time.time() - t0) * 1000)
-        progress["security_checks"] = {"status": "completed", "items": len(raw_check_findings),
-                                       "duration_ms": sec_dur}
+        failed_checks = len(dns_list) - len(check_success_hosts)
+        progress["security_checks"] = {"status": "failed" if failed_checks else "completed", "items": len(raw_check_findings),
+                                       "duration_ms": sec_dur,
+                                       **({"error": f"Security checks failed on {failed_checks} of {len(dns_list)} hosts."} if failed_checks else {})}
         progress["normalization"]["status"] = "running"
         _save_progress(scan_id, progress, "normalization")
 
@@ -686,8 +699,16 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                     nuclei_attempted.append(hn)
                 if len(nuclei_attempted) >= SCANNER_NUCLEI_MAX_HOSTS:
                     break
-        nuclei_stage_ok = (progress.get("nuclei") or {}).get("status") == "completed"
-        nuclei_covered_hosts = set(nuclei_attempted) if nuclei_stage_ok else set()
+        # Attempting a host is not evidence that its tool completed. Older
+        # workers did not distinguish crashes from clean empty results, so
+        # their attempted-only payloads must never auto-resolve findings.
+        nuclei_status = (progress.get("nuclei") or {}).get("status")
+        successful = nuclei_obs.get("successful_hosts")
+        failed = nuclei_obs.get("failed_hosts") or {}
+        coverage_ready = nuclei_status == "completed" or (nuclei_status == "failed" and isinstance(failed, dict) and bool(failed))
+        nuclei_covered_hosts = (
+            set(h for h in successful if isinstance(h, str)) & set(nuclei_attempted)
+        ) - set(failed) if isinstance(successful, list) and coverage_ready else set()
 
         def _detector_covered(asset_id: Any, category: Any, evidence: Any) -> bool:
             """Did this finding's detector complete for this host this scan?"""
@@ -696,7 +717,17 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             if name == "nuclei":
                 return hostname in nuclei_covered_hosts
             if name == "security_checks":
-                return hostname in check_success_hosts
+                if hostname not in check_success_hosts:
+                    return False
+                if category == "DNS & Email Security":
+                    # Email checks only run on the domain apex.
+                    return hostname == domain
+                if category == "SSL/TLS":
+                    tls = (http_by_host.get(hostname) or {}).get("tls_info") or {}
+                    return bool(tls.get("valid_to") or tls.get("issuer"))
+                # A function returning [] when HTTP is unreachable does not
+                # mean headers, certificate or disclosure checks were clean.
+                return (http_by_host.get(hostname) or {}).get("http_status") is not None
             return False
 
         if scanned_asset_ids:

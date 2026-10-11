@@ -327,6 +327,13 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
     else:
         # Shared security-check detector: the category must be observable
         # right now or the (possibly clean) result proves nothing.
+        tls = http_data.get("tls_info") or {}
+        if task.get("f_category") == "SSL/TLS" and not (tls.get("valid_to") or tls.get("issuer")):
+            return _inconclusive(
+                task, org, hostname,
+                "Inconclusive — no TLS certificate was observed. A responding HTTP service does not prove that the certificate issue was fixed.",
+                detector,
+            )
         if task.get("f_category") in HTTP_CATEGORIES and not http_ok:
             return _inconclusive(
                 task, org, hostname,

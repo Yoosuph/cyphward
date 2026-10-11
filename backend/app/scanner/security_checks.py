@@ -271,7 +271,7 @@ async def run_security_checks(
     if protocol in ["TLSv1.3", "TLSv1.2"]:
         findings.append({
             "title": "Modern Cryptographic Protocols Active",
-            "description": f"Endpoint {hostname} enforces modern cryptographic protocols ({protocol}) with strong forward-secrecy cipher suites. Insecure legacy protocols are appropriately prohibited.",
+            "description": f"The HTTPS probe negotiated {protocol} with {hostname}. This confirms support for that protocol; it does not establish whether legacy protocols are also accepted.",
             "severity": "info",
             "category": "SSL/TLS",
             "evidence": {

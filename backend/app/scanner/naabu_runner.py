@@ -10,6 +10,7 @@ import shutil
 from typing import Any, Dict, List
 
 from backend.app.scanner import ip_guard
+from backend.app.scanner.tool_results import ToolExecutionError, collect_tool_results
 
 logger = logging.getLogger("cyphward.scanner.naabu")
 
@@ -19,6 +20,7 @@ async def run_naabu(
     top_ports: int = 100,
     timeout: int = 60,
     rate: int = 500,
+    strict: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Scan top TCP ports on a single host using connect mode (no raw sockets,
@@ -28,11 +30,15 @@ async def run_naabu(
     # the target cannot rebind between validation and connect.
     target_ip = ip_guard.resolve_connect_ip(hostname)
     if not target_ip:
+        if strict:
+            raise ToolExecutionError("Naabu target is unresolved or not a public address")
         logger.info("naabu skip %s: unresolved or non-public address", hostname)
         return []
 
     naabu_path = shutil.which("naabu")
     if not naabu_path:
+        if strict:
+            raise ToolExecutionError("Naabu is not installed")
         return []
 
     cmd = [
@@ -55,9 +61,10 @@ async def run_naabu(
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        if proc.returncode not in (0, None):
+        if proc.returncode != 0:
             err = (stderr or b"").decode(errors="replace").strip()[:300]
             logger.warning("naabu %s exited %s: %s", hostname, proc.returncode, err)
+            raise ToolExecutionError(f"Naabu exited with code {proc.returncode}")
 
         seen_ports = set()
         for line in stdout.decode(errors="replace").splitlines():
@@ -67,6 +74,8 @@ async def run_naabu(
             try:
                 data = json.loads(line)
             except json.JSONDecodeError:
+                if strict:
+                    raise ToolExecutionError("Naabu returned malformed JSON output")
                 continue
             port = data.get("port")
             if not port:
@@ -83,8 +92,12 @@ async def run_naabu(
             })
     except asyncio.TimeoutError:
         logger.warning("naabu %s timed out after %ss", hostname, timeout)
+        if strict:
+            raise ToolExecutionError(f"Naabu timed out after {timeout}s")
     except Exception as e:
         logger.warning("naabu %s failed: %s", hostname, e)
+        if strict:
+            raise ToolExecutionError(str(e)) from e
     finally:
         if proc and proc.returncode is None:
             try:
@@ -103,20 +116,13 @@ async def run_naabu_batch(
     concurrency: int = 4,
 ) -> List[Dict[str, Any]]:
     """Run naabu across hosts with bounded concurrency. One stage at a time (§16)."""
+    hostnames = list(dict.fromkeys(hostnames))
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def _one(host: str) -> List[Dict[str, Any]]:
         async with semaphore:
-            return await run_naabu(host, top_ports=top_ports, timeout=timeout)
+            return await run_naabu(host, top_ports=top_ports, timeout=timeout, strict=True)
 
     results = await asyncio.gather(*[_one(h) for h in hostnames], return_exceptions=True)
 
-    all_findings: List[Dict[str, Any]] = []
-    for idx, result in enumerate(results):
-        if isinstance(result, list):
-            host = hostnames[idx] if idx < len(hostnames) else ""
-            for f in result:
-                if not f.get("hostname"):
-                    f["hostname"] = host
-            all_findings.extend(result)
-    return all_findings
+    return collect_tool_results(hostnames, results)

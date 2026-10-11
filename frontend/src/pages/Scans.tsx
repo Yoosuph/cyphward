@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Radar,
   Play,
@@ -20,6 +21,7 @@ import {
 import { getScans, getScanDetail, launchScan, getDomains } from '../lib/api';
 import type { Scan, Domain } from '../types';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../lib/auth';
 import { ScansSkeleton, ScanStepperSkeleton, TableRowSkeleton, ScanDrawerSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 import Drawer from '../components/Drawer';
@@ -43,6 +45,9 @@ export default function Scans() {
   const [detailModalLoading, setDetailModalLoading] = useState(false);
 
   const toast = useToast();
+  const navigate = useNavigate();
+  const { organization } = useAuth();
+  const canManageScans = ['owner', 'admin'].includes(organization?.membership_role || 'member');
 
   const loadScans = async () => {
     try {
@@ -75,8 +80,9 @@ export default function Scans() {
   useEffect(() => {
     loadScans();
     getDomains().then(d => {
-      setDomains(d);
-      if (d.length > 0) setSelectedDomainId(d[0].id);
+      const verified = d.filter(domain => domain.verification_status === 'verified');
+      setDomains(verified);
+      if (verified.length > 0) setSelectedDomainId(verified[0].id);
     });
   }, []);
 
@@ -100,6 +106,7 @@ export default function Scans() {
   }, [selectedScanId, selectedScanDetail?.scan.status]);
 
   const handleLaunch = async () => {
+    if (!canManageScans || !selectedDomainId || launching) return;
     setLaunching(true);
     try {
       const res = await launchScan(selectedDomainId);
@@ -147,6 +154,10 @@ export default function Scans() {
   }
 
   const activeScan = selectedScanDetail?.scan || scans[0];
+  const incompleteChecks = STAGES.filter(stage =>
+    !['ai_analysis', 'normalization', 'scoring'].includes(stage.key) &&
+    ['failed', 'skipped'].includes((activeScan?.stage_progress as any)?.[stage.key]?.status)
+  );
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
@@ -177,13 +188,13 @@ export default function Scans() {
             <span>Refresh</span>
           </button>
 
-          <button
-            onClick={() => setLaunchModalOpen(true)}
+          {canManageScans && <button
+            onClick={() => domains.length ? setLaunchModalOpen(true) : navigate('/domains')}
             className="flex items-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all btn-tactile"
           >
             <Play size={13} fill="currentColor" />
-            <span>START SCAN</span>
-          </button>
+            <span>{domains.length ? 'START SCAN' : 'VERIFY DOMAIN'}</span>
+          </button>}
         </div>
       </div>
 
@@ -224,6 +235,14 @@ export default function Scans() {
             )}
           </div>
 
+          {incompleteChecks.length > 0 && (
+            <div role="status" className="p-3 rounded border border-accent/30 bg-accent/5 text-xs text-soft">
+              <p className="font-semibold text-ink">{activeScan.status === 'completed' ? 'Completed with limited coverage' : 'Some checks were not completed'}</p>
+              <p className="mt-1">{incompleteChecks.map(stage => `${stage.label}: ${(activeScan.stage_progress as any)[stage.key].status}`).join(' · ')}</p>
+              <p className="mt-1">A failed or skipped check does not prove that a system is secure. The score reflects known findings; review the stage details below.</p>
+            </div>
+          )}
+
           {/* Stepper Pipeline Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
             {STAGES.map((stage, idx) => {
@@ -231,6 +250,12 @@ export default function Scans() {
               const isCompleted = stageData?.status === 'completed';
               const isRunning = stageData?.status === 'running';
               const isQueued = stageData?.status === 'queued' || stageData?.status === 'pending';
+              const isFailed = stageData?.status === 'failed';
+              const isSkipped = stageData?.status === 'skipped';
+              const observation = selectedScanDetail?.raw_results?.find(result => result.stage === stage.key)?.raw_data;
+              const coverage = observation && typeof observation === 'object' && Array.isArray(observation.successful_hosts)
+                ? `${observation.successful_hosts.length} of ${observation.attempted_hosts?.length ?? 0} targets checked`
+                : null;
 
               return (
                 <div
@@ -240,13 +265,17 @@ export default function Scans() {
                       ? 'border-accent bg-accent-soft/20 shadow-md ring-1 ring-accent'
                       : isCompleted
                       ? 'border-ok/30 bg-ok/5'
+                      : isFailed
+                      ? 'border-accent/40 bg-accent/5'
                       : 'border-line/70 bg-inset/40 opacity-70'
                   }`}
                 >
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] mono text-soft font-bold">STEP 0{idx + 1}</span>
-                      {isCompleted ? (
+                      {isFailed ? (
+                        <AlertCircle size={14} className="text-accent" />
+                      ) : isCompleted ? (
                         <CheckCircle2 size={14} className="text-ok" />
                       ) : isRunning ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
@@ -257,6 +286,8 @@ export default function Scans() {
 
                     <h4 className="mono text-xs font-semibold text-ink leading-tight">{stage.label}</h4>
                     <p className="text-[10.5px] text-soft mt-1 leading-snug">{stage.desc}</p>
+                    {coverage && <p className="text-[10.5px] text-soft mt-1">{coverage}</p>}
+                    {(isFailed || isSkipped) && stageData?.error && <p className="text-[10.5px] text-accent mt-1 break-words">{stageData.error}</p>}
                   </div>
 
                   <div className="pt-2 border-t border-line/50 mt-2 flex items-center justify-between text-[10px] mono">
@@ -264,7 +295,7 @@ export default function Scans() {
                       {stageData?.duration_ms ? `${stageData.duration_ms}ms` : '—'}
                     </span>
                     <span className="font-semibold text-ink">
-                      {stageData?.items !== undefined ? `${stageData.items} items` : isCompleted ? 'Done' : 'Pending'}
+                      {isFailed ? 'Failed' : isSkipped ? 'Skipped' : isRunning ? 'Running' : stageData?.items !== undefined ? `${stageData.items} items` : isCompleted ? 'Done' : 'Pending'}
                     </span>
                   </div>
                 </div>
@@ -362,12 +393,13 @@ export default function Scans() {
                           const sData = (scan.stage_progress as any)?.[st];
                           const isDone = sData?.status === 'completed';
                           const isRunning = sData?.status === 'running';
+                          const isFailed = sData?.status === 'failed';
                           return (
                             <div
                               key={st}
                               title={`${st}: ${sData?.status || 'queued'}`}
                               className={`w-3 h-1.5 rounded-full ${
-                                isDone ? 'bg-ok' : isRunning ? 'bg-accent animate-pulse' : 'bg-inset border border-line'
+                                isFailed ? 'bg-accent' : isDone ? 'bg-ok' : isRunning ? 'bg-accent animate-pulse' : 'bg-inset border border-line'
                               }`}
                             />
                           );

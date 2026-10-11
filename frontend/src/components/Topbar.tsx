@@ -67,7 +67,7 @@ export default function Topbar({
           {onToggleSidebar && (
             <button
               onClick={onToggleSidebar}
-              className="side-collapse-btn hidden md:inline-flex shrink-0"
+              className="side-collapse-btn hidden min-[901px]:inline-flex shrink-0"
               title={sidebarCollapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
               aria-label="Toggle sidebar collapse"
             >
@@ -75,16 +75,17 @@ export default function Topbar({
             </button>
           )}
 
-          {/* Mobile brand (shield + CYPH) or desktop when sidebar is collapsed */}
+          {/* Full brand remains readable on phones and tablets. */}
           <Link
             to="/overview"
-            className={`${sidebarCollapsed ? 'flex' : 'md:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
-            title="CYPH Command Center"
+            className={`${sidebarCollapsed ? 'flex' : 'min-[901px]:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
+            title="Cyphward dashboard"
+            aria-label="Cyphward dashboard"
           >
-            <CyphwardLogo variant="cyph" size={17} />
+            <CyphwardLogo variant="compact" size={32} />
           </Link>
-          <span className={`${sidebarCollapsed ? 'inline' : 'md:hidden inline'} text-line text-xs select-none`}>/</span>
-          <p className="bar-sec truncate">
+          <span className={`${sidebarCollapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`}>/</span>
+          <p className="bar-sec truncate hidden min-[400px]:block">
             <span className="hidden sm:inline">SECTION {section.idx} · {section.label}</span>
             <span className="sm:hidden text-[11px] mono">SEC {section.idx} · {section.label}</span>
           </p>

@@ -31,6 +31,7 @@ from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.naabu_runner import run_naabu_batch
 from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
+from backend.app.scanner.tool_results import ToolBatchResult
 from shared.contracts import ScanJob
 
 logger = logging.getLogger("cyphward.scanner")
@@ -70,7 +71,7 @@ def _tool(binary: str) -> bool:
 async def _stop_beat(stop: asyncio.Event, beat: asyncio.Task) -> None:
     stop.set()
     beat.cancel()
-    with contextlib.suppress(asyncio.CancelledError, asyncio.InvalidStateError):
+    with contextlib.suppress(asyncio.CancelledError, asyncio.InvalidStateError, JobLost):
         await beat
 
 
@@ -92,9 +93,29 @@ async def _heartbeat(
             await client.progress(scan_id, stage, "running")
         except JobLost:
             logger.warning("scan=%s lease lost during heartbeat (stage=%s)", scan_id, stage)
-            return
+            raise
         except CoreError as e:
             logger.debug("scan=%s heartbeat failed (transient): %s", scan_id, e)
+
+
+async def _leased_result(factory, beat: asyncio.Task):
+    """Stop active recon as soon as the heartbeat reports a revoked lease."""
+    work = asyncio.create_task(factory())
+    try:
+        done, _ = await asyncio.wait({work, beat}, return_when=asyncio.FIRST_COMPLETED)
+        if beat in done:
+            await beat
+            raise JobLost("Lease heartbeat stopped before the stage finished")
+        return await work
+    finally:
+        if not work.done():
+            work.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await work
+        elif not work.cancelled():
+            # Retrieve any simultaneous work error when lease loss won the
+            # race, preventing an unhandled-task warning during cleanup.
+            work.exception()
 
 
 async def run_stage(
@@ -115,10 +136,13 @@ async def run_stage(
 
     stop = asyncio.Event()
     beat = asyncio.create_task(
-        _heartbeat(client, job.scan_id, stage, max(30.0, cfg.heartbeat_seconds), stop)
+        _heartbeat(client, job.scan_id, stage, max(5.0, min(30.0, cfg.heartbeat_seconds)), stop)
     )
     try:
-        result = await coro_factory()
+        result = await _leased_result(coro_factory, beat)
+    except asyncio.CancelledError:
+        await _stop_beat(stop, beat)
+        raise
     except JobLost:
         await _stop_beat(stop, beat)
         raise
@@ -126,6 +150,10 @@ async def run_stage(
         await _stop_beat(stop, beat)
         if optional:
             logger.warning("scan=%s stage=%s failed (continuing): %s", job.scan_id, stage, exc)
+            await client.observations(job.scan_id, stage, {
+                OBSERVATION_KEY[stage]: [], "attempted_hosts": [],
+                "successful_hosts": [], "failed_hosts": {},
+            })
             await client.progress(job.scan_id, stage, "failed",
                                   duration_ms=_ms(t0), error=str(exc)[:500])
             return None
@@ -134,12 +162,24 @@ async def run_stage(
         await _stop_beat(stop, beat)
 
     if not isinstance(result, list):
-        result = []
+        if optional:
+            await client.observations(job.scan_id, stage, {
+                OBSERVATION_KEY[stage]: [], "attempted_hosts": [],
+                "successful_hosts": [], "failed_hosts": {},
+            })
+            await client.progress(job.scan_id, stage, "failed", error="Tool returned an invalid result type")
+            return None
+        raise JobAborted(stage, "Tool returned an invalid result type")
 
-    if result:
-        await client.observations(job.scan_id, stage, {OBSERVATION_KEY[stage]: result})
-    await client.progress(job.scan_id, stage, "completed",
-                          items=len(result), duration_ms=_ms(t0))
+    batch = result if isinstance(result, ToolBatchResult) else None
+    if result or batch is not None:
+        await client.observations(job.scan_id, stage, {
+            OBSERVATION_KEY[stage]: result,
+            **(batch.coverage() if batch is not None else {}),
+        })
+    state = batch.progress() if batch is not None else {"status": "completed"}
+    await client.progress(job.scan_id, stage, state["status"],
+                          items=len(result), duration_ms=_ms(t0), error=state.get("error"))
     return result
 
 
@@ -160,10 +200,10 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
     await client.progress(job.scan_id, "discovery", "running")
     _stop = asyncio.Event()
     _beat = asyncio.create_task(
-        _heartbeat(client, job.scan_id, "discovery", max(30.0, cfg.heartbeat_seconds), _stop))
+        _heartbeat(client, job.scan_id, "discovery", max(5.0, min(30.0, cfg.heartbeat_seconds)), _stop))
     try:
-        hosts_raw, sources_failed = await discover_subdomains_with_health(job.target)
-    except Exception:
+        hosts_raw, sources_failed = await _leased_result(lambda: discover_subdomains_with_health(job.target), _beat)
+    except BaseException:
         await _stop_beat(_stop, _beat)
         raise
     else:
@@ -299,6 +339,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
                 await client.observations(job.scan_id, "nuclei", {
                     "nuclei_findings": nuclei_findings,
                     "attempted_hosts": active_hosts,
+                    **(nuclei_findings.coverage() if isinstance(nuclei_findings, ToolBatchResult) else {}),
                 })
             except JobLost:
                 raise

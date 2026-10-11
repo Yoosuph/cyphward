@@ -24,7 +24,7 @@ const NAV_ITEMS = [
 export default function ButtonPlate({
   onPalette,
   onOpenMenu,
-  openAlertsCount = 5,
+  openAlertsCount = 0,
 }: Props) {
   const location = useLocation();
 

@@ -15,6 +15,10 @@ No production account, payment, DNS record, scan, or deployment was changed.
 company/brand-search work is tracked in the
 [brand verification note](brand-search-verification-2026-10-11.md).
 
+The subsequent [scanner/feature readiness review](scanner-feature-review-2026-10-11/README.md)
+records additional tool-failure, coverage and cancellation fixes and the remaining
+foundations recommended before expanding administration.
+
 ## Platform and architecture review
 
 | Original finding | Current status and evidence | Remaining work |

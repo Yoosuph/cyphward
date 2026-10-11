@@ -63,6 +63,8 @@ def _obs(nuclei_findings=None, attempted_hosts=None):
         "nuclei": {
             "nuclei_findings": nuclei_findings or [],
             "attempted_hosts": attempted_hosts if attempted_hosts is not None else [],
+            "successful_hosts": attempted_hosts if attempted_hosts is not None else [],
+            "failed_hosts": {},
         },
     }
 
@@ -132,6 +134,7 @@ def test_failed_security_check_keeps_finding_open_as_not_evaluated(store, monkey
     assert result["not_evaluated_findings"] == 1, "failed detector = not evaluated, never clear"
     assert _find(store, FINDING_A1)["status"] == "open"
 
+
     bodies = [str(n) for n in store.notifications]
     assert any("not evaluated" in b for b in bodies), "notify must surface not-evaluated count"
 
@@ -146,6 +149,22 @@ def test_failed_security_check_keeps_finding_open_as_not_evaluated(store, monkey
     assert snapshot["scope"] == "organization"
     assert snapshot["domain_id"] is None
     assert snapshot["risk_points"] == overview["risk_points"]
+
+
+def test_unreachable_http_does_not_resolve_header_findings(store, monkeypatch):
+    obs = _obs()
+    obs["http"]["http_probes"][0]["http_status"] = None
+    _, result = _finalize(store, monkeypatch, obs)
+    assert _find(store, FINDING_A1)["status"] == "open"
+    assert result["not_evaluated_findings"] == 1
+
+
+def test_http_without_certificate_does_not_resolve_tls_finding(store, monkeypatch):
+    finding = _find(store, FINDING_A1)
+    finding["category"] = "SSL/TLS"
+    finding["title"] = "SSL/TLS Certificate Expiring Soon"
+    _finalize(store, monkeypatch, _obs())
+    assert finding["status"] == "open"
 
 
 def test_nuclei_attempted_host_resolves_finding(store, monkeypatch):
@@ -181,6 +200,32 @@ def test_failed_nuclei_stage_keeps_findings_open(store, monkeypatch):
 
     assert _find(store, NUC_FINDING)["status"] == "open"
     assert result["not_evaluated_findings"] == 1
+
+
+def test_legacy_attempted_hosts_are_not_clean_proof(store, monkeypatch):
+    _seed_nuclei_finding(store)
+    obs = _obs(attempted_hosts=[HOST])
+    del obs["nuclei"]["successful_hosts"]
+    _finalize(store, monkeypatch, obs, nuclei_status="completed")
+    assert _find(store, NUC_FINDING)["status"] == "open"
+
+
+def test_attempted_but_failed_host_keeps_finding_open(store, monkeypatch):
+    _seed_nuclei_finding(store)
+    obs = _obs(attempted_hosts=[HOST])
+    obs["nuclei"]["successful_hosts"] = []
+    obs["nuclei"]["failed_hosts"] = {HOST: "Nuclei timed out"}
+    _finalize(store, monkeypatch, obs, nuclei_status="failed")
+    assert _find(store, NUC_FINDING)["status"] == "open"
+
+
+def test_partial_stage_only_resolves_successful_hosts(store, monkeypatch):
+    _seed_nuclei_finding(store)
+    obs = _obs(attempted_hosts=[HOST, "api.acme.test"])
+    obs["nuclei"]["successful_hosts"] = [HOST]
+    obs["nuclei"]["failed_hosts"] = {"api.acme.test": "Nuclei failed"}
+    _finalize(store, monkeypatch, obs, nuclei_status="failed")
+    assert _find(store, NUC_FINDING)["status"] == "resolved"
 
 
 def test_unknown_detector_never_auto_resolves(store, monkeypatch):

@@ -130,6 +130,18 @@ def test_unreachable_host_is_inconclusive_not_verified(client, auth_headers, sto
     assert finding["status"] == "open"
 
 
+def test_missing_certificate_is_inconclusive_for_tls(client, auth_headers, store, monkeypatch):
+    finding = next(f for f in store.findings if f["id"] == FINDING_A1)
+    finding["category"] = "SSL/TLS"
+    finding["title"] = "SSL/TLS Certificate Expiring Soon"
+    _seed_task(store, FINDING_A1)
+    _mock_probes(monkeypatch, http_ok=True)
+    resp = client.post("/api/v1/remediation/task-1/verify", headers=auth_headers(ALICE))
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "inconclusive"
+    assert finding["status"] == "open"
+
+
 def test_unresolvable_dns_is_inconclusive_for_dns_checks(client, auth_headers, store, monkeypatch):
     _seed_task(store, FINDING_A2)
     _mock_probes(monkeypatch, dns_ok=False, http_ok=True)

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useId } from 'react';
 
 interface CyphwardLogoProps {
   size?: number;
@@ -15,6 +15,13 @@ export const CyphwardLogo = memo(function CyphwardLogo({
 }: CyphwardLogoProps) {
   // Compute aspect-correct dimensions
   const markSize = size;
+  // Every instance must own its paint definitions: the first logo may live
+  // in a hidden sidebar, and duplicate IDs can hide another logo's shield.
+  const instanceId = useId().replace(/:/g, '');
+  const outerId = `${instanceId}-cyphGradOuter`;
+  const innerId = `${instanceId}-cyphGradInner`;
+  const coreId = `${instanceId}-cyphCoreGlow`;
+  const glowId = `${instanceId}-cyphShieldGlow`;
 
   const markSvg = (
     <svg
@@ -28,24 +35,24 @@ export const CyphwardLogo = memo(function CyphwardLogo({
     >
       <defs>
         {/* Sovereign Amber Copper Gradient */}
-        <linearGradient id="cyphGradOuter" x1="4" y1="2" x2="32" y2="34" gradientUnits="userSpaceOnUse">
+        <linearGradient id={outerId} x1="4" y1="2" x2="32" y2="34" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FF7A50" />
           <stop offset="50%" stopColor="#E5532B" />
           <stop offset="100%" stopColor="#B33614" />
         </linearGradient>
 
-        <linearGradient id="cyphGradInner" x1="10" y1="8" x2="26" y2="28" gradientUnits="userSpaceOnUse">
+        <linearGradient id={innerId} x1="10" y1="8" x2="26" y2="28" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FF8F6B" stopOpacity="0.9" />
           <stop offset="100%" stopColor="#E5532B" stopOpacity="0.2" />
         </linearGradient>
 
-        <linearGradient id="cyphCoreGlow" x1="18" y1="13" x2="18" y2="23" gradientUnits="userSpaceOnUse">
+        <linearGradient id={coreId} x1="18" y1="13" x2="18" y2="23" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FFFFFF" />
           <stop offset="100%" stopColor="#FF8F6B" />
         </linearGradient>
 
         {/* Ambient Drop Glow */}
-        <filter id="cyphShieldGlow" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#E5532B" floodOpacity="0.38" />
         </filter>
       </defs>
@@ -53,18 +60,18 @@ export const CyphwardLogo = memo(function CyphwardLogo({
       {/* Layer 1: Outer Sovereign Bastion Shield Outline */}
       <path
         d="M18 2.5 L30.5 7.5 V17.2 C30.5 24.8 25.1 31.4 18 33.5 C10.9 31.4 5.5 24.8 5.5 17.2 V7.5 L18 2.5 Z"
-        stroke="url(#cyphGradOuter)"
+        stroke={`url(#${outerId})`}
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        filter="url(#cyphShieldGlow)"
+        filter={`url(#${glowId})`}
       />
 
       {/* Layer 2: Inner Interlocking Defense Chevron */}
       <path
         d="M18 7.8 L26.2 11.2 V17.4 C26.2 22.4 22.7 26.8 18 28.5 C13.3 26.8 9.8 22.4 9.8 17.4 V11.2 L18 7.8 Z"
-        fill="url(#cyphGradInner)"
-        stroke="url(#cyphGradOuter)"
+        fill={`url(#${innerId})`}
+        stroke={`url(#${outerId})`}
         strokeWidth="1.2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -74,7 +81,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
       {/* Layer 3: Central Cryptographic Core Node */}
       <path
         d="M18 13.5 L22 18 L18 22.5 L14 18 L18 13.5 Z"
-        fill="url(#cyphCoreGlow)"
+        fill={`url(#${coreId})`}
         stroke="#E5532B"
         strokeWidth="1"
       />
