@@ -277,6 +277,7 @@ def test_accept_happy_path(client, auth_headers, monkeypatch, store):
 
     assert resp.status_code == 200
     assert "welcome" in resp.json()["message"].lower()
+    assert resp.json()["organization"]["id"] == ORG_A
     assert len(store.memberships) == before + 1
     entry = next(m for m in store.memberships if m["user_id"] == NEWBIE)
     assert entry["org_id"] == ORG_A

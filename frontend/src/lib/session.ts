@@ -56,7 +56,16 @@ export function loadSession(): AuthTokens | null {
   }
 }
 
-export function saveSession(tokens: AuthTokens): void {  try {
+export function saveSession(tokens: AuthTokens): void {
+  try {
+    const previous = loadSession();
+    if (previous?.user.id !== tokens.user.id) {
+      // Workspace and onboarding caches belong to the previous account.
+      for (const key of ['cyphward-tenant', 'cyphward-org-id', 'cyphward-onboarding', 'cyphward-greeted']) {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      }
+    }
     const enriched: AuthTokens = {
       ...tokens,
       _expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
@@ -133,23 +142,45 @@ export function getAccessTokenSync(): string | null {
   return loadSession()?.access_token ?? null;
 }
 
-/** Rotate the refresh token into a fresh pair. Null on any failure. */
-export async function refreshSession(): Promise<AuthTokens | null> {
+let refreshInFlight: { token: string; promise: Promise<AuthTokens> } | null = null;
+
+/** Rotate tokens; share one request so concurrent callers cannot consume the same token twice. */
+export async function refreshSession(throwOnError = false): Promise<AuthTokens | null> {
   const stored = loadSession();
   if (!stored) return null;
+  if (!refreshInFlight || refreshInFlight.token !== stored.refresh_token) {
+    refreshInFlight = {
+      token: stored.refresh_token,
+      promise: (async () => {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: stored.refresh_token }),
+        });
+        if (!res.ok) throw Object.assign(new Error('Could not refresh your session.'), { status: res.status });
+        const data = (await res.json()) as AuthTokens;
+        if (!data?.access_token || !data.refresh_token || !data.user?.id) {
+          throw Object.assign(new Error('Invalid session refresh response.'), { status: 502 });
+        }
+        // A late response from before sign-out/account switching cannot restore
+        // that old account over the current session.
+        const current = loadSession();
+        if (current?.refresh_token !== stored.refresh_token || current.user.id !== stored.user.id) {
+          throw Object.assign(new Error('The account session changed during refresh.'), { status: 409 });
+        }
+        saveSession(data);
+        return data;
+      })(),
+    };
+  }
+  const request = refreshInFlight;
   try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: stored.refresh_token }),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as AuthTokens;
-    if (!data?.access_token) return null;
-    saveSession(data);
-    return data;
-  } catch {
+    return await request.promise;
+  } catch (error) {
+    if (throwOnError) throw error;
     return null;
+  } finally {
+    if (refreshInFlight === request) refreshInFlight = null;
   }
 }
 
@@ -161,7 +192,7 @@ export async function ensureFreshAccessToken(): Promise<string | null> {
   const stored = loadSession();
   if (!stored) return null;
   if (stored._expires_at && Date.now() >= stored._expires_at - EXPIRY_SLACK_MS) {
-    const rotated = await refreshSession();
+    const rotated = await refreshSession(true);
     return rotated?.access_token ?? null;
   }
   return stored.access_token;

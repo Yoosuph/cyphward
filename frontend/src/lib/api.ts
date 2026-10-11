@@ -61,7 +61,7 @@ async function apiFetch<T>(
 
     // One-shot recovery: rotate the refresh token and replay the request.
     if (res.status === 401 && getAccessTokenSync()) {
-      const rotated = await refreshSession();
+      const rotated = await refreshSession(true);
       if (rotated) {
         token = rotated.access_token;
         res = await attempt(token);
@@ -324,8 +324,8 @@ export async function updateMemberRole(userId: string, role: string): Promise<an
 }
 
 /** Consume a single-use invite token; joins the workspace on success. */
-export async function acceptInvite(token: string): Promise<{ message: string; member: any }> {
-  const res = await apiFetch<{ message: string; member: any }>(
+export async function acceptInvite(token: string): Promise<{ message: string; member: any; organization?: { id: string; slug?: string; name?: string } }> {
+  const res = await apiFetch<{ message: string; member: any; organization?: { id: string; slug?: string; name?: string } }>(
     '/members/invites/accept',
     { method: 'POST', body: JSON.stringify({ token }) },
     true,

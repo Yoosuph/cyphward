@@ -2,10 +2,12 @@ import { Link } from 'react-router-dom';
 import PublicShell from '../components/PublicShell';
 
 const FACTS: { label: string; value: string; href?: string }[] = [
-  { label: 'LEGAL NAME', value: 'Cyphward Ltd' },
+  { label: 'LEGAL NAME', value: 'CYPHWARD LTD' },
   { label: 'BRAND', value: 'Cyphward' },
+  { label: 'CAC REGISTRATION', value: 'RC 9921694' },
   { label: 'FOUNDER', value: 'Yusuf Lawan Nuhu' },
-  { label: 'FOUNDED', value: '2026' },
+  { label: 'INCORPORATED', value: '8 October 2026' },
+  { label: 'LOCATION', value: 'Kano, Kano State, Nigeria' },
   { label: 'COUNTRY', value: 'Nigeria' },
   { label: 'GENERAL', value: 'info@cyphward.com', href: 'mailto:info@cyphward.com' },
   { label: 'PRIVACY', value: 'privacy@cyphward.com', href: 'mailto:privacy@cyphward.com' },
@@ -31,6 +33,20 @@ export default function About() {
       lede="Cyphward Ltd builds Cyphward, external security scoring for Nigerian businesses. You prove a domain is yours. We scan what the internet can already see. You get one 0–100 score, and a fix for every finding."
     >
       <div className="space-y-10 text-sm text-soft leading-relaxed">
+        <section className="space-y-3">
+          <h2 className="font-display text-2xl font-medium text-ink">A Nigerian company, based in Kano</h2>
+          <p>
+            Cyphward is built by CYPHWARD LTD, also known as Cyphward Limited.
+            The company is registered with Nigeria’s Corporate Affairs Commission
+            (CAC), RC 9921694, and was incorporated on 8 October 2026. It is based
+            in Kano, Kano State, Nigeria.
+          </p>
+          <p>
+            Our founder is Yusuf Lawan Nuhu. Contact us at{' '}
+            <a href="mailto:info@cyphward.com" className="text-accent underline">info@cyphward.com</a>.
+            Our official LinkedIn, X and Instagram profiles are linked below.
+          </p>
+        </section>
         <section className="space-y-3">
           <h2 className="font-display text-2xl font-medium text-ink">What we scan</h2>
           <p>

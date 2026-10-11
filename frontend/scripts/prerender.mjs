@@ -34,7 +34,7 @@ const PAGES = [
     url: '/about',
     file: 'about/index.html',
     title: 'About — Cyphward',
-    description: 'Cyphward Ltd builds external security scoring for Nigerian businesses. Founded in 2026 by Yusuf Lawan Nuhu. Verify a domain, then read one score and a report a board can use.',
+    description: 'Cyphward is built by CYPHWARD LTD, CAC RC 9921694, based in Kano, Nigeria. Founded by Yusuf Lawan Nuhu. Contact info@cyphward.com.',
     canonical: 'https://cyphward.com/about',
   },
   {

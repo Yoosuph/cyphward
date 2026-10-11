@@ -25,15 +25,18 @@ def test_executive_report_html_score_scale_100():
     assert "/100" in html
     assert "/1000" not in html
     assert "74" in html
-    assert "HOW TO IMPROVE YOUR SCORE" in html
+    assert "ASSESSMENT STATUS" in html
     assert "SECURITY SCORE" in html
 
 
-def test_report_defaults_use_100_scale():
-    html = generate_executive_report_html()
-    assert "/100" in html
-    assert "/1000" not in html
-    assert "76" in html  # default score
+def test_report_without_assessment_has_no_sample_tenant_or_findings():
+    html = generate_executive_report_html(org_name="New Org", domain="")
+    assert "New Org" in html
+    assert "No verified domain" in html
+    assert "Not assessed" in html
+    assert "datagrid-ng.com" not in html
+    assert "DMARC" not in html
+    assert "COMPLIANT" not in html
 
 
 def test_report_uses_live_engine_scores():
@@ -49,6 +52,8 @@ def test_report_uses_live_engine_scores():
     )
     assert 0 <= scoring["score"] <= 100
     html = generate_executive_report_html(
+        org_name="Acme Africa",
+        domain="acmetraders.ng",
         score=scoring["score"],
         grade=scoring["grade"],
         posture_label=scoring["posture_label"],
@@ -71,6 +76,20 @@ def test_report_html_not_assessed_without_score():
     assert "Not assessed" in html
     assert "not assessed" in html
     assert "None" not in html
+
+
+def test_report_uses_only_supplied_findings_and_escapes_untrusted_text():
+    html = generate_executive_report_html(
+        org_name="A <script>alert(1)</script>", domain="example.ng", score=90,
+        grade="A", posture_label="Good", drivers=[{
+            "impact": "HIGH", "title": "Missing SPF <record>",
+            "desc": "Email check", "remedy": "Add SPF",
+        }],
+    )
+    assert "Missing SPF &lt;record&gt;" in html
+    assert "OPEN FINDINGS AND NEXT STEPS" in html
+    assert "<script>" not in html
+    assert "Anyone can send fake emails" not in html
 
 
 # --- Central sender map (EMAIL_SENDERS) -------------------------------------

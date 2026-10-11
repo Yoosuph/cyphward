@@ -1,5 +1,7 @@
 # CYPHWARD platform and business review
 
+**Implementation update:** See [11 October implementation status](implementation-status-2026-10-11.md). The findings below describe the original review; many have since been addressed in code.
+
 **Reviewed and rechecked:** 3 October 2026  
 **Scope:** repository architecture, security-sensitive backend paths, product and plan flows, Nigeria-first business fit, and proposed administration, compliance and Academy direction.
 

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
-    "test:score-ui": "node scripts/check-score-refresh.mjs"
+    "test:score-ui": "node scripts/check-score-refresh.mjs",
+    "test:onboarding-ui": "node scripts/check-onboarding-flow.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",

@@ -257,9 +257,15 @@ def accept_invite(
 
     log_audit(invite["org_id"], str(user["id"]), "member.invite_accepted", "invite", str(invite["id"]),
               {"email": invite.get("email"), "role": invite.get("role")})
+    org_row = execute_one(
+        "SELECT id, slug, name FROM organizations WHERE id = %s", (invite["org_id"],)
+    )
     return {
         "message": "Invitation accepted — welcome to the team.",
         "member": {"email": invite.get("email"), "role": invite.get("role")},
+        "organization": {"id": str(invite["org_id"]),
+                         "slug": (org_row or {}).get("slug"),
+                         "name": (org_row or {}).get("name")},
     }
 
 

@@ -83,6 +83,20 @@ def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[
     }
 
 
+def _report_drivers(findings: list[Dict[str, Any]]) -> list[Dict[str, str]]:
+    """Show actual open findings, highest severity first, without invented impacts."""
+    priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    return [
+        {
+            "impact": str(f.get("severity") or "finding").upper(),
+            "title": str(f.get("title") or "Security finding"),
+            "desc": str(f.get("description") or "See your dashboard for evidence."),
+            "remedy": str(f.get("remediation") or "See your dashboard for recommended actions."),
+        }
+        for f in sorted(findings, key=lambda f: priority.get(str(f.get("severity")), 4))[:5]
+    ]
+
+
 @router.get("")
 def list_reports(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     rows = execute_query(
@@ -132,6 +146,7 @@ def create_report(
         critical_count=data["critical_count"],
         high_count=data["high_count"],
         medium_count=data["medium_count"],
+        drivers=_report_drivers(data["findings"]),
     )
 
     summary = {
@@ -215,6 +230,7 @@ async def send_executive_report_email(
         high_count=high_count,
         medium_count=medium_count,
         summary_text=req.custom_note,
+        drivers=_report_drivers(findings),
     )
 
     try:

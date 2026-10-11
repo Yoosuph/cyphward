@@ -56,6 +56,7 @@ interface Organization {
   slug: string;
   plan: string;
   created_at: string;
+  membership_role?: string;
 }
 
 interface Domain {
@@ -73,6 +74,7 @@ interface Auth {
   tenant: Tenant | null;
   user: SessionUser | null;
   loading: boolean;
+  bootstrapError: string | null;
   organization: Organization | null;
   primaryDomain: Domain | null;
   onboardingStep: OnboardingStepValue;
@@ -97,12 +99,14 @@ interface Auth {
   verifyDomain: () => Promise<{ ok: boolean; verified: boolean; error?: string }>;
   completeOnboarding: () => void;
   refreshOnboarding: () => Promise<OnboardingStepValue>;
+  refreshAfterInviteAccept: (orgId: string) => Promise<OnboardingStepValue>;
 }
 
 const Ctx = createContext<Auth>({
   tenant: null,
   user: null,
   loading: true,
+  bootstrapError: null,
   organization: null,
   primaryDomain: null,
   onboardingStep: 'none',
@@ -117,11 +121,14 @@ const Ctx = createContext<Auth>({
   verifyDomain: async () => ({ ok: false, verified: false }),
   completeOnboarding: () => {},
   refreshOnboarding: async () => 'none',
+  refreshAfterInviteAccept: async () => 'none',
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const pendingOrgIdRef = useRef<string | undefined>(undefined);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [primaryDomain, setPrimaryDomain] = useState<Domain | null>(null);
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStepValue>('none');
@@ -148,6 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (effectiveOrgId) {
           localStorage.setItem(ORG_ID_KEY, effectiveOrgId);
           sessionStorage.setItem(ORG_ID_KEY, effectiveOrgId);
+        } else {
+          localStorage.removeItem(ORG_ID_KEY);
+          sessionStorage.removeItem(ORG_ID_KEY);
         }
         localStorage.removeItem(SIGNOUT_KEY);
       } else {
@@ -160,6 +170,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const clearAuthState = () => {
+    setBootstrapError(null);
+    pendingOrgIdRef.current = undefined;
     setUser(null);
     setTenant(null);
     setOrganization(null);
@@ -170,6 +182,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(ONBOARDING_KEY);
   };
 
+  const beginSession = (tokens: AuthTokens) => {
+    setBootstrapError(null);
+    const previousUserId = loadSession()?.user.id || user?.id;
+    if (previousUserId !== tokens.user.id) {
+      pendingOrgIdRef.current = undefined;
+      // Never render another account's workspace while bootstrap is loading.
+      setTenant(null);
+      setOrganization(null);
+      setPrimaryDomain(null);
+      setOnboardingStep('none');
+    }
+    saveSession(tokens);
+    setUser(tokens.user);
+  };
+
   const savedOnboardingStep = (): OnboardingStepValue => {
     const saved = localStorage.getItem(ONBOARDING_KEY);
     return saved && ['create_org', 'add_domain', 'verify_domain', 'complete'].includes(saved)
@@ -178,8 +205,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Maps a backend /auth/bootstrap payload onto tenant/org/domain state and
-  // returns which onboarding step the caller is on.
-  const applyBootstrap = (boot: BootstrapData): OnboardingStepValue => {
+  // returns which onboarding step the caller is on. preferredOrgId (e.g. a
+  // just-accepted invitation) selects that workspace instead of the first
+  // membership — invitees land in their new team, not an old one.
+  const applyBootstrap = (boot: BootstrapData, preferredOrgId?: string): OnboardingStepValue => {
     const userEmail = boot.user?.email || '';
 
     // Email verification (Brevo OTP) gates all other routing — enforced
@@ -199,11 +228,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return 'verify_email';
     }
 
-    const first = boot.memberships?.[0];
+    const first = (() => {
+      const all = boot.memberships || [];
+      if (preferredOrgId) {
+        const match = all.find(m => m?.org?.id === preferredOrgId || m?.org?.slug === preferredOrgId);
+        if (match?.org?.id) return match;
+      }
+      return all[0];
+    })();
     if (!first?.org?.id) {
       setOrganization(null);
       setPrimaryDomain(null);
-      const step = savedOnboardingStep();
+      // A domain step is impossible without a workspace. Ignore any cached
+      // progress left by another account or an interrupted registration.
+      const step: OnboardingStepValue = 'create_org';
+      localStorage.removeItem(ONBOARDING_KEY);
       setOnboardingStep(step);
       const tempTenant: Tenant = {
         name: 'New Organization',
@@ -216,7 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return step;
     }
 
-    const org = first.org as unknown as Organization;
+    const org = { ...first.org, membership_role: first.role } as Organization;
     setOrganization(org);
 
     const t: Tenant = {
@@ -230,61 +269,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTenant(t);
     persistTenant(t, org.id);
 
-    const domains = [...(first.domains || [])].sort((a, b) =>
+    const domains = [...(first.domains || [])].filter(d =>
+      d.org_id === org.id
+    ).sort((a, b) =>
       (b.created_at || '').localeCompare(a.created_at || '')
     );
-    // Setup is complete once ANY domain is verified. Domains sort newest-first,
-    // so a pending domain added after setup used to sit at domains[0] and
-    // re-route every login (email or Google) back to the verify screen.
-    // Pending domains are managed from the Domains page instead.
     const verified = domains.filter((d) => d.verification_status === 'verified');
-
-    let step: OnboardingStepValue;
-    if (domains.length > 0) {
-      // Onboarding screens should reference a verified domain when one
-      // exists; otherwise the newest pending one (what needs verifying).
-      setPrimaryDomain(verified[0] ?? domains[0]);
-      if (verified.length > 0) {
-        step = 'complete';
-        localStorage.removeItem(ONBOARDING_KEY);
-      } else {
-        step = 'verify_domain';
-        // A duplicate/late refresh (e.g. StrictMode's second boot fetch, or a
-        // slow response) must not bounce someone who just skipped back to the
-        // verify screen — only a fresh load (prev is 'none') may re-derive it.
-        setOnboardingStep(prev => (prev === 'complete' ? 'complete' : 'verify_domain'));
-        return 'verify_domain';
-      }
-    } else {
-      setPrimaryDomain(null);
-      step = 'add_domain';
-    }
-    setOnboardingStep(step);
-    return step;
+    setPrimaryDomain(verified[0] ?? domains[0] ?? null);
+    // Email and a workspace unlock the dashboard. Verification is required
+    // only for scanning, and unfinished DNS setup remains available there.
+    localStorage.removeItem(ONBOARDING_KEY);
+    setOnboardingStep('complete');
+    return 'complete';
   };
 
   // Loads state from the backend for the stored session (refreshing the
-  // token once if needed). Returns 'none' when the session is dead.
-  const reloadState = async (): Promise<OnboardingStepValue> => {
-    try {
-      let boot = await getBootstrap().catch(() => null);
-      if (!boot) {
-        const rotated = await refreshSession();
-        if (rotated) boot = await getBootstrap().catch(() => null);
-      }
-      if (!boot) {
+  // token once if needed). Returns 'none' only when the session is dead.
+  // Network/5xx outages keep the session and fall back to the last saved
+  // step — only a confirmed 401 clears credentials (review: bootstrap
+  // outage must not sign users out, matters on mobile connections).
+  const reloadState = async (preferredOrgId?: string): Promise<OnboardingStepValue> => {
+    if (preferredOrgId) pendingOrgIdRef.current = preferredOrgId;
+    // Only a confirmed 401 clears credentials; anything else keeps the
+    // session and falls back to the last saved step for retry.
+    const fail = (status?: number): OnboardingStepValue => {
+      if (status === 401) {
         clearSession();
         clearAuthState();
         return 'none';
       }
+      setBootstrapError('We could not load your workspace. Your session is saved. Check your connection and try again.');
+      return savedOnboardingStep();
+    };
+    try {
+      let status: number | undefined;
+      let boot = await getBootstrap().catch((e: any) => {
+        status = e?.status;
+        return null;
+      });
+      if (!boot && status === 401) {
+        const rotated = await refreshSession(true).catch((e: any) => {
+          status = e?.status;
+          return null;
+        });
+        if (rotated) {
+          boot = await getBootstrap().catch((e: any) => {
+            status = e?.status;
+            return null;
+          });
+        }
+      }
+      if (!boot) return fail(status);
       setUser(boot.user);
-      return applyBootstrap(boot);
-    } catch (e) {
+      const step = applyBootstrap(boot, pendingOrgIdRef.current || localStorage.getItem(ORG_ID_KEY) || undefined);
+      pendingOrgIdRef.current = undefined;
+      setBootstrapError(null);
+      return step;
+    } catch (e: any) {
       console.warn('Failed to load account state:', e);
-      // Transient lookup failure: report 'none' so callers don't route into
-      // onboarding (or the dashboard) based on guessed state.
-      return 'none';
+      return fail(e?.status);
     }
+  };
+
+  // After an invitation is accepted: reload memberships and land in the
+  // newly joined workspace instead of the first membership.
+  const refreshAfterInviteAccept = async (orgId: string): Promise<OnboardingStepValue> => {
+    return reloadState(orgId);
   };
 
   // Boot: restore the stored session (if any) before first render of the app.
@@ -296,6 +346,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearAuthState();
           return;
         }
+        setUser(stored.user);
         await reloadState();
       } finally {
         setLoading(false);
@@ -311,6 +362,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    setBootstrapError(null);
+    pendingOrgIdRef.current = undefined;
     try {
       const stored = loadSession();
       localStorage.setItem(SIGNOUT_KEY, 'true');
@@ -415,8 +468,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: true, mfa_required: true, mfa_token: c.mfa_token, email_hint: c.email_hint };
       }
       const tokens = data as AuthTokens;
-      saveSession(tokens);
-      setUser(tokens.user);
+      beginSession(tokens);
       const onboarding = await reloadState();
       maybeSendWelcome(tokens.user.id);
       const name = (tokens.user.full_name || '').trim() || cleanEmail.split('@')[0] || '';
@@ -432,8 +484,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
     try {
       const tokens = await mfaVerify(mfaToken, code.trim());
-      saveSession(tokens);
-      setUser(tokens.user);
+      beginSession(tokens);
       localStorage.removeItem(SIGNOUT_KEY);
       localStorage.removeItem(IDLE_REASON_KEY);
       const onboarding = await reloadState();
@@ -467,8 +518,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // verification happens via the Brevo OTP onboarding step (no separate
       // "confirm your email" screen).
       const tokens = await registerRequest(cleanEmail, password, name);
-      saveSession(tokens);
-      setUser(tokens.user);
+      beginSession(tokens);
       maybeSendWelcome(tokens.user.id);
       const onboarding = await reloadState();
       return { ok: true, needsOnboarding: onboarding !== 'complete', onboarding };
@@ -480,8 +530,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Completes a Google sign-in: the AuthCallback page exchanges the one-time
   // redirect code for tokens, then hands them here.
   const completeExternalLogin = async (tokens: AuthTokens): Promise<OnboardingStepValue> => {
-    saveSession(tokens);
-    setUser(tokens.user);
+    beginSession(tokens);
     localStorage.removeItem(SIGNOUT_KEY);
     maybeSendWelcome(tokens.user.id);
     return reloadState();
@@ -501,7 +550,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: 'Failed to create organization. Ensure you are signed in.' };
       }
 
-      setOrganization(org);
+      setOrganization({ ...org, membership_role: 'owner' });
       const t: Tenant = {
         id: org.id,
         slug: org.slug,
@@ -586,6 +635,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         tenant,
         user,
         loading,
+        bootstrapError,
         organization,
         primaryDomain,
         onboardingStep,
@@ -600,6 +650,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         verifyDomain,
         completeOnboarding,
         refreshOnboarding,
+        refreshAfterInviteAccept,
       }}
     >
       {children}

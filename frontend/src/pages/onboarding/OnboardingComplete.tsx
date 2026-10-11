@@ -1,10 +1,29 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Radar } from 'lucide-react';
+import { CheckCircle2, Radar } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
+import { launchScan } from '../../lib/api';
 
 export default function OnboardingComplete() {
   const { organization, primaryDomain } = useAuth();
   const nav = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const canScan = primaryDomain?.verification_status === 'verified';
+  const canManage = ['owner', 'admin'].includes(organization?.membership_role || 'member');
+
+  const handleScan = async () => {
+    if (!canManage || !canScan || !primaryDomain || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await launchScan(primaryDomain.id);
+      nav('/scans', { replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not start the scan. Please try again.');
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-5 text-center">
@@ -14,10 +33,10 @@ export default function OnboardingComplete() {
 
       <div>
         <h3 className="font-display text-xl font-medium text-ink mb-1">
-          You're All Set!
+          Your workspace is ready
         </h3>
         <p className="text-xs text-soft">
-          Your workspace is set up and ready to start monitoring.
+          {canScan ? 'Your domain is verified and ready to scan.' : 'Your workspace is ready. Verify a domain when you are ready to scan.'}
         </p>
       </div>
 
@@ -36,13 +55,16 @@ export default function OnboardingComplete() {
         )}
       </div>
 
-      <button
-        onClick={() => nav('/scans', { replace: true })}
+      {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
+      {canManage && <button
+        onClick={canScan ? handleScan : () => nav(primaryDomain ? '/onboarding/verify-domain' : '/onboarding/add-domain')}
+        disabled={busy}
         className="btn btn-solid w-full justify-center"
       >
         <Radar size={14} className="mr-2" />
-        START FIRST SCAN
-      </button>
+        {busy ? 'STARTING SCAN…' : canScan ? 'START FIRST SCAN' : primaryDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}
+      </button>}
+      {canManage && canScan && <p className="text-xs text-soft">Starting a scan uses one scan from your workspace's monthly allowance. Results will appear on the Scans page.</p>}
 
       <button
         onClick={() => nav('/', { replace: true })}

@@ -376,6 +376,10 @@ class FakeStore:
         if s.startswith("SELECT count(*) AS n FROM scans WHERE status IN"):
             return [{"n": sum(1 for x in self.scans if x.get("status") in ("queued", "running"))}]
 
+        if s.startswith("SELECT id, slug, name FROM organizations WHERE id = %s"):
+            o = self.organizations.get(str(params[0]))
+            return [{"id": o["id"], "slug": o.get("slug"), "name": o.get("name")}] if o else []
+
         if s.startswith("SELECT id, name, slug, plan, created_at FROM organizations WHERE id = %s"):
             o = self.organizations.get(str(params[0]))
             if not o:

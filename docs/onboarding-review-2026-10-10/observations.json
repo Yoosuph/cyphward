@@ -1,0 +1,247 @@
+[
+  {
+    "name": "create-org-320",
+    "before": {
+      "path": "/onboarding/create-org",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nCreate Your Organization\n\nYour organization's name is shown across your workspace.\n\nORGANIZATION NAME\nPLAN\nGrowth\n\nSmall teams, single region\n\nScale\n\nBigger teams, more regions\n\nSovereign\n\nLarge organizations — dedicated rollout scoped with our team\n\nCONTINUE",
+      "scrollWidth": 320,
+      "width": 320,
+      "overflow": [
+        {
+          "tag": "DIV",
+          "text": "Verify Email",
+          "left": -14,
+          "right": 56
+        },
+        {
+          "tag": "DIV",
+          "text": "Verify Email",
+          "left": -14,
+          "right": 24
+        },
+        {
+          "tag": "DIV",
+          "text": "Ready",
+          "left": 296,
+          "right": 334
+        },
+        {
+          "tag": "DIV",
+          "text": "Ready",
+          "left": 296,
+          "right": 334
+        }
+      ]
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      }
+    ]
+  },
+  {
+    "name": "create-org-390",
+    "before": {
+      "path": "/onboarding/create-org",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nCreate Your Organization\n\nYour organization's name is shown across your workspace.\n\nORGANIZATION NAME\nPLAN\nGrowth\n\nSmall teams, single region\n\nScale\n\nBigger teams, more regions\n\nSovereign\n\nLarge organizations — dedicated rollout scoped with our team\n\nCONTINUE",
+      "scrollWidth": 390,
+      "width": 390,
+      "overflow": []
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      }
+    ]
+  },
+  {
+    "name": "create-org-1280",
+    "before": {
+      "path": "/onboarding/create-org",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nVerify Email\nCreate Organization\nAdd Domain\nVerify Domain\nReady\nCreate Your Organization\n\nYour organization's name is shown across your workspace.\n\nORGANIZATION NAME\nPLAN\nGrowth\n\nSmall teams, single region\n\nScale\n\nBigger teams, more regions\n\nSovereign\n\nLarge organizations — dedicated rollout scoped with our team\n\nCONTINUE",
+      "scrollWidth": 1280,
+      "width": 1280,
+      "overflow": []
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      }
+    ]
+  },
+  {
+    "name": "skip-verification",
+    "before": {
+      "path": "/onboarding/verify-domain",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nVerify your domain\n\nAdd a DNS TXT record to prove you own example.test.\n\nDNS RECORD TO ADD\n\nTYPE\n\nTXT\n\nNAME\n\n_cyphward\n\nVALUE\n\ncyphward-verification=local-review-token\n\nEnter only _cyphward as the Name/Host — your DNS panel (Cloudflare, Namecheap, GoDaddy) adds .example.test itself, so the record ends up at _cyphward.example.test. It can take a few minutes to appear. Once it's saved, click Verify domain.\n\nVERIFY DOMAIN\nSkip for now",
+      "scrollWidth": 390,
+      "width": 390,
+      "overflow": []
+    },
+    "afterSkip": {
+      "path": "/onboarding/complete",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nYou're All Set!\n\nYour workspace is set up and ready to start monitoring.\n\nORGANIZATION\n\nExample Business\n\nPRIMARY DOMAIN\n\nexample.test\n\nSTART FIRST SCANGo to Dashboard instead →"
+    },
+    "afterReload": {
+      "path": "/onboarding/verify-domain",
+      "text": "ward as the Name/Host — your DNS panel (Cloudflare, Namecheap, GoDaddy) adds .example.test itself, so the record ends up at _cyphward.example.test. It can take a few minutes to appear. Once it's saved, click Verify domain.\n\nVERIFY DOMAIN\nSkip for now"
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      }
+    ]
+  },
+  {
+    "name": "first-scan",
+    "before": {
+      "path": "/onboarding/complete",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nYou're All Set!\n\nYour workspace is set up and ready to start monitoring.\n\nORGANIZATION\n\nExample Business\n\nPRIMARY DOMAIN\n\nexample.test\n\nSTART FIRST SCANGo to Dashboard instead →",
+      "scrollWidth": 390,
+      "width": 390,
+      "overflow": []
+    },
+    "afterStart": {
+      "path": "/scans",
+      "launchRequests": 0
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/platform/health"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/scans"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/domains"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/platform/health"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/scans"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/domains"
+      }
+    ]
+  },
+  {
+    "name": "unverified-invitation",
+    "before": {
+      "path": "/onboarding/verify-email",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n\nSETUP\n\nSet up your workspace.\n\nVerify your email, name your workspace, and add a domain to start monitoring.\n\nVerify your email address\n\nEnter the 6-digit code we sent to test@example.test.\nThe code expires in 10 minutes.\n\nThe code submits automatically when the last digit is entered.\n\nVERIFY EMAIL\nRESEND CODE (60S)\n5 attempts per code\nVerify your email address to join this workspace.",
+      "scrollWidth": 390,
+      "width": 390,
+      "overflow": []
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/members/invites/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/verification"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/otp/send"
+      }
+    ]
+  },
+  {
+    "name": "bootstrap-outage",
+    "before": {
+      "path": "/login",
+      "search": "",
+      "text": "COOKIES\nWe store essential cookies only — your sign-in session and display preferences. No ad trackers, ever. READ THE PRIVACY POLICY ↗\n\nESSENTIAL ONLY\nACCEPT\nCYPHWARD\n/\nVIEW WEBSITE ↗\nPRIMARY REGION: LAGOS // KANO // NAIROBI\nAfrican cyber defense, layer by layer.\n\nTrack NDPA and CBN readiness evidence, watch for USSD and SIM-swap fraud, and see the security of everything you run online in one clear dashboard.\n\nLIVE ACTIVITY\nLATENCY: 24ms · HEALTH: 100%\nUSSD payments\n1,420 / min\nNORMAL\nSIM-swap attempts\n3 blocked\nBLOCKED\nNDPA 2023 checks\n14/18 controls\nPASS\n99.98%\nUPTIME\n< 42ms\nAVG. RESPONSE\n3 REGIONS\nWEST & EAST AFRICA\nNDPA 2023 READINESS\nBUILT FOR CBN RULES\nSECURE SIGN-IN\n“\n\nCYPHWARD gives our board a clear view of our security posture and compliance evidence — no more guesswork.\n— Folake Adeyemi, Lead DPO, Lagos Core Switch\n\n SIGN IN\nWORK EMAIL\nPASSWORD\nFORGOT PASSWORD?\nKEEP ME SIGNED IN ON THIS DEVICE\nSIGN IN\nOR\nCONTINUE WITH GOOGLE\nDon't have an account? Create Account\nPROTECTED CONNECTION\nDATA ENCRYPTED\nWORKSPACES\nONE PRIVATE WORKSPACE PER COMPANY\nREADINESS EVIDENCE\nNDPA 2023 · CBN\nDATA LOCATION\nLAGOS · NAIROBI\nACCOUNT STATUS\nSECURE & ACTIVE",
+      "scrollWidth": 390,
+      "width": 390,
+      "overflow": []
+    },
+    "sessionRetained": false,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/bootstrap"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/refresh"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/refresh"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/google/client-id"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/google/client-id"
+      }
+    ]
+  }
+]

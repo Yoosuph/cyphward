@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Globe,
@@ -16,6 +16,7 @@ import { useAuth } from '../lib/auth';
 import { useToast } from './Toast';
 import { getTheme, toggleTheme } from '../lib/theme';
 import CyphwardLogo from './CyphwardLogo';
+import { lockScroll, unlockScroll } from '../lib/scrollLock';
 
 interface Props {
   open: boolean;
@@ -60,6 +61,42 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
   const toast = useToast();
   const theme = getTheme();
   const touchStartY = useRef<number | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    lockScroll();
+    const buttons = () => [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]')];
+    buttons()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); }
+      if (event.key !== 'Tab') return;
+      const targets = buttons();
+      const first = targets[0];
+      const last = targets[targets.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    const focusin = (event: FocusEvent) => {
+      if (!dialog.contains(event.target as Node)) buttons()[0]?.focus();
+    };
+    const resize = () => { if (window.innerWidth >= 901) closeRef.current(); };
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('focusin', focusin);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('focusin', focusin);
+      window.removeEventListener('resize', resize);
+      unlockScroll();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -95,15 +132,17 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
     <>
       {/* Light backdrop for dismissing sheet */}
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[1040] animate-fade-in transition-opacity md:hidden"
+        className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[1040] animate-fade-in transition-opacity min-[901px]:hidden"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Compact Bottom Sheet Menu (Mobile Only) */}
       <div
-        className="fixed inset-x-3 bottom-[74px] max-w-[390px] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 overflow-hidden md:hidden"
+        ref={dialogRef}
+        className="fixed inset-x-3 bottom-[74px] max-w-[390px] max-h-[calc(100dvh-100px)] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 overflow-y-auto min-[901px]:hidden"
         role="dialog"
+        aria-modal="true"
         aria-label="More pages menu"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
@@ -120,7 +159,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
 
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-inset text-soft hover:text-ink transition-colors btn-tactile"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md hover:bg-inset text-soft hover:text-ink transition-colors btn-tactile"
             aria-label="Close menu"
             title="Close menu"
           >
@@ -134,7 +173,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
             <button
               key={mod.to}
               onClick={() => handleNavigate(mod.to)}
-              className="flex items-center justify-between px-3 py-2 rounded-xl border border-line/60 bg-inset/30 hover:bg-inset hover:border-accent/40 transition-all text-left group btn-tactile w-full"
+              className="flex items-center justify-between px-3 py-2 min-h-[44px] rounded-xl border border-line/60 bg-inset/30 hover:bg-inset hover:border-accent/40 transition-all text-left group btn-tactile w-full"
             >
               <div className="flex items-center gap-2.5 min-w-0 pr-2">
                 <mod.icon size={14} className="text-accent shrink-0" />

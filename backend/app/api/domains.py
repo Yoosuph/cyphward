@@ -190,9 +190,10 @@ def add_domain(
         "domain": created,
         "dns_instructions": {
             "record_type": "TXT",
-            # Bare host only: registrar panels append the domain themselves,
-            # so showing the FQDN here caused "_cyphward.x.com.x.com".
+            # Relative host when the selected DNS zone is this domain.
+            # Parent zones require the UI to include the subdomain prefix.
             "host": "_cyphward",
+            "full_name": f"_cyphward.{domain_clean}",
             "value": f"cyphward-verification={token}",
             "ttl": 300,
         }

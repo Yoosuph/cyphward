@@ -556,7 +556,7 @@ table.ledger{width:100%; border-collapse:collapse; min-width:640px}
 .src-stack{display:flex; flex-wrap:wrap; gap:8px}
 
 /* ============ AUTH (LOGIN, REGISTER, RECOVERY, SSO) ============ */
-.login-wrap, .auth-wrap{position:relative; min-height:100svh; overflow-x:hidden; overflow-y:auto; display:flex; flex-direction:column; justify-content:center; padding:32px 20px}
+.login-wrap, .auth-wrap{position:relative; min-height:100svh; overflow-x:hidden; overflow-y:auto; display:flex; flex-direction:column; justify-content:center; padding:32px 20px calc(32px + var(--cookie-notice-space, 0px))}
 @media (min-width:1024px){
   .login-wrap{padding:48px 32px}
 }
@@ -1055,7 +1055,7 @@ body.drawer-open {
   flex-shrink:0;
 }
 .landing-links{display:none}
-@media (min-width:900px){ .landing-links{display:flex; align-items:center; gap:26px} }
+@media (min-width:901px){ .landing-links{display:flex; align-items:center; gap:26px} }
 .landing-link{font-family:var(--font-mono); font-size:11px; letter-spacing:.14em; color:var(--soft); text-decoration:none; transition:color .15s}
 .landing-link:hover{color:var(--ink)}
 
@@ -1104,6 +1104,7 @@ body.drawer-open {
 .social-float-btn{width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--line-strong); border-radius:6px; background:var(--inset); color:var(--soft); backdrop-filter:blur(6px); transition:color .16s, border-color .16s, transform .16s}
 .social-float-btn:hover{color:var(--ink); border-color:var(--accent); transform:translateY(-1px)}
 .social-float-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (max-width:900px){ .social-float{display:none} }
 
 /* Ledger swipe hint (mobile only) */
 .ledger-hint{display:none; font-family:var(--font-mono); font-size:10px; letter-spacing:.16em; color:var(--soft); text-align:right; margin-top:10px}
@@ -1133,8 +1134,8 @@ body.drawer-open {
 .landing-footer{border-top:1px solid var(--line); padding:64px 0 40px; margin-top:80px; background:var(--raised)}
 
 /* PIN input boxes for 2FA / Password reset */
-.pin-row{display:flex; gap:10px; justify-content:center; margin:20px 0}
-.pin-input{width:46px; height:54px; text-align:center; font-family:var(--font-mono); font-size:22px; font-weight:500; background:var(--inset); border:1px solid var(--line-strong); border-radius:4px; color:var(--ink); transition:border-color .18s, box-shadow .18s; outline:none}
+.pin-row{display:flex; gap:clamp(4px, 1.5vw, 10px); justify-content:center; margin:20px 0; width:100%}
+.pin-input{width:46px; min-width:0; flex:0 1 46px; height:54px; text-align:center; font-family:var(--font-mono); font-size:22px; font-weight:500; background:var(--inset); border:1px solid var(--line-strong); border-radius:4px; color:var(--ink); transition:border-color .18s, box-shadow .18s; outline:none}
 .pin-input:focus{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft)}
 
 /* Password strength */

@@ -22,7 +22,7 @@ function parseCooldown(message: string): number {
 }
 
 export default function VerifyEmail() {
-  const { user, refreshOnboarding } = useAuth();
+  const { user, refreshOnboarding, signOut } = useAuth();
   const nav = useNavigate();
   const location = useLocation();
   const toast = useToast();
@@ -226,6 +226,17 @@ export default function VerifyEmail() {
         </button>
         <span className="text-[10px] mono text-soft">5 attempts per code</span>
       </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          await signOut();
+          nav({ pathname: '/login', search: location.search }, { replace: true });
+        }}
+        className="btn w-full justify-center min-h-[44px]"
+      >
+        Wrong email? Sign out and use another account
+      </button>
     </form>
   );
 }

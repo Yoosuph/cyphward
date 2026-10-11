@@ -27,7 +27,6 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [remember, setRemember] = useState(true);
   const [theme, setTheme] = useState(getTheme());
   // Admin step-up: password accepted, 6-digit email code pending.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
@@ -550,19 +549,6 @@ export default function Login() {
                         {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                       </button>
                     </div>
-                  </div>
-
-                  {/* Trust Enclave Checkbox */}
-                  <div className="flex items-center justify-between mt-4">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs mono text-soft select-none hover:text-ink transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={remember}
-                        onChange={e => setRemember(e.target.checked)}
-                        className="accent-accent"
-                      />
-                      <span>KEEP ME SIGNED IN ON THIS DEVICE</span>
-                    </label>
                   </div>
 
                   {/* Error Display */}

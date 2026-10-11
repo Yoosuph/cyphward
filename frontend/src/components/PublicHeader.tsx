@@ -61,7 +61,7 @@ export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: str
           </button>
 
           <button
-            className="icon-btn md:hidden"
+            className="icon-btn min-[901px]:hidden min-h-[44px] min-w-[44px]"
             onClick={() => setMobileMenuOpen(o => !o)}
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
           >
@@ -72,7 +72,7 @@ export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: str
 
       {/* Mobile Dropdown Menu Panel */}
       {mobileMenuOpen && (
-        <div className="landing-mobile-menu md:hidden border-t border-line px-4 py-3 flex flex-col gap-2.5 bg-raised/95 backdrop-blur-md rounded-b-2xl">
+        <div className="landing-mobile-menu min-[901px]:hidden border-t border-line px-4 py-3 flex flex-col gap-2.5 bg-raised/95 backdrop-blur-md rounded-b-2xl">
           <nav className="flex flex-col gap-1 pt-1">
             <a
               href={a('#layers')}

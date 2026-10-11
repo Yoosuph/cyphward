@@ -38,7 +38,7 @@ export default function Overview() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [greeting, setGreeting] = useState<string | null>(null);
 
-  const { user } = useAuth();
+  const { user, primaryDomain, organization: activeOrganization } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -75,7 +75,8 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
-        setSelectedDomain(current => current || domainResult.value[0]?.id || '');
+        setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
+          ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
       }
     } catch (e) {
       if (id === requestId.current) setRefreshFailed(true);
@@ -158,6 +159,9 @@ export default function Overview() {
   }
 
   const { score, max_score, grade, posture_label, trend, counts, subscores, factors, recent_scans, organization, assessed, assessment } = data;
+  const verifiedDomains = domains.filter(d => d.verification_status === 'verified');
+  const pendingDomain = domains.find(d => d.verification_status !== 'verified');
+  const canManageDomains = ['owner', 'admin'].includes(activeOrganization?.membership_role || 'member');
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
@@ -169,7 +173,7 @@ export default function Overview() {
           )}
           <div className="flex items-center gap-2">
             <span className="live-dot" />
-            <p className="eyebrow text-accent">COMMAND WORKSPACE · {organization.cac_rc || 'CAC REGISTERED'}</p>
+            <p className="eyebrow text-accent">COMMAND WORKSPACE{organization.cac_rc ? ` · ${organization.cac_rc}` : ''}</p>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
             {organization.name}
@@ -189,14 +193,31 @@ export default function Overview() {
           </button>
 
           <button
-            onClick={() => setScanModalOpen(true)}
+            onClick={() => verifiedDomains.length ? setScanModalOpen(true) : navigate(pendingDomain ? '/domains' : '/onboarding/add-domain')}
+            disabled={!canManageDomains}
             className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
           >
             <Play size={13} fill="currentColor" />
-            <span>START SCAN</span>
+            <span>{!canManageDomains ? 'WAITING FOR ADMIN' : verifiedDomains.length ? 'START SCAN' : pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}</span>
           </button>
         </div>
       </div>
+
+      {verifiedDomains.length === 0 && (
+        <div className="p-4 rounded-lg border border-accent/30 bg-accent/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-ink">Finish setting up domain monitoring</p>
+            <p className="text-xs text-soft mt-1">{!canManageDomains
+              ? 'Ask a workspace admin to add and verify a domain before scanning can begin.'
+              : pendingDomain
+              ? `Verify ${pendingDomain.domain} with a DNS TXT record to start scans and earn a security score.`
+              : 'Add a domain you own to start scans and earn a security score.'}</p>
+          </div>
+          {canManageDomains && <button className="btn btn-solid btn-mini shrink-0" onClick={() => navigate(pendingDomain && primaryDomain?.id === pendingDomain.id ? '/onboarding/verify-domain' : pendingDomain ? '/domains' : '/onboarding/add-domain')}>
+            {pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}
+          </button>}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs mono">
         <p role="status" className={refreshFailed ? 'text-accent' : 'text-soft'}>
@@ -276,7 +297,7 @@ export default function Overview() {
             </div>
             <div className="my-2">
               <div className="text-3xl font-bold mono text-ink">{counts.total_assets}</div>
-              <p className="text-[11px] text-soft">Across {organization.domains_count || 1} domains</p>
+              <p className="text-[11px] text-soft">Across {organization.domains_count ?? 0} domains</p>
             </div>
             <div className="text-[10px] mono text-accent flex items-center gap-1">
               View assets <ArrowUpRight size={10} />
@@ -292,11 +313,11 @@ export default function Overview() {
               <Globe size={15} className="group-hover:text-accent transition-colors" />
             </div>
             <div className="my-2">
-              <div className="text-3xl font-bold mono text-ink">{organization.verified_domains_count || 1}</div>
+              <div className="text-3xl font-bold mono text-ink">{organization.verified_domains_count ?? 0}</div>
               <p className="text-[11px] text-soft">Confirmed with a DNS TXT record</p>
             </div>
             <div className="text-[10px] mono text-ok flex items-center gap-1">
-              Verified and secure <CheckCircle2 size={10} />
+              {(organization.verified_domains_count ?? 0) > 0 ? 'Verified' : 'Verification needed'} <CheckCircle2 size={10} />
             </div>
           </div>
 
@@ -604,7 +625,7 @@ export default function Overview() {
             onChange={e => setSelectedDomain(e.target.value)}
             className="w-full bg-inset border border-line rounded px-3 py-2 text-xs mono text-ink focus:outline-none focus:border-accent"
           >
-            {domains.map(d => (
+            {verifiedDomains.map(d => (
               <option key={d.id} value={d.id}>
                 {d.domain} ({d.verification_status.toUpperCase()})
               </option>
@@ -627,7 +648,7 @@ export default function Overview() {
             Cancel
           </button>
           <button
-            disabled={launching}
+            disabled={launching || !selectedDomain}
             onClick={handleLaunchScan}
             className="px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2 btn-tactile shadow-md shadow-accent/20"
           >

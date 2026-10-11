@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import smtplib
+from html import escape
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -44,14 +45,14 @@ def email_sender(kind: str) -> "tuple[str, str]":
 
 
 def generate_executive_report_html(
-    org_name: str = "DataGrid Africa",
-    domain: str = "datagrid-ng.com",
-    score: Optional[int] = 76,
-    grade: str = "B",
-    posture_label: str = "Good",
-    assets_count: int = 18,
+    org_name: str,
+    domain: str,
+    score: Optional[int] = None,
+    grade: Optional[str] = None,
+    posture_label: str = "",
+    assets_count: int = 0,
     critical_count: int = 0,
-    high_count: int = 3,
+    high_count: int = 0,
     medium_count: int = 0,
     summary_text: Optional[str] = None,
     drivers: Optional[List[Dict[str, Any]]] = None,
@@ -68,7 +69,7 @@ def generate_executive_report_html(
         score_label = f"{score}/100"
         score_suffix = "/100"
         grade_text = str(grade)
-        grade_line = f"Grade {grade} · {posture_label}"
+        grade_line = f"Grade {escape(str(grade or '—'))} · {escape(posture_label)}"
     else:
         score_color = "#64748B"
         score_width = 0
@@ -83,58 +84,32 @@ def generate_executive_report_html(
     if not summary_text:
         if assessed:
             summary_text = (
-                f"We checked {domain} and gave {org_name} a security score of {score} out of 100 "
-                f"(grade {grade} — {posture_label}). The good news: your site is reachable and mostly healthy. "
-                f"The issues below are the quickest wins — each takes a few minutes to fix and will raise your "
-                f"score right away. Step-by-step guides are inside your dashboard."
+                f"The latest assessment gave {org_name} a security score of {score} out of 100 "
+                f"(grade {grade or '—'} — {posture_label}). "
+                f"There are {critical_count} critical, {high_count} high and {medium_count} medium open findings. "
+                f"Review the findings and recommended actions in your dashboard."
             )
         else:
             summary_text = (
-                f"A full scan of {domain} hasn't completed yet, so {org_name} has no security "
-                f"score to report. Run the first scan to assess DNS, public web apps, email "
-                f"security, and encryption — this report regenerates with a scored assessment "
-                f"as soon as it finishes."
+                f"{org_name} has no completed security assessment yet. "
+                "Verify a domain and run a scan to produce a score and findings."
             )
 
     if not drivers:
-        if not assessed:
-            drivers = [
-                {
-                    "impact": "Run a scan",
-                    "badge_bg": "#F5F2EC",
-                    "badge_color": "#8A8377",
-                    "title": "No completed scan yet",
-                    "desc": "This report has no score because the first full scan hasn't finished — none of the checks below have been run against your domains.",
-                    "remedy": "Start a scan from your dashboard. DNS, web apps, email security, and encryption are assessed, then this report regenerates with a scored assessment.",
-                },
-            ]
-        else:
-            drivers = [
-                {
-                    "impact": "-8 pts",
-                    "badge_bg": "#FFF3EC",
-                    "badge_color": "#C2410C",
-                    "title": "Anyone can send fake emails as you",
-                    "desc": "Without a strict DMARC rule, scammers can send emails that look like they come from your domain — which hurts your customers' trust.",
-                    "remedy": "Set DMARC to reject unknown senders. Your dashboard shows the exact record to paste.",
-                },
-                {
-                    "impact": "-8 pts",
-                    "badge_bg": "#FFF3EC",
-                    "badge_color": "#C2410C",
-                    "title": "Some pages can load without encryption",
-                    "desc": "A visitor could accidentally reach an unencrypted version of your site, which is easier for anyone on the same network to snoop on.",
-                    "remedy": "Turn on HSTS (one switch) so every visit stays encrypted.",
-                },
-                {
-                    "impact": "+5 pts",
-                    "badge_bg": "#EAF9F1",
-                    "badge_color": "#0B7A53",
-                    "title": "Strong encryption is working",
-                    "desc": "Data between your visitors and your servers is securely encrypted.",
-                    "remedy": "Nothing to do — we keep watching it for you.",
-                },
-            ]
+        drivers = [{
+            "impact": "No findings" if assessed else "Awaiting scan",
+            "title": "No open findings" if assessed else "No completed scan yet",
+            "desc": "The latest assessment has no open findings." if assessed else "Complete a scan to see findings here.",
+            "remedy": "Continue monitoring your domains." if assessed else "Verify a domain and start a scan from your dashboard.",
+        }]
+
+    next_steps_heading = "OPEN FINDINGS AND NEXT STEPS" if assessed and any(
+        d.get("impact") not in ("No findings", "Awaiting scan") for d in drivers
+    ) else "ASSESSMENT STATUS" if assessed else "NEXT STEP"
+
+    org_name = escape(org_name or "Organization")
+    domain = escape(domain or "No verified domain")
+    summary_text = escape(summary_text)
 
     drivers_html = ""
     for d in drivers:
@@ -145,18 +120,18 @@ def generate_executive_report_html(
               <tr>
                 <td style="vertical-align: top; width: 66px;">
                   <span style="display: inline-block; padding: 3px 8px; background-color: {d.get('badge_bg', '#F5F2EC')}; color: {d.get('badge_color', '#C2410C')}; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; border-radius: 10px; letter-spacing: 0.5px;">
-                    {d.get('impact', '-')}
+                    {escape(str(d.get('impact') or '-'))}
                   </span>
                 </td>
                 <td style="vertical-align: top; padding-left: 10px;">
                   <div style="font-size: 14px; font-weight: 600; color: #1F1A14; margin-bottom: 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    {d.get('title', 'Security issue')}
+                    {escape(str(d.get('title') or 'Security issue'))}
                   </div>
                   <div style="font-size: 13px; color: #5D564B; line-height: 1.55; margin-bottom: 5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    {d.get('desc', '')}
+                    {escape(str(d.get('desc') or ''))}
                   </div>
                   <div style="font-size: 12px; color: #C2410C; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    <strong>HOW TO FIX:</strong> {d.get('remedy', '')}
+                    <strong>HOW TO FIX:</strong> {escape(str(d.get('remedy') or 'See your dashboard for details.'))}
                   </div>
                 </td>
               </tr>
@@ -222,7 +197,7 @@ def generate_executive_report_html(
               </td>
               <td style="vertical-align: middle; text-align: right;">
                 <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
-                  &#9679; Monitoring active
+                  &#9679; {'Assessment available' if assessed else 'Awaiting first assessment'}
                 </span>
               </td>
             </tr>
@@ -312,8 +287,8 @@ def generate_executive_report_html(
               </td>
               <td width="2%" style="font-size: 0;">&nbsp;</td>
               <td width="23%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
-                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">NDPA compliance</div>
-                <div style="font-size: 13px; font-weight: 700; color: #059669; margin-top: 6px;">COMPLIANT</div>
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Medium issues</div>
+                <div style="font-size: 17px; font-weight: 700; color: #1F1A14; margin-top: 4px;">{medium_count}</div>
               </td>
             </tr>
           </table>
@@ -336,7 +311,7 @@ def generate_executive_report_html(
       <tr>
         <td style="padding: 0 28px 24px;">
           <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
-            HOW TO IMPROVE YOUR SCORE
+            {next_steps_heading}
           </div>
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #EFECE5; border-radius: 8px; overflow: hidden;">
             {drivers_html}

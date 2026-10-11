@@ -1,5 +1,7 @@
 # CYPHWARD mobile review
 
+**Implementation update:** See [11 October implementation status](../implementation-status-2026-10-11.md) for fixes and remaining work. This review's screenshots describe the original state.
+
 **Reviewed:** 5 October 2026  
 **Scope:** Public landing, login and signup; the authenticated overview, domains, findings and remediation pages; setup verification, team settings, representative dialogs and drawers; tablet and landscape navigation.  
 **Method:** Chromium touch and viewport emulation with the production web fonts and synthetic accounts, organizations, domains and findings. No customer session or live API was used. Twenty-one screen captures and viewport measurements are in this directory. The run used the repository state at the time of review. This was not a native iOS/Android or physical-device test.

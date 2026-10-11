@@ -5,7 +5,7 @@ import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
 
 export default function AddDomain() {
-  const { addPrimaryDomain, organization } = useAuth();
+  const { addPrimaryDomain, organization, completeOnboarding } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -69,7 +69,7 @@ export default function AddDomain() {
       <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft flex items-start gap-2">
         <Info size={14} className="text-accent flex-none mt-0.5" />
         <span>
-          You can add more domains later. This one will be used for your first security scan.
+          Verification requires access to this domain's DNS settings. You can copy instructions for your DNS administrator or add a domain later. This one will be used for your first security scan.
         </span>
       </div>
 
@@ -92,6 +92,13 @@ export default function AddDomain() {
             CONTINUE <ArrowRight size={14} />
           </>
         )}
+      </button>
+      <button
+        type="button"
+        onClick={() => { completeOnboarding(); nav('/overview', { replace: true }); }}
+        className="w-full text-xs text-soft hover:text-ink"
+      >
+        Do this later · Open dashboard
       </button>
     </form>
   );

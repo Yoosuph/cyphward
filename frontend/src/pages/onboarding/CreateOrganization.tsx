@@ -3,11 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Building, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
+import { PUBLIC_PLANS } from '../../lib/publicPlans';
 
-const PLANS = [
-  { id: 'starter', label: 'Starter', price: '₦7,000/mo', desc: 'One business, one domain' },
-  { id: 'growth', label: 'Growth', price: '₦15,000/mo', desc: 'Teams, more domains and reports' },
-];
+const PLANS = PUBLIC_PLANS.map(plan => ({ id: plan.id, label: plan.name, price: `${plan.priceLabel}/mo`, desc: plan.blurb }));
 
 function initialPlan(searchParams: URLSearchParams): string {
   const p = (searchParams.get('plan') || '').toLowerCase();
@@ -69,7 +67,7 @@ export default function CreateOrganization() {
 
       <div className="space-y-2">
         <label className="text-xs mono text-soft">PLAN · 30-DAY TRIAL INCLUDED</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {PLANS.map(p => (
             <button
               key={p.id}

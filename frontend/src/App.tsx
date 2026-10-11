@@ -10,6 +10,7 @@ import CommandPalette from './components/CommandPalette';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
+import AccountRecoveryGate from './components/AccountRecoveryGate';
 import { DocumentTitle } from './lib/seo';
 import InviteAcceptance from './components/InviteAcceptance';
 import ButtonPlate from './components/ButtonPlate';
@@ -164,7 +165,7 @@ function AppShell() {
     );
   }
 
-  if (!tenant) return <Navigate to="/login" replace />;
+  if (!tenant) return <Navigate to={{ pathname: "/login", search: location.search }} replace />;
 
   // Real onboarding gate: a signed-in user without a completed setup never
   // reaches the dashboard (and can't be shown mock data instead). Send them
@@ -177,7 +178,7 @@ function AppShell() {
     verify_domain: '/onboarding/verify-domain',
   };
   if (onboardingStep in onboardingRoute) {
-    return <Navigate to={onboardingRoute[onboardingStep]} replace />;
+    return <Navigate to={{ pathname: onboardingRoute[onboardingStep], search: location.search }} replace />;
   }
 
   const section = SECTION_BY_PATH[location.pathname] ?? { idx: '01', label: 'OVERVIEW' };
@@ -305,6 +306,7 @@ export default function App() {
           <InviteAcceptance />
           {/* Essential-storage cookie notice (Privacy §09) — dismiss persists */}
           <CookieBanner />
+          <AccountRecoveryGate>
           <Suspense fallback={<RouteLoading />}>
             <Routes>
             {/* Public and Dedicated Auth Routes */}
@@ -358,6 +360,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
+          </AccountRecoveryGate>
           </HostGate>
         </BrowserRouter>
       </ToastProvider>

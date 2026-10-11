@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
+import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
+import DomainDnsInstructions from '../../components/DomainDnsInstructions';
 
 export default function VerifyDomain() {
   const { primaryDomain, verifyDomain, completeOnboarding } = useAuth();
@@ -12,24 +13,10 @@ export default function VerifyDomain() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [verified, setVerified] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   if (!primaryDomain) return null;
 
   const domain = primaryDomain.domain;
-  const token = primaryDomain.verification_token || primaryDomain.id;
-  // Bare host only — panels like Namecheap/GoDaddy append the domain
-  // themselves; showing the full name here made users double-append it.
-  const txtName = '_cyphward';
-  const txtValue = token.startsWith('cyphward-verification=') ? token : `cyphward-verification=${token}`;
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(txtValue);
-    setCopied(true);
-    toast('Record value copied.');
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleVerify = async () => {
     if (busy) return;
     setBusy(true);
@@ -55,7 +42,7 @@ export default function VerifyDomain() {
 
   const handleSkip = () => {
     completeOnboarding();
-    nav('/onboarding/complete', { replace: true });
+    nav('/overview', { replace: true });
   };
 
   if (verified) {
@@ -84,43 +71,7 @@ export default function VerifyDomain() {
         </p>
       </div>
 
-      <div className="p-3 bg-inset rounded border border-line">
-        <p className="text-[10px] mono text-soft mb-2">DNS RECORD TO ADD</p>
-        <div className="space-y-2">
-          <div>
-            <p className="text-[10px] mono text-soft">TYPE</p>
-            <p className="text-xs mono font-medium text-ink">TXT</p>
-          </div>
-          <div>
-            <p className="text-[10px] mono text-soft">NAME</p>
-            <p className="text-xs mono font-medium text-ink break-all">{txtName}</p>
-          </div>
-          <div>
-            <p className="text-[10px] mono text-soft">VALUE</p>
-            <div className="flex items-center gap-2">
-              <p className="text-xs mono font-medium text-ink break-all flex-1">{txtValue}</p>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex-none p-1.5 rounded hover:bg-accent/10 transition-colors text-soft hover:text-ink"
-                title="Copy value"
-              >
-                {copied ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft">
-        <p>
-          Enter only <span className="mono text-ink">_cyphward</span> as the Name/Host — your DNS
-          panel (Cloudflare, Namecheap, GoDaddy) adds <span className="mono text-ink">.{domain}</span>{' '}
-          itself, so the record ends up at{' '}
-          <span className="mono text-ink break-all">_cyphward.{domain}</span>. It can take a few
-          minutes to appear. Once it's saved, click Verify domain.
-        </p>
-      </div>
+      <DomainDnsInstructions key={primaryDomain.id} domain={domain} token={primaryDomain.verification_token} />
 
       {error && (
         <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex items-start gap-2">
@@ -132,7 +83,7 @@ export default function VerifyDomain() {
       <button
         type="button"
         onClick={handleVerify}
-        disabled={busy}
+        disabled={busy || !primaryDomain.verification_token}
         className="btn btn-solid w-full justify-center"
       >
         {busy ? (
@@ -151,7 +102,7 @@ export default function VerifyDomain() {
           onClick={handleSkip}
           className="text-xs text-soft hover:text-ink transition-colors"
         >
-          Skip for now
+          Do this later · Open dashboard
         </button>
       </div>
     </div>

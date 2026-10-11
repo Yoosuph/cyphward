@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const STORAGE_KEY = 'cyphward-cookie-consent';
@@ -9,6 +9,20 @@ const STORAGE_KEY = 'cyphward-cookie-consent';
  */
 export default function CookieBanner() {
   const [visible, setVisible] = useState(false);
+  const bannerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!visible || !bannerRef.current) return;
+    const element = bannerRef.current;
+    const reserveSpace = () => document.documentElement.style.setProperty('--cookie-notice-space', `${element.getBoundingClientRect().height + 26}px`);
+    reserveSpace();
+    const observer = new ResizeObserver(reserveSpace);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty('--cookie-notice-space');
+    };
+  }, [visible]);
 
   useEffect(() => {
     try {
@@ -30,7 +44,7 @@ export default function CookieBanner() {
   if (!visible) return null;
 
   return (
-    <aside className="cookie-banner" role="region" aria-label="Cookie notice">
+    <aside ref={bannerRef} className="cookie-banner" role="region" aria-label="Cookie notice">
       <p>
         <strong className="cookie-banner-title">COOKIES</strong>
         We store essential cookies only — your sign-in session and display
