@@ -6,6 +6,10 @@ original findings. Existing working-tree changes were preserved. No customer
 domain was scanned and no deployed worker, database, network policy or migration
 was inspected. Payment-system activation remains deferred.
 
+**Subsequent production check:** [VPS verification](vps-verification.md)
+confirms that the VPS runs the worker and processed matching live scan IDs.
+That follow-up also records the latest deployment and the limits of the check.
+
 ## Changes made in this pass
 
 - **Mobile dashboard identity:** Topbar's 17px shield and abbreviated CYPH text
