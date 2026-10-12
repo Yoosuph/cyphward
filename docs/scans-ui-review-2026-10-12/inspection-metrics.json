@@ -1,0 +1,29 @@
+[
+  {
+    "name": "desktop",
+    "viewport": 1440,
+    "pageWidth": 1440,
+    "pageHeight": 1321,
+    "historyTop": 986.6875,
+    "historyWidth": 1150,
+    "startButtonHeight": 48
+  },
+  {
+    "name": "mobile",
+    "viewport": 390,
+    "pageWidth": 390,
+    "pageHeight": 2617,
+    "historyTop": 2181.140625,
+    "historyWidth": 826.234375,
+    "startButtonHeight": 32
+  },
+  {
+    "name": "small-mobile",
+    "viewport": 320,
+    "pageWidth": 320,
+    "pageHeight": 2677,
+    "historyTop": 2241.140625,
+    "historyWidth": 826.234375,
+    "startButtonHeight": 32
+  }
+]

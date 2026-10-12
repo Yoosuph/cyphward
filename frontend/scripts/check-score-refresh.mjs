@@ -131,15 +131,17 @@ try {
   await page.goto(`${origin}/scans`);
   await page.waitForFunction(() => document.body.textContent.includes('Completed with limited coverage'));
   await page.waitForFunction(() => document.body.textContent.includes('1 of 2 targets checked'));
+  await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Review coverage').click());
+  await page.waitForFunction(() => document.querySelector('.scan-checks-panel')?.open);
   assert.ok(await page.evaluate(() => document.body.textContent.includes('Failed') && document.body.textContent.includes('Skipped')));
   role = 'member';
   await page.reload();
   await page.waitForFunction(() => document.body.textContent.includes('Completed with limited coverage'));
-  assert.ok(!await page.evaluate(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'START SCAN')), 'Member is not offered admin-only scan launch');
+  assert.ok(!await page.evaluate(() => [...document.querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Start scan')), 'Member is not offered admin-only scan launch');
   role = 'owner';
   domain.verification_status = 'pending';
   await page.reload();
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'VERIFY DOMAIN'));
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Verify domain'));
   assert.deepEqual(errors, []);
   console.log('PASS: score refresh/history, full mobile logo, partial coverage, and role/verification-aware scan launch');
 } finally {

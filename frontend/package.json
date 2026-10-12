@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
+    "test:scans-ui": "node scripts/check-scans-layout.mjs",
     "test:score-ui": "node scripts/check-score-refresh.mjs",
     "test:onboarding-ui": "node scripts/check-onboarding-flow.mjs"
   },

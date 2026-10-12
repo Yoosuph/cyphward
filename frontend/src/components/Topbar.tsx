@@ -15,6 +15,7 @@ interface Props {
   section: { idx: string; label: string };
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  mobileAi?: boolean;
 }
 
 export default function Topbar({
@@ -24,6 +25,7 @@ export default function Topbar({
   section,
   sidebarCollapsed = false,
   onToggleSidebar,
+  mobileAi = false,
 }: Props) {
   const [time, setTime] = useState('');
   const [theme, setTheme] = useState(getTheme());
@@ -101,14 +103,14 @@ export default function Topbar({
 
           {handleAiClick && (
             <button
-              className="hidden sm:inline-flex items-center gap-1.5 py-1 px-2.5 rounded border border-line bg-inset/40 hover:border-accent hover:text-ink text-soft text-xs mono transition-colors hover-lift"
+              className={`${mobileAi ? 'inline-flex min-h-[44px] min-w-[44px] justify-center' : 'hidden sm:inline-flex'} items-center gap-1.5 py-1 px-2.5 rounded border border-line bg-inset/40 hover:border-accent hover:text-ink text-soft text-xs mono transition-colors hover-lift`}
               onClick={handleAiClick}
               title="Open CyphBot (Ctrl+J)"
               aria-label="Open CyphBot"
             >
               <Sparkles size={13} className="text-accent" />
-              <span className="font-semibold">CYPHBOT</span>
-              <span className="tag text-[9px] py-0 px-1">⌘J</span>
+              <span className={`${mobileAi ? 'hidden sm:inline' : ''} font-semibold`}>CYPHBOT</span>
+              <span className={`${mobileAi ? 'hidden sm:inline' : ''} tag text-[9px] py-0 px-1`}>⌘J</span>
             </button>
           )}
 

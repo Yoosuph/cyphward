@@ -1,651 +1,1142 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Radar,
-  Play,
-  CheckCircle2,
-  Clock,
   AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Code,
+  Globe,
+  Layers,
+  Lock,
+  Plus,
+  Radar,
   RefreshCw,
   Search,
-  ArrowRight,
-  ShieldAlert,
   Server,
-  Layers,
-  Code,
-  Lock,
+  ShieldCheck,
+  ShieldAlert,
   Sparkles,
-  FileText,
-  X,
-} from 'lucide-react';
-import { getScans, getScanDetail, launchScan, getDomains } from '../lib/api';
-import type { Scan, Domain } from '../types';
-import { useToast } from '../components/Toast';
-import { useAuth } from '../lib/auth';
-import { ScansSkeleton, ScanStepperSkeleton, TableRowSkeleton, ScanDrawerSkeleton } from '../components/Skeleton';
-import Modal from '../components/Modal';
-import Drawer from '../components/Drawer';
+} from "lucide-react";
+import { getScans, getScanDetail, launchScan, getDomains } from "../lib/api";
+import type { Scan, Domain, StageInfo } from "../types";
+import { useToast } from "../components/Toast";
+import { useAuth } from "../lib/auth";
+import { Skeleton, ScanDrawerSkeleton } from "../components/Skeleton";
+import Modal from "../components/Modal";
+import Drawer from "../components/Drawer";
+import "./Scans.css";
+
+type Observation = { stage: string; raw_data: any };
+type Detail = { scan: Scan; raw_results: Observation[] };
+const CHECKS = [
+  {
+    key: "discovery",
+    label: "Asset discovery",
+    desc: "Public records and subdomains",
+    icon: Search,
+  },
+  {
+    key: "dns",
+    label: "DNS records",
+    desc: "A, MX, TXT, SPF and DMARC records",
+    icon: Globe,
+  },
+  {
+    key: "http",
+    label: "Website checks",
+    desc: "Responses, headers and public pages",
+    icon: Server,
+  },
+  {
+    key: "ports",
+    label: "Open ports",
+    desc: "Top 100 TCP ports",
+    icon: Layers,
+  },
+  {
+    key: "tls",
+    label: "TLS certificates",
+    desc: "Certificates and encryption protocols",
+    icon: Lock,
+  },
+  {
+    key: "nuclei",
+    label: "Known vulnerabilities",
+    desc: "Checks for known security issues",
+    icon: ShieldAlert,
+  },
+  {
+    key: "security_checks",
+    label: "Security checks",
+    desc: "Headers, email policies and certificates",
+    icon: ShieldCheck,
+  },
+] as const;
+const PROCESSING = [
+  {
+    key: "normalization",
+    label: "Organize results",
+    desc: "Group and normalize observations",
+    icon: Layers,
+  },
+  {
+    key: "scoring",
+    label: "Security score",
+    desc: "Score based on known organization findings",
+    icon: ShieldCheck,
+  },
+  {
+    key: "ai_analysis",
+    label: "AI summary",
+    desc: "Plain-language explanations",
+    icon: Sparkles,
+  },
+] as const;
+type Stage = (typeof CHECKS)[number] | (typeof PROCESSING)[number];
+const progress = (scan: Scan, key: string): StageInfo | undefined =>
+  (scan.stage_progress as unknown as Record<string, StageInfo>)?.[key];
+const finished = (scan: Scan) =>
+  ["completed", "failed", "cancelled"].includes(scan.status);
+const incomplete = (scan: Scan) =>
+  CHECKS.filter((check) =>
+    ["failed", "skipped"].includes(progress(scan, check.key)?.status || ""),
+  );
+function coverageLabel(scan: Scan) {
+  if (incomplete(scan).length) return "Limited coverage";
+  if (
+    scan.status === "completed" &&
+    CHECKS.some((check) => progress(scan, check.key)?.status !== "completed")
+  )
+    return "Coverage unavailable";
+  return null;
+}
+function duration(ms?: number) {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return "<1 sec";
+  if (ms < 60000) return `${Math.round(ms / 1000)} sec`;
+  return `${Math.floor(ms / 60000)} min${ms % 60000 >= 1000 ? ` ${Math.floor((ms % 60000) / 1000)} sec` : ""}`;
+}
+function date(value: string) {
+  return new Date(value).toLocaleString([], {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+function scanDuration(scan: Scan) {
+  if (!scan.started_at || !scan.completed_at) return null;
+  const elapsed =
+    new Date(scan.completed_at).getTime() - new Date(scan.started_at).getTime();
+  return elapsed >= 0 ? duration(elapsed) : null;
+}
+function StatusBadge({
+  label,
+  tone = "neutral",
+}: {
+  label: string;
+  tone?: string;
+}) {
+  const Icon =
+    tone === "success"
+      ? CheckCircle2
+      : ["warning", "danger"].includes(tone)
+        ? AlertCircle
+        : Clock;
+  return (
+    <span className={`scan-badge scan-badge--${tone}`}>
+      <Icon size={13} aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+function ScanStatus({ scan }: { scan: Scan }) {
+  const quality = coverageLabel(scan);
+  if (scan.status === "completed" && quality)
+    return (
+      <StatusBadge
+        label={quality}
+        tone={quality === "Limited coverage" ? "warning" : "neutral"}
+      />
+    );
+  const label = {
+    completed: "Completed",
+    running: "Running",
+    queued: "Queued",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  }[scan.status];
+  return (
+    <StatusBadge
+      label={label}
+      tone={
+        scan.status === "completed"
+          ? "success"
+          : scan.status === "failed"
+            ? "danger"
+            : scan.status === "running"
+              ? "warning"
+              : "neutral"
+      }
+    />
+  );
+}
+function CheckRow({
+  scan,
+  stage,
+  observations,
+}: {
+  scan: Scan;
+  stage: Stage;
+  observations: Observation[];
+}) {
+  const info = progress(scan, stage.key);
+  const state = info?.status;
+  const label =
+    state === "completed"
+      ? "Done"
+      : state === "failed"
+        ? "Failed"
+        : state === "skipped"
+          ? "Skipped"
+          : state === "running"
+            ? "Running"
+            : !info && finished(scan)
+              ? "Not recorded"
+              : "Pending";
+  const raw = observations.find(
+    (result) => result.stage === stage.key,
+  )?.raw_data;
+  const coverage =
+    Array.isArray(raw?.successful_hosts) && Array.isArray(raw?.attempted_hosts)
+      ? `${raw.successful_hosts.length} of ${raw.attempted_hosts.length} targets checked`
+      : null;
+  const Icon = stage.icon;
+  return (
+    <details className="scan-check" data-stage={stage.key}>
+      <summary>
+        <Icon size={17} className="scan-check-icon" aria-hidden="true" />
+        <span className="scan-check-label">
+          {stage.label}
+          {coverage && <small>{coverage}</small>}
+        </span>
+        <StatusBadge
+          label={label}
+          tone={
+            state === "completed"
+              ? "success"
+              : state === "failed" || state === "skipped"
+                ? "warning"
+                : "neutral"
+          }
+        />
+        <span className="scan-check-time">{duration(info?.duration_ms)}</span>
+        <ChevronRight size={15} className="scan-chevron" aria-hidden="true" />
+      </summary>
+      <div className="scan-check-detail">
+        <p>{stage.desc}</p>
+        {info?.items != null && (
+          <p>
+            {info.items} observations recorded · {duration(info.duration_ms)}
+          </p>
+        )}
+        {info?.error && <p className="scan-check-error">{info.error}</p>}
+        {raw?.failed_hosts && Object.keys(raw.failed_hosts).length > 0 && (
+          <ul>
+            {Object.entries(raw.failed_hosts).map(([host, reason]) => (
+              <li key={host}>
+                <strong>{host}</strong>: {String(reason)}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!info && <p>No check result recorded for this scan.</p>}
+      </div>
+    </details>
+  );
+}
+function CheckList({
+  scan,
+  observations,
+}: {
+  scan: Scan;
+  observations: Observation[];
+}) {
+  const processing = PROCESSING.map((stage) => progress(scan, stage.key));
+  const processLabel = processing.some((info) => info?.status === "failed")
+    ? "Needs attention"
+    : processing.every((info) => info?.status === "completed")
+      ? "Completed"
+      : processing.some((info) => info?.status === "running")
+        ? "Running"
+        : finished(scan)
+          ? "Not completed"
+          : "Pending";
+  return (
+    <>
+      <div className="scan-check-list">
+        {CHECKS.map((stage) => (
+          <CheckRow
+            key={`${scan.id}-${stage.key}`}
+            scan={scan}
+            stage={stage}
+            observations={observations}
+          />
+        ))}
+      </div>
+      <details className="scan-processing" key={`${scan.id}-processing`}>
+        <summary>
+          <Layers size={17} aria-hidden="true" />
+          <span>
+            Result processing
+            <small>Organizing results, scoring and AI summary</small>
+          </span>
+          <StatusBadge
+            label={processLabel}
+            tone={
+              processLabel === "Completed"
+                ? "success"
+                : processLabel === "Needs attention"
+                  ? "warning"
+                  : "neutral"
+            }
+          />
+          <ChevronRight size={15} className="scan-chevron" aria-hidden="true" />
+        </summary>
+        {PROCESSING.map((stage) => (
+          <CheckRow
+            key={stage.key}
+            scan={scan}
+            stage={stage}
+            observations={observations}
+          />
+        ))}
+      </details>
+      <details className="scan-evidence" key={`${scan.id}-evidence`}>
+        <summary>
+          <Code size={17} aria-hidden="true" />
+          <span>
+            Technical evidence
+            <small>Recorded observations and scan identity</small>
+          </span>
+          <ChevronRight size={15} className="scan-chevron" aria-hidden="true" />
+        </summary>
+        <div className="scan-check-detail">
+          <p className="mono">Scan ID: {scan.id}</p>
+          <p>{observations.length} stage records available.</p>
+        </div>
+        {observations.length ? (
+          <pre tabIndex={0} aria-label="Raw scan observations">
+            {JSON.stringify(observations, null, 2)}
+          </pre>
+        ) : (
+          <p className="scan-check-detail">No raw observations available.</p>
+        )}
+      </details>
+    </>
+  );
+}
+function ScanSummary({
+  scan,
+  observations,
+  onCoverage,
+  onDetails,
+  onFindings,
+  selected = false,
+}: {
+  scan: Scan;
+  observations: Observation[];
+  onCoverage: () => void;
+  onDetails?: () => void;
+  onFindings: () => void;
+  selected?: boolean;
+}) {
+  const missing = incomplete(scan);
+  const quality = coverageLabel(scan);
+  const discovery = observations.find(
+    (result) => result.stage === "discovery",
+  )?.raw_data;
+  const hosts = Array.isArray(discovery)
+    ? discovery.length
+    : progress(scan, "discovery")?.items;
+  const elapsed = scanDuration(scan);
+  const score =
+    scan.score != null && Number.isFinite(scan.score) ? scan.score : null;
+  const orgScore = progress(scan, "scoring")?.scope === "organization";
+  return (
+    <>
+      <div className="scan-summary-heading">
+        <div>
+          <p className="scan-section-label">
+            {selected ? "Selected scan" : "Latest scan"}
+          </p>
+          <h2>{scan.domain || "Domain unavailable"}</h2>
+          <p className="scan-meta">
+            {date(scan.started_at || scan.created_at)}
+            {elapsed && ` · Finished in ${elapsed}`}
+          </p>
+        </div>
+        <div className="scan-summary-status">
+          {scan.status === "completed" && quality && (
+            <span className="scan-lifecycle">Scan completed</span>
+          )}
+          <ScanStatus scan={scan} />
+        </div>
+      </div>
+      <div className="scan-metrics">
+        <div>
+          <span>Findings recorded</span>
+          <strong>{scan.findings_discovered ?? "—"}</strong>
+        </div>
+        <div>
+          <span>Hosts discovered</span>
+          <strong>{hosts ?? "—"}</strong>
+        </div>
+        <div className="scan-score">
+          <span>
+            {orgScore
+              ? "Organization score at completion"
+              : "Legacy scan score"}
+          </span>
+          <strong>
+            {score != null ? (
+              <>
+                {score}
+                <small> / 100</small>
+              </>
+            ) : (
+              "Not assessed"
+            )}
+          </strong>
+          <small>
+            {score != null
+              ? "Based on known findings"
+              : "A score is available after assessment."}
+          </small>
+        </div>
+      </div>
+      {quality && (
+        <div className="scan-coverage-notice" role="status">
+          <AlertCircle size={21} aria-hidden="true" />
+          <div>
+            <strong>
+              {quality === "Limited coverage"
+                ? scan.status === "completed"
+                  ? "Completed with limited coverage"
+                  : "Some checks were not completed"
+                : "Coverage is unavailable"}
+            </strong>
+            <p>
+              {missing.length
+                ? `${missing.map((stage) => stage.label).join(", ")}: ${missing.length === 1 ? "this check was" : "these checks were"} not fully completed. Completed checks remain available.`
+                : "This scan does not have a complete check record. Review the available evidence."}
+            </p>
+            <p className="scan-coverage-note">
+              An incomplete check does not prove a system is secure.
+            </p>
+          </div>
+          <button
+            className="scan-button scan-button--outline"
+            onClick={onCoverage}
+          >
+            Review coverage
+          </button>
+        </div>
+      )}
+      {scan.error_message && (
+        <p className="scan-check-error">{scan.error_message}</p>
+      )}
+      <div className="scan-summary-actions">
+        <button
+          className="scan-button scan-button--primary"
+          onClick={onFindings}
+        >
+          View findings
+          <ArrowRight size={15} aria-hidden="true" />
+        </button>
+        {onDetails && (
+          <button className="scan-button" onClick={onDetails}>
+            View scan details
+          </button>
+        )}
+        <span className="scan-scope-note">
+          Findings opens the workspace issue list.
+        </span>
+      </div>
+    </>
+  );
+}
 
 export default function Scans() {
-  const [scans, setScans] = useState<Scan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
-  const [selectedScanDetail, setSelectedScanDetail] = useState<{ scan: Scan; raw_results: any[] } | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  // Launch modal state
-  const [launchModalOpen, setLaunchModalOpen] = useState(false);
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [selectedDomainId, setSelectedDomainId] = useState<string>('');
-  const [launching, setLaunching] = useState(false);
-
-  // Scan detail modal state
-  const [scanDetailModalOpen, setScanDetailModalOpen] = useState(false);
-  const [scanDetailForModal, setScanDetailForModal] = useState<{ scan: Scan; raw_results: any[] } | null>(null);
-  const [detailModalLoading, setDetailModalLoading] = useState(false);
-
+  const { organization } = useAuth();
+  const orgId = organization?.id;
   const toast = useToast();
   const navigate = useNavigate();
-  const { organization } = useAuth();
-  const canManageScans = ['owner', 'admin'].includes(organization?.membership_role || 'member');
-
-  const loadScans = async () => {
-    try {
-      const list = await getScans();
-      setScans(list);
-      if (list.length > 0 && !selectedScanId) {
-        setSelectedScanId(list[0].id);
-      }
-    } catch (e) {
-      // Keep last known list on transient errors — do not blank the UI during polling.
-      if (scans.length === 0) toast('Failed to load scans');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadScanDetail = async (id: string) => {
-    setDetailLoading(true);
-    try {
-      const detail = await getScanDetail(id);
-      setSelectedScanDetail(detail);
-    } catch (err) {
-      // Keep last known detail on transient errors — do not blank the tracker during polling.
-      if (!selectedScanDetail) toast('Failed to load scan progress');
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
+  const canManageScans = ["owner", "admin"].includes(
+    organization?.membership_role || "member",
+  );
+  const [scans, setScans] = useState<Scan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(false);
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [domainsLoading, setDomainsLoading] = useState(true);
+  const [domainId, setDomainId] = useState("");
+  const [launchOpen, setLaunchOpen] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [checksOpen, setChecksOpen] = useState(
+    () => window.matchMedia("(min-width: 901px)").matches,
+  );
+  const workspace = useRef(orgId);
+  workspace.current = orgId;
+  const listRequest = useRef(0);
+  const detailRequest = useRef(0);
+  const coverageRef = useRef<HTMLDetailsElement>(null);
+  const listRef = useRef<Scan[]>([]);
   useEffect(() => {
-    loadScans();
-    getDomains().then(d => {
-      const verified = d.filter(domain => domain.verification_status === 'verified');
-      setDomains(verified);
-      if (verified.length > 0) setSelectedDomainId(verified[0].id);
+    if (!drawerOpen && !launchOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const selector = launchOpen ? ".modal-backdrop" : ".drawer.open";
+    const focusable = () => {
+      const root = document.querySelector<HTMLElement>(selector);
+      return root
+        ? [
+            ...root.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), select:not([disabled]), a[href], summary, [tabindex="0"]',
+            ),
+          ].filter((element) => element.getClientRects().length > 0)
+        : [];
+    };
+    const focusDialog = () => {
+      document
+        .querySelector(selector)
+        ?.setAttribute(
+          "aria-label",
+          launchOpen ? "Start security scan" : "Scan details",
+        );
+      const first = focusable()[0];
+      first?.focus();
+      return !!first;
+    };
+    const observer = new MutationObserver(() => {
+      if (focusDialog()) observer.disconnect();
     });
-  }, []);
-
-  useEffect(() => {
-    if (selectedScanId) {
-      loadScanDetail(selectedScanId);
-    }
-  }, [selectedScanId]);
-
-  // Polling if selected scan is running
-  useEffect(() => {
-    const isRunning = selectedScanDetail?.scan.status === 'running' || selectedScanDetail?.scan.status === 'queued';
-    if (!isRunning) return;
-
-    const interval = setInterval(() => {
-      if (selectedScanId) loadScanDetail(selectedScanId);
-      loadScans();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [selectedScanId, selectedScanDetail?.scan.status]);
-
-  const handleLaunch = async () => {
-    if (!canManageScans || !selectedDomainId || launching) return;
-    setLaunching(true);
-    try {
-      const res = await launchScan(selectedDomainId);
-      toast(`Scan started for ${res.domain}.`);
-      setLaunchModalOpen(false);
-      await loadScans();
-      if (res.scan?.id) {
-        setSelectedScanId(res.scan.id);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const frame = requestAnimationFrame(() => {
+      if (focusDialog()) observer.disconnect();
+    });
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0],
+        last = items[items.length - 1];
+      const root = document.querySelector(selector);
+      if (
+        !root?.contains(document.activeElement) ||
+        (event.shiftKey
+          ? document.activeElement === first
+          : document.activeElement === last)
+      ) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
       }
-    } catch (err: any) {
-      toast(err.message || 'Failed to start scan');
+    };
+    document.addEventListener("keydown", trap);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      document.removeEventListener("keydown", trap);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [drawerOpen, launchOpen]);
+  const loadScans = useCallback(async () => {
+    if (workspace.current !== orgId) return;
+    const request = ++listRequest.current;
+    setLoading(true);
+    try {
+      const result = await getScans();
+      if (request !== listRequest.current || workspace.current !== orgId)
+        return;
+      listRef.current = result;
+      setScans(result);
+      setListError(false);
+      setSelectedId((current) =>
+        result.some((scan) => scan.id === current)
+          ? current
+          : result[0]?.id || null,
+      );
+    } catch {
+      if (request === listRequest.current) setListError(true);
+    } finally {
+      if (request === listRequest.current) setLoading(false);
+    }
+  }, [orgId]);
+  const loadDetail = useCallback(
+    async (id: string) => {
+      if (workspace.current !== orgId) return;
+      const request = ++detailRequest.current;
+      setDetailLoading(true);
+      try {
+        const result = await getScanDetail(id);
+        if (request !== detailRequest.current || workspace.current !== orgId)
+          return;
+        setDetail(result);
+        setDetailError(false);
+      } catch {
+        if (request === detailRequest.current) setDetailError(true);
+      } finally {
+        if (request === detailRequest.current) setDetailLoading(false);
+      }
+    },
+    [orgId],
+  );
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 901px)");
+    const update = () => setChecksOpen(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    let current = true;
+    listRef.current = [];
+    setScans([]);
+    setDetail(null);
+    setSelectedId(null);
+    setListError(false);
+    setDetailError(false);
+    setDomains([]);
+    setDomainId("");
+    setDomainsLoading(true);
+    setDrawerOpen(false);
+    setLaunchOpen(false);
+    setDomainFilter("all");
+    setStatusFilter("all");
+    void loadScans();
+    void getDomains()
+      .then((result) => {
+        if (!current) return;
+        const verified = result.filter(
+          (domain) => domain.verification_status === "verified",
+        );
+        setDomains(verified);
+        setDomainId(verified[0]?.id || "");
+      })
+      .finally(() => {
+        if (current) setDomainsLoading(false);
+      });
+    return () => {
+      current = false;
+      listRequest.current++;
+      detailRequest.current++;
+    };
+  }, [orgId, loadScans]);
+  useEffect(() => {
+    if (selectedId) {
+      setDetailError(false);
+      void loadDetail(selectedId);
+    }
+    return () => {
+      detailRequest.current++;
+    };
+  }, [selectedId, loadDetail]);
+  useEffect(() => {
+    if (!scans.some((scan) => !finished(scan))) return;
+    const timer = setInterval(() => {
+      void loadScans();
+      if (selectedId) void loadDetail(selectedId);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [
+    scans.some((scan) => !finished(scan)),
+    selectedId,
+    loadScans,
+    loadDetail,
+  ]);
+  const activeScan =
+    detail?.scan.id === selectedId
+      ? detail.scan
+      : scans.find((scan) => scan.id === selectedId) || scans[0];
+  const observations =
+    detail && detail.scan.id === activeScan?.id ? detail.raw_results : [];
+  const openDetails = (id: string) => {
+    setSelectedId(id);
+    setDrawerOpen(true);
+  };
+  const reviewCoverage = () => {
+    if (!coverageRef.current) return;
+    coverageRef.current.open = true;
+    const failed = coverageRef.current.querySelector<HTMLDetailsElement>(
+      '[data-stage="' +
+        ((activeScan && incomplete(activeScan)[0]?.key) || "nuclei") +
+        '"]',
+    );
+    if (failed) failed.open = true;
+    coverageRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    coverageRef.current
+      .querySelector<HTMLElement>("summary")
+      ?.focus({ preventScroll: true });
+  };
+  const handleLaunch = async () => {
+    if (!canManageScans || !domainId || launching) return;
+    setLaunching(true);
+    setLaunchError("");
+    try {
+      const result = await launchScan(domainId);
+      if (workspace.current !== orgId) return;
+      toast(`Scan started for ${result.domain}.`);
+      setLaunchOpen(false);
+      await loadScans();
+      if (
+        result.scan?.id &&
+        listRef.current.some((scan) => scan.id === result.scan.id)
+      )
+        setSelectedId(result.scan.id);
+    } catch (error: any) {
+      setLaunchError(
+        error.message || "Failed to start scan. Please try again.",
+      );
     } finally {
       setLaunching(false);
     }
   };
-
-  const handleOpenScanDetail = async (scanId: string) => {
-    setScanDetailModalOpen(true);
-    setDetailModalLoading(true);
-    try {
-      const detail = await getScanDetail(scanId);
-      setScanDetailForModal(detail);
-    } catch (err) {
-      toast('Failed to load scan details');
-    } finally {
-      setDetailModalLoading(false);
-    }
-  };
-
-  const STAGES = [
-    { key: 'discovery', label: '1. Find assets', desc: 'Public records & subdomains' },
-    { key: 'dns', label: '2. DNS check', desc: 'A, MX, TXT, SPF, DMARC records' },
-    { key: 'http', label: '3. Website check', desc: 'Response, headers & pages' },
-    { key: 'ports', label: '4. Open ports', desc: 'Top 100 TCP ports' },
-    { key: 'tls', label: '5. SSL/TLS check', desc: 'Certificates & encryption' },
-    { key: 'nuclei', label: '6. Vulnerability scan', desc: 'Checks against thousands of known issues' },
-    { key: 'security_checks', label: '7. Security checks', desc: 'Headers, DMARC, certificates' },
-    { key: 'normalization', label: '8. Tidy results', desc: 'Group and clean up the results' },
-    { key: 'scoring', label: '9. Security score', desc: 'Simple 0–100 score' },
-    { key: 'ai_analysis', label: '10. AI summary', desc: 'Plain-English explanation' },
-  ];
-
-  if (loading && scans.length === 0) {
-    return <ScansSkeleton />;
-  }
-
-  const activeScan = selectedScanDetail?.scan || scans[0];
-  const incompleteChecks = STAGES.filter(stage =>
-    !['ai_analysis', 'normalization', 'scoring'].includes(stage.key) &&
-    ['failed', 'skipped'].includes((activeScan?.stage_progress as any)?.[stage.key]?.status)
+  const launchButton = canManageScans && (
+    <button
+      className="scan-button scan-button--primary scan-start"
+      disabled={domainsLoading}
+      aria-label={domains.length ? "Start scan" : "Verify domain"}
+      onClick={() => {
+        setLaunchError("");
+        domains.length ? setLaunchOpen(true) : navigate("/domains");
+      }}
+    >
+      <Plus size={18} aria-hidden="true" />
+      {domainsLoading
+        ? "Loading domains…"
+        : domains.length
+          ? "Start scan"
+          : "Verify domain"}
+    </button>
   );
-
+  const filteredScans = scans.filter(
+    (scan) =>
+      (domainFilter === "all" || scan.domain === domainFilter) &&
+      (statusFilter === "all" ||
+        (statusFilter === "limited"
+          ? coverageLabel(scan) === "Limited coverage"
+          : scan.status === statusFilter)),
+  );
+  const completeChecks = activeScan
+    ? CHECKS.filter(
+        (stage) => progress(activeScan, stage.key)?.status === "completed",
+      ).length
+    : 0;
+  const ai = observations.find(
+    (result) => result.stage === "ai_analysis",
+  )?.raw_data;
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
+    <div className="scans-page content-fade-in">
+      <header className="scans-heading">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">AUTOMATED SECURITY SCANS</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Scans
-          </h1>
-          <p className="text-xs mono text-soft mt-1">
-            Each scan runs these steps: find assets → check DNS → check your site → open ports → SSL/TLS → security checks → vulnerability scan → tidy results → security score → AI summary.
-          </p>
+          <h1>Scans</h1>
+          <p>Monitor your domains and review security checks.</p>
         </div>
-
-        <div className="flex items-center gap-2.5">
+        <div className="scans-heading-actions">
           <button
+            className="scan-button scan-refresh"
+            aria-label="Refresh scans"
             onClick={() => {
-              loadScans();
-              if (selectedScanId) loadScanDetail(selectedScanId);
+              void loadScans();
+              if (selectedId) void loadDetail(selectedId);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile"
           >
-            <RefreshCw size={12} className={loading || detailLoading ? 'animate-spin' : ''} />
+            <RefreshCw
+              size={17}
+              className={loading || detailLoading ? "animate-spin" : ""}
+              aria-hidden="true"
+            />
             <span>Refresh</span>
           </button>
-
-          {canManageScans && <button
-            onClick={() => domains.length ? setLaunchModalOpen(true) : navigate('/domains')}
-            className="flex items-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all btn-tactile"
+          {launchButton}
+        </div>
+      </header>
+      {listError && (
+        <div role="alert" className="scan-load-notice">
+          <AlertCircle size={18} />
+          <span>
+            {scans.length
+              ? "Refresh failed. Showing the last available scans."
+              : "Scans could not be loaded. Please try again."}
+          </span>
+          <button className="scan-button" onClick={() => void loadScans()}>
+            Retry
+          </button>
+        </div>
+      )}
+      {loading && !scans.length ? (
+        <div
+          className="scan-panel scan-loading"
+          role="status"
+          aria-label="Loading scans"
+        >
+          <Skeleton height={24} width="35%" />
+          <Skeleton height={70} />
+          <Skeleton height={100} />
+        </div>
+      ) : !activeScan ? (
+        !listError && (
+          <section className="scan-panel scan-empty">
+            <Radar size={36} aria-hidden="true" />
+            <h2>Your first scan starts here</h2>
+            <p>
+              {canManageScans
+                ? domains.length
+                  ? "Scan a verified domain to discover assets and review security findings."
+                  : "Verify a domain before running your first security scan."
+                : "An owner or administrator can start a scan for a verified domain."}
+            </p>
+            {launchButton}
+          </section>
+        )
+      ) : (
+        <>
+          <section
+            className="scan-panel scan-summary"
+            aria-label="Scan summary"
           >
-            <Play size={13} fill="currentColor" />
-            <span>{domains.length ? 'START SCAN' : 'VERIFY DOMAIN'}</span>
-          </button>}
-        </div>
-      </div>
-
-      {/* Live Workflow Stepper Tracker for Selected Scan */}
-      {detailLoading && !selectedScanDetail ? (
-        <ScanStepperSkeleton />
-      ) : activeScan ? (
-        <div className="p-6 rounded-lg border border-line bg-raised shadow-sm space-y-6 content-fade-in">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-line">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <span className="mono text-xs text-soft uppercase tracking-wider">CURRENT SCAN:</span>
-                <span className="mono text-sm font-bold text-ink">{activeScan.domain}</span>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] mono uppercase font-bold ${
-                    activeScan.status === 'completed'
-                      ? 'bg-ok/15 text-ok border border-ok/30'
-                      : activeScan.status === 'running'
-                      ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30 animate-pulse'
-                      : 'bg-inset text-soft border border-line'
-                  }`}
+            <ScanSummary
+              scan={activeScan}
+              observations={observations}
+              selected={activeScan.id !== scans[0]?.id}
+              onCoverage={reviewCoverage}
+              onDetails={() => openDetails(activeScan.id)}
+              onFindings={() => navigate("/findings")}
+            />
+            {activeScan.id !== scans[0]?.id && (
+              <button
+                className="scan-link"
+                onClick={() => setSelectedId(scans[0].id)}
+              >
+                Back to latest scan
+                <ArrowRight size={14} />
+              </button>
+            )}
+            {detailError && (
+              <div className="scan-load-notice" role="alert">
+                <span>
+                  Scan details could not be refreshed. Available results are
+                  shown.
+                </span>
+                <button
+                  className="scan-button"
+                  onClick={() => void loadDetail(activeScan.id)}
                 >
-                  {activeScan.status}
-                </span>
-              </div>
-              <p className="text-[11px] mono text-soft mt-1 break-all">
-                Scan ID: {activeScan.id} · Started: {new Date(activeScan.created_at).toLocaleString()}
-              </p>
-            </div>
-
-            {activeScan.score !== null && activeScan.score !== undefined && (
-              <div className="text-right">
-                <span className="text-xs mono text-soft">
-                  {activeScan.stage_progress?.scoring?.scope === 'organization' ? 'ORGANIZATION SCORE' : 'LEGACY SCAN SCORE'}
-                </span>
-                <div className="text-2xl font-bold mono text-accent">{activeScan.score}/100</div>
+                  Retry details
+                </button>
               </div>
             )}
-          </div>
-
-          {incompleteChecks.length > 0 && (
-            <div role="status" className="p-3 rounded border border-accent/30 bg-accent/5 text-xs text-soft">
-              <p className="font-semibold text-ink">{activeScan.status === 'completed' ? 'Completed with limited coverage' : 'Some checks were not completed'}</p>
-              <p className="mt-1">{incompleteChecks.map(stage => `${stage.label}: ${(activeScan.stage_progress as any)[stage.key].status}`).join(' · ')}</p>
-              <p className="mt-1">A failed or skipped check does not prove that a system is secure. The score reflects known findings; review the stage details below.</p>
-            </div>
-          )}
-
-          {/* Stepper Pipeline Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-            {STAGES.map((stage, idx) => {
-              const stageData = (activeScan.stage_progress as any)?.[stage.key];
-              const isCompleted = stageData?.status === 'completed';
-              const isRunning = stageData?.status === 'running';
-              const isQueued = stageData?.status === 'queued' || stageData?.status === 'pending';
-              const isFailed = stageData?.status === 'failed';
-              const isSkipped = stageData?.status === 'skipped';
-              const observation = selectedScanDetail?.raw_results?.find(result => result.stage === stage.key)?.raw_data;
-              const coverage = observation && typeof observation === 'object' && Array.isArray(observation.successful_hosts)
-                ? `${observation.successful_hosts.length} of ${observation.attempted_hosts?.length ?? 0} targets checked`
-                : null;
-
-              return (
-                <div
-                  key={stage.key}
-                  className={`p-3.5 rounded-lg border transition-all flex flex-col justify-between min-h-[120px] ${
-                    isRunning
-                      ? 'border-accent bg-accent-soft/20 shadow-md ring-1 ring-accent'
-                      : isCompleted
-                      ? 'border-ok/30 bg-ok/5'
-                      : isFailed
-                      ? 'border-accent/40 bg-accent/5'
-                      : 'border-line/70 bg-inset/40 opacity-70'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] mono text-soft font-bold">STEP 0{idx + 1}</span>
-                      {isFailed ? (
-                        <AlertCircle size={14} className="text-accent" />
-                      ) : isCompleted ? (
-                        <CheckCircle2 size={14} className="text-ok" />
-                      ) : isRunning ? (
-                        <span className="w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
-                      ) : (
-                        <Clock size={13} className="text-soft" />
-                      )}
-                    </div>
-
-                    <h4 className="mono text-xs font-semibold text-ink leading-tight">{stage.label}</h4>
-                    <p className="text-[10.5px] text-soft mt-1 leading-snug">{stage.desc}</p>
-                    {coverage && <p className="text-[10.5px] text-soft mt-1">{coverage}</p>}
-                    {(isFailed || isSkipped) && stageData?.error && <p className="text-[10.5px] text-accent mt-1 break-words">{stageData.error}</p>}
-                  </div>
-
-                  <div className="pt-2 border-t border-line/50 mt-2 flex items-center justify-between text-[10px] mono">
-                    <span className="text-soft">
-                      {stageData?.duration_ms ? `${stageData.duration_ms}ms` : '—'}
-                    </span>
-                    <span className="font-semibold text-ink">
-                      {isFailed ? 'Failed' : isSkipped ? 'Skipped' : isRunning ? 'Running' : stageData?.items !== undefined ? `${stageData.items} items` : isCompleted ? 'Done' : 'Pending'}
-                    </span>
-                  </div>
+          </section>
+          <div className="scans-workspace">
+            <details
+              className="scan-panel scan-checks-panel"
+              ref={coverageRef}
+              open={checksOpen}
+              onToggle={(event) => setChecksOpen(event.currentTarget.open)}
+            >
+              <summary className="scan-panel-heading">
+                <span>
+                  <h2>Scan checks</h2>
+                  <small>
+                    {completeChecks} of {CHECKS.length} checks completed
+                  </small>
+                </span>
+                <ChevronRight size={18} className="scan-chevron" />
+              </summary>
+              <div className="scan-checks-body">
+                <CheckList scan={activeScan} observations={observations} />
+              </div>
+            </details>
+            <section
+              className="scan-panel scan-history"
+              aria-label="Scan history"
+            >
+              <div className="scan-history-heading">
+                <div>
+                  <h2>Scan history</h2>
+                  <small>
+                    {filteredScans.length} of {scans.length} scans
+                  </small>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Raw Results Inspector Accordion */}
-          {selectedScanDetail?.raw_results && selectedScanDetail.raw_results.length > 0 && (
-            <div className="pt-2">
-              <details className="group border border-line rounded-lg bg-inset/30 overflow-hidden">
-                <summary className="px-4 py-2.5 text-xs mono text-soft font-semibold cursor-pointer hover:text-ink flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Code size={13} className="text-accent" />
-                    Inspect raw scan data ({selectedScanDetail.raw_results.length} steps recorded)
-                  </span>
-                  <span className="text-[10px] mono text-accent group-open:rotate-90 transition-transform">▸</span>
-                </summary>
-                <div className="p-4 bg-black text-emerald-400 font-mono text-[11px] overflow-x-auto border-t border-line max-h-72">
-                  <pre>{JSON.stringify(selectedScanDetail.raw_results, null, 2)}</pre>
-                </div>
-              </details>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {/* Historical Scans Ledger Table */}
-      <div className="rounded-lg border border-line bg-raised overflow-hidden">
-        <div className="p-4 border-b border-line bg-inset/30 flex items-center justify-between">
-          <h3 className="mono text-xs font-bold text-ink uppercase tracking-wider">
-            ALL SCANS
-          </h3>
-          <span className="text-[11px] mono text-soft">{scans.length} scans in total</span>
-        </div>
-
-        <div className="overflow-x-auto w-full max-w-full">
-          <table className="w-full text-left text-xs mono min-w-[620px]">
-            <thead>
-              <tr className="border-b border-line bg-inset/40 text-soft text-[11px]">
-                <th className="py-3 px-4 font-medium">DOMAIN</th>
-                <th className="py-3 px-4 font-medium">STATUS</th>
-                <th className="py-3 px-4 font-medium">PROGRESS</th>
-                <th className="py-3 px-4 font-medium">SCORE</th>
-                <th className="py-3 px-4 font-medium">ISSUES</th>
-                <th className="py-3 px-4 font-medium">STARTED</th>
-                <th className="py-3 px-4 font-medium text-right">ACTION</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/60">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRowSkeleton
-                    key={i}
-                    cols={[140, 80, 160, 70, 70, 100, 50]}
-                  />
-                ))
-              ) : scans.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-soft mono">
-                    Nothing here yet — click "Start scan" to run your first scan.
-                  </td>
-                </tr>
-              ) : (
-                scans.map((scan, idx) => (
-                  <tr
-                    key={scan.id}
-                    onClick={() => handleOpenScanDetail(scan.id)}
-                    style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
-                    className={`stagger-row hover:bg-inset/50 transition-colors cursor-pointer ${
-                      selectedScanId === scan.id ? 'bg-inset/60 font-semibold' : ''
-                    }`}
+                <div className="scan-filters">
+                  <select
+                    aria-label="Filter scans by domain"
+                    value={domainFilter}
+                    onChange={(event) => setDomainFilter(event.target.value)}
                   >
-                    <td className="py-3 px-4 font-bold text-ink">
-                      {scan.domain}
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                          scan.status === 'completed'
-                            ? 'bg-ok/10 text-ok border border-ok/30'
-                            : scan.status === 'running'
-                            ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30 animate-pulse'
-                            : 'bg-inset text-soft border border-line'
-                        }`}
-                      >
-                        {scan.status}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1">
-                        {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map(st => {
-                          const sData = (scan.stage_progress as any)?.[st];
-                          const isDone = sData?.status === 'completed';
-                          const isRunning = sData?.status === 'running';
-                          const isFailed = sData?.status === 'failed';
-                          return (
-                            <div
-                              key={st}
-                              title={`${st}: ${sData?.status || 'queued'}`}
-                              className={`w-3 h-1.5 rounded-full ${
-                                isFailed ? 'bg-accent' : isDone ? 'bg-ok' : isRunning ? 'bg-accent animate-pulse' : 'bg-inset border border-line'
-                              }`}
-                            />
-                          );
-                        })}
-                        <span className="text-[10px] text-soft ml-2 capitalize">
-                          {scan.current_stage || 'Done'}
-                        </span>
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4 font-bold text-ink">
-                      {scan.score != null ? `${scan.score}/100` : '—'}
-                      {scan.score != null && (
-                        <div className="text-[10px] font-normal text-soft">
-                          {scan.stage_progress?.scoring?.scope === 'organization' ? 'Organization at scan completion' : 'Legacy scan score'}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="py-3 px-4 text-soft">
-                      {scan.findings_discovered !== undefined ? `${scan.findings_discovered} issues` : '—'}
-                    </td>
-
-                    <td className="py-3 px-4 text-soft text-[11px]">
-                      {new Date(scan.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                    </td>
-
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          setSelectedScanId(scan.id);
-                        }}
-                        className="btn-tactile px-2.5 py-1 rounded text-[11px] border border-line bg-raised hover:border-line-strong text-ink"
-                      >
-                        Select
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Scan Detail Drawer */}
-      <Drawer
-        open={scanDetailModalOpen}
-        onClose={() => {
-          setScanDetailModalOpen(false);
-          setScanDetailForModal(null);
-        }}
-        size="2xl"
-        eyebrow="SCAN DETAILS"
-        title="Scan details"
-        icon={<Radar size={16} className="text-accent" />}
-      >
-        {detailModalLoading || !scanDetailForModal ? (
-          <ScanDrawerSkeleton />
-        ) : scanDetailForModal ? (
-          <div className="space-y-5 content-fade-in">
-            {/* Scan Header */}
-            <div className="p-4 bg-inset rounded border border-line flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="mono text-xs text-soft uppercase">DOMAIN:</span>
-                  <span className="mono text-sm font-bold text-ink">{scanDetailForModal.scan.domain}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] mono uppercase font-bold ${
-                      scanDetailForModal.scan.status === 'completed'
-                        ? 'bg-ok/15 text-ok border border-ok/30'
-                        : scanDetailForModal.scan.status === 'running'
-                        ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30 animate-pulse'
-                        : 'bg-inset text-soft border border-line'
-                    }`}
+                    <option value="all">All domains</option>
+                    {[
+                      ...new Set(
+                        scans.map((scan) => scan.domain).filter(Boolean),
+                      ),
+                    ].map((domain) => (
+                      <option key={domain} value={domain}>
+                        {domain}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter scans by status"
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value)}
                   >
-                    {scanDetailForModal.scan.status}
-                  </span>
+                    <option value="all">All statuses</option>
+                    <option value="limited">Limited coverage</option>
+                    {[
+                      "completed",
+                      "running",
+                      "queued",
+                      "failed",
+                      "cancelled",
+                    ].map((status) => (
+                      <option key={status} value={status}>
+                        {status[0].toUpperCase() + status.slice(1)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <p className="text-[11px] mono text-soft mt-1">
-                  Scan ID: {scanDetailForModal.scan.id} · {new Date(scanDetailForModal.scan.created_at).toLocaleString()}
+              </div>
+              {!filteredScans.length ? (
+                <p className="scan-history-empty">
+                  No scans match these filters.
                 </p>
-              </div>
-              {scanDetailForModal.scan.score !== null && scanDetailForModal.scan.score !== undefined && (
-                <div className="text-right">
-                  <span className="text-xs mono text-soft">
-                    {scanDetailForModal.scan.stage_progress?.scoring?.scope === 'organization' ? 'ORGANIZATION SCORE' : 'LEGACY SCAN SCORE'}
-                  </span>
-                  <div className="text-2xl font-bold mono text-accent">{scanDetailForModal.scan.score}/100</div>
+              ) : (
+                <>
+                  <div className="scan-history-desktop">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Domain / date</th>
+                          <th>Status</th>
+                          <th>Score</th>
+                          <th>
+                            <span className="sr-only">Action</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredScans.map((scan) => (
+                          <tr
+                            key={scan.id}
+                            className={
+                              scan.id === activeScan.id
+                                ? "scan-history-selected"
+                                : ""
+                            }
+                          >
+                            <td>
+                              <strong>{scan.domain || "Unknown domain"}</strong>
+                              <small>{date(scan.created_at)}</small>
+                            </td>
+                            <td>
+                              <ScanStatus scan={scan} />
+                            </td>
+                            <td className="scan-history-score">
+                              {scan.score != null ? scan.score : "—"}
+                              {scan.score != null && (
+                                <small>
+                                  {progress(scan, "scoring")?.scope ===
+                                  "organization"
+                                    ? "Organization at scan completion"
+                                    : "Legacy scan score"}
+                                </small>
+                              )}
+                            </td>
+                            <td>
+                              <button
+                                className="scan-button scan-button--outline"
+                                aria-label={`View scan ${scan.id}`}
+                                onClick={() => openDetails(scan.id)}
+                              >
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="scan-history-mobile">
+                    {filteredScans.map((scan) => (
+                      <article
+                        className={`scan-history-card ${scan.id === activeScan.id ? "scan-history-selected" : ""}`}
+                        key={scan.id}
+                      >
+                        <div>
+                          <strong>{scan.domain || "Unknown domain"}</strong>
+                          <ScanStatus scan={scan} />
+                        </div>
+                        <p className="scan-meta">{date(scan.created_at)}</p>
+                        <div className="scan-history-card-footer">
+                          <span>
+                            <small>
+                              {progress(scan, "scoring")?.scope ===
+                              "organization"
+                                ? "Organization at scan completion"
+                                : "Legacy scan score"}
+                            </small>
+                            <strong>
+                              {scan.score != null
+                                ? `${scan.score} / 100`
+                                : "Not assessed"}
+                            </strong>
+                          </span>
+                          <button
+                            className="scan-button scan-button--outline"
+                            aria-label={`View scan ${scan.id}`}
+                            onClick={() => openDetails(scan.id)}
+                          >
+                            View
+                            <ChevronRight size={15} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+      {drawerOpen && (
+        <Drawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          size="2xl"
+          eyebrow="SCAN DETAILS"
+          title={activeScan?.domain || "Scan details"}
+          icon={<Radar size={17} />}
+        >
+          {!activeScan ||
+          (detailLoading && detail?.scan.id !== activeScan.id) ? (
+            <ScanDrawerSkeleton />
+          ) : (
+            <div className="scans-page scan-detail-content">
+              <ScanSummary
+                scan={activeScan}
+                observations={observations}
+                selected
+                onCoverage={() => {
+                  setDrawerOpen(false);
+                  requestAnimationFrame(reviewCoverage);
+                }}
+                onFindings={() => navigate("/findings")}
+              />
+              {detailError && (
+                <div role="alert" className="scan-load-notice">
+                  Details could not be loaded.
+                  <button
+                    className="scan-button"
+                    onClick={() => void loadDetail(activeScan.id)}
+                  >
+                    Retry details
+                  </button>
                 </div>
               )}
-            </div>
-
-            {/* Stage Progress Grid */}
-            <div>
-              <h4 className="mono text-xs font-semibold text-soft uppercase tracking-wider mb-3">SCAN STEPS</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {STAGES.map((stage, idx) => {
-                  const stageData = (scanDetailForModal.scan.stage_progress as any)?.[stage.key];
-                  const isCompleted = stageData?.status === 'completed';
-                  const isRunning = stageData?.status === 'running';
-                  return (
-                    <div
-                      key={stage.key}
-                      className={`p-2.5 rounded border text-[11px] mono ${
-                        isCompleted
-                          ? 'border-ok/30 bg-ok/5'
-                          : isRunning
-                          ? 'border-accent bg-accent-soft/20'
-                          : 'border-line/50 bg-inset/30'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-soft font-bold">0{idx + 1}</span>
-                        {isCompleted ? (
-                          <CheckCircle2 size={12} className="text-ok" />
-                        ) : isRunning ? (
-                          <span className="w-2 h-2 rounded-full bg-accent animate-ping" />
-                        ) : (
-                          <Clock size={11} className="text-soft" />
-                        )}
-                      </div>
-                      <div className="text-ink font-medium">{stage.label.replace(/^\d+\.\s*/, '')}</div>
-                      <div className="text-soft text-[10px] mt-0.5">
-                        {stageData?.duration_ms ? `${stageData.duration_ms}ms` : '—'} · {stageData?.items ?? 0} items
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* AI Analysis Section */}
-            {scanDetailForModal.raw_results.some((r: any) => r.stage === 'ai_analysis' || r.stage === 'ai_explanations') && (
-              <div className="p-4 bg-accent-soft/20 rounded border border-accent/30">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles size={14} className="text-accent" />
-                  <h4 className="mono text-xs font-semibold text-accent uppercase tracking-wider">AI SUMMARY</h4>
-                </div>
-                {(() => {
-                  const aiResult = scanDetailForModal.raw_results.find((r: any) => r.stage === 'ai_analysis');
-                  if (!aiResult) return null;
-                  return (
-                    <div className="space-y-2 text-[11px]">
-                      {aiResult.raw_data?.executive_summary && (
-                        <div className="p-3 bg-inset rounded border border-line">
-                          <h5 className="mono font-semibold text-soft text-[10px] uppercase mb-1">Executive Summary</h5>
-                          <p className="text-ink leading-relaxed">{aiResult.raw_data.executive_summary.board_summary}</p>
-                          {aiResult.raw_data.executive_summary.critical_action_items?.length > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {aiResult.raw_data.executive_summary.critical_action_items.map((item: any, i: number) => (
-                                <div key={i} className="flex items-start gap-2 text-[10px]">
-                                  <span className="px-1 py-0.5 rounded bg-accent/10 text-accent font-bold">{item.priority}</span>
-                                  <span className="text-ink">{item.title}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+              <section aria-label="Detailed scan checks">
+                <h2>Scan checks</h2>
+                <CheckList scan={activeScan} observations={observations} />
+              </section>
+              {ai?.executive_summary?.board_summary && (
+                <section className="scan-ai">
+                  <h2>
+                    <Sparkles size={17} />
+                    AI summary
+                  </h2>
+                  <p>{ai.executive_summary.board_summary}</p>
+                  {ai.executive_summary.critical_action_items?.length > 0 && (
+                    <ul>
+                      {ai.executive_summary.critical_action_items.map(
+                        (item: any, index: number) => (
+                          <li key={index}>
+                            <strong>{item.priority}: </strong>
+                            {item.title}
+                          </li>
+                        ),
                       )}
-                      <div className="text-soft">
-                        Reviewed {aiResult.raw_data?.explanations_count || 0} critical and high issues
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Raw Telemetry */}
-            {scanDetailForModal.raw_results.length > 0 && (
-              <details className="group border border-line rounded-lg bg-inset/30 overflow-hidden">
-                <summary className="px-4 py-2.5 text-xs mono text-soft font-semibold cursor-pointer hover:text-ink flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Code size={13} className="text-accent" />
-                    Raw scan data ({scanDetailForModal.raw_results.length} steps)
-                  </span>
-                  <span className="text-[10px] mono text-accent group-open:rotate-90 transition-transform">▸</span>
-                </summary>
-                <div className="p-4 bg-black text-emerald-400 font-mono text-[10px] overflow-x-auto border-t border-line max-h-64">
-                  <pre>{JSON.stringify(scanDetailForModal.raw_results, null, 2)}</pre>
-                </div>
-              </details>
-            )}
-          </div>
-        ) : (
-          <div className="py-12 text-center text-soft mono text-xs">No scan data yet</div>
-        )}
-      </Drawer>
-
-      {/* Launch Scan Modal */}
+                    </ul>
+                  )}
+                </section>
+              )}
+            </div>
+          )}
+        </Drawer>
+      )}
       <Modal
-        open={launchModalOpen}
-        onClose={() => setLaunchModalOpen(false)}
+        open={launchOpen}
+        onClose={() => {
+          if (!launching) setLaunchOpen(false);
+        }}
         title="Start security scan"
-        icon={<Play size={16} className="text-accent" />}
+        icon={<Radar size={18} />}
         maxWidth="max-w-md"
       >
-        <div className="space-y-4">
-          <p className="text-xs text-soft leading-relaxed">
-            Pick a verified domain to scan. We check its public records and settings, test the
-            website, look for known vulnerabilities, then score what we find and write a summary.
+        <div className="scans-page scan-launch">
+          <p>
+            Choose a verified domain. We’ll check its public assets and security
+            settings, then summarize the results.
           </p>
-
-          <div className="space-y-1.5">
-            <label className="text-xs mono text-soft">DOMAIN TO SCAN</label>
-            <select
-              value={selectedDomainId}
-              onChange={e => setSelectedDomainId(e.target.value)}
-              className="w-full bg-inset border border-line rounded px-3 py-2 text-xs mono text-ink focus:outline-none focus:border-accent"
-            >
-              {domains.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.domain} ({d.verification_status.toUpperCase()})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="p-3 bg-inset/50 rounded border border-line text-[11px] mono text-soft flex items-center gap-2">
-            <Lock size={12} className="text-ok" />
-            <span>Only domains you've verified can be scanned.</span>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-2">
+          <label htmlFor="scan-domain">Domain to scan</label>
+          <select
+            id="scan-domain"
+            value={domainId}
+            onChange={(event) => setDomainId(event.target.value)}
+          >
+            {domains.map((domain) => (
+              <option key={domain.id} value={domain.id}>
+                {domain.domain}
+              </option>
+            ))}
+          </select>
+          <p className="scan-launch-note">
+            <Lock size={16} />
+            Only verified domains can be scanned. This uses one scan from your
+            workspace allowance.
+          </p>
+          {launchError && (
+            <p className="scan-check-error" role="alert">
+              {launchError}
+            </p>
+          )}
+          <div className="scan-launch-actions">
             <button
-              onClick={() => setLaunchModalOpen(false)}
-              className="btn-tactile px-3.5 py-1.5 rounded text-xs mono border border-line hover:bg-inset text-soft"
+              className="scan-button"
+              disabled={launching}
+              onClick={() => setLaunchOpen(false)}
             >
               Cancel
             </button>
             <button
-              disabled={launching}
+              className="scan-button scan-button--primary"
+              disabled={launching || !domainId}
               onClick={handleLaunch}
-              className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
             >
               {launching ? (
-                <>
-                  <RefreshCw size={13} className="animate-spin" /> Starting...
-                </>
+                <RefreshCw size={16} className="animate-spin" />
               ) : (
-                <>
-                  <Play size={13} fill="currentColor" /> Start scan
-                </>
+                <Plus size={17} />
               )}
+              {launching ? "Starting…" : "Start scan"}
             </button>
           </div>
         </div>

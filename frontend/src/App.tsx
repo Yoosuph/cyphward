@@ -201,6 +201,7 @@ function AppShell() {
           section={section}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
+          mobileAi={location.pathname === '/scans'}
         />
         <div className="page" key={location.pathname}>
           <Outlet />
@@ -213,10 +214,10 @@ function AppShell() {
       />
 
       {/* Floating Sovereign AI Assistant Trigger Button */}
-      <CyphBotFloatingButton
+      {location.pathname !== '/scans' && <CyphBotFloatingButton
         open={cyphBotOpen}
         onClick={() => setCyphBotOpen(o => !o)}
-      />
+      />}
 
       {/* Mobile Menu Bottom Sheet — Discloses the rest of the pages (Layers 05–10) */}
       <MobileMenuSheet
