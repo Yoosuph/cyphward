@@ -8,6 +8,7 @@ const out = fileURLToPath(
   new URL("../../docs/scans-ui-review-2026-10-12/", import.meta.url),
 );
 const prefix = "implemented";
+const capture = process.env.CYPHWARD_SCANS_SCREENSHOTS === "1";
 process.chdir(frontend);
 const server = await createServer({
   root: frontend,
@@ -120,6 +121,7 @@ try {
   let delayedRequest = null;
   let launchFailure = true;
   let launchRequests = 0;
+  let slowResponses = false;
   const raw_results = [
     {
       stage: "nuclei",
@@ -192,11 +194,18 @@ try {
         status = 403;
         body = { detail: "Not staff" };
       }
-      void request.respond({
+      const response = {
         status,
         contentType: "application/json",
         body: JSON.stringify(body),
-      });
+      };
+      if (slowResponses && /\/scans(?:\/demo-scan-new)?$/.test(url.pathname)) {
+        setTimeout(() => {
+          void request.respond(response);
+        }, 4000);
+      } else {
+        void request.respond(response);
+      }
     } else if (url.origin === origin) void request.continue();
     else void request.abort();
   });
@@ -228,10 +237,11 @@ try {
         document.body.textContent.includes("3 of 5 targets checked"),
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await page.screenshot({
-      path: `${out}${prefix}-${name}.png`,
-      fullPage: true,
-    });
+    if (capture)
+      await page.screenshot({
+        path: `${out}${prefix}-${name}.png`,
+        fullPage: true,
+      });
     const metric = await page.evaluate((name) => {
       const table = document.querySelector("table");
       const history = document.querySelector(".scan-history") || table;
@@ -270,7 +280,8 @@ try {
         ).scrollIntoView(),
       );
       await new Promise((resolve) => setTimeout(resolve, 700));
-      await page.screenshot({ path: `${out}${prefix}-mobile-history.png` });
+      if (capture)
+        await page.screenshot({ path: `${out}${prefix}-mobile-history.png` });
       await page.evaluate(() => scrollTo(0, 0));
       await page.evaluate(() =>
         [...document.querySelectorAll("button")]
@@ -280,7 +291,8 @@ try {
       await page.waitForSelector('.modal-backdrop[role="dialog"]', {
         timeout: 5000,
       });
-      await page.screenshot({ path: `${out}${prefix}-mobile-launch.png` });
+      if (capture)
+        await page.screenshot({ path: `${out}${prefix}-mobile-launch.png` });
     }
   }
   if (prefix === "implemented") {
@@ -391,7 +403,8 @@ try {
       null,
       "Empty account has no fabricated scan summary",
     );
-    await page.screenshot({ path: `${out}implemented-empty-mobile.png` });
+    if (capture)
+      await page.screenshot({ path: `${out}implemented-empty-mobile.png` });
     emptyList = false;
     domain.verification_status = "verified";
     await page.reload();
@@ -448,6 +461,7 @@ try {
         "Queued",
     );
     assert.equal(launchRequests, 2);
+    slowResponses = true;
     scans[0].status = "completed";
     scans[0].stage_progress = progress;
     await page.waitForFunction(
@@ -457,13 +471,14 @@ try {
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: responsive layout, target sizes, history filters, stale scan-detail response, outage recovery, member permissions, verified-domain launch, empty state, launch error/success and live polling",
+      "PASS: responsive layout, target sizes, history filters, stale scan-detail response, outage recovery, member permissions, verified-domain launch, empty state, keyboard containment, launch error/success and polling with slow responses",
     );
   }
-  await writeFile(
-    `${out}${prefix}-metrics.json`,
-    JSON.stringify(metrics, null, 2) + "\n",
-  );
+  if (capture)
+    await writeFile(
+      `${out}${prefix}-metrics.json`,
+      JSON.stringify(metrics, null, 2) + "\n",
+    );
   console.log(JSON.stringify(metrics, null, 2));
 } finally {
   if (browser) await browser.close();

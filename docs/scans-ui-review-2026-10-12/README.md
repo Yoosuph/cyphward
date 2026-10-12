@@ -117,9 +117,16 @@ regression were checked. The maintained `npm run test:scans-ui --workspace
 frontend` checks responsive bounds, history filters, stale detail responses,
 refresh failure recovery, roles, verified-domain launch, empty accounts,
 launch errors/success, queued-scan polling and keyboard containment.
+Polling is also checked with responses slower than its three-second interval:
+background refreshes do not overlap, and a selected queued/running scan keeps
+polling until its detail record is terminal. Set `CYPHWARD_SCANS_SCREENSHOTS=1`
+when running this script to intentionally regenerate review images and metrics;
+normal regression runs leave the committed artifacts untouched.
 The browser fixtures do not launch a real scan or test production authentication.
 
-No backend or database changes are required. Rollout uses the existing
-GitHub/Vercel deployment, with both repository `main` references verified after
-push. This change does not complete the scanner workload protections discussed
+No backend or database changes are required. GitHub CI passed, but pushing did
+not start a Vercel release. Rollout therefore uses the existing authenticated
+`vercel deploy --prod --yes` workflow, with readiness checked through Vercel
+and the deployed JavaScript assets. Both repository `main` references are
+verified after push. This change does not complete the scanner workload protections discussed
 before the design work, and payment activation remains deferred.

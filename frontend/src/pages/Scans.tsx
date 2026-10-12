@@ -650,19 +650,26 @@ export default function Scans() {
       detailRequest.current++;
     };
   }, [selectedId, loadDetail]);
+  const shouldPoll =
+    scans.some((scan) => !finished(scan)) ||
+    (detail?.scan.id === selectedId &&
+      detail != null &&
+      !finished(detail.scan));
   useEffect(() => {
-    if (!scans.some((scan) => !finished(scan))) return;
+    if (!shouldPoll) return;
+    let polling = false;
     const timer = setInterval(() => {
-      void loadScans();
-      if (selectedId) void loadDetail(selectedId);
+      if (polling) return;
+      polling = true;
+      void Promise.all([
+        loadScans(),
+        selectedId ? loadDetail(selectedId) : Promise.resolve(),
+      ]).finally(() => {
+        polling = false;
+      });
     }, 3000);
     return () => clearInterval(timer);
-  }, [
-    scans.some((scan) => !finished(scan)),
-    selectedId,
-    loadScans,
-    loadDetail,
-  ]);
+  }, [shouldPoll, selectedId, loadScans, loadDetail]);
   const activeScan =
     detail?.scan.id === selectedId
       ? detail.scan
