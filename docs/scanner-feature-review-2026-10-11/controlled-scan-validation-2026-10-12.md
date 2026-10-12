@@ -80,10 +80,27 @@ handling, optional SSLyze nodes, missing requested results, and both TLS 1.0
 field layouts. `git diff --check` passed. No database migration is required.
 Frontend source was unchanged during these corrections.
 
-Rollout uses the existing scanner deployment workflow after an idle-queue
-check. Final installed revision, service health and TLS verification are added
-after deployment; the original production scan remains a record of the
-pre-correction failures.
+An idle-queue check preceded rollout. The existing
+[scanner deployment workflow](https://github.com/Yoosuph/cyphward/actions/runs/38215422807)
+succeeded for commit `09325df88b0558473b001f1a58c9af8daf7edfa8`.
+The VPS checkout matches that revision, its service is active, and the new
+container started at **2026-10-12 07:01:40 UTC** with image
+`sha256:6f966bfe23e45f8691cb61fb389ae3bdc5ddb1e59b6af6aabefe7f1082e55559`.
+
+Installed Nuclei and SSLyze module SHA-256 hashes match the local tested source.
+Installed Nuclei configuration reports the expected concurrency arguments,
+Go settings, and absence of the application credentials in its child environment.
+A new TLS probe through the installed runner succeeded: no failed hosts,
+TLS 1.2/1.3 supported (three accepted ciphers each), and TLS 1.0/1.1 unsupported.
+The original production scan remains a record of the pre-correction failures;
+no historical scan result was rewritten. The focused Nuclei benchmark was not
+repeated after rollout; source identity and installed configuration were checked.
+
+The main repository push succeeded. Its pre-push hook could not sync the
+secondary `kankarofi125/cyphward` fork because the current GitHub account lacks
+write access after removal of the embedded credential. Scanner deployment uses
+the main repository and completed successfully. Fork sync needs separately
+authorized access rather than restoring the revoked token.
 
 ## Remaining limits
 
