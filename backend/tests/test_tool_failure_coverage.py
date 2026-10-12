@@ -86,6 +86,40 @@ def test_nuclei_exit_one_is_inconclusive_for_remediation(monkeypatch):
     assert "code 1" in result["error"]
 
 
+def test_nuclei_subprocess_limits_and_environment(monkeypatch):
+    monkeypatch.setenv("SCANNER_API_KEY", "test-worker-key")
+    monkeypatch.setenv("AUTH_JWT_SECRET", "test-signing-secret")
+    monkeypatch.setenv("DATABASE_URL", "test-db-credentials")
+    setup_process(monkeypatch, nuclei_runner, Process())
+    captured = {}
+
+    async def spawn(*args, **kwargs):
+        captured.update({"args": args, "env": kwargs.get("env")})
+        return Process()
+
+    monkeypatch.setattr(nuclei_runner.asyncio, "create_subprocess_exec", spawn)
+    asyncio.run(nuclei_runner.run_nuclei("www.acme.test", strict=True))
+    env = captured["env"]
+    assert not any(key in env for key in ["SCANNER_API_KEY", "AUTH_JWT_SECRET", "DATABASE_URL"])
+    assert env["GOMEMLIMIT"] == "384MiB"
+    args = captured["args"]
+    assert args[args.index("-concurrency") + 1] == "4"
+    assert args[args.index("-template-loading-concurrency") + 1] == "1"
+    assert args[args.index("-js-concurrency") + 1] == "1"
+    asyncio.run(nuclei_runner.run_nuclei_template("www.acme.test", "exposed-panel"))
+    assert captured["env"]["GOMEMLIMIT"] == "384MiB"
+    assert "SCANNER_API_KEY" not in captured["env"]
+    monkeypatch.setenv("SCANNER_NUCLEI_TEMPLATE_CONCURRENCY", "0")
+    with pytest.raises(ValueError):
+        nuclei_runner._nuclei_resource_args()
+
+
+def test_nuclei_sigkill_produces_actionable_failure(monkeypatch):
+    setup_process(monkeypatch, nuclei_runner, Process(code=-9))
+    result = asyncio.run(nuclei_runner.run_nuclei_batch(["www.acme.test"]))
+    assert "memory limits" in result.failed_hosts["www.acme.test"]
+
+
 def test_partial_batch_retains_positive_findings_and_actual_coverage(monkeypatch):
     async def scan(host, *args, **kwargs):
         if host == "bad.acme.test":
@@ -110,6 +144,39 @@ def test_sslyze_command_error_does_not_claim_unsupported_protocol(monkeypatch):
     assert result.progress()["status"] == "failed"
     parsed = sslyze_runner._parse_sslyze_json(raw, "www.acme.test", 443)
     assert parsed["tls_versions"] == {}
+
+
+def test_sslyze_unrequested_commands_do_not_fail_requested_assessment(monkeypatch):
+    raw = {"server_scan_results": [{"scan_status": "COMPLETED", "scan_result": {
+        "certificate_info": {"status": "COMPLETED", "result": {"certificate_deployments": []}},
+        "tls_1_0_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": []}},
+        "tls_1_1_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": []}},
+        "tls_1_2_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": [{"cipher_suite": {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"}}]}},
+        "tls_1_3_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": []}},
+        "heartbleed": {"status": "NOT_SCHEDULED", "result": None},
+        "robot": {"status": "NOT_SCHEDULED", "result": None},
+    }}]}
+    setup_process(monkeypatch, sslyze_runner, Process(), tls_json=raw)
+    result = asyncio.run(sslyze_runner.run_sslyze_batch(["www.acme.test"]))
+    assert result.successful_hosts == ["www.acme.test"]
+    assert not result.failed_hosts
+    assert result[0]["tls_versions"]["tls_1_0"]["supported"] is False
+    assert result[0]["tls_versions"]["tls_1_2"]["supported"] is True
+
+
+def test_sslyze_missing_requested_command_does_not_complete_host(monkeypatch):
+    raw = {"server_scan_results": [{"scan_result": {
+        "tls_1_2_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": []}},
+    }}]}
+    setup_process(monkeypatch, sslyze_runner, Process(), tls_json=raw)
+    result = asyncio.run(sslyze_runner.run_sslyze_batch(["www.acme.test"]))
+    assert not result.successful_hosts
+    assert result.progress()["status"] == "failed"
+
+
+def test_sslyze_legacy_tls10_key_is_still_supported():
+    raw = {"tls_1_cipher_suites": {"status": "COMPLETED", "result": {"accepted_cipher_suites": [{"cipher_suite": {"name": "legacy"}}]}}}
+    assert sslyze_runner._parse_sslyze_json(raw, "www.acme.test", 443)["tls_versions"]["tls_1_0"]["supported"] is True
 
 
 def test_remote_stage_posts_coverage_even_without_findings():

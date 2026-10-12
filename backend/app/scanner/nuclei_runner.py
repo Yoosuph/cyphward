@@ -5,6 +5,7 @@ Falls back gracefully if Nuclei binary is not installed.
 """
 import asyncio
 import json
+import os
 import shutil
 from typing import List, Dict, Any
 
@@ -19,6 +20,46 @@ SEVERITY_MAP = {
     "high": "high",
     "critical": "critical",
 }
+
+
+def _nuclei_resource_args() -> List[str]:
+    """Bound concurrency inside each CLI process, separately from host batches."""
+    def setting(name: str, default: int) -> str:
+        value = int(os.getenv(name, str(default)))
+        if not 1 <= value <= 64:
+            raise ValueError(f"{name} must be between 1 and 64")
+        return str(value)
+
+    return [
+        "-concurrency", setting("SCANNER_NUCLEI_TEMPLATE_CONCURRENCY", 4),
+        "-bulk-size", "1",
+        "-payload-concurrency", setting("SCANNER_NUCLEI_PAYLOAD_CONCURRENCY", 1),
+        "-js-concurrency", setting("SCANNER_NUCLEI_JS_CONCURRENCY", 1),
+        "-template-loading-concurrency", setting("SCANNER_NUCLEI_LOADING_CONCURRENCY", 1),
+        "-probe-concurrency", "1",
+        "-scan-strategy", "host-spray",
+    ]
+
+
+def _nuclei_environment() -> Dict[str, str]:
+    # The scanner's Core key and application/database credentials are not
+    # needed by a target-scanning subprocess. Keep its environment minimal.
+    allowed = {
+        "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ", "SYSTEMROOT",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "LD_LIBRARY_PATH",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    }
+    env = {key: value for key, value in os.environ.items() if key in allowed}
+    env["GOMEMLIMIT"] = os.getenv("SCANNER_NUCLEI_GOMEMLIMIT", "384MiB")
+    env["GOGC"] = os.getenv("SCANNER_NUCLEI_GOGC", "50")
+    env["GOMAXPROCS"] = os.getenv("SCANNER_NUCLEI_GOMAXPROCS", "1")
+    return env
+
+
+def _nuclei_exit_error(code: int) -> str:
+    if code == -9:
+        return "Nuclei was killed (SIGKILL); check worker/container memory limits"
+    return f"Nuclei exited with code {code}"
 
 
 def _parse_nuclei_stdout(stdout: bytes, hostname: str, strict: bool = False) -> List[Dict[str, Any]]:
@@ -105,6 +146,7 @@ async def run_nuclei_template(
         "-rate-limit", "50",
         "-no-color",
         "-disable-update-check",
+        *_nuclei_resource_args(),
     ]
 
     proc = None
@@ -113,6 +155,7 @@ async def run_nuclei_template(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_nuclei_environment(),
         )
         stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -142,7 +185,7 @@ async def run_nuclei_template(
     rc = proc.returncode if proc.returncode is not None else -1
     # A non-zero process exit is not proof that a finding is fixed.
     if rc != 0:
-        return {"ok": False, "findings": [], "error": f"nuclei exited with code {rc}"}
+        return {"ok": False, "findings": [], "error": _nuclei_exit_error(rc)}
 
     try:
         findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
@@ -189,6 +232,7 @@ async def run_nuclei(
         "-rate-limit", str(rate_limit),
         "-no-color",
         "-disable-update-check",
+        *_nuclei_resource_args(),
     ]
 
     proc = None
@@ -197,10 +241,11 @@ async def run_nuclei(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_nuclei_environment(),
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         if proc.returncode != 0:
-            raise ToolExecutionError(f"Nuclei exited with code {proc.returncode}")
+            raise ToolExecutionError(_nuclei_exit_error(proc.returncode))
         findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
 
     except asyncio.TimeoutError:
@@ -236,12 +281,13 @@ async def run_nuclei_batch(
     hostnames: List[str],
     templates: str = "http/",
     severity: str = "low,medium,high,critical",
-    concurrency: int = 10,
+    concurrency: int = 1,
     timeout: int = 300,
 ) -> List[Dict[str, Any]]:
     """Run Nuclei across multiple hosts concurrently."""
     hostnames = list(dict.fromkeys(hostnames))
-    semaphore = asyncio.Semaphore(max(1, concurrency))
+    max_processes = max(1, min(4, int(os.getenv("SCANNER_NUCLEI_MAX_PROCESSES", "1"))))
+    semaphore = asyncio.Semaphore(max(1, min(concurrency, max_processes)))
 
     async def _run_with_semaphore(host: str) -> List[Dict[str, Any]]:
         async with semaphore:

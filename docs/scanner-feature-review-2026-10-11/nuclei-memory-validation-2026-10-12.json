@@ -1,0 +1,11 @@
+{
+  "target": "cyphward.com",
+  "memory_limit": "384MiB",
+  "template_concurrency": 4,
+  "status": "completed",
+  "finding_count": 0,
+  "template_ids": [],
+  "elapsed_seconds": 292.7,
+  "peak_rss_kib": 305640,
+  "oom_kills_added": 0
+}

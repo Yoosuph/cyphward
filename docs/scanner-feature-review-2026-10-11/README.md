@@ -10,6 +10,11 @@ was inspected. Payment-system activation remains deferred.
 confirms that the VPS runs the worker and processed matching live scan IDs.
 That follow-up also records the latest deployment and the limits of the check.
 
+**Controlled scan follow-up:** [12 October validation and corrections](controlled-scan-validation-2026-10-12.md)
+records a real scan, the SSLyze validation defect, confirmed Nuclei OOM kills,
+and the successful focused resource test. It supersedes the original pass's
+no-production-scan limitation for those explicitly documented checks.
+
 ## Changes made in this pass
 
 - **Mobile dashboard identity:** Topbar's 17px shield and abbreviated CYPH text

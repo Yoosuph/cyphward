@@ -19,6 +19,10 @@ The subsequent [scanner/feature readiness review](scanner-feature-review-2026-10
 records additional tool-failure, coverage and cancellation fixes and the remaining
 foundations recommended before expanding administration.
 
+The [12 October controlled-scan follow-up](scanner-feature-review-2026-10-11/controlled-scan-validation-2026-10-12.md)
+adds production evidence and subsequent TLS/Nuclei corrections. Earlier
+no-production-change statements in this document describe the original review.
+
 ## Platform and architecture review
 
 | Original finding | Current status and evidence | Remaining work |

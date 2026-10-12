@@ -29,7 +29,7 @@ _TLS_VERSION_KEYS = {
     "tls_1_3": "tls_1_3_cipher_suites",
     "tls_1_2": "tls_1_2_cipher_suites",
     "tls_1_1": "tls_1_1_cipher_suites",
-    "tls_1_0": "tls_1_cipher_suites",
+    "tls_1_0": "tls_1_0_cipher_suites",
 }
 
 
@@ -92,6 +92,8 @@ def _parse_sslyze_json(raw: Dict[str, Any], hostname: str, port: int) -> Dict[st
     accepted_ciphers: List[str] = []
     for version, key in _TLS_VERSION_KEYS.items():
         node = scan_result.get(key)
+        if node is None and version == "tls_1_0":
+            node = scan_result.get("tls_1_cipher_suites")  # older JSON layout
         if not isinstance(node, dict) or node.get("status") not in (None, "COMPLETED") or not isinstance(node.get("result"), dict):
             continue
         result = node.get("result") or {}
@@ -160,9 +162,18 @@ async def run_sslyze(
         if strict:
             results = raw.get("server_scan_results") or []
             scan_result = (results[0].get("scan_result") or {}) if results and isinstance(results[0], dict) else raw
-            if isinstance(scan_result, dict) and any(
-                isinstance(node, dict) and node.get("status") in ("ERROR", "NOT_SCHEDULED")
-                for node in scan_result.values()
+            if not isinstance(scan_result, dict):
+                raise ToolExecutionError("SSLyze returned no command results")
+            requested_nodes = [scan_result.get("certificate_info") or scan_result.get("certificates")]
+            for version, key in _TLS_VERSION_KEYS.items():
+                node = scan_result.get(key)
+                if node is None and version == "tls_1_0":
+                    node = scan_result.get("tls_1_cipher_suites")
+                requested_nodes.append(node)
+            if any(
+                not isinstance(node, dict) or node.get("status") not in (None, "COMPLETED")
+                or not isinstance(node.get("result"), dict)
+                for node in requested_nodes
             ):
                 raise ToolExecutionError("SSLyze did not complete every requested check")
         observation = _parse_sslyze_json(raw, hostname, port)
