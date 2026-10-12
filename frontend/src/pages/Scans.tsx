@@ -928,7 +928,12 @@ export default function Scans() {
                 </p>
               ) : (
                 <>
-                  <div className="scan-history-desktop">
+                  <div
+                    className="scan-history-desktop"
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Scan history entries"
+                  >
                     <table>
                       <thead>
                         <tr>
@@ -982,7 +987,12 @@ export default function Scans() {
                       </tbody>
                     </table>
                   </div>
-                  <div className="scan-history-mobile">
+                  <div
+                    className="scan-history-mobile"
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Scan history entries"
+                  >
                     {filteredScans.map((scan) => (
                       <article
                         className={`scan-history-card ${scan.id === activeScan.id ? "scan-history-selected" : ""}`}

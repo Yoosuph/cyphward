@@ -296,6 +296,66 @@ try {
     }
   }
   if (prefix === "implemented") {
+    // Long histories must keep their header visible and the last action reachable.
+    scans.push(
+      ...Array.from({ length: 12 }, (_, index) => ({
+        ...scans[1],
+        id: `history-extra-${index}`,
+      })),
+    );
+    for (const width of [1440, 390]) {
+      await page.setViewport({ width, height: 844 });
+      await page.goto(`${origin}/scans`);
+      await page.waitForSelector(
+        '.scan-history button[aria-label="View scan history-extra-11"]',
+      );
+      const selector =
+        width > 900 ? ".scan-history-desktop" : ".scan-history-mobile";
+      await page.$eval(".scan-history", (element) =>
+        element.scrollIntoView({ block: "start", behavior: "instant" }),
+      );
+      await page.focus(selector);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const headingTop = await page.$eval(
+        ".scan-history-heading",
+        (element) => element.getBoundingClientRect().top,
+      );
+      await page.keyboard.press("End");
+      await page.waitForFunction(
+        (selector) => {
+          const element = document.querySelector(selector);
+          const action = element
+            .querySelector('button[aria-label="View scan history-extra-11"]')
+            .getBoundingClientRect();
+          const panel = element.getBoundingClientRect();
+          return (
+            element.scrollTop > 0 &&
+            action.top >= panel.top &&
+            action.bottom <= panel.bottom
+          );
+        },
+        {},
+        selector,
+      );
+      const visible = await page.$eval(selector, (element) => {
+        const action = element
+          .querySelector('button[aria-label="View scan history-extra-11"]')
+          .getBoundingClientRect();
+        const panel = element.getBoundingClientRect();
+        return action.top >= panel.top && action.bottom <= panel.bottom;
+      });
+      assert.ok(visible, `Last history action is reachable at ${width}px`);
+      assert.ok(
+        Math.abs(
+          (await page.$eval(
+            ".scan-history-heading",
+            (element) => element.getBoundingClientRect().top,
+          )) - headingTop,
+        ) < 1,
+        "History scroll keeps heading and filters fixed",
+      );
+    }
+    scans.splice(3);
     await page.setViewport({ width: 390, height: 844 });
     await page.goto(`${origin}/scans`);
     await page.waitForSelector(".scan-history-card");

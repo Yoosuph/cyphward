@@ -78,6 +78,9 @@ reviewable before page/component changes began.
 - Desktop places compact checks beside history. Mobile places history cards
   before the collapsed checks, with no sideways table scrolling. Domain and
   status filters operate on the loaded scan list.
+- History entries scroll within a bounded panel on desktop and mobile. The
+  section heading and filters stay outside the scrolling area, desktop column
+  headings remain sticky, and the entry region supports keyboard scrolling.
 - A single selection drives both the summary and detail drawer. Request guards
   prevent an older detail response from overwriting a newer selection. The
   list retains previous results and shows a retry notice during an outage.

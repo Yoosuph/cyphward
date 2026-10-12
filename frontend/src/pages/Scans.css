@@ -353,6 +353,14 @@
 .scan-history {
   overflow: hidden;
 }
+.scan-history-desktop,
+.scan-history-mobile {
+  max-height: min(560px, 60dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
 .scan-history-heading {
   padding: 18px;
   display: flex;
@@ -387,6 +395,9 @@
   text-align: left;
 }
 .scan-history th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: var(--soft);
   font-weight: 500;
   font-size: 11px;
@@ -641,6 +652,7 @@
   }
   .scan-history-mobile {
     display: grid;
+    max-height: min(480px, 60dvh);
     gap: 10px;
     padding: 0 14px 14px;
   }
