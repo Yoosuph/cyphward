@@ -21,6 +21,7 @@ import json
 import logging
 import shutil
 import socket
+import secrets
 import time
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List
@@ -29,6 +30,8 @@ import inngest
 
 from backend.app.core.config import (
     SCANNER_MODE,
+    CORE_AI_TIMEOUT_SECONDS,
+    SCANNER_LEASE_SECONDS,
     SCANNER_NUCLEI_CONCURRENCY,
     SCANNER_NUCLEI_MAX_HOSTS,
     SCANNER_MAX_PORTS,
@@ -36,6 +39,8 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
+from backend.app.core import scan_execution as execution
+from backend.app.core.execution_fence import ClaimLost, ExecutionClaim, require_execution
 from backend.app.core.scan_admission import admit_scan
 from backend.app.core.cron_claim import (
     DAILY_SCAN_CRON_NAME,
@@ -85,13 +90,6 @@ def _tool_available(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
-# A scan row only accepts pipeline writes while it is running — or completed,
-# for the post-completion AI-progress flush. Cancelled/failed/terminal scans
-# reject every stage write so a cancelled scan can never be resurrected
-# (review item "P1 — trustworthy scan history").
-_WRITABLE_SCAN_STATUSES = ("running", "completed")
-
-
 def _scan_status(scan_id: str) -> str:
     """Current status of a scan row ('' when the row no longer exists)."""
     row = execute_one("SELECT status FROM scans WHERE id = %s", (scan_id,))
@@ -103,43 +101,31 @@ def _still_running(scan_id: str) -> bool:
     return _scan_status(scan_id) == "running"
 
 
-def _stage_write_allowed(scan_id: str) -> bool:
-    return _scan_status(scan_id) in _WRITABLE_SCAN_STATUSES
-
-
-def _store_observation(scan_id: str, stage: str, data: Dict[str, Any]) -> None:
-    """Idempotent observation write (replaces a previous row for the stage).
-    Fenced: cancelled/terminal scans accept no further stage writes."""
-    if not _stage_write_allowed(scan_id):
-        return
-    execute_query("DELETE FROM scan_results WHERE scan_id = %s AND stage = %s", (scan_id, stage))
-    execute_query(
-        "INSERT INTO scan_results (scan_id, stage, raw_data) VALUES (%s, %s, %s::jsonb)",
-        (scan_id, stage, json.dumps(data)),
-    )
+def _store_observation(scan_id: str, stage: str, data: Any) -> None:
+    execution.store_observation(require_execution(scan_id), stage, data)
 
 
 def _save_progress(scan_id: str, progress: Dict[str, Any], current_stage: str = None) -> None:
     """Fenced progress write — no-ops once the scan is cancelled/failed."""
-    if not _stage_write_allowed(scan_id):
-        return
+    require_execution(scan_id)
     if current_stage:
         execute_query(
-            "UPDATE scans SET stage_progress = %s::jsonb, current_stage = %s WHERE id = %s AND status IN ('running', 'completed')",
+            "UPDATE scans SET stage_progress = %s::jsonb, current_stage = %s WHERE id = %s AND status = 'running'",
             (json.dumps(progress), current_stage, scan_id),
         )
     else:
         execute_query(
-            "UPDATE scans SET stage_progress = %s::jsonb WHERE id = %s AND status IN ('running', 'completed')",
+            "UPDATE scans SET stage_progress = %s::jsonb WHERE id = %s AND status = 'running'",
             (json.dumps(progress), scan_id),
         )
 
 
 def _load_observations(scan_id: str) -> Dict[str, Any]:
     """Stage → raw_data map (later rows win; worker replaces per stage)."""
+    claim = require_execution(scan_id)
     rows = execute_query(
-        "SELECT stage, raw_data FROM scan_results WHERE scan_id = %s ORDER BY created_at ASC",
-        (scan_id,),
+        "SELECT stage, raw_data FROM scan_results WHERE scan_id = %s AND attempt_generation = %s ORDER BY created_at ASC",
+        (scan_id, claim.observation_generation),
     ) or []
     observations: Dict[str, Any] = {}
     for row in rows:
@@ -217,12 +203,13 @@ def _registered_hosts(org_id: str, domain_id: str) -> List[str]:
     return sorted({str(r["hostname"]).strip().lower() for r in (rows or []) if r.get("hostname")})
 
 
-async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
+async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
     """
     Run recon stages in-process: discovery → dns → http → ports → tls → nuclei.
     Writes one observation row per stage. Foundational stages (discovery/dns/
     http) fail the scan on error; ports/tls/nuclei degrade gracefully (§23).
     """
+    require_execution(scan_id)
     scan = execute_one("""
         SELECT s.*, d.domain, d.org_id
         FROM scans s
@@ -429,13 +416,11 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
             "nuclei": progress["nuclei"].get("items", 0),
         }
 
+    except ClaimLost:
+        raise
     except Exception as exc:
         progress["error"] = str(exc)
-        execute_query("""
-            UPDATE scans
-            SET status = 'failed', error_message = %s, stage_progress = %s::jsonb, completed_at = now()
-            WHERE id = %s AND status IN ('queued', 'running')
-        """, (str(exc), json.dumps(progress), scan_id))
+        execution.fail_claim(require_execution(scan_id), str(exc), progress)
         raise
 
 
@@ -443,12 +428,13 @@ async def execute_recon_local(scan_id: str) -> Dict[str, Any]:
 # PHASE 2 — FINALIZE (always Core). Reads observations produced by Phase 1 —
 # in-process (local mode) or by the scanner worker (remote mode).
 # ===========================================================================
-async def finalize_scan(scan_id: str) -> Dict[str, Any]:
+async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
     """
     Core-side finalize: security checks → asset inventory → normalization/
     baseline diff → 0-100 risk scoring → AI analysis. Loads recon observations
     from scan_results, so it is independent of where Phase 1 ran.
     """
+    require_execution(scan_id)
     scan = execute_one("""
         SELECT s.*, d.domain, d.org_id
         FROM scans s
@@ -650,10 +636,7 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
         progress["normalization"]["status"] = "running"
         _save_progress(scan_id, progress, "normalization")
 
-        execute_query("""
-            INSERT INTO scan_results (scan_id, stage, raw_data)
-            VALUES (%s, 'security_checks', %s::jsonb)
-        """, (scan_id, json.dumps({"findings_count": len(raw_check_findings)})))
+        _store_observation(scan_id, 'security_checks', {"findings_count": len(raw_check_findings)})
 
         # ---------------------------------------------------------------------
         # STAGE: Finding Normalization, Upsert, Baseline Diff, Evidence
@@ -926,12 +909,6 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
                 "info", "/findings",
             )
 
-        if email_jobs:
-            await asyncio.gather(
-                *[_email_org_members(org_id, j["subject"], j["html"], j["text"]) for j in email_jobs],
-                return_exceptions=True,
-            )
-
         norm_dur = int((time.time() - t0) * 1000)
         progress["normalization"] = {"status": "completed", "items": len(normalized_all), "duration_ms": norm_dur}
         progress["scoring"]["status"] = "running"
@@ -968,40 +945,6 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             "risk_points": score_result.get("risk_points"),
         }
 
-        completed = execute_one("""
-            UPDATE scans
-            SET status = 'completed', current_stage = 'completed', score = %s,
-                stage_progress = %s::jsonb, completed_at = now(),
-                claimed_by = NULL, lease_expires_at = NULL
-            WHERE id = %s AND status = 'running'
-            RETURNING id
-        """, (final_score, json.dumps(progress), scan_id))
-        if not completed:
-            # Cancelled mid-finalize: refuse to complete, score, snapshot,
-            # notify or run AI analysis on a scan the user cancelled.
-            status = _scan_status(scan_id)
-            logger.info("scan=%s finalize completion refused: status=%s", scan_id, status or "missing")
-            return {"scan_id": scan_id, "status": status}
-
-        # Record Score Snapshot
-        execute_query("""
-            INSERT INTO score_snapshots (org_id, domain_id, score, subscores, factors, model, scope, risk_points)
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s)
-        """, (org_id, None, final_score, json.dumps(score_result["subscores"]), json.dumps(score_result["factors"]),
-              SCORE_MODEL, SCORE_SCOPE, score_result["risk_points"]))
-
-        not_evaluated_msg = (
-            f" · {len(baseline['not_evaluated'])} not evaluated"
-            if baseline["not_evaluated"] else ""
-        )
-        notify(
-            org_id, "scan_completed",
-            f"Scan completed for {domain}",
-            f"Organization score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
-            "info" if final_score >= 70 else "medium",
-            "/scans",
-        )
-
         # ---------------------------------------------------------------------
         # STAGE: AI Security Analysis
         # ---------------------------------------------------------------------
@@ -1011,55 +954,52 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
 
         ai_explanations: List[Dict[str, Any]] = []
         try:
-            ai = get_ai_provider()
+            async with asyncio.timeout(CORE_AI_TIMEOUT_SECONDS):
+                ai = get_ai_provider()
 
-            critical_high_findings = [f for f in normalized_all if f.get("severity") in ("critical", "high")]
-            explain_tasks = [ai.explain_finding(finding) for finding in critical_high_findings]
-            explain_results = await asyncio.gather(*explain_tasks, return_exceptions=True)
-            for idx, result in enumerate(explain_results):
-                if isinstance(result, dict):
-                    result["finding_id"] = critical_high_findings[idx].get("id")
-                    ai_explanations.append(result)
+                critical_high_findings = [f for f in normalized_all if f.get("severity") in ("critical", "high")]
+                explain_tasks = [ai.explain_finding(finding) for finding in critical_high_findings]
+                explain_results = await asyncio.gather(*explain_tasks, return_exceptions=True)
+                for idx, result in enumerate(explain_results):
+                    if isinstance(result, dict):
+                        result["finding_id"] = critical_high_findings[idx].get("id")
+                        ai_explanations.append(result)
 
-            executive_summary = await ai.generate_executive_summary(org_name, score_result, open_findings)
+                executive_summary = await ai.generate_executive_summary(org_name, score_result, open_findings)
 
-            ai_data = {
-                "explanations_count": len(ai_explanations),
-                "critical_high_count": len(critical_high_findings),
-                "executive_summary": executive_summary,
-            }
-            execute_query("""
-                INSERT INTO scan_results (scan_id, stage, raw_data)
-                VALUES (%s, 'ai_analysis', %s::jsonb)
-            """, (scan_id, json.dumps(ai_data)))
+                ai_data = {
+                    "explanations_count": len(ai_explanations),
+                    "critical_high_count": len(critical_high_findings),
+                    "executive_summary": executive_summary,
+                }
+                _store_observation(scan_id, 'ai_analysis', ai_data)
 
-            if ai_explanations:
-                execute_query("""
-                    INSERT INTO scan_results (scan_id, stage, raw_data)
-                    VALUES (%s, 'ai_explanations', %s::jsonb)
-                """, (scan_id, json.dumps(ai_explanations)))
-
+                if ai_explanations:
+                    _store_observation(scan_id, 'ai_explanations', ai_explanations)
             ai_dur = int((time.time() - t0) * 1000)
             progress["ai_analysis"] = {"status": "completed", "items": len(ai_explanations), "duration_ms": ai_dur}
 
+        except ClaimLost:
+            raise
+        except TimeoutError:
+            ai_dur = int((time.time() - t0) * 1000)
+            progress["ai_analysis"] = {"status": "failed", "error": "AI analysis exceeded its deadline.", "duration_ms": ai_dur}
         except Exception as ai_err:
             ai_dur = int((time.time() - t0) * 1000)
             progress["ai_analysis"] = {"status": "failed", "error": str(ai_err), "duration_ms": ai_dur}
 
-        execute_query("""
-            UPDATE scans
-            SET stage_progress = %s::jsonb
-            WHERE id = %s AND status IN ('running', 'completed')
-        """, (json.dumps(progress), scan_id))
-
-        log_audit(org_id, None, "scan.completed", "scan", scan_id, {
-            "domain": domain,
-            "score": final_score,
-            "findings": len(normalized_all),
-            "new": len(baseline["new"]),
-            "reopened": len(baseline["reopened"]),
-            "resolved": len(baseline["resolved"]),
-            "not_evaluated": len(baseline["not_evaluated"]),
+        not_evaluated_msg = (
+            f" · {len(baseline['not_evaluated'])} not evaluated" if baseline['not_evaluated'] else ''
+        )
+        execution.finish_assessment(require_execution(scan_id), str(org_id), score_result, progress, {
+            'domain': domain, 'score': final_score, 'findings': len(normalized_all),
+            'new': len(baseline['new']), 'reopened': len(baseline['reopened']),
+            'resolved': len(baseline['resolved']), 'not_evaluated': len(baseline['not_evaluated']),
+        }, {
+            'model': SCORE_MODEL, 'scope': SCORE_SCOPE,
+            'title': f'Scan completed for {domain}',
+            'body': f"Organization score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
+            'severity': 'info' if final_score >= 70 else 'medium',
         })
 
         return {
@@ -1074,28 +1014,53 @@ async def finalize_scan(scan_id: str) -> Dict[str, Any]:
             "resolved_findings": len(baseline["resolved"]),
             "not_evaluated_findings": len(baseline["not_evaluated"]),
             "ai_analyzed": len(ai_explanations),
+            "_email_jobs": email_jobs,
+            "_email_org_id": org_id,
         }
 
+    except ClaimLost:
+        raise
     except Exception as exc:
-        progress["error"] = str(exc)
-        execute_query("""
-            UPDATE scans
-            SET status = 'failed', error_message = %s, stage_progress = %s::jsonb,
-                completed_at = now(), claimed_by = NULL, lease_expires_at = NULL
-            WHERE id = %s AND status IN ('queued', 'running')
-        """, (str(exc), json.dumps(progress), scan_id))
+        progress['error'] = str(exc)
+        execution.fail_claim(require_execution(scan_id), str(exc), progress)
         raise
 
 
+async def execute_recon_local(scan_id: str, claim: ExecutionClaim) -> Dict[str, Any]:
+    if claim.scan_id != str(scan_id) or claim.phase != 'local':
+        raise ClaimLost('Invalid local recon authority')
+    return await execution.run_owned(claim, lambda: _execute_recon_local_owned(scan_id), execution.LOCAL_LEASE_SECONDS)
+
+
+async def finalize_scan(scan_id: str, claim: ExecutionClaim) -> Dict[str, Any]:
+    if claim.scan_id != str(scan_id) or claim.phase != 'core':
+        raise ClaimLost('Invalid Core finalisation authority')
+    result = await execution.run_owned(claim, lambda: _finalize_scan_owned(scan_id), execution.CORE_LEASE_SECONDS)
+    jobs = result.pop('_email_jobs', [])
+    org_id = result.pop('_email_org_id', None)
+    # Email is best-effort after the authoritative completion transaction. A
+    # restart after commit can lose delivery; this is not exactly-once mail.
+    if result.get('status') == 'completed' and org_id and jobs:
+        await asyncio.gather(*[_email_org_members(org_id,j['subject'],j['html'],j['text']) for j in jobs],return_exceptions=True)
+    return result
+
+
 async def execute_scan_pipeline(scan_id: str) -> Dict[str, Any]:
-    """
-    Local-mode end-to-end pipeline: recon in-process, then Core finalize.
-    In remote mode the worker replaces Phase 1; Core only runs finalize_scan.
-    """
-    recon = await execute_recon_local(scan_id)
-    if recon.get("cancelled"):
+    if SCANNER_MODE != 'local':
+        return {'scan_id':scan_id,'status':'remote_queue'}
+    row = await asyncio.to_thread(execution.claim_recon, 'local:'+secrets.token_hex(12), 'local', execution.LOCAL_LEASE_SECONDS, scan_id)
+    if row is None:
+        status = await asyncio.to_thread(execution.inspect_status, scan_id)
+        return {'scan_id':scan_id,'status':status,'cancelled':status=='cancelled','claimed':False}
+    claim = execution.claim_from_row(row)
+    recon = await execute_recon_local(scan_id,claim)
+    if recon.get('cancelled') or recon.get('claim_lost'):
         return recon
-    return await finalize_scan(scan_id)
+    try:
+        core_claim = await asyncio.to_thread(execution.handoff_to_core,claim)
+    except ClaimLost:
+        return {'scan_id':scan_id,'status':await asyncio.to_thread(execution.inspect_status,scan_id),'claim_lost':True}
+    return await finalize_scan(scan_id,core_claim)
 
 
 # ===========================================================================
@@ -1142,12 +1107,14 @@ async def run_daily_scan_schedule() -> Dict[str, Any]:
         return {"claimed": False, "due_domains": 0, "scheduled": 0}
 
     try:
-        result = await _daily_scan_sweep(run_day)
-        complete_cron_run(DAILY_SCAN_CRON_NAME, run_day)
+        result = await _daily_scan_sweep(run_day, claim)
+        if not complete_cron_run(DAILY_SCAN_CRON_NAME, run_day, claim):
+            raise ClaimLost("Scheduler ownership expired before completion")
     except BaseException:
-        release_cron_run(DAILY_SCAN_CRON_NAME, run_day)
+        release_cron_run(DAILY_SCAN_CRON_NAME, run_day, claim)
         raise
     result["claimed"] = True
+    log_audit(None, None, "cron.ran", "scheduler", None, {**result, "trigger":"cron"})
     return result
 
 
@@ -1156,7 +1123,7 @@ def _claimant_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
-async def _daily_scan_sweep(run_day: date | None = None) -> Dict[str, Any]:
+async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | None = None) -> Dict[str, Any]:
     due_domains = execute_query(
         """
         SELECT d.id AS domain_id, d.org_id, d.domain
@@ -1177,6 +1144,7 @@ async def _daily_scan_sweep(run_day: date | None = None) -> Dict[str, Any]:
             str(row["org_id"]), str(row["domain_id"]),
             request_scope=f"scheduled:{run_day.isoformat()}",
             request_key=f"domain:{row['domain_id']}",
+            cron_authority=cron_authority,
         )
         if admission.outcome == "quota":
             skipped_quota += 1
@@ -1206,10 +1174,7 @@ async def _daily_scan_sweep(run_day: date | None = None) -> Dict[str, Any]:
                 try:
                     await execute_scan_pipeline(scan_id)
                 except Exception as inline_err:
-                    execute_query(
-                        "UPDATE scans SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s AND status IN ('queued', 'running')",
-                        (str(inline_err), scan_id),
-                    )
+                    logger.warning("local scan %s dispatch failed; durable recovery will retry: %s", scan_id, inline_err)
                     continue
 
         scheduled += 1
@@ -1217,15 +1182,6 @@ async def _daily_scan_sweep(run_day: date | None = None) -> Dict[str, Any]:
             "domain": admission.domain,
             "trigger": "cron",
         })
-
-    log_audit(None, None, "cron.ran", "scheduler", None, {
-        "due_domains": len(due_domains),
-        "scheduled": scheduled,
-        "skipped_quota": skipped_quota,
-        "skipped_active": skipped_active,
-        "replayed": replayed,
-        "trigger": "cron",
-    })
 
     return {"due_domains": len(due_domains), "scheduled": scheduled,
             "skipped_quota": skipped_quota, "skipped_active": skipped_active,

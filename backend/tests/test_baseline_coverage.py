@@ -15,7 +15,7 @@ Rules under test:
 import asyncio
 
 import backend.app.workflows.inngest_workflow as wf
-from conftest import DOM_A1, FINDING_A1, FINDING_A2, ORG_A, SCAN_A1
+from conftest import prepare_execution_claim, DOM_A1, FINDING_A1, FINDING_A2, ORG_A, SCAN_A1
 from shared.contracts import empty_stage_progress
 
 NEW_SCAN = "51111111-0000-4000-8000-000000000099"
@@ -109,7 +109,7 @@ def _finalize(store, monkeypatch, obs, sec_ok=True, nuclei_status="skipped"):
         raise RuntimeError("no AI provider in tests")
 
     monkeypatch.setattr(wf, "get_ai_provider", _no_ai)
-    return sid, asyncio.run(wf.finalize_scan(sid))
+    return sid, asyncio.run(wf.finalize_scan(sid,prepare_execution_claim(store,sid)))
 
 
 # ---------------------------------------------------------------------------

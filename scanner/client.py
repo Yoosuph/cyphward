@@ -45,18 +45,24 @@ class CoreClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    def _headers(self) -> Dict[str, str]:
-        return {
+    def _headers(self, job: Optional[ScanJob] = None) -> Dict[str, str]:
+        headers = {
             "Authorization": f"Bearer {self._cfg.api_key}",
             "X-Scanner-Id": self._cfg.scanner_id,
             "X-Timestamp": str(int(time.time())),
+            "X-Scanner-Protocol": "2",
         }
+        if job is not None:
+            headers['X-Claim-Generation'] = str(job.claim_generation)
+            headers['X-Claim-Token'] = job.claim_token
+        return headers
 
     async def _post(
         self,
         path: str,
         json: Optional[Dict[str, Any]] = None,
         retry: bool = True,
+        job: Optional[ScanJob] = None,
     ) -> httpx.Response:
         """POST with bounded retry for transport errors and 5xx.
 
@@ -69,7 +75,7 @@ class CoreClient:
         delay = 1.5
         for attempt in range(1, attempts + 1):
             try:
-                resp = await self._http.post(path, json=json, headers=self._headers())
+                resp = await self._http.post(path, json=json, headers=self._headers(job))
             except httpx.TransportError as e:
                 if attempt >= attempts:
                     raise CoreError(f"network error on {path}: {e}") from e
@@ -96,12 +102,27 @@ class CoreClient:
         if resp.status_code == 409:
             raise JobLost(f"{path}: 409 lease not held")
         if resp.status_code >= 500:
-            raise CoreError(f"{path}: {resp.status_code} {resp.text[:200]}")
+            raise CoreError(f"{path}: HTTP {resp.status_code}")
         if resp.status_code >= 400:
-            raise CoreError(f"{path}: {resp.status_code} {resp.text[:200]}")
+            raise CoreError(f"{path}: HTTP {resp.status_code}")
 
     async def claim(self) -> Optional[ScanJob]:
         """Claim the next queued job. Returns None when the queue is empty."""
+        # An old API ignores the v2 header. Negotiate before POST so a new
+        # worker cannot allocate an unfenced v1 job during deployment.
+        path = "/api/v1/scanner/protocol"
+        try:
+            protocol = await self._http.get(path, headers=self._headers())
+        except httpx.TransportError as exc:
+            raise CoreError("Scanner protocol negotiation unavailable") from exc
+        self._raise_for_status(protocol, path)
+        try:
+            metadata = protocol.json()
+            compatible = isinstance(metadata, dict) and metadata.get("version") == 2
+        except ValueError:
+            compatible = False
+        if not compatible:
+            raise CoreError("Scanner API protocol v2 is not ready")
         resp = await self._post(CLAIM_URL, retry=False)
         if resp.status_code == 204:
             return None
@@ -110,11 +131,11 @@ class CoreClient:
         try:
             return ScanJob.model_validate(resp.json())
         except Exception as e:
-            raise CoreError(f"malformed claim payload: {e}") from e
+            raise CoreError("Malformed or incompatible claim payload") from e
 
     async def progress(
         self,
-        scan_id: str,
+        job: ScanJob,
         stage: str,
         status: str,
         items: int = 0,
@@ -122,33 +143,33 @@ class CoreClient:
         error: Optional[str] = None,
     ) -> None:
         """Stage progress update — also refreshes the job lease (heartbeat)."""
-        path = f"/api/v1/scanner/jobs/{scan_id}/progress"
+        path = f"/api/v1/scanner/jobs/{job.scan_id}/progress"
         resp = await self._post(path, json={
             "stage": stage,
             "status": status,
             "items": items,
             "duration_ms": duration_ms,
             **({"error": error} if error else {}),
-        })
+        }, job=job)
         self._raise_for_status(resp, path)
 
-    async def observations(self, scan_id: str, stage: str, data: Dict[str, Any]) -> None:
+    async def observations(self, job: ScanJob, stage: str, data: Dict[str, Any]) -> None:
         """Submit raw observations for a stage (idempotent per stage)."""
-        path = f"/api/v1/scanner/jobs/{scan_id}/observations"
-        resp = await self._post(path, json={"stage": stage, "data": data})
+        path = f"/api/v1/scanner/jobs/{job.scan_id}/observations"
+        resp = await self._post(path, json={"stage": stage, "data": data}, job=job)
         self._raise_for_status(resp, path)
 
-    async def complete(self, scan_id: str, stats: Dict[str, Any]) -> None:
+    async def complete(self, job: ScanJob, stats: Dict[str, Any]) -> None:
         """Recon finished — Core runs finalize (security checks → score → AI)."""
-        path = f"/api/v1/scanner/jobs/{scan_id}/complete"
-        resp = await self._post(path, json={"stats": stats})
+        path = f"/api/v1/scanner/jobs/{job.scan_id}/complete"
+        resp = await self._post(path, json={"stats": stats}, job=job)
         self._raise_for_status(resp, path)
 
-    async def fail(self, scan_id: str, stage: Optional[str], error: str) -> None:
+    async def fail(self, job: ScanJob, stage: Optional[str], error: str) -> None:
         """Terminal failure. JobLost here means the job was already revoked."""
-        path = f"/api/v1/scanner/jobs/{scan_id}/fail"
+        path = f"/api/v1/scanner/jobs/{job.scan_id}/fail"
         resp = await self._post(path, json={
             "stage": stage,
             "error": (error or "unknown error")[:2000],
-        })
+        }, job=job)
         self._raise_for_status(resp, path)

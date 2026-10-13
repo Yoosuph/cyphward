@@ -77,7 +77,7 @@ async def _stop_beat(stop: asyncio.Event, beat: asyncio.Task) -> None:
 
 async def _heartbeat(
     client: CoreClient,
-    scan_id: str,
+    job: ScanJob,
     stage: str,
     interval: float,
     stop: asyncio.Event,
@@ -90,12 +90,12 @@ async def _heartbeat(
         except asyncio.TimeoutError:
             pass
         try:
-            await client.progress(scan_id, stage, "running")
+            await client.progress(job, stage, "running")
         except JobLost:
-            logger.warning("scan=%s lease lost during heartbeat (stage=%s)", scan_id, stage)
+            logger.warning("scan=%s lease lost during heartbeat (stage=%s)", job.scan_id, stage)
             raise
         except CoreError as e:
-            logger.debug("scan=%s heartbeat failed (transient): %s", scan_id, e)
+            logger.debug("scan=%s heartbeat failed (transient): %s", job.scan_id, e)
 
 
 async def _leased_result(factory, beat: asyncio.Task):
@@ -132,11 +132,11 @@ async def run_stage(
     or None for optional stages that were skipped/failed (scan continues).
     """
     t0 = time.time()
-    await client.progress(job.scan_id, stage, "running")
+    await client.progress(job, stage, "running")
 
     stop = asyncio.Event()
     beat = asyncio.create_task(
-        _heartbeat(client, job.scan_id, stage, max(5.0, min(30.0, cfg.heartbeat_seconds)), stop)
+        _heartbeat(client, job, stage, max(5.0, min(30.0, cfg.heartbeat_seconds)), stop)
     )
     try:
         result = await _leased_result(coro_factory, beat)
@@ -150,11 +150,11 @@ async def run_stage(
         await _stop_beat(stop, beat)
         if optional:
             logger.warning("scan=%s stage=%s failed (continuing): %s", job.scan_id, stage, exc)
-            await client.observations(job.scan_id, stage, {
+            await client.observations(job, stage, {
                 OBSERVATION_KEY[stage]: [], "attempted_hosts": [],
                 "successful_hosts": [], "failed_hosts": {},
             })
-            await client.progress(job.scan_id, stage, "failed",
+            await client.progress(job, stage, "failed",
                                   duration_ms=_ms(t0), error=str(exc)[:500])
             return None
         raise JobAborted(stage, str(exc)) from exc
@@ -163,22 +163,22 @@ async def run_stage(
 
     if not isinstance(result, list):
         if optional:
-            await client.observations(job.scan_id, stage, {
+            await client.observations(job, stage, {
                 OBSERVATION_KEY[stage]: [], "attempted_hosts": [],
                 "successful_hosts": [], "failed_hosts": {},
             })
-            await client.progress(job.scan_id, stage, "failed", error="Tool returned an invalid result type")
+            await client.progress(job, stage, "failed", error="Tool returned an invalid result type")
             return None
         raise JobAborted(stage, "Tool returned an invalid result type")
 
     batch = result if isinstance(result, ToolBatchResult) else None
     if result or batch is not None:
-        await client.observations(job.scan_id, stage, {
+        await client.observations(job, stage, {
             OBSERVATION_KEY[stage]: result,
             **(batch.coverage() if batch is not None else {}),
         })
     state = batch.progress() if batch is not None else {"status": "completed"}
-    await client.progress(job.scan_id, stage, state["status"],
+    await client.progress(job, stage, state["status"],
                           items=len(result), duration_ms=_ms(t0), error=state.get("error"))
     return result
 
@@ -197,10 +197,10 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
     host list; raises on total failure.
     """
     _t0 = time.time()
-    await client.progress(job.scan_id, "discovery", "running")
+    await client.progress(job, "discovery", "running")
     _stop = asyncio.Event()
     _beat = asyncio.create_task(
-        _heartbeat(client, job.scan_id, "discovery", max(5.0, min(30.0, cfg.heartbeat_seconds)), _stop))
+        _heartbeat(client, job, "discovery", max(5.0, min(30.0, cfg.heartbeat_seconds)), _stop))
     try:
         hosts_raw, sources_failed = await _leased_result(lambda: discover_subdomains_with_health(job.target), _beat)
     except BaseException:
@@ -218,10 +218,10 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
                         job.scan_id, len(new_seeds))
     if sources_failed:
         logger.warning("scan=%s discovery sources failed: %s", job.scan_id, sources_failed)
-    await client.observations(job.scan_id, "discovery",
+    await client.observations(job, "discovery",
                               {"discovered_hosts": hosts_raw,
                                "sources_failed": sources_failed})
-    await client.progress(job.scan_id, "discovery", "completed",
+    await client.progress(job, "discovery", "completed",
                           items=len(hosts_raw), duration_ms=_ms(_t0))
     return hosts_raw
 
@@ -272,7 +272,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
     # --- STAGE 4: ports (optional) ---------------------------------------
     if not _tool("naabu"):
-        await client.progress(job.scan_id, "ports", "skipped", error="naabu not installed")
+        await client.progress(job, "ports", "skipped", error="naabu not installed")
     else:
         port_targets = [d["hostname"] for d in dns_records if d.get("hostname")]
 
@@ -289,7 +289,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
     # --- STAGE 5: tls (optional) -----------------------------------------
     if not _tool("sslyze"):
-        await client.progress(job.scan_id, "tls", "skipped", error="sslyze not installed")
+        await client.progress(job, "tls", "skipped", error="sslyze not installed")
     else:
         tls_targets = [
             h["hostname"] for h in http_probes
@@ -309,7 +309,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
     # --- STAGE 6: nuclei (optional, §23 + OOM guardrails) ----------------
     if not _tool("nuclei"):
-        await client.progress(job.scan_id, "nuclei", "skipped", error="nuclei not installed")
+        await client.progress(job, "nuclei", "skipped", error="nuclei not installed")
     else:
         active_hosts = [
             h["hostname"] for h in http_probes
@@ -336,7 +336,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
             # finalize gates baseline resolution on real coverage, so
             # "not evaluated" is distinguishable from "no findings".
             try:
-                await client.observations(job.scan_id, "nuclei", {
+                await client.observations(job, "nuclei", {
                     "nuclei_findings": nuclei_findings,
                     "attempted_hosts": active_hosts,
                     **(nuclei_findings.coverage() if isinstance(nuclei_findings, ToolBatchResult) else {}),
@@ -351,7 +351,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
 async def _safe_fail(client: CoreClient, job: ScanJob, stage: Optional[str], error: str) -> None:
     try:
-        await client.fail(job.scan_id, stage, error)
+        await client.fail(job, stage, error)
     except JobLost:
         logger.warning("scan=%s already revoked; fail report dropped", job.scan_id)
     except CoreError as e:
@@ -386,7 +386,7 @@ async def run_daemon(cfg, once: bool = False) -> int:
                         job.scan_id, job.target, job.scope, job.lease_expires_at)
             try:
                 stats = await execute_job(client, cfg, job)
-                await client.complete(job.scan_id, stats)
+                await client.complete(job, stats)
                 logger.info("scan=%s recon complete: %s", job.scan_id, stats)
             except JobLost:
                 logger.warning("scan=%s lease lost — aborting attempt", job.scan_id)

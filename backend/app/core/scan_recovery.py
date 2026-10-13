@@ -1,51 +1,88 @@
-"""Startup recovery for scans orphaned by a process restart.
+"""Durable queue consumption and expired local/Core claim recovery.
 
-local mode runs scan pipelines inside this API process (Inngest-event
-fallback via FastAPI BackgroundTasks, or inline dispatch) and those rows
-never get `claimed_by` / `lease_expires_at`. If the process dies mid-run the
-row stays queued/running forever — nothing external will ever pick it up.
-On startup we fail exactly those rows so the UI shows an honest terminal
-state and the user can relaunch.
-
-remote mode is untouched: queued rows legitimately wait for the worker
-(claimed_by NULL is the waiting state) and running rows carry a worker
-lease whose expiry / core-recovery path in api/scanner_jobs already owns
-resumption. The claimed_by IS NULL filter keeps remote-leased work safe
-even if this ever runs there.
-
-Single-replica assumption: local mode assumes one API process. Run
-SCANNER_MODE=remote for replicas — that is also the mode with lease-based
-recovery.
+Remote recon is exclusively claimed by workers. Local queued jobs survive lost
+HTTP/event delivery and are periodically consumed with the same atomic claims.
+Expired Core claims can resume without re-running recon. Active claims are never
+stolen merely because another API replica starts.
 """
+
+import asyncio
 import logging
 
 from backend.app.core.config import SCANNER_MODE
 from backend.app.core.database import execute_query
+from backend.app.core import scan_execution as execution
 
 logger = logging.getLogger("cyphward.scan_recovery")
-
 INTERRUPTED_MESSAGE = (
-    "interrupted: the service restarted before this scan finished; run a new scan."
+    "interrupted: legacy unleased scan cannot be resumed; run a new scan."
 )
 
 
 def recover_interrupted_scans() -> int:
-    """Fail scan rows this process can no longer continue. Returns count."""
     if SCANNER_MODE != "local":
         return 0
     rows = execute_query(
-        """
-        UPDATE scans
-           SET status = 'failed',
-               error_message = %s,
-               completed_at = now()
-         WHERE claimed_by IS NULL
-           AND status IN ('queued', 'running')
-        RETURNING id
-        """,
+        """UPDATE scans SET status = 'failed',error_message=%s,completed_at=now()
+        WHERE claimed_by IS NULL AND status = 'running'
+          AND execution_phase IS NULL AND claim_token IS NULL RETURNING id""",
         (INTERRUPTED_MESSAGE,),
     )
-    count = len(rows or [])
-    if count:
-        logger.warning("failed %d scan(s) interrupted by restart", count)
-    return count
+    return len(rows or [])
+
+
+async def recover_scan_queue(stop: asyncio.Event) -> None:
+    from backend.app.workflows.inngest_workflow import (
+        execute_scan_pipeline,
+        finalize_scan,
+    )
+
+    tasks: set[asyncio.Task] = set()
+
+    def finished(task):
+        tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            logger.warning(
+                "recovery execution failed: %s", type(task.exception()).__name__
+            )
+
+    try:
+        while not stop.is_set():
+            try:
+                slots = max(0, 2 - len(tasks))
+                if slots:
+                    claims = await asyncio.to_thread(
+                        execution.claim_core_recovery, slots
+                    )
+                    for claim in claims:
+                        task = asyncio.create_task(finalize_scan(claim.scan_id, claim))
+                        tasks.add(task)
+                        task.add_done_callback(finished)
+                slots = max(0, 2 - len(tasks))
+                if SCANNER_MODE == "local" and slots:
+                    rows = await asyncio.to_thread(
+                        execute_query,
+                        """SELECT s.id FROM scans s JOIN domains d ON d.id=s.domain_id AND d.org_id=s.org_id
+                        WHERE d.verification_status='verified' AND (s.status='queued'
+                        OR (s.status='running' AND s.execution_phase='local' AND s.lease_expires_at < clock_timestamp()))
+                        ORDER BY s.created_at LIMIT %s""",
+                        (slots,),
+                    )
+                    for row in rows or []:
+                        task = asyncio.create_task(
+                            execute_scan_pipeline(str(row["id"]))
+                        )
+                        tasks.add(task)
+                        task.add_done_callback(finished)
+            except Exception:
+                logger.exception(
+                    "scan queue recovery tick failed; next tick will retry"
+                )
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=15)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

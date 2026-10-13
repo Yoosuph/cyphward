@@ -4,7 +4,7 @@ process stops)."""
 import backend.app.core.scan_recovery as scan_recovery
 
 
-def test_local_mode_fails_orphaned_queued_and_running_scans(monkeypatch):
+def test_local_mode_fails_only_legacy_unleased_running_scans(monkeypatch):
     calls = []
 
     def fake_execute_query(sql, params=()):
@@ -22,7 +22,8 @@ def test_local_mode_fails_orphaned_queued_and_running_scans(monkeypatch):
     assert sql.startswith("UPDATE scans")
     assert "status = 'failed'" in sql
     assert "claimed_by IS NULL" in sql  # never leased by this process
-    assert "status IN ('queued', 'running')" in sql
+    assert "status = 'running'" in sql
+    assert "claim_token IS NULL" in sql
     assert "RETURNING id" in sql
     assert params == (scan_recovery.INTERRUPTED_MESSAGE,)
 

@@ -6,6 +6,7 @@ import re
 from typing import Any, Dict, Optional
 
 from backend.app.core.database import execute_one
+from backend.app.core.execution_fence import ClaimLost
 
 
 def slugify(text: str) -> str:
@@ -31,5 +32,7 @@ def notify(
             """,
             (org_id, type, title, body, severity, link),
         )
+    except ClaimLost:
+        raise
     except Exception:
         return None

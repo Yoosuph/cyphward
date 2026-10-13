@@ -108,7 +108,8 @@ class _ScheduleHarness:
         def fake_execute_one(sql, params=()):
             return None
 
-        def fake_admit_scan(org_id, domain_id, *, request_scope, request_key):
+        def fake_admit_scan(org_id, domain_id, *, request_scope, request_key, cron_authority):
+            assert cron_authority["claim_token"]
             self.admissions.append((str(org_id), str(domain_id), request_scope, request_key))
             self.inserted_params.append((org_id, domain_id))
             domain = next((row["domain"] for row in self.due_rows
@@ -123,7 +124,10 @@ class _ScheduleHarness:
                     return None
                 self.claimed.append(params)
                 return {"cron_name": params[0], "run_day": params[1],
-                        "claimed_by": params[2], "status": "running"}
+                        "claimed_by": params[2], "status": "running", "claim_generation":1,"claim_token":params[3]}
+            if "UPDATE cron_runs" in flat and "status='failed'" in flat:
+                self.released.append(params)
+                return {"status":"failed"}
             if "UPDATE cron_runs" in flat:
                 self.completed.append(params)
                 return {"status": "completed"}
@@ -244,10 +248,10 @@ def test_claim_sql_is_one_atomic_statement(monkeypatch):
     insert_sqls = [sql for sql, _ in h.claim_sqls if sql.startswith("INSERT INTO cron_runs")]
     assert len(insert_sqls) == 1
     sql = insert_sqls[0]
-    assert "ON CONFLICT (cron_name, run_day)" in sql
+    assert "ONCONFLICT(cron_name,run_day)" in sql.replace(" ","")
     assert sql.rstrip().endswith("RETURNING *")
-    assert "cron_runs.status = 'failed'" in sql  # failed-run takeover
-    assert "claimed_at < now()" in sql  # stale-owner takeover
+    assert "cron_runs.status='failed'" in sql.replace(" ","")  # failed-run takeover
+    assert "lease_expires_at" in sql and "clock_timestamp()" in sql  # stale-owner takeover
 
 
 def test_schedule_releases_claim_when_sweep_raises(monkeypatch):
@@ -279,15 +283,15 @@ def test_claim_helpers_single_statement_shapes():
     try:
         from datetime import date as _date
         cron_claim.claim_cron_run("daily-scans", _date(2026, 10, 4), "api:1")
-        cron_claim.complete_cron_run("daily-scans", _date(2026, 10, 4))
-        cron_claim.release_cron_run("daily-scans", _date(2026, 10, 4))
+        cron_claim.complete_cron_run("daily-scans", _date(2026, 10, 4),{"claimed_by":"api:1","claim_generation":1,"claim_token":"test"})
+        cron_claim.release_cron_run("daily-scans", _date(2026, 10, 4),{"claimed_by":"api:1","claim_generation":1,"claim_token":"test"})
         assert cron_claim.cron_run_completed("daily-scans", _date(2026, 10, 4)) is False
     finally:
         cron_claim.execute_one = orig
 
     assert "INSERT INTO cron_runs" in captured[0] and "ON CONFLICT" in captured[0]
-    assert captured[1].startswith("UPDATE cron_runs") and "status = 'completed'" in captured[1]
-    assert captured[2].startswith("DELETE FROM cron_runs") and "status = 'running'" in captured[2]
+    assert captured[1].startswith("UPDATE cron_runs") and "status='completed'" in captured[1]
+    assert captured[2].startswith("UPDATE cron_runs") and "status='failed'" in captured[2]
     assert "FROM cron_runs" in captured[3]
 
 

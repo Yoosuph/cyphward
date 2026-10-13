@@ -10,6 +10,7 @@ from psycopg.errors import LockNotAvailable, QueryCanceled, UniqueViolation
 from backend.app.billing.subscriptions import resolve_plan
 from backend.app.core.database import get_db
 from shared.contracts import empty_stage_progress
+from backend.app.core.cron_claim import lock_cron_claim
 
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -39,6 +40,7 @@ def admit_scan(
     *,
     request_scope: str,
     request_key: Optional[str] = None,
+    cron_authority: Optional[Dict[str, Any]] = None,
 ) -> Admission:
     """Serialize tenant scan admissions and commit scan/key together.
 
@@ -57,6 +59,8 @@ def admit_scan(
                 with conn.cursor() as cur:
                     cur.execute("SET LOCAL lock_timeout = '5s'")
                     cur.execute("SET LOCAL statement_timeout = '15s'")
+                    if cron_authority is not None:
+                        lock_cron_claim(cur, cron_authority)
                     cur.execute("SELECT id, plan FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
                     org = cur.fetchone()
                     if not org:
