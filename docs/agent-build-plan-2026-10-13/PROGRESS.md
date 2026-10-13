@@ -2,9 +2,9 @@
 
 **Last updated:** 13 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00 and 01 are implemented and validated. Packet 01's production migration has been applied after backup and restore verification. Application code is awaiting commit, push and deployment verification.
+**Current state:** Packets 00 and 01 are complete. Packet 01 is released as implementation commit `c2ae218` on both repositories, with its production migration and live API/frontend verified. Packet 02 is specified in `02-scan-execution.md`; its code is not implemented.
 
-## Packet 01 review — 13 October 2026
+## Packet 01 pre-release review — 13 October 2026
 
 - Reviewed the current worktree diff for admission ordering, transaction boundaries, idempotency replay, subscription serialization, scheduled identity, mobile retry behavior and migration rollback safety.
 - No additional code-level blocker was found in this review. `git diff --check` passes. The previously recorded backend, real-PostgreSQL and frontend validation remains the available test evidence; this review did not rerun those suites because the temporary validation environment had already been removed.
@@ -52,9 +52,16 @@
 - Saved a full logical database dump and a separate application/public-schema dump privately outside the repository. Restored the application snapshot into an owned loopback database, supplying its extension, role and auth-function dependencies. All ten recorded application table counts matched. Applied the new migration successfully to that restored existing schema.
 - Applied **only** `20261013090000_scan_admission.sql` to the intended shared database in one transaction with bounded lock/statement timeouts; recorded its version in Supabase migration history. No historical migration or seed was applied remotely.
 - Verified the unique index is valid, mapping-table RLS is enabled, grants are present, and the `cyphward_app` connection can read the new table without superuser or `BYPASSRLS`. Existing application row counts were unchanged immediately after migration.
-- Re-ran backend regression checks with production connections/delivery disabled: **383 passed, 30 skipped**. The 30 skips include the 14 new admission cases when their explicit test URL is absent. Those cases separately passed **14/14** against a fresh synthetic `cyphward_test` database as `cyphward_app`. Frontend production build and the scan-page browser suite passed at desktop/390px/320px, including intent replay and overlap navigation. The mocked Vite proxy emitted the same non-failing post-assertion `ECONNREFUSED` log.
-- Application commit/push and independent live verification are pending. No production scan, event, email or customer-account mutation was used for these checks.
+- Re-ran backend regression checks with production connections/delivery disabled: **383 passed, 30 skipped**. The 30 skips include the 14 new admission cases when their explicit test URL is absent. Those cases separately passed **14/14** against a fresh synthetic `cyphward_test` database as `cyphward_app`. Frontend production build, onboarding browser suite and the scan-page browser suite passed, including desktop/390px/320px layouts, intent replay and overlap navigation. The mocked Vite proxy emitted the same non-failing post-assertion `ECONNREFUSED` log.
+- Committed implementation and the strategy/handoff documents as `c2ae2188698fc184bc24f8115069aa3e11d15448`. Pushed `origin/main` and `fork/main` and verified both remote refs match that SHA. The local hook synchronized the fork before the origin push; the explicit fork push was up to date.
+- Both repositories' CI completed successfully for that revision: [origin CI](https://github.com/Yoosuph/cyphward/actions/runs/38359593995), [fork CI](https://github.com/kankarofi125/cyphward/actions/runs/38359587969).
+- Independently checked the deployed API at `/api/v1/openapi.json`: the launch operation exposes `Idempotency-Key`. API `/health` reports healthy with database connected. The live `/scans` SPA serves `/assets/index-Htpuc6lQ.js`, matching the local production build with the new launch-intent implementation.
+- Live verification established deployment/schema presence and health; authenticated production launch/replay was not exercised. No production scan, event, email or customer-account mutation was invoked for these checks.
 
 Local dispatch still has its documented crash/retry limitations; this change does not establish exactly-once scanner execution. Packet 02 remains the next engineering packet. The handoff ZIP contains the updated documentation.
+
+## Next assignment
+
+Implement Packet 02 using `02-scan-execution.md` and the current source. The new specification includes worker/local/Core/cron ownership, evidence across attempts, real-PostgreSQL acceptance cases, and protocol rollout/rollback requirements. It is a specification, not implementation evidence. `START-HERE.md` now points the next agent to this assignment.
 
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.

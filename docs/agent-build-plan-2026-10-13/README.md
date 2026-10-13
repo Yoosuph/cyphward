@@ -1,17 +1,17 @@
 # Cyphward implementation handoff
 
 **Prepared:** 13 October 2026
-**Source baseline inspected:** `c7edb77` on local `main`
+**Released implementation baseline:** `c2ae218` on `main` (original architecture baseline: `c7edb77`)
 **Purpose:** Give the next AI coding agent a sequenced, testable implementation plan.
-**Current task:** Packets 00 and 01 are implemented and validated. Packet 01's production migration has been applied after a verified private backup/restore rehearsal; application shipping and live verification are in progress. See `PROGRESS.md` for the exact delivery state.
+**Current task:** Packets 00 and 01 are complete and Packet 01 is released. The next implementation assignment is Packet 02. See `PROGRESS.md` for test and deployment evidence.
 
-Start with [START-HERE.md](START-HERE.md). The first implementation specification is [01-scan-admission.md](01-scan-admission.md). Record progress in [PROGRESS.md](PROGRESS.md). The business rationale is in [the growth strategy](../growth-and-competitive-strategy-2026-10-12.md).
+Start with [START-HERE.md](START-HERE.md). The current implementation specification is [02-scan-execution.md](02-scan-execution.md); [01-scan-admission.md](01-scan-admission.md) documents the released foundation. Record progress in [PROGRESS.md](PROGRESS.md). The business rationale is in [the growth strategy](../growth-and-competitive-strategy-2026-10-12.md).
 
 ## 1. The outcome and first assignment
 
 The product should reliably carry a customer through **verified domain → useful assessment → prioritised work → supported verification → trustworthy evidence → recurring monitoring**. Compliance and Academy should extend this flow when buyer demand supports them.
 
-**The next agent's initial assignment is Packet 00 and Packet 01 only.** Complete a reviewable, tested change for safe scan admission. Do not attempt the entire roadmap in one branch or silently start later packets. Later work is specified below so the first change leaves appropriate boundaries.
+**The next agent's assignment is Packet 02 only.** Complete a reviewable, tested change for execution ownership and recovery. Preserve the released admission implementation. Do not attempt the entire roadmap in one branch or silently start later packets.
 
 The first delivery target is a **review-ready implementation**, with actual test evidence and migration/release instructions. This handoff does not itself issue an instruction to deploy or change production data. If the user separately authorises shipping, carry that authorisation forward without asking again for the same action.
 
@@ -28,16 +28,16 @@ The first delivery target is a **review-ready implementation**, with actual test
 
 ## 3. Facts the next agent must know
 
-The following are source observations at the baseline, not proof of a new production incident:
+The following describe the released admission foundation and remaining execution risks; they are not proof of a new production incident:
 
 | Area | Current behavior | Planning consequence |
 | --- | --- | --- |
-| Manual admission | `launch_scan` checks quota and then inserts through a separate database call. No request idempotency or active-domain guard. | Make admission atomic before increasing workload. |
-| Scheduled admission | `_daily_scan_sweep` checks `organizations.plan`; manual admission uses subscription-aware `resolve_plan`. | Use one entitlement/admission policy. Expired or cancelled subscriptions must behave consistently. |
-| Scheduler overlap | Candidate selection excludes organisations with active scans, but snapshots multiple domains before inserting. | Current behavior is not a dependable organisation-wide concurrency limit. Packet 01 explicitly selects per-domain non-overlap. |
+| Manual admission | `launch_scan` uses shared transactional admission with subscription-aware quota, per-domain overlap protection and optional request identity. | Preserve Packet 01's guarantees and replay behavior. |
+| Scheduled admission | `_daily_scan_sweep` uses the same admission policy and a UTC-day/domain request identity. | Preserve matching entitlements and scheduled replay semantics. |
+| Scheduler overlap | A partial unique index and organization-row admission lock prevent concurrent active jobs for the same domain. | Different domains may still run concurrently; do not introduce an accidental organization-wide restriction. |
 | Database helpers | `execute_one`/`execute_query` commit individual calls. | Consecutive helper calls do not form an atomic business transaction. |
 | Worker writes | `_held_job` checks scanner ID and running status separately from writes; observations are deleted and inserted in separate calls. | Packet 02 must fence every mutation using a current claim and transaction. |
-| Delivery | Admission comments mention exactly-once dispatch, but duplicate delivery/local execution and process crashes require separate treatment. | Packet 01 proves admission idempotency, not exactly-once execution. |
+| Delivery | Remote mode uses the persisted queued row; local dispatch still has documented crash/retry gaps. | Packet 01 proves admission idempotency; Packet 02 must address execution/delivery recovery. |
 | Cron ownership | Claim acquisition is atomic, but completion/release do not compare a claim generation. | Packet 02 includes stale scheduler-owner behavior. |
 | Reports | Report generation combines live findings with the latest assessment. | Packet 04 must introduce an explicit, consistent snapshot contract. |
 | Existing tests | Most backend tests use SQL-pattern-matching fake data. Several optional integration tests explicitly target configured real/production URLs and mutate records. | Never enable those flags against inherited credentials. New concurrency tests require an isolated disposable database. |
@@ -148,7 +148,7 @@ npm run test:onboarding-ui --workspace frontend
 git diff --check
 ```
 
-The backend command alone does not prove database concurrency. Packet 01 must add and document a safe executable command for its new real-PostgreSQL tests; that command does not exist yet. It should provision or explicitly select only the owned disposable database, use independent connections, and fail if the required isolation cannot be established.
+The backend command alone does not prove database concurrency. Packet 01 added `backend/tests/test_scan_admission_postgres.py`, which uses independent connections. Set `CYPHWARD_TEST_DATABASE_URL` explicitly to a freshly migrated, owned loopback database named `cyphward_test`, and set `DATABASE_URL` to that same synthetic destination before running tests. The test module skips when its URL is absent and refuses non-loopback or differently named destinations. Never point it at the private restore-rehearsal database containing customer records. Packet 02 must reuse or extend this isolation guard and document its own real-database commands.
 
 Run relevant tests after changes and required full checks once the packet is complete. Do not repeatedly run unchanged passing suites without a new reason. Browser regressions use mocked APIs and must be reported as such. Normal scans UI tests should not overwrite committed screenshots; explicit screenshot regeneration is separate.
 

@@ -1,6 +1,6 @@
 # Packet 01 — atomic, retry-safe scan admission
 
-**Status:** implemented and validated; production migration applied, application release in progress. **Priority:** first implementation packet.
+**Status:** implemented, validated and released as `c2ae218`; production migration and API/frontend deployment verified. **Priority:** first implementation packet.
 **Problem:** two requests can separately pass quota/overlap checks and create duplicate or excess work. Manual and scheduled requests currently resolve entitlements differently.
 **Result:** a single admission policy commits at most one accepted job for the same intent, never exceeds the applicable scan allowance under concurrent admissions, and prevents simultaneous jobs for the same organisation/domain.
 
