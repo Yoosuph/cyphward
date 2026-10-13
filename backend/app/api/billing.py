@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from backend.app.billing.provider import PLAN_PRICES_KOBO, provider
 from backend.app.billing.subscriptions import effective_status, resolve_plan
 from backend.app.core.auth import get_current_org, log_audit, membership_role, require_owner
-from backend.app.core.database import execute_one, execute_query
+from backend.app.core.database import execute_one, execute_query, get_db
 from backend.app.core.plans import PLANS, parse_plan
 
 router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
@@ -54,6 +54,34 @@ def _open_invoice(org_id: str, plan: str) -> Optional[Dict[str, Any]]:
     )
 
 
+def _save_subscription_plan(org_id: str, plan: str) -> Dict[str, Any]:
+    """Upsert a plan while serializing with admission on the organization row."""
+    with get_db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Workspace not found.")
+                cur.execute(
+                    """
+                    INSERT INTO subscriptions (org_id, plan, status, provider,
+                                               current_period_start, current_period_end)
+                    VALUES (%s, %s, 'active', 'manual', now(), now() + interval '30 days')
+                    ON CONFLICT (org_id) DO UPDATE SET
+                      plan = EXCLUDED.plan,
+                      status = CASE WHEN subscriptions.status = 'canceled' THEN 'active'
+                                    ELSE subscriptions.status END,
+                      cancel_at_period_end = false,
+                      current_period_start = now(),
+                      current_period_end = now() + interval '30 days',
+                      updated_at = now()
+                    RETURNING *
+                    """,
+                    (org_id, plan),
+                )
+                return cur.fetchone()
+
+
 @router.get("/subscription")
 def get_subscription(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     sub = _get_subscription(str(org["id"]))
@@ -79,23 +107,7 @@ def set_subscription(
     """Owner sets the commercial plan (manual billing — records only)."""
     plan = parse_plan(req.plan)
     org_id = str(org["id"])
-    sub = execute_one(
-        """
-        INSERT INTO subscriptions (org_id, plan, status, provider,
-                                   current_period_start, current_period_end)
-        VALUES (%s, %s, 'active', 'manual', now(), now() + interval '30 days')
-        ON CONFLICT (org_id) DO UPDATE SET
-          plan = EXCLUDED.plan,
-          status = CASE WHEN subscriptions.status = 'canceled' THEN 'active'
-                        ELSE subscriptions.status END,
-          cancel_at_period_end = false,
-          current_period_start = now(),
-          current_period_end = now() + interval '30 days',
-          updated_at = now()
-        RETURNING *
-        """,
-        (org_id, plan),
-    )
+    sub = _save_subscription_plan(org_id, plan)
     invoice = _open_invoice(org_id, plan)
     provider.charge(invoice or {"id": None, "amount_kobo": 0})
     log_audit(org_id, org.get("current_user_id"), "billing.plan_changed",
@@ -107,23 +119,31 @@ def set_subscription(
 def renew_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
     """Owner extends the period 30 days (manual billing — records only)."""
     org_id = str(org["id"])
-    sub = _get_subscription(org_id)
-    if not sub:
-        raise HTTPException(status_code=404, detail="No subscription — set a plan first.")
-    plan = (sub.get("plan") or "").strip().lower()
-    if plan not in PLANS:
-        raise HTTPException(status_code=400, detail="Subscription plan is invalid — set a plan first.")
-    sub = execute_one(
-        """
-        UPDATE subscriptions
-        SET status = 'active', cancel_at_period_end = false,
-            current_period_start = now(),
-            current_period_end = now() + interval '30 days',
-            updated_at = now()
-        WHERE org_id = %s RETURNING *
-        """,
-        (org_id,),
-    )
+    with get_db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Workspace not found.")
+                cur.execute("SELECT * FROM subscriptions WHERE org_id = %s FOR UPDATE", (org_id,))
+                existing = cur.fetchone()
+                if not existing:
+                    raise HTTPException(status_code=404, detail="No subscription — set a plan first.")
+                plan = (existing.get("plan") or "").strip().lower()
+                if plan not in PLANS:
+                    raise HTTPException(status_code=400, detail="Subscription plan is invalid — set a plan first.")
+                cur.execute(
+                    """
+                    UPDATE subscriptions
+                    SET status = 'active', cancel_at_period_end = false,
+                        current_period_start = now(),
+                        current_period_end = now() + interval '30 days',
+                        updated_at = now()
+                    WHERE org_id = %s RETURNING *
+                    """,
+                    (org_id,),
+                )
+                sub = cur.fetchone()
     invoice = _open_invoice(org_id, plan)
     log_audit(org_id, org.get("current_user_id"), "billing.renewed",
               "subscription", str(sub["id"]), {"plan": plan})
@@ -134,11 +154,18 @@ def renew_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str
 def cancel_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
     """Owner cancels at period end (quotas hold until the period lapses)."""
     org_id = str(org["id"])
-    sub = execute_one(
-        "UPDATE subscriptions SET cancel_at_period_end = true, updated_at = now() "
-        "WHERE org_id = %s RETURNING *",
-        (org_id,),
-    )
+    with get_db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="Workspace not found.")
+                cur.execute(
+                    "UPDATE subscriptions SET cancel_at_period_end = true, updated_at = now() "
+                    "WHERE org_id = %s RETURNING *",
+                    (org_id,),
+                )
+                sub = cur.fetchone()
     if not sub:
         raise HTTPException(status_code=404, detail="No subscription — set a plan first.")
     log_audit(org_id, org.get("current_user_id"), "billing.cancelled",

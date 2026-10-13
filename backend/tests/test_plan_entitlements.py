@@ -31,7 +31,11 @@ def _now_scan(store, org_id, i):
 
 
 class _NoopInngest:
+    def __init__(self):
+        self.events = []
+
     async def send(self, event):
+        self.events.append(event)
         return {"ok": True}
 
 
@@ -89,6 +93,73 @@ def test_scan_launch_under_quota_succeeds(client, auth_headers, store, monkeypat
     resp = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1},
                        headers=_h(auth_headers, ADMI, ORG_A))
     assert resp.status_code == 200
+
+
+def test_scan_launch_retries_return_same_job_without_redispatch(client, auth_headers, store, monkeypatch):
+    provider = _NoopInngest()
+    monkeypatch.setattr(scans_mod, "inngest_client", provider)
+    headers = {**_h(auth_headers, ADMI, ORG_A), "Idempotency-Key": "browser-intent-123"}
+    first = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1}, headers=headers)
+    replay = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1}, headers=headers)
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["scan"]["id"] == replay.json()["scan"]["id"]
+    assert replay.json()["replayed"] is True
+    assert len(provider.events) == 1
+
+
+def test_scan_launch_rejects_reused_key_with_different_domain(client, auth_headers, store, monkeypatch):
+    provider = _NoopInngest()
+    monkeypatch.setattr(scans_mod, "inngest_client", provider)
+    other_domain = "d1111111-0000-4000-8000-000000000002"
+    store.domains.append({"id": other_domain, "org_id": ORG_A, "domain": "other.acme.test",
+                          "verification_status": "verified", "created_at": datetime.now(timezone.utc)})
+    headers = {**_h(auth_headers, ADMI, ORG_A), "Idempotency-Key": "same-key"}
+    first = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1}, headers=headers)
+    conflict = client.post("/api/v1/scans/launch", json={"domain_id": other_domain}, headers=headers)
+    assert first.status_code == 200
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "idempotency_key_reused"
+    assert len(provider.events) == 1
+
+
+def test_scan_launch_active_domain_conflict_returns_existing_scan(client, auth_headers, store, monkeypatch):
+    provider = _NoopInngest()
+    monkeypatch.setattr(scans_mod, "inngest_client", provider)
+    first = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1},
+                        headers={**_h(auth_headers, ADMI, ORG_A), "Idempotency-Key": "first-intent"})
+    second = client.post("/api/v1/scans/launch", json={"domain_id": DOM_A1},
+                         headers={**_h(auth_headers, ADMI, ORG_A), "Idempotency-Key": "second-intent"})
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["code"] == "scan_already_active"
+    assert second.json()["scan_id"] == first.json()["scan"]["id"]
+    assert len(provider.events) == 1
+
+
+def test_scan_launch_keeps_verified_domain_tenant_boundary(client, auth_headers, store, monkeypatch):
+    provider = _NoopInngest()
+    monkeypatch.setattr(scans_mod, "inngest_client", provider)
+    store.domains.append({"id": "d2222222-0000-4000-8000-000000000002", "org_id": "22222222-bbbb-4bbb-8bbb-222222222222",
+                          "domain": "other.test", "verification_status": "verified"})
+    response = client.post("/api/v1/scans/launch",
+                           json={"domain_id": "d2222222-0000-4000-8000-000000000002"},
+                           headers=_h(auth_headers, ADMI, ORG_A))
+    assert response.status_code == 404
+    assert provider.events == []
+
+
+def test_scan_launch_rejects_unverified_domain_without_consuming_quota(client, auth_headers, store, monkeypatch):
+    provider = _NoopInngest()
+    monkeypatch.setattr(scans_mod, "inngest_client", provider)
+    pending_id = "d1111111-0000-4000-8000-000000000003"
+    scan_count = len(store.scans)
+    store.domains.append({"id": pending_id, "org_id": ORG_A, "domain": "pending.acme.test",
+                          "verification_status": "pending"})
+    response = client.post("/api/v1/scans/launch", json={"domain_id": pending_id},
+                           headers=_h(auth_headers, ADMI, ORG_A))
+    assert response.status_code == 403
+    assert len(store.scans) == scan_count
+    assert provider.events == []
 
 
 def test_domain_add_enforces_limit(client, auth_headers, store):

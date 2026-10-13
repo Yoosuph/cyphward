@@ -76,7 +76,7 @@ def usage_for_org(org_id: str) -> Dict[str, int]:
     scans = execute_one(
         """
         SELECT count(*) AS n FROM scans
-        WHERE org_id = %s AND created_at >= date_trunc('month', now())
+        WHERE org_id = %s AND created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
         """,
         (org_id,),
     )
@@ -106,7 +106,7 @@ def monthly_scan_count(org_id: str) -> int:
     row = execute_one(
         """
         SELECT count(*) AS n FROM scans
-        WHERE org_id = %s AND created_at >= date_trunc('month', now())
+        WHERE org_id = %s AND created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
         """,
         (org_id,),
     )

@@ -81,3 +81,36 @@ supabase db push
   list members and scans.
 - The destructive tables are gone: the pre-flight query errors with
   "relation does not exist" (expected).
+
+## Scan-admission migration pre-flight
+
+Migration `20261013090000_scan_admission.sql` adds retry mappings and a unique
+guard for active scans. Before applying it to an existing database, inspect
+active duplicates:
+
+```sql
+SELECT org_id, domain_id, array_agg(id ORDER BY created_at, id) AS scan_ids,
+       count(*) AS active_count
+FROM scans
+WHERE status IN ('queued', 'running') AND domain_id IS NOT NULL
+GROUP BY org_id, domain_id
+HAVING count(*) > 1;
+```
+
+The migration intentionally stops if any rows are returned. Review each row
+against worker ownership and customer history, then decide whether to let a job
+finish, safely cancel a duplicate, or repair a stale status. Record the chosen
+scan IDs and reason before applying any data change. Do not bulk-delete scans
+or observations to make the unique index succeed. Re-run the query and confirm
+it returns no rows before retrying the additive migration. Apply first in a
+disposable database, then follow the normal backup and release process.
+
+For an existing, current installation, apply this **new additive migration only**
+in a transaction; do not replay the historical destructive migrations or seeds.
+Set bounded lock and statement timeouts, and abort if the migration preflight
+raises. Verify the index is valid, the retry table has RLS and application-role
+grants, and existing application row counts are unchanged. Record the version in
+`supabase_migrations.schema_migrations` when using the manual SQL path. Deploy
+the API before requiring the new frontend retry behavior. For an application
+rollback, retain the additive schema and request mappings; rolling back the code
+does not require deleting customer retry/history records.

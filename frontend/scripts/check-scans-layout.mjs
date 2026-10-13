@@ -120,7 +120,11 @@ try {
   let delayId = null;
   let delayedRequest = null;
   let launchFailure = true;
+  let launchConflict = false;
   let launchRequests = 0;
+  let launch401Once = false;
+  let launchIntentHeaders = [];
+  let refreshRequests = 0;
   let slowResponses = false;
   const raw_results = [
     {
@@ -147,7 +151,15 @@ try {
     if (url.pathname.startsWith("/api/")) {
       let body = {},
         status = 200;
-      if (url.pathname.endsWith("/auth/bootstrap"))
+      if (url.pathname.endsWith("/auth/refresh")) {
+        refreshRequests++;
+        body = {
+          access_token: "design-mock-token-refreshed",
+          refresh_token: "design-mock-refresh-rotated",
+          expires_in: 3600,
+          user,
+        };
+      } else if (url.pathname.endsWith("/auth/bootstrap"))
         body = {
           user,
           email_verified: true,
@@ -162,7 +174,20 @@ try {
         }
       } else if (url.pathname.endsWith("/scans/launch")) {
         launchRequests++;
-        if (launchFailure) {
+        launchIntentHeaders.push(request.headers()["idempotency-key"]);
+        if (launch401Once) {
+          launch401Once = false;
+          status = 401;
+          body = { detail: "Access token expired" };
+        } else if (launchConflict) {
+          launchConflict = false;
+          status = 409;
+          body = {
+            detail: "A scan is already queued or running for example.ng.",
+            code: "scan_already_active",
+            scan_id: "demo-scan-002",
+          };
+        } else if (launchFailure) {
           status = 503;
           body = { detail: "Temporary launch outage" };
         } else {
@@ -510,6 +535,7 @@ try {
       "Launch error preserves the dialog",
     );
     launchFailure = false;
+    launch401Once = true;
     await page.evaluate(() =>
       [...document.querySelectorAll(".modal-backdrop button")]
         .find((button) => button.textContent.trim() === "Start scan")
@@ -520,10 +546,40 @@ try {
         document.querySelector(".scan-summary .scan-badge")?.textContent ===
         "Queued",
     );
-    assert.equal(launchRequests, 2);
+    assert.equal(launchRequests, 3, "401 causes one authenticated replay");
+    assert.equal(refreshRequests, 1, "401 rotates the session once");
+    assert.ok(launchIntentHeaders[0], "Launch sends an idempotency key");
+    assert.ok(launchIntentHeaders[0].length <= 128);
+    assert.equal(new Set(launchIntentHeaders.slice(0, 3)).size, 1,
+      "Network uncertainty and auth replay reuse the same launch intent");
+    await page.click('button[aria-label="Start scan"]');
+    await page.waitForSelector(".modal-backdrop");
+    await page.evaluate(() =>
+      [...document.querySelectorAll(".modal-backdrop button")]
+        .find((button) => button.textContent.trim() === "Start scan")
+        .click(),
+    );
+    await page.waitForFunction(() => document.querySelector(".scan-summary .scan-badge")?.textContent === "Queued");
+    assert.equal(launchRequests, 4);
+    assert.notEqual(launchIntentHeaders[3], launchIntentHeaders[0],
+      "A new deliberate launch uses a fresh intent key");
+    launchConflict = true;
+    await page.click('button[aria-label="Start scan"]');
+    await page.waitForSelector(".modal-backdrop");
+    const existingDetailRequest = page.waitForRequest((request) =>
+      request.url().endsWith("/scans/demo-scan-002"), { timeout: 5000 });
+    await page.evaluate(() =>
+      [...document.querySelectorAll(".modal-backdrop button")]
+        .find((button) => button.textContent.trim() === "Start scan")
+        .click(),
+    );
+    await existingDetailRequest;
+    await page.waitForSelector(".drawer.open");
+    assert.equal(launchRequests, 5);
     slowResponses = true;
-    scans[0].status = "completed";
-    scans[0].stage_progress = progress;
+    const monitoredScan = scans.find((scan) => scan.id === "demo-scan-002");
+    monitoredScan.status = "completed";
+    monitoredScan.stage_progress = progress;
     await page.waitForFunction(
       () =>
         document.querySelector(".scan-summary .scan-lifecycle")?.textContent ===
@@ -531,7 +587,7 @@ try {
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: responsive layout, target sizes, history filters, stale scan-detail response, outage recovery, member permissions, verified-domain launch, empty state, keyboard containment, launch error/success and polling with slow responses",
+      "PASS: responsive layout, target sizes, history filters, stale scan-detail response, outage recovery, member permissions, verified-domain launch, empty state, keyboard containment, launch intent idempotency across outage/auth replay, fresh subsequent intent, active-scan navigation and polling with slow responses",
     );
   }
   if (capture)

@@ -22,7 +22,7 @@ import logging
 import shutil
 import socket
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
 import inngest
@@ -36,7 +36,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
-from backend.app.core.plans import PLANS, LEGACY_PLAN_FALLBACK
+from backend.app.core.scan_admission import admit_scan
 from backend.app.core.cron_claim import (
     DAILY_SCAN_CRON_NAME,
     claim_cron_run,
@@ -79,11 +79,6 @@ TLS_HOST_CAP = 25
 # Port-scan concurrency within the ports stage (one stage at a time, §16).
 PORTS_STAGE_CONCURRENCY = 4
 TLS_STAGE_CONCURRENCY = 2
-
-
-def _queued_stage_progress() -> Dict[str, Any]:
-    """Initial stage_progress for a newly queued scan row (all stages queued)."""
-    return empty_stage_progress()
 
 
 def _tool_available(binary: str) -> bool:
@@ -1147,7 +1142,7 @@ async def run_daily_scan_schedule() -> Dict[str, Any]:
         return {"claimed": False, "due_domains": 0, "scheduled": 0}
 
     try:
-        result = await _daily_scan_sweep()
+        result = await _daily_scan_sweep(run_day)
         complete_cron_run(DAILY_SCAN_CRON_NAME, run_day)
     except BaseException:
         release_cron_run(DAILY_SCAN_CRON_NAME, run_day)
@@ -1161,60 +1156,39 @@ def _claimant_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
-async def _daily_scan_sweep() -> Dict[str, Any]:
+async def _daily_scan_sweep(run_day: date | None = None) -> Dict[str, Any]:
     due_domains = execute_query(
         """
         SELECT d.id AS domain_id, d.org_id, d.domain
         FROM domains d
         WHERE d.verification_status = 'verified'
-          AND NOT EXISTS (
-            SELECT 1 FROM scans s
-            WHERE s.org_id = d.org_id
-              AND s.status IN ('queued', 'running')
-          )
         ORDER BY d.created_at ASC
         """
     ) or []
 
     scheduled = 0
     skipped_quota = 0
-    stage_progress = _queued_stage_progress()
-
-    # Plan quotas apply to automation too (review P1 line 33) — an org at
-    # its monthly scan limit is skipped instead of burning quota.
-    plan_rows = execute_query("SELECT id, plan FROM organizations") or []
-    plan_of = {
-        str(r["id"]): ((r.get("plan") or "").strip().lower() or LEGACY_PLAN_FALLBACK)
-        for r in plan_rows
-    }
+    skipped_active = 0
+    replayed = 0
+    run_day = run_day or datetime.now(timezone.utc).date()
 
     for row in due_domains:
-        slug = plan_of.get(str(row["org_id"]), LEGACY_PLAN_FALLBACK)
-        quota = PLANS.get(slug, PLANS[LEGACY_PLAN_FALLBACK])["monthly_scans"]
-        if quota is not None:
-            # Module-level execute_one so tests can fake it; None row = 0.
-            used_row = execute_one(
-                """
-                SELECT count(*) AS n FROM scans
-                WHERE org_id = %s AND created_at >= date_trunc('month', now())
-                """,
-                (str(row["org_id"]),),
-            )
-            if (used_row or {}).get("n", 0) >= quota:
-                skipped_quota += 1
-                continue
-        new_scan = execute_one(
-            """
-            INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)
-            VALUES (%s, %s, 'EXTERNAL_ASSESSMENT', 'queued', 'queued', %s::jsonb)
-            RETURNING id
-            """,
-            (row["org_id"], row["domain_id"], json.dumps(stage_progress)),
+        admission = admit_scan(
+            str(row["org_id"]), str(row["domain_id"]),
+            request_scope=f"scheduled:{run_day.isoformat()}",
+            request_key=f"domain:{row['domain_id']}",
         )
-        if not new_scan:
+        if admission.outcome == "quota":
+            skipped_quota += 1
+            continue
+        if admission.outcome == "active":
+            skipped_active += 1
+            continue
+        if admission.outcome == "replayed":
+            replayed += 1
             continue
 
-        scan_id = str(new_scan["id"])
+        scan_id = str(admission.scan["id"])
         try:
             await inngest_client.send(inngest.Event(name="scan.requested", data={
                 "version": 1,
@@ -1240,7 +1214,7 @@ async def _daily_scan_sweep() -> Dict[str, Any]:
 
         scheduled += 1
         log_audit(row["org_id"], None, "scan.scheduled", "scan", scan_id, {
-            "domain": row["domain"],
+            "domain": admission.domain,
             "trigger": "cron",
         })
 
@@ -1248,11 +1222,14 @@ async def _daily_scan_sweep() -> Dict[str, Any]:
         "due_domains": len(due_domains),
         "scheduled": scheduled,
         "skipped_quota": skipped_quota,
+        "skipped_active": skipped_active,
+        "replayed": replayed,
         "trigger": "cron",
     })
 
     return {"due_domains": len(due_domains), "scheduled": scheduled,
-            "skipped_quota": skipped_quota}
+            "skipped_quota": skipped_quota, "skipped_active": skipped_active,
+            "replayed": replayed}
 
 
 @inngest_client.create_function(

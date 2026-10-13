@@ -19,7 +19,11 @@ export default function OnboardingComplete() {
     try {
       await launchScan(primaryDomain.id);
       nav('/scans', { replace: true });
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.code === 'scan_already_active') {
+        nav('/scans', { replace: true, state: { scanId: e.scanId } });
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Could not start the scan. Please try again.');
       setBusy(false);
     }

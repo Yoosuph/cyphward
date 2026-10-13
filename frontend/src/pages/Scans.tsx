@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ArrowRight,
@@ -475,6 +475,7 @@ export default function Scans() {
   const orgId = organization?.id;
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const canManageScans = ["owner", "admin"].includes(
     organization?.membership_role || "member",
   );
@@ -503,6 +504,14 @@ export default function Scans() {
   const detailRequest = useRef(0);
   const coverageRef = useRef<HTMLDetailsElement>(null);
   const listRef = useRef<Scan[]>([]);
+  useEffect(() => {
+    const requestedScanId = (location.state as { scanId?: string } | null)?.scanId;
+    if (requestedScanId && scans.some((scan) => scan.id === requestedScanId)) {
+      setSelectedId(requestedScanId);
+      setDrawerOpen(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate, scans]);
   useEffect(() => {
     if (!drawerOpen && !launchOpen) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -710,6 +719,13 @@ export default function Scans() {
       )
         setSelectedId(result.scan.id);
     } catch (error: any) {
+      if (error.code === "scan_already_active" && error.scanId) {
+        setLaunchOpen(false);
+        await loadScans();
+        openDetails(error.scanId);
+        toast("A scan is already active for this domain. Showing it now.");
+        return;
+      }
       setLaunchError(
         error.message || "Failed to start scan. Please try again.",
       );

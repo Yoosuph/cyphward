@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import backend.app.core.cron_claim as cron_claim
+from backend.app.core.scan_admission import Admission
 import backend.app.workflows.inngest_workflow as wf
 from backend.app.scheduler import (
     CRON_RAN_ACTION,
@@ -90,6 +91,7 @@ class _ScheduleHarness:
         self.inserted_params = []
         self.queries = []
         self.claim_sqls = []
+        self.admissions = []
         self.claim_denied = False
         self.claimed = []
         self.completed = []
@@ -104,10 +106,14 @@ class _ScheduleHarness:
             return None  # failure-path UPDATE etc.
 
         def fake_execute_one(sql, params=()):
-            if "INSERT INTO scans" in sql:
-                self.inserted_params.append(params)
-                return {"id": uuid.uuid4()}
             return None
+
+        def fake_admit_scan(org_id, domain_id, *, request_scope, request_key):
+            self.admissions.append((str(org_id), str(domain_id), request_scope, request_key))
+            self.inserted_params.append((org_id, domain_id))
+            domain = next((row["domain"] for row in self.due_rows
+                           if str(row["domain_id"]) == str(domain_id)), None)
+            return Admission("created", scan={"id": uuid.uuid4(), "domain_id": domain_id}, domain=domain)
 
         def fake_claim_execute_one(sql, params=()):
             flat = " ".join(sql.split())
@@ -142,6 +148,7 @@ class _ScheduleHarness:
 
         monkeypatch.setattr(wf, "execute_query", fake_execute_query)
         monkeypatch.setattr(wf, "execute_one", fake_execute_one)
+        monkeypatch.setattr(wf, "admit_scan", fake_admit_scan)
         monkeypatch.setattr(cron_claim, "execute_one", fake_claim_execute_one)
         monkeypatch.setattr(wf, "log_audit", fake_audit)
         monkeypatch.setattr(wf, "execute_scan_pipeline", fake_pipeline)
@@ -160,13 +167,16 @@ def test_schedule_sends_one_scan_per_due_domain_and_audits(monkeypatch):
 
     result = asyncio.run(wf.run_daily_scan_schedule())
 
-    assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0, "claimed": True}
+    assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0,
+                      "skipped_active": 0, "replayed": 0, "claimed": True}
     assert len(h.sent_events) == 2
     assert all(e["trigger"] == "cron" for e in h.sent_events)
     assert all(e["organization_id"] for e in h.sent_events)
     assert h.audit_actions.count("scan.scheduled") == 2
     assert h.audit_actions.count(CRON_RAN_ACTION) == 1
     assert len(h.inserted_params) == 2
+    assert all(scope.startswith("scheduled:") and key.startswith("domain:")
+               for _, _, scope, key in h.admissions)
     # Claim lifecycle: acquired and completed, never released.
     assert len(h.claimed) == 1
     assert len(h.completed) == 1
@@ -178,7 +188,8 @@ def test_schedule_with_no_due_domains_writes_only_run_marker(monkeypatch):
 
     result = asyncio.run(wf.run_daily_scan_schedule())
 
-    assert result == {"due_domains": 0, "scheduled": 0, "skipped_quota": 0, "claimed": True}
+    assert result == {"due_domains": 0, "scheduled": 0, "skipped_quota": 0,
+                      "skipped_active": 0, "replayed": 0, "claimed": True}
     assert h.sent_events == []
     assert h.audit_actions == [CRON_RAN_ACTION]
 
@@ -189,7 +200,8 @@ def test_schedule_remote_mode_survives_event_send_failure(monkeypatch):
     result = asyncio.run(wf.run_daily_scan_schedule())
 
     # Queued rows are the dispatch — worker polls; counts still recorded.
-    assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0, "claimed": True}
+    assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0,
+                      "skipped_active": 0, "replayed": 0, "claimed": True}
     assert h.pipeline_calls == []
     assert h.audit_actions.count("scan.scheduled") == 2
     assert h.audit_actions.count(CRON_RAN_ACTION) == 1
@@ -383,17 +395,13 @@ def test_marker_constant_is_cron_ran():
 
 def test_sweep_skips_orgs_at_monthly_scan_quota(monkeypatch):
     h = _ScheduleHarness(monkeypatch, DUE_ROWS)
-    orig_execute_one = wf.execute_one
-
-    def counting(sql, params=()):
-        if "date_trunc('month', now())" in " ".join(sql.split()):
-            return {"n": 9999}  # over every test plan quota
-        return orig_execute_one(sql, params)
-
-    monkeypatch.setattr(wf, "execute_one", counting)
+    def quota(*args, **kwargs):
+        return Admission("quota", limit=30, used=30, plan_label="Starter")
+    monkeypatch.setattr(wf, "admit_scan", quota)
 
     result = asyncio.run(wf.run_daily_scan_schedule())
 
-    assert result == {"due_domains": 2, "scheduled": 0, "skipped_quota": 2, "claimed": True}
+    assert result == {"due_domains": 2, "scheduled": 0, "skipped_quota": 2,
+                      "skipped_active": 0, "replayed": 0, "claimed": True}
     assert h.inserted_params == []
     assert h.sent_events == []

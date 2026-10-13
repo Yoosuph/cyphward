@@ -106,6 +106,12 @@ export default function Overview() {
       setScanModalOpen(false);
       navigate('/scans');
     } catch (err: any) {
+      if (err.code === 'scan_already_active') {
+        toast('A scan is already active for this domain. Opening scan history.');
+        setScanModalOpen(false);
+        navigate('/scans', { state: { scanId: err.scanId } });
+        return;
+      }
       toast(err.message || 'Failed to start scan');
     } finally {
       setLaunching(false);

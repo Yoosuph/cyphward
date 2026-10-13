@@ -3,24 +3,24 @@ Cyphward Scans API Router
 Orchestrates asynchronous security scans against VERIFIED domains only (spec §40).
 Scanners never receive arbitrary targets — the backend resolves and authorizes scope.
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Header
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import json
+from uuid import UUID
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
 from backend.app.core.auth import get_current_org, require_admin, log_audit
-from backend.app.core.plans import require_quota
-from shared.contracts import empty_stage_progress
+from backend.app.core.scan_admission import admit_scan, AdmissionConflict
 import inngest
 
 router = APIRouter(prefix="/api/v1/scans", tags=["Scans"])
 
 
 class LaunchScanRequest(BaseModel):
-    domain_id: Optional[str] = None
+    domain_id: Optional[UUID] = None
 
 
 @router.get("")
@@ -85,56 +85,58 @@ def get_scan_detail(
 async def launch_scan(
     req: LaunchScanRequest,
     background_tasks: BackgroundTasks,
-    org: Dict[str, Any] = Depends(require_admin)
+    org: Dict[str, Any] = Depends(require_admin),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> Dict[str, Any]:
     """
     Launch an end-to-end security scan against a VERIFIED domain owned by this org.
     There is no bypass for unverified domains (spec §40).
     """
-    org_id = org["id"]
-
-    if req.domain_id:
-        domain = execute_one(
-            "SELECT * FROM domains WHERE id = %s AND org_id = %s",
-            (req.domain_id, org_id),
+    org_id = str(org["id"])
+    try:
+        admission = admit_scan(
+            org_id,
+            str(req.domain_id) if req.domain_id else None,
+            request_scope=f"user:{org.get('current_user_id') or 'unknown'}",
+            request_key=idempotency_key,
         )
-        if not domain:
-            raise HTTPException(status_code=404, detail="Domain not found.")
-    else:
-        domain = execute_one(
-            "SELECT * FROM domains WHERE org_id = %s AND verification_status = 'verified' ORDER BY created_at ASC LIMIT 1",
-            (org_id,),
-        )
-        if not domain:
-            raise HTTPException(
-                status_code=400,
-                detail="No verified domain found. Add and verify a domain before scanning.",
-            )
+    except AdmissionConflict as conflict:
+        return JSONResponse(status_code=409, content={
+            "detail": conflict.message,
+            "code": conflict.code,
+            **({"scan_id": conflict.scan_id} if conflict.scan_id else {}),
+        })
 
-    if domain["verification_status"] != "verified":
-        raise HTTPException(
-            status_code=403,
-            detail=f"Domain {domain['domain']} is not verified. Please verify DNS TXT ownership before initiating scans.",
-        )
+    if admission.outcome == "quota":
+        raise HTTPException(status_code=402, detail=(
+            f"Scans quota reached for the {admission.plan_label} plan "
+            f"({admission.used}/{admission.limit} this month). Upgrade or contact support."
+        ))
+    if admission.outcome == "active":
+        return JSONResponse(status_code=409, content={
+            "detail": f"A scan is already queued or running for {admission.domain}.",
+            "code": "scan_already_active",
+            "scan_id": str(admission.scan["id"]),
+        })
 
-    stage_progress = empty_stage_progress()
-
-    # Plan entitlement: monthly scan quota (review P1 line 33).
-    require_quota(org, "scans")
-
-    new_scan = execute_one("""
-        INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress)
-        VALUES (%s, %s, 'EXTERNAL_ASSESSMENT', 'queued', 'queued', %s::jsonb)
-        RETURNING *;
-    """, (org_id, domain["id"], json.dumps(stage_progress)))
-
+    new_scan = admission.scan
+    domain_name = admission.domain
     scan_id = str(new_scan["id"])
 
-    # Exactly-once dispatch: the queued row is always the job record.
-    # local:  Inngest event, with a local background task only as fallback
-    #         when the event gateway is unavailable (never both).
-    # remote: the scanner worker claims the row over outbound HTTPS — never
-    #         run recon in-process; the Inngest event is informational only.
+    # Persisted replay returns the original job and never dispatches it again.
+    if admission.outcome == "replayed":
+        return {
+            "message": f"Existing scan returned for {domain_name}.",
+            "scan": new_scan,
+            "domain": domain_name,
+            "dispatch": "replayed",
+            "replayed": True,
+        }
+
+    # Admission is committed before dispatch. This makes retries return the
+    # same job; it does not guarantee exactly-once execution after crashes.
+    # local: Inngest event, with a background task only as fallback.
+    # remote: the worker claims the durable queued row; never run recon here.
     remote = SCANNER_MODE == "remote"
     dispatched = False
     try:
@@ -142,7 +144,7 @@ async def launch_scan(
             "version": 1,
             "scan_id": scan_id,
             "organization_id": str(org_id),
-            "domain_id": str(domain["id"]),
+            "domain_id": str(new_scan["domain_id"]),
         }))
         dispatched = True
     except Exception as e:
@@ -161,13 +163,14 @@ async def launch_scan(
         dispatch_kind = "inngest"
 
     log_audit(org_id, org.get("current_user_id"), "scan.started", "scan", scan_id,
-              {"domain": domain["domain"], "dispatch": dispatch_kind})
+              {"domain": domain_name, "dispatch": dispatch_kind})
 
     return {
-        "message": f"Scan queued for {domain['domain']}.",
+        "message": f"Scan queued for {domain_name}.",
         "scan": new_scan,
-        "domain": domain["domain"],
+        "domain": domain_name,
         "dispatch": dispatch_kind,
+        "replayed": False,
     }
 
 

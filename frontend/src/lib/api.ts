@@ -70,9 +70,12 @@ async function apiFetch<T>(
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      const error: any = new Error(err.detail || `Request failed with status ${res.status}`);
+      const detail = typeof err.detail === 'string' ? err.detail : (err.detail?.message || err.message);
+      const error: any = new Error(detail || `Request failed with status ${res.status}`);
       // Carry the HTTP status so callers can branch (403 vs 409 vs 400).
       error.status = res.status;
+      error.code = err.code || err.detail?.code;
+      error.scanId = err.scan_id || err.detail?.scan_id;
       throw error;
     }
     return (await res.json()) as T;
@@ -213,13 +216,34 @@ export async function getScanDetail(scanId: string): Promise<{ scan: Scan; raw_r
   throw new Error('Failed to load scan detail (transient API error)');
 }
 
-export async function launchScan(domainId?: string): Promise<{ message: string; scan: Scan; domain: string }> {
-  const data = await apiFetch<{ message: string; scan: Scan; domain: string }>('/scans/launch', {
-    method: 'POST',
-    body: JSON.stringify({ domain_id: domainId }),
-  });
-  if (data) return data;
-  throw new Error('Failed to launch scan');
+export async function launchScan(domainId?: string): Promise<{ message: string; scan: Scan; domain: string; dispatch: string; replayed?: boolean }> {
+  const orgId = getActiveOrgId() || 'unknown-workspace';
+  const selector = domainId || 'default-domain';
+  const storageKey = `cyphward-scan-intent:${orgId}:${selector}`;
+  let intentKey = sessionStorage.getItem(storageKey);
+  if (!intentKey) {
+    intentKey = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem(storageKey, intentKey);
+  }
+  try {
+    const data = await apiFetch<{ message: string; scan: Scan; domain: string; dispatch: string; replayed?: boolean }>('/scans/launch', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': intentKey },
+      body: JSON.stringify({ domain_id: domainId }),
+    }, true);
+    if (data) {
+      sessionStorage.removeItem(storageKey);
+      return data;
+    }
+    throw new Error('Failed to launch scan');
+  } catch (error: any) {
+    // Preserve transport failures and 5xx responses because commit outcome may
+    // be uncertain. A definitive client error completes this intent.
+    if (error?.status >= 400 && error?.status < 500) sessionStorage.removeItem(storageKey);
+    throw error;
+  }
 }
 
 export async function cancelScan(scanId: string): Promise<boolean> {

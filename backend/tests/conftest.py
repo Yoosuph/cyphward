@@ -13,7 +13,7 @@ import json
 import re
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("AUTH_JWT_SECRET", "cyphward-test-secret-not-for-prod")
@@ -110,6 +110,9 @@ class FakeConn:
     def cursor(self):
         return FakeCursor(self._store)
 
+    def transaction(self):
+        return nullcontext(self)
+
     def commit(self):
         pass
 
@@ -137,6 +140,7 @@ class FakeStore:
         self.domains: list = []
         self.assets: list = []
         self.scans: list = []
+        self.scan_launch_requests: list = []
         self.snapshots: list = []
         self.evidence: list = []
         self.audit: list = []
@@ -156,6 +160,98 @@ class FakeStore:
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
         s = " ".join(sql.split())
+
+        if s.startswith("SET LOCAL "):
+            return []
+
+        if s.startswith("SELECT id, plan FROM organizations WHERE id = %s FOR UPDATE"):
+            org = self.organizations.get(str(params[0]))
+            return [{"id": org["id"], "plan": org.get("plan")} ] if org else []
+
+        if s.startswith("SELECT id FROM organizations WHERE id = %s FOR UPDATE"):
+            org = self.organizations.get(str(params[0]))
+            return [{"id": org["id"]}] if org else []
+
+        if s.startswith("SELECT r.requested_domain_id, r.domain_id, s.*"):
+            org_id, scope, key = params
+            mapping = next((r for r in self.scan_launch_requests
+                            if r["org_id"] == str(org_id) and r["request_scope"] == scope
+                            and r["request_key"] == key
+                            and r["expires_at"] > datetime.now(timezone.utc)), None)
+            if not mapping:
+                return []
+            scan = next((r for r in self.scans if r["id"] == mapping["scan_id"]
+                         and r["org_id"] == str(org_id)), None)
+            domain = next((r for r in self.domains if r["id"] == mapping["domain_id"]
+                           and r["org_id"] == str(org_id)), None)
+            return [{**scan, "requested_domain_id": mapping["requested_domain_id"],
+                     "domain_id": mapping["domain_id"], "domain": domain["domain"]}]
+
+        if s.startswith("DELETE FROM scan_launch_requests"):
+            org_id, scope, key = params
+            before = len(self.scan_launch_requests)
+            self.scan_launch_requests = [r for r in self.scan_launch_requests
+                if not (r["org_id"] == str(org_id) and r["request_scope"] == scope
+                        and r["request_key"] == key and r["expires_at"] <= datetime.now(timezone.utc))]
+            return [{"deleted": before - len(self.scan_launch_requests)}]
+
+        if s.startswith("SELECT id, org_id, domain, verification_status FROM domains WHERE id = %s"):
+            domain_id, org_id = map(str, params)
+            return [d.copy() for d in self.domains if d["id"] == domain_id and d["org_id"] == org_id]
+
+        if s.startswith("SELECT id, org_id, domain, verification_status FROM domains WHERE org_id = %s"):
+            org_id = str(params[0])
+            rows = sorted((d for d in self.domains if d["org_id"] == org_id
+                           and d["verification_status"] == "verified"),
+                          key=lambda d: d.get("created_at", ""))
+            return [rows[0].copy()] if rows else []
+
+        if s.startswith("SELECT * FROM subscriptions WHERE org_id = %s FOR SHARE"):
+            sub = next((x for x in self.subscriptions if x["org_id"] == str(params[0])), None)
+            return [sub.copy()] if sub else []
+
+        if s.startswith("SELECT * FROM subscriptions WHERE org_id = %s FOR UPDATE"):
+            sub = next((x for x in self.subscriptions if x["org_id"] == str(params[0])), None)
+            return [sub.copy()] if sub else []
+
+        if s.startswith("SELECT clock_timestamp() AS admitted_at"):
+            return [{"admitted_at": datetime.now(timezone.utc)}]
+
+        if s.startswith("SELECT id FROM scans WHERE org_id = %s AND domain_id = %s AND status IN"):
+            org_id, domain_id = map(str, params)
+            rows = [x for x in self.scans if x["org_id"] == org_id and x.get("domain_id") == domain_id
+                    and x.get("status") in ("queued", "running")]
+            return [{"id": rows[0]["id"]}] if rows else []
+
+        if s.startswith("SELECT count(*) AS n FROM scans") and "created_at >=" in s:
+            org_id = str(params[0])
+            cutoff = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            def is_this_month(scan):
+                created = scan.get("created_at")
+                if isinstance(created, str):
+                    created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                return scan["org_id"] == org_id and created is not None and created >= cutoff
+            return [{"n": sum(1 for x in self.scans if is_this_month(x))}]
+
+        if s.startswith("INSERT INTO scans (org_id, domain_id, scan_type, status, current_stage, stage_progress, created_at)"):
+            org_id, domain_id, progress, created_at = params
+            row = {"id": str(uuid.uuid4()), "org_id": str(org_id), "domain_id": str(domain_id),
+                   "status": "queued", "score": None, "current_stage": "queued",
+                   "stage_progress": json.loads(progress), "scan_type": "EXTERNAL_ASSESSMENT",
+                   "started_at": None, "completed_at": None, "error_message": None,
+                   "created_at": created_at, "claimed_by": None, "lease_expires_at": None}
+            self.scans.append(row)
+            return [row.copy()]
+
+        if s.startswith("INSERT INTO scan_launch_requests"):
+            org_id, scope, key, requested_domain_id, domain_id, scan_id, created_at, expires_at = params
+            self.scan_launch_requests.append({"org_id": str(org_id), "request_scope": scope,
+                "request_key": key, "requested_domain_id": str(requested_domain_id) if requested_domain_id else None,
+                "domain_id": str(domain_id), "scan_id": str(scan_id), "created_at": created_at,
+                "expires_at": expires_at + timedelta(days=90)})
+            return []
 
         if "SELECT 1 as ok" in s:
             return [{"ok": 1}]
@@ -1593,6 +1689,10 @@ def store(monkeypatch):
         yield FakeConn(st)
 
     monkeypatch.setattr(database, "get_db", fake_get_db)
+    import backend.app.core.scan_admission as scan_admission_mod
+    monkeypatch.setattr(scan_admission_mod, "get_db", fake_get_db)
+    import backend.app.api.billing as billing_mod
+    monkeypatch.setattr(billing_mod, "get_db", fake_get_db)
     import backend.app.api.overview as overview_mod
     monkeypatch.setattr(overview_mod, "get_db", fake_get_db)
     return st
