@@ -2,7 +2,7 @@
 
 **Last updated:** 13 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00 and 01 are complete. Packet 01 is released as implementation commit `c2ae218` on both repositories, with its production migration and live API/frontend verified. Packet 02 is specified in `02-scan-execution.md`; its code is not implemented.
+**Current state:** Packets 00 and 01 are released. Packet 02 is implemented and locally validated on `codex/scan-execution-recovery`, based on `6d4a4aa`. Its migration/API/worker rollout is pending; production remains on Packet 01.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -62,6 +62,36 @@ Local dispatch still has its documented crash/retry limitations; this change doe
 
 ## Next assignment
 
-Implement Packet 02 using `02-scan-execution.md` and the current source. The new specification includes worker/local/Core/cron ownership, evidence across attempts, real-PostgreSQL acceptance cases, and protocol rollout/rollback requirements. It is a specification, not implementation evidence. `START-HERE.md` now points the next agent to this assignment.
+Review the Packet 02 candidate against `02-scan-execution.md`, its tests and `02-release-runbook.md`. Complete the coordinated rollout under separate shipping authorisation. After Packet 02 is released, Packet 03 is the next engineering phase: defensible requested/evaluated/omitted/failed scan scope and coverage.
+
+## Packet 02 design and mutation inventory
+
+Implementation branch: `codex/scan-execution-recovery`, based on `6d4a4aa`. No Packet 02 production operation is part of this local implementation.
+
+- Worker mutations: claim/reclaim, heartbeat/progress, stage observations, recon-to-Core handoff and failure. Cancellation also revokes authority.
+- Local recon mutations: initial stage/progress, raw stage results, stage transitions and failure. Duplicate events must acquire one current claim before recon runs.
+- Core mutations: stage progress/results, scan targets, asset inventory, finding inserts/updates/resolution, finding evidence, notifications, audit records, score snapshots, AI observations and final completed/failed state. Indirect notification/audit database helpers must inherit the same fence.
+- Scheduler mutations: run acquisition, completion and release. Completion/release must compare a unique claim, including after same-process-ID reuse.
+- Design: monotonically increasing claim generation plus an opaque token; required protocol v2 authority on worker writes; explicit worker/local/Core phases. Recon evidence is tagged by its producing attempt, which is retained across Core takeover. Legacy observations remain unchanged.
+- Every helper database transaction in an execution context locks and validates the current scan claim before it reads/writes. Direct multi-record operations use the same explicit fence. External work remains outside locks. An uncertain execution write is not automatically retried by the generic database helper.
+- Final score snapshot, completion notification/audit and terminal state are committed together. A bounded recovery loop consumes queued local scans and expired local/Core leases; remote recon continues to use worker polling. Email after successful terminal commit remains best-effort, with no exactly-once external-delivery claim.
+
+## Packet 02 implementation and validation
+
+- Added `execution_fence.py` and `scan_execution.py` for transaction-checked claim authority. The context reaches database helpers used indirectly by notification/audit code. A stale attempt raises `ClaimLost`; expiry and database time are checked after acquiring the scan lock. Execution writes are not automatically replayed after uncertain database failure.
+- Worker protocol v2 requires generation/token headers and a valid UUID job path. Workers negotiate the API protocol before claiming; old APIs cannot be treated as compatible. Customer scan list/detail/launch responses omit claim tokens, and object/error representations avoid printing them.
+- Recon claims tag raw observations by attempt. Atomic upsert preserves the prior committed payload on interruption and prevents duplicate stage rows. Core handoff/recovery keeps the recon generation while granting new Core authority. Legacy evidence is retained.
+- Core completion persists score snapshot, completion notification/audit and terminal state together. Optional AI has a bounded deadline; failed AI is recorded without stranding mandatory completion. Local lost dispatch is consumed from the durable queue; unverified queued jobs cannot starve verified work. Active leases are not stolen at startup.
+- Cron completion/release compare owner/generation/token/expiry. Scheduled admission checks and holds the acquired cron authority in its transaction. Only a successfully completed owner emits the `cron.ran` marker.
+- Added migration `20261013130000_scan_execution_fencing.sql`, plus an explicit fresh-test-DB bootstrap and PostgreSQL CI job. The bootstrap never loads .env, rejects non-loopback/differently named destinations and refuses an existing application schema.
+- Rehearsed the full **25-migration** chain in an owned loopback PostgreSQL 18.6 database named `cyphward_test`, using synthetic tenants. Verified the restricted `cyphward_app` role; tests used independent connections. No restored customer snapshot was used.
+- Final full backend result: **424 passed, 16 skipped**. This includes **20 execution PostgreSQL tests** and **14 admission PostgreSQL tests**. It covers same-ID reuse, expiry, cancel/write and cancel/handoff races, lock-held expiry/reclaim, indirect stale Core writes, observation/terminal rollback, Core restart, duplicate delivery, lost local dispatch, unverified-queue starvation, stale scheduler admission/complete/release, protocol negotiation and token confidentiality. The 16 opt-in external integrations remain unrun.
+- Frontend production build passed. Focused static checks for new modules/tests passed; `git diff --check` passed. Existing UI behavior is preserved; no new browser visual regeneration was needed for this backend/worker packet.
+- Prepared `scanner-v1-drain.patch`, an API-only bridge against `6d4a4aa`. Applied and checked in a detached worktree: **19 v1 worker/bridge tests passed**, including pausing new allocation while preserving the queue and held-job progress. The bridge has not been deployed.
+- Published implementation commit `50233b68dab9e0f4bfeb92e7d1a0066d960e88fd` on `codex/scan-execution-recovery` in both repositories and verified the remote refs match. Both `main` branches remained at `6d4a4aa`.
+- Opened [draft PR #1](https://github.com/Yoosuph/cyphward/pull/1). [CI for the implementation](https://github.com/Yoosuph/cyphward/actions/runs/38404901759) passed backend regression, frontend build and the new PostgreSQL admission/execution race job. This is remote synthetic CI evidence, not a production scan.
+- Coordinated production readiness remains a separate release gate. No Packet 02 migration, live scanner replacement, production scan/event/email or customer-data mutation has been performed. The owned scratch PostgreSQL server was stopped and the temporary v1 bridge worktree removed after validation.
+
+Accepted intermediate asset/finding/notification writes remain incremental; cancellation does not erase already accepted history. Email is best-effort after terminal commit. Coverage/versioned assessment/report work remains in Packets 03–04. The rollout runbook explains the drain gate, additive upgrade, compatible deployment order, recovery and rollback boundaries.
 
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.

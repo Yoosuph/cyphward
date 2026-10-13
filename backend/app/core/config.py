@@ -65,6 +65,7 @@ INNGEST_SIGNING_KEY = os.getenv("INNGEST_SIGNING_KEY", "")
 # In-process daily scan scheduler (06:00 UTC sweep). Disable only if an
 # external trigger (e.g. the Inngest cron) is actually registered instead.
 SCHEDULER_ENABLED = os.getenv("CYPHWARD_SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes")
+EXECUTION_RECOVERY_ENABLED = os.getenv("CYPHWARD_EXECUTION_RECOVERY_ENABLED", "true").lower() in ("true", "1", "yes")
 
 # Scanner worker integration (spec §14/§29)
 # SCANNER_MODE: "local"  -> recon runs in-process (dev fallback, default)
@@ -77,6 +78,7 @@ SCANNER_LEASE_SECONDS = int(os.getenv("SCANNER_LEASE_SECONDS", "3600"))
 SCANNER_MAX_HOSTS = int(os.getenv("SCANNER_MAX_HOSTS", "500"))
 SCANNER_MAX_PORTS = int(os.getenv("SCANNER_MAX_PORTS", "100"))
 SCANNER_STAGE_TIMEOUT_SECONDS = int(os.getenv("SCANNER_STAGE_TIMEOUT_SECONDS", "300"))
+CORE_AI_TIMEOUT_SECONDS = max(1, int(os.getenv("CORE_AI_TIMEOUT_SECONDS", "120")))
 SCANNER_NUCLEI_CONCURRENCY = int(os.getenv("SCANNER_NUCLEI_CONCURRENCY", "1"))
 SCANNER_NUCLEI_MAX_HOSTS = int(os.getenv("SCANNER_NUCLEI_MAX_HOSTS", "50"))
 

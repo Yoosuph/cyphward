@@ -1,34 +1,31 @@
 # Paste this into the next AI coding agent
 
-You are implementing Cyphward in `/home/consigliere/Desktop/cyphward`.
+You are working on Cyphward in `/home/consigliere/Desktop/cyphward`.
 
-Read these files in order before editing:
+Read before editing:
 
-1. `AGENTS.md` and any applicable nested instructions.
-2. `docs/agent-build-plan-2026-10-13/README.md`.
-3. `docs/agent-build-plan-2026-10-13/PROGRESS.md`.
-4. `docs/agent-build-plan-2026-10-13/02-scan-execution.md`.
-5. `docs/agent-build-plan-2026-10-13/01-scan-admission.md` for the released foundation.
-6. `docs/growth-and-competitive-strategy-2026-10-12.md` for commercial context.
+1. `AGENTS.md` and applicable nested instructions.
+2. `docs/agent-build-plan-2026-10-13/README.md` and `PROGRESS.md`.
+3. `02-scan-execution.md` and `02-release-runbook.md` in that directory.
+4. `.github/workflows/deploy-scanner.yml` and `.github/workflows/ci.yml`.
+5. `01-scan-admission.md` and the growth strategy for preserved foundations/context.
 
-**Packets 00 and 01 are complete. Packet 01 is released as implementation commit `c2ae218`, with its production migration and live API/frontend verified. Your assignment is Packet 02 only.** Implement safe execution ownership and recovery. Packet 02 is specified, but its code has not been built.
+**Packet 01 is released. Packet 02 is implemented and locally validated on `codex/scan-execution-recovery`, based on `6d4a4aa`. Its production migration/API/worker release is pending.** The next assignment is reviewing and coordinating that release, not rebuilding admission or silently combining later packets.
 
-First inspect the actual commit, working tree, relevant source and test environment. Documentation may have advanced beyond the implementation revision. Preserve existing changes. The strategy and handoff files are now committed, so a current clone should contain them. Do not repeat Packet 01 or replay historical migrations in a shared database.
+Inspect the actual commit, branch and working tree first. A main-only checkout may lack the candidate; obtain the review branch before concluding that the implementation is missing. Preserve other existing changes. The strategy/handoff documents are committed.
 
-Map every mutation made by worker, local recon, Core finalisation and scheduler attempts, including helper calls. Design the state transitions and lock order before editing. Use a new generation/token for each claim and atomically verify current ownership, allowed state and expiry with every mutation. Protect intermediate findings, observations and scores as well as terminal status. Keep external work outside database locks.
+Review the complete mutation inventory and transaction/state-transition design in `PROGRESS.md`. Required v2 claim authority covers worker, local execution, Core/helper writes and cron ownership. Observations are bound to the producing recon attempt, which survives Core takeover. Terminal score/notification/audit records and completed state commit together. Verify that new direct database operations use the explicit claim fence and that no optional compatibility path bypasses it.
 
-Make observation replacement atomic and distinguish recon evidence across attempts from later Core recovery ownership. Preserve historical records. Define local dispatch/restart recovery and reject stale scheduler completion/release. A worker-only patch is incomplete: local pipelines and Core writes also need fencing.
+Run real-PostgreSQL acceptance tests using an owned, freshly bootstrapped loopback database named `cyphward_test`, explicit test/application URLs and the restricted role. `backend/scripts/bootstrap_test_database.py` refuses a nonempty application schema and never loads workspace credentials. Never run acceptance tests against a restored customer snapshot, live service or inherited production URL. Stub external scanning, AI and delivery. Report actual results and skips.
 
-Version the worker/API contract explicitly. Required authority must never become an optional bypass for old workers. Prepare additive schema, queue/drain handling, coordinated rollout and rollback for both code sides. Inspect the scanner deployment workflow before pushing any worker/shared-contract paths: a push to those paths can deploy the live VPS. Do not trigger that deployment accidentally while preparing a local review candidate.
+Local validation recorded 424 backend passes, 16 optional integration skips, a passing frontend build, and 19 tests for the v1 drain bridge in a detached baseline worktree. Verify evidence against the actual candidate revision; do not label these local results as a production scan or completed rollout.
 
-Use a freshly migrated, owned loopback database named `cyphward_test` for concurrency tests, with explicit test and application URLs. Never run tests against inherited production credentials or a restored customer backup. Stub scanners, AI, email and event delivery. Prove behavior with independent PostgreSQL connections and check intermediate data, not only final status.
+For authorised shipping, follow `02-release-runbook.md` exactly: prepare the API-only v1 drain bridge, pause new claims while held work finishes, verify zero running legacy attempts, back up/restore-rehearse, apply only the additive execution migration, coordinate both v2 code sides while claims remain paused, then enable and validate. The supplied bridge patch targets the released v1 source and is not meant to be applied to the rewritten v2 handler. Inspect mirrored CD behavior before releasing to main: a scanner/shared-path push can restart the live VPS automatically.
 
-Payments remain deferred. Preserve dashboard access before DNS verification, verified ownership for scanning, tenant/RBAC boundaries, subscription-aware admission, the approved scan UI, truthful scores/coverage and customer history. Do not build later roadmap packets or redesign reports, Compliance, Academy or the staff console in this assignment.
+Carry forward separate explicit shipping authorisation from the session without asking again. This reusable handoff itself does not grant live worker replacement or a production scan. Resolve routine review fixes and test-environment choices autonomously. If a required release action needs new authority or cannot be made safe, complete independent preparation and explain the exact unresolved prerequisite.
 
-Apply the model-selection rule honestly when supported. Use strong reasoning for claim, transaction and data-integrity design. Resolve routine implementation choices within the specification without unnecessary confirmation. If a material decision contradicts the specification or needs additional authority, explain the exact issue after completing independent useful work.
+Preserve deferred payment activation, dashboard access before DNS verification, verified ownership for scanning, tenant/RBAC boundaries, subscription-aware admission, the scan UI and customer history. Accepted intermediate writes remain incremental; do not claim that cancellation rolls back previously accepted inventory/findings. Email remains best-effort after terminal commit. Do not promise exactly-once external execution/delivery.
 
-Run required acceptance and regression checks; record actual passes, failures and skips in `PROGRESS.md`. Update the handoff archive. Distinguish admission idempotency, execution fencing, dispatch recovery and external-delivery limits. Do not claim exactly-once scanning or delivery from an outbox or lease alone.
+After Packet 02 is released, the next engineering phase is Packet 03: defensible requested/evaluated/omitted/failed scan scope and coverage. Packet 04 adds versioned assessment/report reconstruction; later Compliance, Academy and wider admin work remain separate.
 
-The initial deliverable is a review-ready Packet 02 implementation with migrations and coordinated release instructions. Carry forward separate explicit shipping authorisation from the session; this reusable handoff itself does not request live worker replacement, production scanning or customer messaging. When shipping is authorised, synchronize both remotes and verify deployment independently of Git push.
-
-Finish with changed behavior, files/migrations, protocol version, evidence, limitations, exact delivery state and the prerequisite for Packet 03. If required real-database checks could not run, state that Packet 02 is not fully validated.
+Finish with review changes, migrations, protocol version, evidence, rollout state and the next prerequisite. Update `PROGRESS.md` and the handoff archive. Never blur local validation, Git publication, API deployment, worker deployment and live scan verification.

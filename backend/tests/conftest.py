@@ -17,6 +17,7 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("AUTH_JWT_SECRET", "cyphward-test-secret-not-for-prod")
+os.environ["CYPHWARD_EXECUTION_RECOVERY_ENABLED"] = "false"
 
 import jwt as pyjwt
 import pytest
@@ -141,6 +142,7 @@ class FakeStore:
         self.assets: list = []
         self.scans: list = []
         self.scan_launch_requests: list = []
+        self.scan_results: list = []
         self.snapshots: list = []
         self.evidence: list = []
         self.audit: list = []
@@ -161,6 +163,82 @@ class FakeStore:
     def route(self, sql: str, params: tuple):
         s = " ".join(sql.split())
 
+        if s == 'SELECT clock_timestamp() AS claim_now':
+            return [{'claim_now': datetime.now(timezone.utc)}]
+        if s.startswith('SELECT id, org_id, status, claimed_by, claim_generation'):
+            return [dict(r) for r in self.scans if str(r['id']) == str(params[0])]
+        if s.startswith('SELECT s.*, d.domain FROM scans s JOIN domains d ON d.id=s.domain_id'):
+            phase, _, core_stages, scan_id, _ = params
+            for row in self.scans:
+                if scan_id and str(row['id']) != str(scan_id): continue
+                dom=next((d for d in self.domains if d['id']==row['domain_id'] and d['org_id']==row['org_id']),None)
+                eligible=row['status']=='queued' or (row['status']=='running' and row.get('execution_phase')==phase and row.get('lease_expires_at') and row['lease_expires_at'] < datetime.now(timezone.utc))
+                if eligible and row.get('execution_phase') in (None,phase) and row.get('current_stage') not in core_stages and dom and dom['verification_status']=='verified':
+                    return [{**row,'domain':dom['domain']}]
+            return []
+        if s.startswith('SELECT verification_status FROM domains WHERE id='):
+            return [{'verification_status':d['verification_status']} for d in self.domains if d['id']==params[0] and d['org_id']==params[1]]
+        if s.startswith("UPDATE scans SET status='running', current_stage='discovery'"):
+            progress,owner,phase,token,lease,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            gen=row.get('claim_generation',0)+1
+            row.update(status='running',current_stage='discovery',stage_progress=json.loads(progress),claimed_by=owner,
+                execution_phase=phase,claim_token=token,claim_generation=gen,observation_generation=gen,
+                lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=lease))
+            return [dict(row)]
+        if s.startswith('SELECT hostname FROM monitored_hosts WHERE org_id='):
+            return [r for r in self.monitored_hosts if r['org_id']==params[0] and r['domain_id']==params[1]]
+        if s.startswith("UPDATE scans SET claimed_by='core-recovery'"):
+            token,lease,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            row.update(claimed_by='core-recovery',execution_phase='core',current_stage='security_checks',
+                claim_token=token,claim_generation=row['claim_generation']+1,
+                lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=lease))
+            return [dict(row)]
+        if s.startswith("UPDATE scans SET status='failed', error_message="):
+            error,progress,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            row.update(status='failed',error_message=error,stage_progress=json.loads(progress),claimed_by=None,
+                claim_token=None,execution_phase=None,lease_expires_at=None,claim_generation=row['claim_generation']+1)
+            return []
+        if s.startswith('UPDATE scans SET lease_expires_at='):
+            lease,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            row['lease_expires_at']=datetime.now(timezone.utc)+timedelta(seconds=lease)
+            return []
+        if s.startswith('UPDATE scans SET stage_progress=%s::jsonb, current_stage=%s,'):
+            progress,stage,lease,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            row.update(stage_progress=json.loads(progress),current_stage=stage,lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=lease))
+            return []
+        if s.startswith('INSERT INTO scan_results (scan_id, stage, raw_data, attempt_generation)'):
+            scan_id,stage,data,gen=params
+            self.scan_results=[r for r in self.scan_results if not (r['scan_id']==scan_id and r['stage']==stage and r['attempt_generation']==gen)]
+            self.scan_results.append(dict(scan_id=scan_id,stage=stage,raw_data=json.loads(data),attempt_generation=gen))
+            return []
+        if s.startswith('SELECT stage, raw_data FROM scan_results WHERE scan_id = %s AND attempt_generation'):
+            return [r for r in self.scan_results if r['scan_id']==params[0] and r['attempt_generation']==params[1]]
+        if s.startswith("UPDATE scans SET status='completed',current_stage='completed'"):
+            score,progress,scan_id=params
+            row=next(r for r in self.scans if r['id']==scan_id)
+            row.update(status='completed',current_stage='completed',score=score,stage_progress=json.loads(progress),
+                claimed_by=None,claim_token=None,execution_phase=None,lease_expires_at=None,claim_generation=row['claim_generation']+1)
+            return []
+        if s.startswith('INSERT INTO score_snapshots') and 'risk_points,scan_id)' in s:
+            org_id,score,subscores,factors,model,scope,risk_points,scan_id=params
+            self.snapshots.append(dict(org_id=str(org_id),domain_id=None,score=score,model=model,scope=scope,
+                risk_points=risk_points,scan_id=scan_id,subscores=json.loads(subscores),factors=json.loads(factors),created_at='2026-10-13T00:00:00'))
+            return []
+        if s.startswith("INSERT INTO notifications (org_id,type,title,body,severity,link)"):
+            org_id,title,body,severity=params
+            self.notifications.append(dict(org_id=org_id,type='scan_completed',title=title,body=body,severity=severity))
+            return []
+        if s.startswith('INSERT INTO audit_log (org_id,user_id,action,resource_type,resource_id,metadata)'):
+            org_id,scan_id,metadata=params
+            self.audit.append(dict(org_id=org_id,action='scan.completed',resource_id=scan_id,metadata=json.loads(metadata)))
+            return []
+        if s.startswith('SELECT status FROM scans WHERE id='):
+            return [{'status':r['status']} for r in self.scans if r['id']==params[0]]
         if s.startswith("SET LOCAL "):
             return []
 
@@ -1691,6 +1769,8 @@ def store(monkeypatch):
     monkeypatch.setattr(database, "get_db", fake_get_db)
     import backend.app.core.scan_admission as scan_admission_mod
     monkeypatch.setattr(scan_admission_mod, "get_db", fake_get_db)
+    import backend.app.core.scan_execution as execution_mod
+    monkeypatch.setattr(execution_mod, "get_db", fake_get_db)
     import backend.app.api.billing as billing_mod
     monkeypatch.setattr(billing_mod, "get_db", fake_get_db)
     import backend.app.api.overview as overview_mod
@@ -1730,3 +1810,13 @@ __all__ = [
     "SCAN_A1", "DOM_A1",
     "get_current_user", "get_current_org",
 ]
+
+
+def prepare_execution_claim(store, scan_id, phase='core', owner=None):
+    from backend.app.core.execution_fence import ExecutionClaim
+    row=next(r for r in store.scans if r['id']==scan_id)
+    owner=owner or ('core-recovery' if phase=='core' else 'test-local')
+    if row['status']=='queued': row['status']='running'
+    row.update(claimed_by=owner,claim_generation=1,claim_token='test-claim-token-0000000000000000000000',
+        observation_generation=1,execution_phase=phase,lease_expires_at=datetime.now(timezone.utc)+timedelta(hours=1))
+    return ExecutionClaim(scan_id,owner,1,row['claim_token'],1,phase)

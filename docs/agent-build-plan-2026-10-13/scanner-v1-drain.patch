@@ -1,0 +1,31 @@
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -70,6 +70,7 @@
+ # SCANNER_MODE: "local"  -> recon runs in-process (dev fallback, default)
+ #               "remote" -> recon is claimed by the Azure scanner worker
+ SCANNER_MODE = os.getenv("SCANNER_MODE", "local").strip().lower()
++SCANNER_CLAIMS_ENABLED = os.getenv("SCANNER_CLAIMS_ENABLED", "true").lower() in ("true", "1", "yes")
+ SCANNER_API_KEY = os.getenv("SCANNER_API_KEY", "")
+ # Shared secret is enforced only when SCANNER_MODE=remote; never run remote unarmed.
+ SCANNER_LEASE_SECONDS = int(os.getenv("SCANNER_LEASE_SECONDS", "3600"))
+--- a/backend/app/api/scanner_jobs.py
++++ b/backend/app/api/scanner_jobs.py
+@@ -24,6 +24,7 @@
+
+ from backend.app.core.config import (
+     SCANNER_API_KEY,
++    SCANNER_CLAIMS_ENABLED,
+     SCANNER_LEASE_SECONDS,
+     SCANNER_MAX_HOSTS,
+     SCANNER_MAX_PORTS,
+@@ -140,6 +141,10 @@
+         for row in stuck_rows:
+             logger.warning("scan=%s finalize interrupted — recovery re-trigger", row["id"])
+             background_tasks.add_task(finalize_scan, str(row["id"]))
++
++    # Keep Core recovery above active while pausing new recon allocation.
++    if not SCANNER_CLAIMS_ENABLED:
++        return Response(status_code=204)
+
+     job_row = execute_one(
+         """

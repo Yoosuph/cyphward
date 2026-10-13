@@ -9,7 +9,7 @@ import pytest
 
 import backend.app.api.scanner_jobs as sj
 import backend.app.workflows.inngest_workflow as wf
-from conftest import DOM_A1, ORG_A
+from conftest import DOM_A1, ORG_A, prepare_execution_claim
 
 API_KEY = "test-scanner-key"
 SCANNER_ID = "az-scanner-01"
@@ -20,11 +20,15 @@ def scanner_headers(key: str = API_KEY, scanner_id: str = SCANNER_ID, ts=None) -
         "Authorization": f"Bearer {key}",
         "X-Scanner-Id": scanner_id,
         "X-Timestamp": str(int(time.time()) if ts is None else ts),
+        "X-Scanner-Protocol":"2",
+        "X-Claim-Generation":"1",
+        "X-Claim-Token":"test-claim-token-0000000000000000000000",
     }
 
 
 @pytest.fixture
-def scanner_client(client, monkeypatch):
+def scanner_client(client, store, monkeypatch):
+    prepare_execution_claim(store,store.scans[0]["id"],"worker",SCANNER_ID)
     monkeypatch.setattr(sj, "SCANNER_MODE", "remote")
     monkeypatch.setattr(sj, "SCANNER_API_KEY", API_KEY)
     return client
@@ -86,7 +90,7 @@ def test_claim_returns_job_payload(scanner_client, store):
     r = scanner_client.post("/api/v1/scanner/claim", headers=scanner_headers())
     assert r.status_code == 200
     job = r.json()
-    assert job["version"] == 1
+    assert job["version"] == 2
     assert job["target"] == "acme.test"
     assert job["scope"] == ["acme.test"]
     assert job["organization_id"] == ORG_A
@@ -156,7 +160,7 @@ def test_complete_releases_lease_and_finalizes(scanner_client, store, monkeypatc
     store.scans[0]["claimed_by"] = SCANNER_ID
     finalized = {}
 
-    async def fake_finalize(scan_id):
+    async def fake_finalize(scan_id, claim):
         finalized["scan_id"] = scan_id
 
     monkeypatch.setattr(wf, "finalize_scan", fake_finalize)
@@ -215,3 +219,27 @@ def test_fail_on_cancelled_scan_does_not_overwrite_status(scanner_client, store)
     )
     assert r.status_code == 409
     assert store.scans[0]["status"] == "cancelled"
+
+
+def test_claim_token_format_and_scan_id_are_validated(scanner_client):
+    headers=scanner_headers();headers['X-Claim-Token']='!'*40
+    response=scanner_client.post('/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/observations',
+        headers=headers,json={'stage':'dns','data':{}})
+    assert response.status_code==422
+    response=scanner_client.post('/api/v1/scanner/jobs/invalid-id/observations',
+        headers=scanner_headers(),json={'stage':'dns','data':{}})
+    assert response.status_code==422
+
+
+def test_protocol_negotiation_advertises_required_authority(scanner_client):
+    response=scanner_client.get('/api/v1/scanner/protocol',headers=scanner_headers())
+    assert response.status_code==200 and response.json()=={'version':2,'claim_authority':'required','observation_attempts':True}
+
+
+def test_claim_pause_keeps_held_job_mutations_available(scanner_client,store,monkeypatch):
+    monkeypatch.setattr(sj,'SCANNER_CLAIMS_ENABLED',False)
+    store.scans[0]['status']='running'
+    assert scanner_client.post('/api/v1/scanner/claim',headers=scanner_headers()).status_code==204
+    response=scanner_client.post('/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/progress',
+        headers=scanner_headers(),json={'stage':'dns','status':'running'})
+    assert response.status_code==200

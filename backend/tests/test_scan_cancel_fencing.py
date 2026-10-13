@@ -14,8 +14,13 @@ import asyncio
 import pytest
 
 import backend.app.workflows.inngest_workflow as wf
-from conftest import ALICE, DOM_A1, ORG_A, SCAN_A1
+from conftest import prepare_execution_claim, ALICE, DOM_A1, ORG_A, SCAN_A1
 from shared.contracts import empty_stage_progress
+from backend.app.core.execution_fence import ClaimLost, execution_scope
+
+@pytest.fixture(autouse=True)
+def local_mode(monkeypatch):
+    monkeypatch.setattr(wf,"SCANNER_MODE","local")
 
 NEW_SCAN = "51111111-0000-4000-8000-000000000099"
 
@@ -58,9 +63,9 @@ def test_cancelled_scan_never_resurrected_by_dispatch(store, monkeypatch):
 
     monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
 
-    result = asyncio.run(wf.execute_recon_local(sid))
+    result = asyncio.run(wf.execute_recon_local(sid,prepare_execution_claim(store,sid,"local")))
 
-    assert result == {"scan_id": sid, "cancelled": True}
+    assert result["cancelled"] is True
     assert ran == [], "discovery must not run for a cancelled scan"
     row = _row(store, sid)
     assert row["status"] == "cancelled"
@@ -77,7 +82,7 @@ def test_finalize_refuses_cancelled_scan(store, monkeypatch):
 
     monkeypatch.setattr(wf, "run_security_checks", fake_sec)
 
-    result = asyncio.run(wf.finalize_scan(sid))
+    result = asyncio.run(wf.finalize_scan(sid,prepare_execution_claim(store,sid)))
 
     assert result["status"] == "cancelled"
     assert sec_calls == [], "security checks must not run for a cancelled scan"
@@ -88,7 +93,7 @@ def test_pipeline_skips_finalize_when_cancelled_before_dispatch(store, monkeypat
     sid = _add_scan(store, status="cancelled")
     fin_calls = []
 
-    async def fake_fin(scan_id):
+    async def fake_fin(scan_id, claim):
         fin_calls.append(scan_id)
         return {}
 
@@ -119,7 +124,7 @@ def test_cancel_during_scan_stops_before_next_stage(store, monkeypatch):
     monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
     monkeypatch.setattr(wf, "resolve_host_dns", resolve)
 
-    result = asyncio.run(wf.execute_recon_local(sid))
+    result = asyncio.run(wf.execute_recon_local(sid,prepare_execution_claim(store,sid,"local")))
 
     assert result.get("cancelled") is True
     assert dns_calls == [], "DNS stage must not start after cancellation"
@@ -136,7 +141,7 @@ def test_pipeline_skips_finalize_when_cancelled_during_recon(store, monkeypatch)
         _row(store, sid)["status"] = "cancelled"
         return ["www.acme.test"], []
 
-    async def fake_fin(scan_id):
+    async def fake_fin(scan_id, claim):
         fin_calls.append(scan_id)
         return {}
 
@@ -159,8 +164,8 @@ def test_recon_error_after_cancel_keeps_cancelled_status(store, monkeypatch):
 
     monkeypatch.setattr(wf, "discover_subdomains_with_health", discover_h)
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(wf.execute_recon_local(sid))
+    result=asyncio.run(wf.execute_recon_local(sid,prepare_execution_claim(store,sid,"local")))
+    assert result["cancelled"] is True
 
     row = _row(store, sid)
     assert row["status"] == "cancelled", "failure write must not clobber a cancelled scan"
@@ -172,7 +177,8 @@ def test_progress_write_is_fenced_after_cancel(store):
     row = _row(store, sid)
     before_progress = row["stage_progress"]
 
-    wf._save_progress(sid, {"dns": {"status": "running"}}, "dns")
+    with execution_scope(prepare_execution_claim(store,sid,"local")), pytest.raises(ClaimLost):
+        wf._save_progress(sid, {"dns": {"status": "running"}}, "dns")
 
     assert row["current_stage"] == "queued"
     assert row["stage_progress"] == before_progress
@@ -211,7 +217,7 @@ def test_cancel_during_security_checks_stops_before_findings_writes(store, monke
     monkeypatch.setattr(wf, "run_security_checks", fake_sec)
     monkeypatch.setattr(wf, "normalize_findings", fake_norm)
 
-    result = asyncio.run(wf.finalize_scan(sid))
+    result = asyncio.run(wf.finalize_scan(sid,prepare_execution_claim(store,sid)))
 
     assert result["status"] == "cancelled"
     assert sec_calls == [1], "security checks should have started before the cancel"
@@ -235,7 +241,7 @@ def test_cancel_at_completion_refuses_score_and_snapshot(store, monkeypatch):
 
     monkeypatch.setattr(wf, "compute_risk_score", cancel_then_score)
 
-    result = asyncio.run(wf.finalize_scan(sid))
+    result = asyncio.run(wf.finalize_scan(sid,prepare_execution_claim(store,sid)))
 
     assert result["status"] == "cancelled"
     row = _row(store, sid)

@@ -23,6 +23,11 @@ class LaunchScanRequest(BaseModel):
     domain_id: Optional[UUID] = None
 
 
+def _public_scan(scan: Dict[str, Any]) -> Dict[str, Any]:
+    """Execution tokens are private to the trusted worker/Core protocol."""
+    return {key: value for key, value in scan.items() if key != "claim_token"}
+
+
 @router.get("")
 def list_scans(org: Dict[str, Any] = Depends(get_current_org)) -> List[Dict[str, Any]]:
     """List historical and active security scans."""
@@ -38,7 +43,7 @@ def list_scans(org: Dict[str, Any] = Depends(get_current_org)) -> List[Dict[str,
         ORDER BY s.created_at DESC
     """, (org["id"],))
 
-    return scans
+    return [_public_scan(scan) for scan in scans or []]
 
 
 @router.get("/{scan_id}")
@@ -61,10 +66,10 @@ def get_scan_detail(
         raise HTTPException(status_code=404, detail="Scan not found.")
 
     raw_results = execute_query("""
-        SELECT stage, raw_data, created_at
-        FROM scan_results
-        WHERE scan_id = %s
-        ORDER BY created_at ASC
+        SELECT r.stage, r.raw_data, r.created_at
+        FROM scan_results r JOIN scans s ON s.id=r.scan_id
+        WHERE r.scan_id = %s AND r.attempt_generation IS NOT DISTINCT FROM s.observation_generation
+        ORDER BY r.created_at ASC
     """, (scan_id,))
 
     targets = execute_query("""
@@ -75,7 +80,7 @@ def get_scan_detail(
     """, (scan_id,))
 
     return {
-        "scan": scan,
+        "scan": _public_scan(scan),
         "raw_results": raw_results,
         "targets": targets,
     }
@@ -119,7 +124,7 @@ async def launch_scan(
             "scan_id": str(admission.scan["id"]),
         })
 
-    new_scan = admission.scan
+    new_scan = _public_scan(admission.scan)
     domain_name = admission.domain
     scan_id = str(new_scan["id"])
 
@@ -197,7 +202,8 @@ def cancel_scan(
     cancelled = execute_one("""
         UPDATE scans
         SET status = 'cancelled', completed_at = now(),
-            claimed_by = NULL, lease_expires_at = NULL
+            claimed_by = NULL, lease_expires_at = NULL, claim_token = NULL,
+            execution_phase = NULL, claim_generation = claim_generation + 1
         WHERE id = %s AND org_id = %s AND status IN ('queued', 'running')
         RETURNING id
     """, (scan_id, org["id"]))

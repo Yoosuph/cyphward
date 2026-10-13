@@ -3,7 +3,7 @@
 **Prepared:** 13 October 2026
 **Released implementation baseline:** `c2ae218` on `main` (original architecture baseline: `c7edb77`)
 **Purpose:** Give the next AI coding agent a sequenced, testable implementation plan.
-**Current task:** Packets 00 and 01 are complete and Packet 01 is released. The next implementation assignment is Packet 02. See `PROGRESS.md` for test and deployment evidence.
+**Current task:** Packets 00 and 01 are released. Packet 02 is implemented and locally validated on its review branch; its coordinated production rollout is pending. See `PROGRESS.md` and [the rollout runbook](02-release-runbook.md).
 
 Start with [START-HERE.md](START-HERE.md). The current implementation specification is [02-scan-execution.md](02-scan-execution.md); [01-scan-admission.md](01-scan-admission.md) documents the released foundation. Record progress in [PROGRESS.md](PROGRESS.md). The business rationale is in [the growth strategy](../growth-and-competitive-strategy-2026-10-12.md).
 
@@ -11,7 +11,7 @@ Start with [START-HERE.md](START-HERE.md). The current implementation specificat
 
 The product should reliably carry a customer through **verified domain → useful assessment → prioritised work → supported verification → trustworthy evidence → recurring monitoring**. Compliance and Academy should extend this flow when buyer demand supports them.
 
-**The next agent's assignment is Packet 02 only.** Complete a reviewable, tested change for execution ownership and recovery. Preserve the released admission implementation. Do not attempt the entire roadmap in one branch or silently start later packets.
+**The next agent's assignment is reviewing and coordinating release of Packet 02.** The implementation is already present on its review branch. Preserve released admission behavior and follow the API/worker rollout runbook. After release, Packet 03 is the next implementation phase; do not combine the entire roadmap in one change.
 
 The first delivery target is a **review-ready implementation**, with actual test evidence and migration/release instructions. This handoff does not itself issue an instruction to deploy or change production data. If the user separately authorises shipping, carry that authorisation forward without asking again for the same action.
 
@@ -35,10 +35,10 @@ The following describe the released admission foundation and remaining execution
 | Manual admission | `launch_scan` uses shared transactional admission with subscription-aware quota, per-domain overlap protection and optional request identity. | Preserve Packet 01's guarantees and replay behavior. |
 | Scheduled admission | `_daily_scan_sweep` uses the same admission policy and a UTC-day/domain request identity. | Preserve matching entitlements and scheduled replay semantics. |
 | Scheduler overlap | A partial unique index and organization-row admission lock prevent concurrent active jobs for the same domain. | Different domains may still run concurrently; do not introduce an accidental organization-wide restriction. |
-| Database helpers | `execute_one`/`execute_query` commit individual calls. | Consecutive helper calls do not form an atomic business transaction. |
-| Worker writes | `_held_job` checks scanner ID and running status separately from writes; observations are deleted and inserted in separate calls. | Packet 02 must fence every mutation using a current claim and transaction. |
-| Delivery | Remote mode uses the persisted queued row; local dispatch still has documented crash/retry gaps. | Packet 01 proves admission idempotency; Packet 02 must address execution/delivery recovery. |
-| Cron ownership | Claim acquisition is atomic, but completion/release do not compare a claim generation. | Packet 02 includes stale scheduler-owner behavior. |
+| Database helpers | Individual calls remain separate transactions, but a pipeline execution context now enforces the current claim on each helper transaction. | Direct multi-record operations must use the same explicit fence; external work stays outside locks. |
+| Worker writes | The review branch requires v2 authority and atomically persists attempt-specific observations. | Deploy through the drain/compatibility runbook; production v1 has not yet received this change. |
+| Delivery | Remote queue polling is preserved. The review branch adds claim-backed local queue consumption and independent Core recovery. | No exactly-once external scanning or email claim is made. |
+| Cron ownership | The review branch binds admission, completion and release to generation/token/expiry. | Validate and release with the execution migration. |
 | Reports | Report generation combines live findings with the latest assessment. | Packet 04 must introduce an explicit, consistent snapshot contract. |
 | Existing tests | Most backend tests use SQL-pattern-matching fake data. Several optional integration tests explicitly target configured real/production URLs and mutate records. | Never enable those flags against inherited credentials. New concurrency tests require an isolated disposable database. |
 

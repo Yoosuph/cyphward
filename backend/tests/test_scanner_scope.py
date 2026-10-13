@@ -13,6 +13,7 @@ def _job(target: str, scope) -> ScanJob:
         scan_id="s1", organization_id="o1", domain_id="d1",
         target=target, scope=list(scope),
         created_at="2026-01-01", lease_expires_at="2026-01-01",
+        claim_generation=1,claim_token="test-claim-token-0000000000000000000000",
     )
 
 

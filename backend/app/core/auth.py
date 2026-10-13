@@ -186,6 +186,7 @@ def log_audit(
     """Best-effort audit trail write (spec §39)."""
     import json
     import logging
+    from backend.app.core.execution_fence import ClaimLost
 
     logger = logging.getLogger("cyphward.audit")
     try:
@@ -197,5 +198,7 @@ def log_audit(
             """,
             (org_id, user_id, action, resource_type, resource_id, json.dumps(metadata or {}, default=str)),
         )
+    except ClaimLost:
+        raise
     except Exception as e:
         logger.warning(f"Failed to write audit log ({action}): {e}")

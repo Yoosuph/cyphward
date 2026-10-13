@@ -5,7 +5,7 @@ Single source of truth for the job/observation API between FastAPI Core and the
 Azure scanner worker. Pydantic-only — no FastAPI, no DB, safe to import from
 either side. Do NOT duplicate these models elsewhere.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ class ScanJobLimits(BaseModel):
 # Job payload — what the worker receives when it claims a scan (§15, §21).
 # ---------------------------------------------------------------------------
 class ScanJob(BaseModel):
-    version: int = 1
+    version: Literal[2] = 2
     scan_id: str
     organization_id: str
     domain_id: str
@@ -94,6 +94,8 @@ class ScanJob(BaseModel):
     authorization_context: Dict[str, Any] = Field(default_factory=dict)
     limits: ScanJobLimits = Field(default_factory=ScanJobLimits)
     lease_expires_at: str
+    claim_generation: int = Field(ge=1)
+    claim_token: str = Field(min_length=32, max_length=128, pattern=r'^[A-Za-z0-9_-]+$', repr=False)
 
 
 # ---------------------------------------------------------------------------

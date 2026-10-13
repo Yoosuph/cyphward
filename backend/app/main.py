@@ -130,8 +130,8 @@ app.include_router(platform.router)
 app.include_router(billing.router)
 
 # ---------------------------------------------------------------------------
-# Startup recovery: scans orphaned by a previous process death (local mode
-# pipelines are not lease-backed; see backend.app.core.scan_recovery).
+# Startup recovery for legacy unleased local work. New local/Core executions
+# use the independent lease-backed queue consumer below.
 # Runs before the scheduler so a stale queued/running row cannot suppress
 # today's due-domain check.
 # ---------------------------------------------------------------------------
@@ -144,6 +144,30 @@ async def recover_interrupted_scans_on_startup() -> None:
         logging.getLogger("cyphward.scan_recovery").exception(
             "startup scan recovery failed"
         )
+
+
+_execution_task: asyncio.Task | None = None
+_execution_stop: asyncio.Event | None = None
+
+
+@app.on_event("startup")
+async def start_execution_recovery() -> None:
+    from backend.app.core.config import EXECUTION_RECOVERY_ENABLED
+    if not EXECUTION_RECOVERY_ENABLED:
+        return
+    from backend.app.core.scan_recovery import recover_scan_queue
+    global _execution_task, _execution_stop
+    _execution_stop = asyncio.Event()
+    _execution_task = asyncio.create_task(recover_scan_queue(_execution_stop))
+
+
+@app.on_event("shutdown")
+async def stop_execution_recovery() -> None:
+    if _execution_stop is not None:
+        _execution_stop.set()
+    if _execution_task is not None:
+        _execution_task.cancel()
+        await asyncio.gather(_execution_task, return_exceptions=True)
 
 
 # ---------------------------------------------------------------------------

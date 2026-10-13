@@ -18,6 +18,7 @@ import atexit
 from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
+from backend.app.core.execution_fence import current_claim, lock_claim
 from backend.app.core.config import (
     DATABASE_URL,
     DB_POOL_MIN,
@@ -95,25 +96,31 @@ def get_db():
 
 
 def _run_query(sql: str, params: tuple, *, fetch_all: bool, fetch_one: bool):
-    """Internal query executor with one retry on transient connection errors."""
+    """Fence scoped executions; never replay their uncertain committed writes.
+
+    Other callers retain the existing single transient-connection retry.
+    """
     attempts = 0
     while True:
         attempts += 1
         try:
             with get_db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, params)
-                    if fetch_all:
-                        res = cur.fetchall() if cur.description else None
-                    elif fetch_one:
-                        res = cur.fetchone() if cur.description else None
-                    else:
-                        res = None
-                conn.commit()
+                with conn.transaction():
+                    with conn.cursor() as cur:
+                        claim = current_claim.get()
+                        if claim is not None:
+                            lock_claim(cur, claim)
+                        cur.execute(sql, params)
+                        if fetch_all:
+                            res = cur.fetchall() if cur.description else None
+                        elif fetch_one:
+                            res = cur.fetchone() if cur.description else None
+                        else:
+                            res = None
                 return res
         except psycopg.OperationalError as e:
-            if attempts >= 2:
-                logger.error(f"Query failed after retry: {e}")
+            if attempts >= 2 or current_claim.get() is not None:
+                logger.error("Database operation failed (automatic execution replay disabled): %s", e)
                 raise
             logger.warning(f"Transient OperationalError (attempt {attempts}), retrying: {e}")
 
@@ -133,6 +140,9 @@ def execute_many(sql: str, params_seq: list):
     if not params_seq:
         return
     with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.executemany(sql, params_seq)
-        conn.commit()
+        with conn.transaction():
+            with conn.cursor() as cur:
+                claim = current_claim.get()
+                if claim is not None:
+                    lock_claim(cur, claim)
+                cur.executemany(sql, params_seq)
