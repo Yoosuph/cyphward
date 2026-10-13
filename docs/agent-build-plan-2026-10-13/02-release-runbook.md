@@ -1,6 +1,6 @@
 # Packet 02 coordinated rollout
 
-**State:** local review candidate on `codex/scan-execution-recovery`; not applied or deployed to production.
+**State:** completed rollout; see `PROGRESS.md` for revisions and evidence. The procedure below remains the reference for coordinated deployments.
 **Protocol:** v2. API and worker share `shared/contracts.py`.
 
 This runbook is part of the review deliverable. Perform live worker replacement only under the session's separate shipping authorisation. Do not merge this branch casually: the main-branch scanner workflow rebuilds/restarts the VPS, and Render deploys the API independently.

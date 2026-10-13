@@ -1,6 +1,6 @@
 # Packet 02 — safe scan execution and recovery
 
-**Status:** implemented and locally validated on `codex/scan-execution-recovery`; coordinated release pending. See `PROGRESS.md` for evidence and `02-release-runbook.md` for rollout.
+**Status:** released; production migration, v2 API and VPS worker verified, claims enabled. See `PROGRESS.md` for exact implementation/runtime revisions and validation limits.
 **Dependency:** Packet 01, implementation commit `c2ae218`, is released.
 **Deliverable:** a tested implementation with additive migrations and a coordinated API/worker rollout plan.
 

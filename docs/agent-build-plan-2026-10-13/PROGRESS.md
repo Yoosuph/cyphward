@@ -2,7 +2,7 @@
 
 **Last updated:** 13 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00 and 01 are released. Packet 02 is implemented and locally validated on `codex/scan-execution-recovery`, based on `6d4a4aa`. Its migration/API/worker rollout is pending; production remains on Packet 01.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 is the next implementation phase.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -62,7 +62,7 @@ Local dispatch still has its documented crash/retry limitations; this change doe
 
 ## Next assignment
 
-Review the Packet 02 candidate against `02-scan-execution.md`, its tests and `02-release-runbook.md`. Complete the coordinated rollout under separate shipping authorisation. After Packet 02 is released, Packet 03 is the next engineering phase: defensible requested/evaluated/omitted/failed scan scope and coverage.
+Implement Packet 03 using `03-scan-scope-and-coverage.md`. Preserve the released admission/execution guarantees. The outcome is defensible requested/evaluated/omitted/failed scan scope and coverage, not report redesign or wider admin expansion.
 
 ## Packet 02 design and mutation inventory
 
@@ -94,11 +94,16 @@ Implementation branch: `codex/scan-execution-recovery`, based on `6d4a4aa`. No P
 
 Accepted intermediate asset/finding/notification writes remain incremental; cancellation does not erase already accepted history. Email is best-effort after terminal commit. Coverage/versioned assessment/report work remains in Packets 03–04. The rollout runbook explains the drain gate, additive upgrade, compatible deployment order, recovery and rollback boundaries.
 
-## Packet 02 rollout checks in progress
+## Packet 02 completed rollout
 
 - Shipped the separate v1 drain bridge (`f511403`), set claims paused and verified authenticated 204 responses. Scanner and cron work drained before stopping the idle worker and preserving its image for rollback.
 - Took fresh full/application dumps from one exported PostgreSQL snapshot. Restored the application privately, matched all 11 table counts and rehearsed the upgrade. Applied only the new execution migration in production; row counts were unchanged and both new unique indexes/app-role access were verified.
 - Merged PR #1 as `11cdcea` and synchronized both main refs. Render API and primary VPS CD completed. Verified v2 protocol negotiation, required authority headers, API/database health, worker source/image protocol and an authenticated empty claim from the actual container while claims stayed paused.
-- Final readiness regression reproduced delayed heartbeats/duplicate progress moving a finished stage backward. Added terminal-state and stage-order preservation under the same claim transaction. Fresh full validation after that fix: **426 passed, 16 skipped**, including **21 execution PostgreSQL cases** and **14 admission cases**. Claims remain paused until this final fix is deployed and checked.
+- Final readiness regression reproduced delayed heartbeats/duplicate progress moving a finished stage backward. Added terminal-state and stage-order preservation under the same claim transaction. Fresh full validation after that fix: **426 passed, 16 skipped**, including **21 execution PostgreSQL cases** and **14 admission cases**. Shipped the fix as `1948e42`; [origin CI](https://github.com/Yoosuph/cyphward/actions/runs/38458071720) and [fork CI](https://github.com/kankarofi125/cyphward/actions/runs/38458068465) passed.
+- Enabled claims and explicitly redeployed the API with the new environment value. Verified the enable deployment was live, authenticated v2 metadata was correct and database health was connected before bringing the worker back into normal service.
+- VPS service/container are active with the existing 640 MiB memory/no-extra-swap limit. Container protocol is v2 with required claim fields. Authenticated negotiation/empty claims succeeded from the actual container while paused; normal daemon polling after enable showed successful protocol requests and no authentication/version errors.
+- Both main refs were synchronized at the implementation revision. Fork scanner CD is intentionally skipped; only the primary repository operates the VPS. The API-only final fix did not change worker/shared source relative to the verified worker revision.
+- Post-rollout historical scan counts matched the private preflight; no queued/running jobs were present. No synthetic tenant or scan was inserted into production, and no new live domain assessment was invoked for validation. Real-database mutation/race evidence remains synthetic local/CI evidence; live checks established migration, deployment, authentication, readiness and polling.
+- Fresh private full/application dumps and restore/migration verification are retained outside Git. Temporary database servers and the bridge worktree are cleaned up after release.
 
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.
