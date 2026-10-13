@@ -94,4 +94,11 @@ Implementation branch: `codex/scan-execution-recovery`, based on `6d4a4aa`. No P
 
 Accepted intermediate asset/finding/notification writes remain incremental; cancellation does not erase already accepted history. Email is best-effort after terminal commit. Coverage/versioned assessment/report work remains in Packets 03–04. The rollout runbook explains the drain gate, additive upgrade, compatible deployment order, recovery and rollback boundaries.
 
+## Packet 02 rollout checks in progress
+
+- Shipped the separate v1 drain bridge (`f511403`), set claims paused and verified authenticated 204 responses. Scanner and cron work drained before stopping the idle worker and preserving its image for rollback.
+- Took fresh full/application dumps from one exported PostgreSQL snapshot. Restored the application privately, matched all 11 table counts and rehearsed the upgrade. Applied only the new execution migration in production; row counts were unchanged and both new unique indexes/app-role access were verified.
+- Merged PR #1 as `11cdcea` and synchronized both main refs. Render API and primary VPS CD completed. Verified v2 protocol negotiation, required authority headers, API/database health, worker source/image protocol and an authenticated empty claim from the actual container while claims stayed paused.
+- Final readiness regression reproduced delayed heartbeats/duplicate progress moving a finished stage backward. Added terminal-state and stage-order preservation under the same claim transaction. Fresh full validation after that fix: **426 passed, 16 skipped**, including **21 execution PostgreSQL cases** and **14 admission cases**. Claims remain paused until this final fix is deployed and checked.
+
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.

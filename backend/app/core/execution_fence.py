@@ -54,7 +54,7 @@ def lock_claim(cur, claim: ExecutionClaim) -> dict:
     cur.execute("SET LOCAL statement_timeout = '15s'")
     cur.execute(
         """SELECT id, org_id, status, claimed_by, claim_generation, claim_token,
-                  observation_generation, execution_phase, lease_expires_at, stage_progress
+                  observation_generation, execution_phase, lease_expires_at, stage_progress, current_stage
            FROM scans WHERE id = %s FOR UPDATE""",
         (claim.scan_id,),
     )

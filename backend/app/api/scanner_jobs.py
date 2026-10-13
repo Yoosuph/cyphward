@@ -112,7 +112,11 @@ def scanner_protocol(scanner_id: Scanner) -> dict:
     return {"version": 2, "claim_authority": "required", "observation_attempts": True}
 
 
-@router.post("/claim", response_model=ScanJob, responses={204: {"description": "Queue empty or claims paused"}})
+@router.post(
+    "/claim",
+    response_model=ScanJob,
+    responses={204: {"description": "Queue empty or claims paused"}},
+)
 def claim_job(scanner_id: Scanner) -> Any:
     if not SCANNER_CLAIMS_ENABLED:
         return Response(status_code=204)
@@ -145,7 +149,7 @@ def claim_job(scanner_id: Scanner) -> Any:
 
 
 @router.post("/jobs/{scan_id}/progress")
-def report_progress(scan_id: str, update: ProgressUpdate, claim: WorkerClaim) -> dict:
+def report_progress(scan_id: UUID, update: ProgressUpdate, claim: WorkerClaim) -> dict:
     if update.stage not in RECON_STAGES:
         raise HTTPException(422, "Workers may update only recon stages.")
     state = {
@@ -154,8 +158,10 @@ def report_progress(scan_id: str, update: ProgressUpdate, claim: WorkerClaim) ->
         "duration_ms": update.duration_ms,
         **({"error": update.error} if update.error else {}),
     }
-    _write(execution.report_progress, claim, update.stage, state, SCANNER_LEASE_SECONDS)
-    return {"ok": True, "stage": update.stage, "status": update.status}
+    stored_status = _write(
+        execution.report_progress, claim, update.stage, state, SCANNER_LEASE_SECONDS
+    )
+    return {"ok": True, "stage": update.stage, "status": stored_status}
 
 
 @router.post("/jobs/{scan_id}/observations")

@@ -15,7 +15,7 @@ from backend.app.core.execution_fence import (
     execution_scope,
     lock_claim,
 )
-from shared.contracts import CORE_STAGES, empty_stage_progress
+from shared.contracts import CORE_STAGES, RECON_STAGES, empty_stage_progress
 
 logger = logging.getLogger("cyphward.execution")
 CORE_LEASE_SECONDS = 900
@@ -166,19 +166,38 @@ def store_observation(claim: ExecutionClaim, stage: str, data: Any) -> None:
 
 def report_progress(
     claim: ExecutionClaim, stage: str, state: dict, lease_seconds: int
-) -> None:
+) -> str:
     with owned_transaction(claim) as (cur, row):
         progress = copy.deepcopy(row.get("stage_progress") or {})
         if not isinstance(progress, dict):
             progress = {}
         for key, val in empty_stage_progress().items():
             progress.setdefault(key, val)
+        prior = progress[stage] if isinstance(progress[stage], dict) else {}
+        prior_status = prior.get("status")
+        if (
+            prior_status in {"completed", "failed", "skipped"}
+            and state["status"] != prior_status
+        ):
+            # A late heartbeat/retry cannot reopen a finished stage. Authority
+            # still permits renewal, but the already accepted outcome wins.
+            cur.execute(
+                "UPDATE scans SET lease_expires_at=clock_timestamp()+make_interval(secs => %s) WHERE id=%s",
+                (lease_seconds, claim.scan_id),
+            )
+            return prior_status
         progress[stage] = state
+        current_stage = row["current_stage"]
+        if current_stage not in RECON_STAGES or RECON_STAGES.index(
+            stage
+        ) >= RECON_STAGES.index(current_stage):
+            current_stage = stage
         cur.execute(
             """UPDATE scans SET stage_progress=%s::jsonb, current_stage=%s,
             lease_expires_at=clock_timestamp()+make_interval(secs => %s) WHERE id=%s""",
-            (json.dumps(progress), stage, lease_seconds, claim.scan_id),
+            (json.dumps(progress), current_stage, lease_seconds, claim.scan_id),
         )
+        return state["status"]
 
 
 def fail_claim(claim: ExecutionClaim, error: str, progress: dict | None = None) -> None:

@@ -243,3 +243,17 @@ def test_claim_pause_keeps_held_job_mutations_available(scanner_client,store,mon
     response=scanner_client.post('/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/progress',
         headers=scanner_headers(),json={'stage':'dns','status':'running'})
     assert response.status_code==200
+
+
+def test_delayed_heartbeat_cannot_revert_a_completed_stage(scanner_client,store):
+    from shared.contracts import empty_stage_progress
+    scan=store.scans[0];scan['status']='running';scan['current_stage']='discovery';scan['stage_progress']=empty_stage_progress()
+    path='/api/v1/scanner/jobs/51111111-0000-4000-8000-000000000001/progress'
+    for stage,status in [('dns','completed'),('http','running')]:
+        assert scanner_client.post(path,headers=scanner_headers(),json={'stage':stage,'status':status}).status_code==200
+    delayed=scanner_client.post(path,headers=scanner_headers(),json={'stage':'dns','status':'running'})
+    assert delayed.json()['status']=='completed'
+    assert scan['stage_progress']['dns']['status']=='completed'
+    assert scanner_client.post(path,headers=scanner_headers(),json={'stage':'dns','status':'completed'}).status_code==200
+    assert scan['stage_progress']['http']['status']=='running'
+    assert scan['current_stage']=='http'

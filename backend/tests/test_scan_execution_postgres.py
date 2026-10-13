@@ -687,3 +687,23 @@ def test_expired_attempt_cannot_overlap_a_transaction_already_holding_the_scan(
         {"attempt_generation": claim.generation, "raw_data": {"first": True}},
         {"attempt_generation": new.generation, "raw_data": {"second": True}},
     ]
+
+
+def test_late_progress_is_monotonic_with_independent_connections(execution_db):
+    conn, _, _ = execution_db
+    claim = held(execution_db)
+    race(
+        lambda: ex.report_progress(claim, "dns", {"status": "running"}, 120),
+        lambda: ex.report_progress(
+            claim, "dns", {"status": "completed", "items": 3}, 120
+        ),
+    )
+    assert row(conn, claim.scan_id)["stage_progress"]["dns"]["status"] == "completed"
+    ex.report_progress(claim, "http", {"status": "running"}, 120)
+    assert ex.report_progress(claim, "dns", {"status": "running"}, 120) == "completed"
+    ex.report_progress(claim, "dns", {"status": "completed", "items": 3}, 120)
+    final = row(conn, claim.scan_id)
+    assert (
+        final["current_stage"] == "http"
+        and final["stage_progress"]["dns"]["status"] == "completed"
+    )
