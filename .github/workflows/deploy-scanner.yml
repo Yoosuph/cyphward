@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   deploy:
+    # The fork mirrors code; only the primary repository operates the VPS.
+    if: github.repository == 'Yoosuph/cyphward'
     name: Deploy to scanner VPS
     runs-on: ubuntu-latest
     steps:
