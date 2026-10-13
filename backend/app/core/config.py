@@ -70,6 +70,7 @@ SCHEDULER_ENABLED = os.getenv("CYPHWARD_SCHEDULER_ENABLED", "true").lower() in (
 # SCANNER_MODE: "local"  -> recon runs in-process (dev fallback, default)
 #               "remote" -> recon is claimed by the Azure scanner worker
 SCANNER_MODE = os.getenv("SCANNER_MODE", "local").strip().lower()
+SCANNER_CLAIMS_ENABLED = os.getenv("SCANNER_CLAIMS_ENABLED", "true").lower() in ("true", "1", "yes")
 SCANNER_API_KEY = os.getenv("SCANNER_API_KEY", "")
 # Shared secret is enforced only when SCANNER_MODE=remote; never run remote unarmed.
 SCANNER_LEASE_SECONDS = int(os.getenv("SCANNER_LEASE_SECONDS", "3600"))

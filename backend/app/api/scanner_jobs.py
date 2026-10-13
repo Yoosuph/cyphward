@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks, 
 
 from backend.app.core.config import (
     SCANNER_API_KEY,
+    SCANNER_CLAIMS_ENABLED,
     SCANNER_LEASE_SECONDS,
     SCANNER_MAX_HOSTS,
     SCANNER_MAX_PORTS,
@@ -140,6 +141,10 @@ def claim_job(
         for row in stuck_rows:
             logger.warning("scan=%s finalize interrupted — recovery re-trigger", row["id"])
             background_tasks.add_task(finalize_scan, str(row["id"]))
+
+    # Keep Core recovery above active while pausing new recon allocation.
+    if not SCANNER_CLAIMS_ENABLED:
+        return Response(status_code=204)
 
     job_row = execute_one(
         """
