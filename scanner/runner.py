@@ -33,6 +33,7 @@ from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.tool_results import ToolBatchResult
 from shared.contracts import ScanJob
+from shared.scan_scope import select_targets
 
 logger = logging.getLogger("cyphward.scanner")
 
@@ -193,8 +194,9 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
 
     Not via run_stage — it coerces stage results to lists, but discovery
     yields (hosts, sources_failed). Progress, heartbeat and the observation
-    are handled explicitly here instead. Returns the raw (pre-scope-filter)
-    host list; raises on total failure.
+    are handled explicitly here instead. Returns the selected host list;
+    raises on total failure. Persists the pre-selection
+    discovery inventory and explicit omission reasons separately.
     """
     _t0 = time.time()
     await client.progress(job, "discovery", "running")
@@ -218,12 +220,16 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
                         job.scan_id, len(new_seeds))
     if sources_failed:
         logger.warning("scan=%s discovery sources failed: %s", job.scan_id, sources_failed)
+    selection = select_targets(job.target, job.scope, hosts_raw, job.seed_hosts,
+                               max_hosts=job.limits.max_hosts,
+                               dns_max_hosts=job.limits.dns_max_hosts)
     await client.observations(job, "discovery",
                               {"discovered_hosts": hosts_raw,
-                               "sources_failed": sources_failed})
+                               "sources_failed": sources_failed,
+                               "target_selection": selection.payload()})
     await client.progress(job, "discovery", "completed",
                           items=len(hosts_raw), duration_ms=_ms(_t0))
-    return hosts_raw
+    return selection.selected_hosts
 
 
 async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
@@ -255,7 +261,8 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
     # --- STAGE 3: http (fatal, second scope check before probing) --------
     http_targets = [d["hostname"] for d in dns_records
-                    if d.get("hostname") and host_in_scope(d["hostname"], job.scope)]
+                    if d.get("hostname") and d.get("primary_ip")
+                    and host_in_scope(d["hostname"], job.scope)]
 
     async def _http():
         sem = asyncio.Semaphore(max(1, cfg.http_probe_concurrency))
@@ -274,7 +281,9 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     if not _tool("naabu"):
         await client.progress(job, "ports", "skipped", error="naabu not installed")
     else:
-        port_targets = [d["hostname"] for d in dns_records if d.get("hostname")]
+        port_targets = [d["hostname"] for d in dns_records
+                        if d.get("hostname") and d.get("primary_ip")
+                        and host_in_scope(d["hostname"], job.scope)]
 
         async def _ports():
             return await run_naabu_batch(

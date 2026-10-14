@@ -30,6 +30,44 @@ import "./Scans.css";
 
 type Observation = { stage: string; raw_data: any };
 type Detail = { scan: Scan; raw_results: Observation[] };
+
+function TargetScope({ raw }: { raw: any }) {
+  const selection = raw?.target_selection;
+  if (
+    selection?.version !== 1 ||
+    !Array.isArray(selection.requested_hosts) ||
+    !Array.isArray(selection.selected_hosts) ||
+    !selection.omitted_hosts ||
+    typeof selection.omitted_hosts !== "object" ||
+    Array.isArray(selection.omitted_hosts)
+  ) {
+    return <p>Target selection was not recorded. Full coverage cannot be confirmed.</p>;
+  }
+  const reasons: Record<string, string> = {
+    max_hosts: "Scan host limit reached",
+    dns_max_hosts: "DNS host limit reached",
+    outside_authorised_scope: "Outside the verified domain",
+    invalid_hostname: "Invalid hostname",
+  };
+  return (
+    <div className="scan-target-scope">
+      <p>
+        {selection.requested_hosts.length} in-scope hosts requested · {selection.selected_hosts.length} selected for DNS
+      </p>
+      <p>The domain is prioritised, followed by registered hosts and discovered hosts. Selection does not confirm a completed check. Public discovery may miss assets.</p>
+      {Object.keys(selection.omitted_hosts).length > 0 && (
+        <details>
+          <summary>{Object.keys(selection.omitted_hosts).length} hosts excluded — see reasons</summary>
+          <ul>
+            {Object.entries(selection.omitted_hosts).map(([host, reason]) => (
+              <li key={host}><strong>{host}</strong>: {reasons[String(reason)] || "Reason unavailable"}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
 const CHECKS = [
   {
     key: "discovery",
@@ -238,6 +276,7 @@ function CheckRow({
       </summary>
       <div className="scan-check-detail">
         <p>{stage.desc}</p>
+        {stage.key === "discovery" && <TargetScope raw={raw} />}
         {info?.items != null && (
           <p>
             {info.items} observations recorded · {duration(info.duration_ms)}

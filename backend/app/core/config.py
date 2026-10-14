@@ -76,6 +76,7 @@ SCANNER_API_KEY = os.getenv("SCANNER_API_KEY", "")
 # Shared secret is enforced only when SCANNER_MODE=remote; never run remote unarmed.
 SCANNER_LEASE_SECONDS = int(os.getenv("SCANNER_LEASE_SECONDS", "3600"))
 SCANNER_MAX_HOSTS = int(os.getenv("SCANNER_MAX_HOSTS", "500"))
+SCANNER_DNS_MAX_HOSTS = int(os.getenv("SCANNER_DNS_MAX_HOSTS", "40"))
 SCANNER_MAX_PORTS = int(os.getenv("SCANNER_MAX_PORTS", "100"))
 SCANNER_STAGE_TIMEOUT_SECONDS = int(os.getenv("SCANNER_STAGE_TIMEOUT_SECONDS", "300"))
 CORE_AI_TIMEOUT_SECONDS = max(1, int(os.getenv("CORE_AI_TIMEOUT_SECONDS", "120")))

@@ -35,6 +35,8 @@ from backend.app.core.config import (
     SCANNER_NUCLEI_CONCURRENCY,
     SCANNER_NUCLEI_MAX_HOSTS,
     SCANNER_MAX_PORTS,
+    SCANNER_MAX_HOSTS,
+    SCANNER_DNS_MAX_HOSTS,
     SCANNER_STAGE_TIMEOUT_SECONDS,
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
@@ -63,6 +65,7 @@ from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
 from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress
+from shared.scan_scope import select_targets
 
 import os
 
@@ -78,7 +81,6 @@ inngest_client = inngest.Inngest(
     event_key=event_key or None,
 )
 
-DNS_HOST_CAP = 40
 # TLS analysis is expensive — hard cap independent of discovery breadth.
 TLS_HOST_CAP = 25
 # Port-scan concurrency within the ports stage (one stage at a time, §16).
@@ -251,19 +253,24 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
         if registered:
             discovered_hosts = sorted(set(discovered_hosts) | set(registered))
 
+        selection = select_targets(domain, [domain], discovered_hosts, registered,
+                                   max_hosts=SCANNER_MAX_HOSTS,
+                                   dns_max_hosts=SCANNER_DNS_MAX_HOSTS)
+
         progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
         if not _still_running(scan_id):
             return {"scan_id": scan_id, "cancelled": True}
         progress["dns"]["status"] = "running"
         _save_progress(scan_id, progress, "dns")
         _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts,
-                                                  "sources_failed": sources_failed})
+                                                  "sources_failed": sources_failed,
+                                                  "target_selection": selection.payload()})
 
         # ---------------------------------------------------------------------
         # STAGE 2: DNS Resolution
         # ---------------------------------------------------------------------
         t0 = time.time()
-        dns_tasks = [resolve_host_dns(h) for h in discovered_hosts[:DNS_HOST_CAP]]
+        dns_tasks = [resolve_host_dns(h) for h in selection.selected_hosts]
         dns_results = await asyncio.gather(*dns_tasks, return_exceptions=True)
         valid_dns = [r for r in dns_results if isinstance(r, dict)]
         dns_dur = int((time.time() - t0) * 1000)

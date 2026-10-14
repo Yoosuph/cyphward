@@ -3,7 +3,7 @@
 **Prepared:** 13 October 2026
 **Released implementation baseline:** API `1948e42`, last worker-affecting revision `11cdcea` (original architecture baseline: `c7edb77`)
 **Purpose:** Give the next AI coding agent a sequenced, testable implementation plan.
-**Current task:** Packets 00–02 are released. The next implementation task is [Packet 03](03-scan-scope-and-coverage.md). See `PROGRESS.md` for local/CI and production verification evidence.
+**Current task:** Packets 00–02 are released. [Packet 03](03-scan-scope-and-coverage.md) is in progress on `codex/scan-scope-coverage`; its target-selection foundation is locally validated but not deployed. See `PROGRESS.md` for evidence and remaining work.
 
 Start with [START-HERE.md](START-HERE.md). The current specification is [03-scan-scope-and-coverage.md](03-scan-scope-and-coverage.md); [01-scan-admission.md](01-scan-admission.md) and [02-scan-execution.md](02-scan-execution.md) document the released foundations. Record progress in [PROGRESS.md](PROGRESS.md). The business rationale is in [the growth strategy](../growth-and-competitive-strategy-2026-10-12.md).
 

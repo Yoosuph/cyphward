@@ -65,6 +65,28 @@ def expire(conn, claim):
     conn.commit()
 
 
+def test_target_selection_is_persisted_only_for_current_producing_attempt(execution_db):
+    from shared.scan_scope import select_targets
+    conn, _, _ = execution_db
+    old = held(execution_db)
+    plan = select_targets("acme.test", ["acme.test"], ["a.acme.test"],
+                          ["z.acme.test"], max_hosts=500, dns_max_hosts=2).payload()
+    ex.store_observation(old, "discovery", {"target_selection": plan})
+    expire(conn, old)
+    new = ex.claim_from_row(ex.claim_recon("replacement", "worker", 120, old.scan_id))
+    with pytest.raises(ClaimLost):
+        ex.store_observation(old, "discovery", {"target_selection": {"stale": True}})
+    current_plan = select_targets("acme.test", ["acme.test"], [], [],
+                                  max_hosts=500, dns_max_hosts=2).payload()
+    ex.store_observation(new, "discovery", {"target_selection": current_plan})
+    core = ex.handoff_to_core(new)
+    with execution_scope(core):
+        assert wf._load_observations(old.scan_id) == {"discovery": {"target_selection": current_plan}}
+    saved = conn.execute("SELECT attempt_generation,raw_data FROM scan_results WHERE scan_id=%s AND stage='discovery' ORDER BY attempt_generation", (old.scan_id,)).fetchall()
+    assert [(r["attempt_generation"], r["raw_data"]["target_selection"]) for r in saved] == [
+        (old.observation_generation, plan), (new.observation_generation, current_plan)]
+
+
 def row(conn, scan_id):
     return conn.execute("SELECT * FROM scans WHERE id=%s", (scan_id,)).fetchone()
 

@@ -1,8 +1,8 @@
 # Agent progress record
 
-**Last updated:** 13 October 2026
+**Last updated:** 14 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 is the next implementation phase.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection foundation is implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; it is not deployed and Packet 03 is not complete.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -107,3 +107,31 @@ Accepted intermediate asset/finding/notification writes remain incremental; canc
 - Fresh private full/application dumps and restore/migration verification are retained outside Git. Temporary database servers and the bridge worktree are cleaned up after release.
 
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.
+
+## Packet 03 — target-selection foundation, 14 October 2026
+
+Review branch: `codex/scan-scope-coverage`, based on released main `76c80a4`. This is the first slice, not the completed packet or a production release.
+
+### Verified source findings
+
+| Boundary | Source finding | Current action or remaining work |
+| --- | --- | --- |
+| DNS target selection | Local recon sliced discovery to 40; worker used up to 500. Sorted discovery/seed union could omit registered hosts. | Both now use `shared/scan_scope.py`, with explicit `SCANNER_DNS_MAX_HOSTS` job limits (default 40). Scanned domain first, sorted registered hosts next, then sorted passive hosts. |
+| Selection evidence | Scope/cap filtering did not persist exclusion reasons. | New discovery `target_selection` version 1 records requested/selected hosts, limits and invalid/out-of-scope/cap reasons under the producing attempt. Selection is intent, never successful evaluation. |
+| Worker probe inputs | Worker HTTP/ports selected any DNS hostname, unlike local gating on `primary_ip`. | Worker now also requires a public-address DNS result and suffix scope; existing actual connection/tool guards remain in place. |
+| DNS outcomes | Resolver catches individual query errors and returns empty fields; DoH fallback queries a smaller record-type set. | Still outstanding: distinguish negative DNS answers from failed/unattempted per-record checks before allowing DNS finding resolution. |
+| Tool coverage | Tool batches distinguish host success/failure; Nuclei success does not prove each template ran. | Still outstanding: requested/evaluated check/template identity, tool/template versions and conservative detector-specific resolution. |
+| Network enforcement | HTTP pins requests to revalidated IPs; Naabu passes a validated IP; Nuclei receives a hostname after a preflight resolution check. | No new claim of complete external-tool network isolation. Actual tool/egress boundaries and deployment controls require further review/testing. |
+| Scoring | Finalizer passes a completed assessment to organization scoring without a per-check evaluation gate. | Still outstanding: truthful unassessed/partial semantics and distinguish organization risk from selected-scan assessment scope. |
+| Customer presentation | Existing scan details expose only current-producing-attempt raw observations. | Discovery details now show requested/selected/excluded targets with readable reasons. Missing/unknown version explicitly says selection was not recorded. Existing history remains scrollable. |
+
+### Compatibility and validation
+
+- Additive JSON observation contract; no new migration and no historical backfill. Required protocol v2 authority stays intact. Older v2 workers may still operate without selection records; their coverage remains unknown. Upgraded workers default to the conservative 40-host DNS cap when an older API lacks the new job limit. The complete coverage contract is still to be designed/implemented.
+- Fresh owned PostgreSQL 18.6 cluster bound only to `127.0.0.1:55433`; full 25-migration bootstrap; test database `cyphward_test`, restricted `cyphward_app`. No restored customer snapshot or inherited production database connection was used.
+- Full backend suite: **434 passed, 16 skipped**. This includes **22 execution PostgreSQL cases** and the preserved admission cases. The new independent-connection case verifies current-attempt target-selection persistence, retained older evidence, stale-write rejection and Core loading only the current producing attempt.
+- Local/worker stubbed recon cases verify the same deterministic selection, registered/apex priority under caps, explicit invalid/out-of-scope omissions and no worker HTTP probe for a DNS result without a public address.
+- Frontend production build passed. Scan-page browser suite passed desktop/390px/320px with expanded exclusions, legacy unknown-selection text, scrollable history and preserved launch/RBAC/polling behavior. Browser APIs and external scanners were stubbed; this is not live scanning/network-isolation evidence. The prior non-failing Vite post-assertion proxy `ECONNREFUSED` recurred.
+- No production migration, main push, worker replacement, live target scan or customer-account mutation is part of this slice. Review branch publication does not deploy the VPS.
+
+Next: complete versioned per-target/check outcomes and tool/template identity, explicit downstream omissions and deadlines, conservative DNS/template resolution and truthful scoring. Then perform the packet's complete acceptance/release review. Do not begin Packet 04 or broader admin work yet.

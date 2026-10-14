@@ -12,6 +12,7 @@ from backend.app.core.config import (
     SCANNER_CLAIMS_ENABLED,
     SCANNER_LEASE_SECONDS,
     SCANNER_MAX_HOSTS,
+    SCANNER_DNS_MAX_HOSTS,
     SCANNER_MAX_PORTS,
     SCANNER_MODE,
     SCANNER_NUCLEI_CONCURRENCY,
@@ -140,6 +141,7 @@ def claim_job(scanner_id: Scanner) -> Any:
         },
         limits=ScanJobLimits(
             max_hosts=SCANNER_MAX_HOSTS,
+            dns_max_hosts=SCANNER_DNS_MAX_HOSTS,
             max_ports=SCANNER_MAX_PORTS,
             stage_timeout_seconds=SCANNER_STAGE_TIMEOUT_SECONDS,
             nuclei_concurrency=SCANNER_NUCLEI_CONCURRENCY,

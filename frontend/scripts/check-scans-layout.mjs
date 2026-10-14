@@ -128,6 +128,17 @@ try {
   let slowResponses = false;
   const raw_results = [
     {
+      stage: "discovery",
+      raw_data: {
+        target_selection: {
+          version: 1,
+          requested_hosts: ["example.ng", "registered.example.ng", "a.example.ng"],
+          selected_hosts: ["example.ng", "registered.example.ng"],
+          omitted_hosts: { "a.example.ng": "dns_max_hosts", "external.test": "outside_authorised_scope" },
+        },
+      },
+    },
+    {
       stage: "nuclei",
       raw_data: {
         attempted_hosts: [
@@ -259,7 +270,9 @@ try {
     await page.waitForFunction(
       () =>
         document.body.textContent.includes("Completed with limited coverage") &&
-        document.body.textContent.includes("3 of 5 targets checked"),
+        document.body.textContent.includes("3 of 5 targets checked") &&
+        document.body.textContent.includes("3 in-scope hosts requested") &&
+        document.body.textContent.includes("DNS host limit reached"),
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (capture)
@@ -296,6 +309,13 @@ try {
         width > 900,
         "Checks expanded on desktop and collapsed on phones",
       );
+      await page.evaluate(() => {
+        document.querySelector(".scan-checks-panel").open = true;
+        document.querySelector('.scan-check[data-stage="discovery"]').open = true;
+        document.querySelector(".scan-target-scope details").open = true;
+      });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width,
+        "Expanded target exclusions fit desktop and mobile");
     }
     if (name === "mobile") {
       await page.evaluate(() =>
@@ -321,6 +341,12 @@ try {
     }
   }
   if (prefix === "implemented") {
+    const selection = raw_results[0].raw_data.target_selection;
+    delete raw_results[0].raw_data.target_selection;
+    await page.goto(`${origin}/scans`);
+    await page.waitForFunction(() => document.body.textContent.includes(
+      "Target selection was not recorded. Full coverage cannot be confirmed."));
+    raw_results[0].raw_data.target_selection = selection;
     // Long histories must keep their header visible and the last action reachable.
     scans.push(
       ...Array.from({ length: 12 }, (_, index) => ({

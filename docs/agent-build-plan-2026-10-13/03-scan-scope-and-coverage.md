@@ -1,6 +1,6 @@
 # Packet 03 — defensible scan scope and coverage
 
-**Status:** specified; not implemented.
+**Status:** in progress on `codex/scan-scope-coverage`; target-selection foundation implemented and locally validated, not released. Full per-check coverage and scoring contract remains outstanding.
 **Dependency:** released Packet 02. Preserve protocol v2 ownership, attempt-specific evidence and monotonic progress.
 **Outcome:** users can tell what a scan evaluated, what it omitted or failed to evaluate, and what its findings/score can support.
 
@@ -11,6 +11,8 @@ Inspect `shared/contracts.py`, `scanner/runner.py`, local recon/Core finalisatio
 Trace requested hosts/checks through discovery, scope filtering, caps, invocation, tool output, persisted observations, normalisation, resolution and presentation. Record where local/remote limits differ and where a cap, timeout or omission loses its reason. Keep a table of those verified source findings in `PROGRESS.md`.
 
 ## Implementation contract
+
+The first slice adds `discovery.target_selection` version 1 to existing attempt-specific JSON observations. It records validated in-scope requested hosts, hosts selected for DNS, omitted candidate reasons and selection limits. This is intent, not evidence of successful evaluation. It requires no migration, keeps worker protocol v2 and allows older workers/history to remain explicitly unknown. `SCANNER_DNS_MAX_HOSTS` (default 40) is transported in job limits; both execution paths use the same selection function. Prioritise the scanned domain, sorted registered hosts, then sorted passive hosts. No historical backfill or network-policy deployment is included. See `PROGRESS.md` for actual evidence and remaining work.
 
 1. Define a versioned assessment scope/coverage contract. Persist target identity, requested checks/templates, evaluated checks/templates, tool/template versions, outcomes, timestamps, limits and exclusion/cap reasons. Bind authoritative observations to Packet 02's producing recon attempt and current claim.
 2. Distinguish successful evaluation with no finding from failure, omission, skipped checks and unknown legacy coverage. Missing fields from old workers/history cannot become evidence of a clean check. Do not backfill fabricated success.
