@@ -32,6 +32,7 @@ from backend.app.scanner.naabu_runner import run_naabu_batch
 from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.tool_results import ToolBatchResult
+from backend.app.scanner.dns_coverage import collect_dns_results
 from shared.contracts import ScanJob
 from shared.scan_scope import select_targets
 
@@ -253,7 +254,8 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
 
     # --- STAGE 2: dns (fatal) --------------------------------------------
     async def _dns():
-        return await _gather_dicts([resolve_host_dns(h) for h in discovered])
+        results = await asyncio.gather(*[resolve_host_dns(h) for h in discovered], return_exceptions=True)
+        return collect_dns_results(discovered, results)
 
     dns_records = await run_stage(client, cfg, job, "dns", _dns)
     assert dns_records is not None

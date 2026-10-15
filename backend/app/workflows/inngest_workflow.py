@@ -59,6 +59,7 @@ from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
 from backend.app.scanner.normalizer import normalize_findings
 from backend.app.scanner.detectors import classify_detector, detector_key
+from backend.app.scanner.dns_coverage import dns_finding_evaluated, collect_dns_results
 from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
 from backend.app.ai.factory import get_ai_provider
@@ -272,15 +273,15 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
         t0 = time.time()
         dns_tasks = [resolve_host_dns(h) for h in selection.selected_hosts]
         dns_results = await asyncio.gather(*dns_tasks, return_exceptions=True)
-        valid_dns = [r for r in dns_results if isinstance(r, dict)]
+        valid_dns = collect_dns_results(selection.selected_hosts, dns_results)
         dns_dur = int((time.time() - t0) * 1000)
 
-        progress["dns"] = {"status": "completed", "items": len(valid_dns), "duration_ms": dns_dur}
+        progress["dns"] = {**valid_dns.progress(), "items": len(valid_dns), "duration_ms": dns_dur}
         if not _still_running(scan_id):
             return {"scan_id": scan_id, "cancelled": True}
         progress["http"]["status"] = "running"
         _save_progress(scan_id, progress, "http")
-        _store_observation(scan_id, "dns", {"dns_records": valid_dns})
+        _store_observation(scan_id, "dns", {"dns_records": valid_dns, **valid_dns.coverage()})
 
         # ---------------------------------------------------------------------
         # STAGE 3: HTTP/HTTPS Probing — resolved hosts only; probing an
@@ -695,7 +696,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             set(h for h in successful if isinstance(h, str)) & set(nuclei_attempted)
         ) - set(failed) if isinstance(successful, list) and coverage_ready else set()
 
-        def _detector_covered(asset_id: Any, category: Any, evidence: Any) -> bool:
+        def _detector_covered(asset_id: Any, category: Any, evidence: Any, title: Any) -> bool:
             """Did this finding's detector complete for this host this scan?"""
             hostname = hostname_by_asset.get(asset_id) or hostname_by_asset.get(str(asset_id))
             name = classify_detector(category, evidence)["name"]
@@ -706,7 +707,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                     return False
                 if category == "DNS & Email Security":
                     # Email checks only run on the domain apex.
-                    return hostname == domain
+                    return hostname == domain and dns_finding_evaluated(dns_by_host.get(hostname) or {}, title)
                 if category == "SSL/TLS":
                     tls = (http_by_host.get(hostname) or {}).get("tls_info") or {}
                     return bool(tls.get("valid_to") or tls.get("issuer"))
@@ -816,7 +817,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                     if f_key in observed:
                         continue
                     f_host = hostname_by_asset.get(str(f["asset_id"])) or hostname_by_asset.get(f["asset_id"])
-                    if not _detector_covered(aid, f.get("category"), f.get("evidence")):
+                    if not _detector_covered(aid, f.get("category"), f.get("evidence"), f.get("title")):
                         baseline["not_evaluated"].append({
                             "id": str(f["id"]),
                             "title": f["title"],

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from backend.app.core.auth import get_current_org, log_audit, require_admin
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.detectors import classify_detector
+from backend.app.scanner.dns_coverage import dns_finding_evaluated
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.nuclei_runner import run_nuclei_template
@@ -287,13 +288,13 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
 
     try:
         dns_data = await resolve_host_dns(hostname) or {}
-        http_data = await probe_http_service(hostname, scope=probe_scope) or {}
+        http_data = {} if task.get("f_category") in DNS_ONLY_CATEGORIES else (
+            await probe_http_service(hostname, scope=probe_scope) or {}
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Recheck failed: {exc}")
 
     # A recheck is only conclusive if the probes actually observed the host.
-    records = dns_data.get("records") or {}
-    dns_ok = bool(dns_data.get("primary_ip")) or any(records.values())
     http_ok = http_data.get("http_status") is not None
 
     if detector["name"] == "nuclei":
@@ -341,10 +342,10 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
                 f"this check couldn't be re-evaluated. Try again later or run a fresh scan.",
                 detector,
             )
-        if task.get("f_category") in DNS_ONLY_CATEGORIES and not dns_ok:
+        if task.get("f_category") in DNS_ONLY_CATEGORIES and not dns_finding_evaluated(dns_data, task.get("f_title")):
             return _inconclusive(
                 task, org, hostname,
-                f"Inconclusive — DNS for {hostname} could not be resolved, so this "
+                f"Inconclusive — the required DNS query for {hostname} was not evaluated, so this "
                 f"check couldn't be re-evaluated. Try again later or run a fresh scan.",
                 detector,
             )

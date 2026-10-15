@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 import httpx
 
 from backend.app.scanner import ip_guard
+from backend.app.scanner.dns_coverage import query_evaluated
 
 
 async def run_security_checks(
@@ -29,7 +30,7 @@ async def run_security_checks(
     # -------------------------------------------------------------------------
     # 1. Email Security: DMARC Policy Evaluation (Apex Domain & Mail Hosts Only)
     # -------------------------------------------------------------------------
-    if is_apex:
+    if is_apex and query_evaluated(dns_data, "DMARC"):
         dmarc_record = dns_data.get("dmarc_record")
         if not dmarc_record:
             findings.append({
@@ -60,9 +61,8 @@ async def run_security_checks(
                 "remediation": "Elevate DMARC enforcement policy from 'p=none' to 'p=quarantine' or 'p=reject' once legitimate sender sources are verified."
             })
 
-        # -------------------------------------------------------------------------
-        # 2. Email Security: SPF Record Evaluation (Apex Domain & Mail Hosts Only)
-        # -------------------------------------------------------------------------
+    # Each email check needs its own query; a DMARC failure must not hide SPF.
+    if is_apex and query_evaluated(dns_data, "TXT"):
         spf_record = dns_data.get("spf_record")
         if not spf_record:
             findings.append({

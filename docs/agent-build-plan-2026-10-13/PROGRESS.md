@@ -1,8 +1,8 @@
 # Agent progress record
 
-**Last updated:** 14 October 2026
+**Last updated:** 15 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection foundation is implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; it is not deployed and Packet 03 is not complete.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection and DNS-evidence slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -135,3 +135,18 @@ Review branch: `codex/scan-scope-coverage`, based on released main `76c80a4`. Th
 - No production migration, main push, worker replacement, live target scan or customer-account mutation is part of this slice. Review branch publication does not deploy the VPS.
 
 Next: complete versioned per-target/check outcomes and tool/template identity, explicit downstream omissions and deadlines, conservative DNS/template resolution and truthful scoring. Then perform the packet's complete acceptance/release review. Do not begin Packet 04 or broader admin work yet.
+
+## Packet 03 — DNS query evidence and email verification, 15 October 2026
+
+Continued the same review branch and [draft PR #2](https://github.com/Yoosuph/cyphward/pull/2). The initial target-selection implementation `d7bbfc5` passed all three primary-repository CI jobs before this continuation.
+
+- Verified the resolver swallowed all per-question errors, DoH discarded answers for other native questions when A succeeded, and the old resolution/recheck gates could use unrelated DNS/HTTP success as proof of an email check. These source findings are addressed by this slice.
+- Added `records.query_coverage` version 1, keyed by A/AAAA/CNAME/MX/TXT/NS/DMARC. Each record includes the exact question name/type, source, start/completion timestamps and answered/no_data/nxdomain/failed outcome. A negative DNS response is distinct from timeout/SERVFAIL, malformed data and truncated responses.
+- DoH retries only failed questions, queries the complete supported set, filters answers by record type and correctly joins TXT chunks. Fallback preserves the native attempt's failure metadata and unrelated native answers. Socket-derived IP inventory does not certify TXT or DMARC evaluation. Blocking native/socket work runs outside the event loop so it cannot block lease heartbeats.
+- Both local and remote DNS stages preserve partial observations and attempted/successful/failed host coverage. A host is fully assessed only when all seven supported questions have conclusive outcomes. Per-query successes remain available when another query fails. Invalid/mismatched returned hosts cannot become success or inject observations for another target.
+- SPF and DMARC finding generation, baseline resolution and remediation verification use the exact query required by a known check. Legacy/missing coverage and unknown DNS rule titles cannot certify a fix. A DNS-only recheck does not depend on an unrelated HTTP probe. This is still the existing limited email-check set, not validation of every SPF/DMARC mechanism or policy syntax.
+- Fresh synthetic loopback `cyphward_test` database on port 55433, full 25-migration bootstrap, restricted `cyphward_app` connection. Full suite: **455 passed, 16 skipped**, including all admission/execution PostgreSQL cases and **21 new DNS cases**. The subsequent DNS-only HTTP-independence refinement passed the **34-test DNS/remediation subset**, then the final full regression again passed **455/16**. DNS, DoH, HTTP and checker dependencies were stubbed where exercised; no live target scan or live DNS query was required by the new tests.
+- No frontend source changed in this continuation; the prior build/browser evidence remains scoped to the target-selection slice. Existing UI consumes DNS batch coverage/failure reasons through the existing raw-result contract. This is not a fresh visual or deployment verification.
+- Additive JSON only: no migration, backfill or authority change. Core/API must be upgraded before the worker on release; old workers then yield unknown email-query coverage instead of false proof. Production remains unchanged; PR #2 remains draft.
+
+Remaining Packet 03 work: other per-target/check and template outcomes, tool/template version identity, end-to-end deadlines/downstream omissions, actual external-tool/egress boundaries, conservative template resolution, truthful partial/unassessed scoring and full acceptance/release review. Packets 04–09 remain later phases.
