@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 import shutil
+import re
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from backend.app.scanner import ip_guard
@@ -20,6 +22,33 @@ SEVERITY_MAP = {
     "high": "high",
     "critical": "critical",
 }
+
+
+async def _nuclei_version() -> str | None:
+    """Best-effort bounded identity lookup; failure never fabricates a version."""
+    binary = shutil.which("nuclei")
+    if not binary:
+        return None
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            binary, "-version", stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, env=_nuclei_environment())
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=2)
+        if proc.returncode != 0:
+            return None
+        match = re.search(r"(?:Nuclei Engine Version:|Current Version:)\s*v?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)",
+                          (stdout + stderr).decode(errors="replace"), re.IGNORECASE)
+        return match.group(1) if match else None
+    except Exception:
+        return None
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
 
 
 def _nuclei_resource_args() -> List[str]:
@@ -81,9 +110,26 @@ def _parse_nuclei_stdout(stdout: bytes, hostname: str, strict: bool = False) -> 
                 raise ToolExecutionError("Nuclei returned an invalid finding record")
             continue
 
+        if data.get("error"):
+            if strict:
+                raise ToolExecutionError("Nuclei reported a request or template error")
+            continue
+        if "matcher-status" in data and type(data["matcher-status"]) is not bool:
+            if strict:
+                raise ToolExecutionError("Nuclei returned an invalid matcher status")
+            continue
+        if data.get("matcher-status") is False:
+            # A failed matcher event is not a vulnerability or a full-template
+            # completion receipt. It cannot establish a clean assessment.
+            continue
+
         info = data.get("info", {})
         matched_at = data.get("matched-at") or data.get("matched", hostname)
         template_id = data.get("template-id") or data.get("templateID", "")
+        if not isinstance(template_id, str) or not template_id.strip():
+            if strict:
+                raise ToolExecutionError("Nuclei finding has no template identity")
+            continue
         sev = SEVERITY_MAP.get(info.get("severity", "").lower(), "medium")
 
         findings.append({
@@ -191,6 +237,9 @@ async def run_nuclei_template(
         findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
     except ToolExecutionError as error:
         return {"ok": False, "findings": [], "error": str(error)}
+    if not any((finding.get("evidence") or {}).get("template_id") == template_id for finding in findings):
+        return {"ok": False, "findings": findings,
+                "error": "No matching finding was returned, but per-template completion was not proven."}
     return {"ok": True, "findings": findings, "error": None}
 
 
@@ -286,6 +335,8 @@ async def run_nuclei_batch(
 ) -> List[Dict[str, Any]]:
     """Run Nuclei across multiple hosts concurrently."""
     hostnames = list(dict.fromkeys(hostnames))
+    started_at = datetime.now(timezone.utc).isoformat()
+    version = await _nuclei_version() if hostnames else None
     max_processes = max(1, min(4, int(os.getenv("SCANNER_NUCLEI_MAX_PROCESSES", "1"))))
     semaphore = asyncio.Semaphore(max(1, min(concurrency, max_processes)))
 
@@ -296,4 +347,23 @@ async def run_nuclei_batch(
     tasks = [_run_with_semaphore(h) for h in hostnames]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    return collect_tool_results(hostnames, results)
+    batch = collect_tool_results(hostnames, results)
+    # CLI exit success and match JSONL do not attest that every selected
+    # template ran for a host. Preserve that gap explicitly, including legacy
+    # installations whose engine/template version cannot be observed.
+    batch.tool_coverage = {
+        "version": 1, "tool": "nuclei", "tool_version": version,
+        "requested_selector": templates, "severity_filter": severity,
+        "template_set_version": None, "evaluated_templates": None,
+        "negative_verification": "unknown",
+        "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(),
+        "per_host_timeout_seconds": timeout,
+        "targets": {host: {
+            "process_status": "completed" if host in batch.successful_hosts else "failed",
+            "matched_templates": sorted({str((finding.get("evidence") or {}).get("template_id"))
+                                          for finding in batch if finding.get("_hostname") == host
+                                          and (finding.get("evidence") or {}).get("template_id")}),
+            "evaluation_status": "unknown",
+        } for host in hostnames},
+    }
+    return batch

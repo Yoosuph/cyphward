@@ -15,12 +15,14 @@ class ToolBatchResult(list):
         self.attempted_hosts = list(attempted_hosts)
         self.successful_hosts = list(successful_hosts)
         self.failed_hosts = dict(failed_hosts)
+        self.tool_coverage = None
 
     def coverage(self) -> dict[str, Any]:
         return {
             "attempted_hosts": self.attempted_hosts,
             "successful_hosts": self.successful_hosts,
             "failed_hosts": self.failed_hosts,
+            **({"tool_coverage": self.tool_coverage} if self.tool_coverage is not None else {}),
         }
 
     def progress(self) -> dict[str, Any]:

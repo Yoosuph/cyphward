@@ -670,38 +670,14 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         # that specific host this scan; anything else stays open and is
         # recorded as not evaluated.
         # -----------------------------------------------------------------
-        nuclei_obs = observations.get("nuclei") or {}
-        if isinstance(nuclei_obs.get("attempted_hosts"), list):
-            nuclei_attempted = [h for h in nuclei_obs["attempted_hosts"] if isinstance(h, str)]
-        else:
-            # Legacy observations (pre-attempted_hosts): recompute the rule
-            # recon used — HTTP-responsive hosts, discovery order, capped.
-            nuclei_attempted = []
-            for h in valid_dns:
-                hn = h.get("hostname")
-                if not hn or hn in nuclei_attempted:
-                    continue
-                if any(hp.get("hostname") == hn and hp.get("http_status") for hp in valid_http):
-                    nuclei_attempted.append(hn)
-                if len(nuclei_attempted) >= SCANNER_NUCLEI_MAX_HOSTS:
-                    break
-        # Attempting a host is not evidence that its tool completed. Older
-        # workers did not distinguish crashes from clean empty results, so
-        # their attempted-only payloads must never auto-resolve findings.
-        nuclei_status = (progress.get("nuclei") or {}).get("status")
-        successful = nuclei_obs.get("successful_hosts")
-        failed = nuclei_obs.get("failed_hosts") or {}
-        coverage_ready = nuclei_status == "completed" or (nuclei_status == "failed" and isinstance(failed, dict) and bool(failed))
-        nuclei_covered_hosts = (
-            set(h for h in successful if isinstance(h, str)) & set(nuclei_attempted)
-        ) - set(failed) if isinstance(successful, list) and coverage_ready else set()
-
         def _detector_covered(asset_id: Any, category: Any, evidence: Any, title: Any) -> bool:
             """Did this finding's detector complete for this host this scan?"""
             hostname = hostname_by_asset.get(asset_id) or hostname_by_asset.get(str(asset_id))
             name = classify_detector(category, evidence)["name"]
             if name == "nuclei":
-                return hostname in nuclei_covered_hosts
+                # Current CLI output proves matches/process completion only,
+                # not exact-template negative coverage. Keep absence unknown.
+                return False
             if name == "security_checks":
                 if hostname not in check_success_hosts:
                     return False

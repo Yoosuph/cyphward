@@ -190,7 +190,7 @@ def test_nuclei_finding_reruns_its_template_not_shared_checks(client, auth_heade
     assert store.remediation_tasks[0]["status"] == "reopened"
 
 
-def test_nuclei_template_clean_verifies(client, auth_headers, store, monkeypatch):
+def test_nuclei_empty_output_without_template_completion_is_inconclusive(client, auth_headers, store, monkeypatch):
     _seed_nuclei_finding(store)
     _seed_task(store, "f5555555-0000-4000-8000-000000000005")
     _mock_probes(monkeypatch)
@@ -203,10 +203,10 @@ def test_nuclei_template_clean_verifies(client, auth_headers, store, monkeypatch
     resp = client.post("/api/v1/remediation/task-1/verify", headers=auth_headers(ALICE))
     assert resp.status_code == 200
     data = resp.json()
-    assert data["result"] == "verified"
+    assert data["result"] == "inconclusive"
     finding = next(f for f in store.findings
                    if f["id"] == "f5555555-0000-4000-8000-000000000005")
-    assert finding["status"] == "resolved"
+    assert finding["status"] == "open"
 
 
 def test_nuclei_rerun_failure_is_inconclusive(client, auth_headers, store, monkeypatch):

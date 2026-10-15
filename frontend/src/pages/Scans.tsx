@@ -250,7 +250,7 @@ function CheckRow({
   )?.raw_data;
   const coverage =
     Array.isArray(raw?.successful_hosts) && Array.isArray(raw?.attempted_hosts)
-      ? `${raw.successful_hosts.length} of ${raw.attempted_hosts.length} targets checked`
+      ? `${raw.successful_hosts.length} of ${raw.attempted_hosts.length} ${stage.key === "nuclei" ? "tool runs completed" : "targets checked"}`
       : null;
   const Icon = stage.icon;
   return (
@@ -277,6 +277,12 @@ function CheckRow({
       <div className="scan-check-detail">
         <p>{stage.desc}</p>
         {stage.key === "discovery" && <TargetScope raw={raw} />}
+        {stage.key === "nuclei" && (raw || finished(scan)) && (
+          <>
+            <p>Tool completion does not confirm every template ran. An empty result cannot certify a fix.</p>
+            <p>Engine version: {raw?.tool_coverage?.version === 1 ? raw.tool_coverage.tool_version || "Not recorded" : "Not recorded"}. Template evaluation coverage: unknown.</p>
+          </>
+        )}
         {info?.items != null && (
           <p>
             {info.items} observations recorded · {duration(info.duration_ms)}

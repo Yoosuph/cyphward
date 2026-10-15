@@ -167,16 +167,16 @@ def test_http_without_certificate_does_not_resolve_tls_finding(store, monkeypatc
     assert finding["status"] == "open"
 
 
-def test_nuclei_attempted_host_resolves_finding(store, monkeypatch):
+def test_nuclei_process_success_does_not_resolve_template_finding(store, monkeypatch):
     _seed_nuclei_finding(store)
     sid, result = _finalize(
         store, monkeypatch, _obs(attempted_hosts=[HOST]), nuclei_status="completed",
     )
 
-    assert result["resolved_findings"] == 2, "both covered detectors resolve their findings"
-    assert result["not_evaluated_findings"] == 0
+    assert result["resolved_findings"] == 1, "only the covered deterministic check resolves"
+    assert result["not_evaluated_findings"] == 1
     assert _find(store, FINDING_A1)["status"] == "resolved"
-    assert _find(store, NUC_FINDING)["status"] == "resolved"
+    assert _find(store, NUC_FINDING)["status"] == "open"
 
 
 def test_nuclei_not_attempted_keeps_finding_open(store, monkeypatch):
@@ -219,13 +219,13 @@ def test_attempted_but_failed_host_keeps_finding_open(store, monkeypatch):
     assert _find(store, NUC_FINDING)["status"] == "open"
 
 
-def test_partial_stage_only_resolves_successful_hosts(store, monkeypatch):
+def test_partial_process_success_still_does_not_prove_template_completion(store, monkeypatch):
     _seed_nuclei_finding(store)
     obs = _obs(attempted_hosts=[HOST, "api.acme.test"])
     obs["nuclei"]["successful_hosts"] = [HOST]
     obs["nuclei"]["failed_hosts"] = {"api.acme.test": "Nuclei failed"}
     _finalize(store, monkeypatch, obs, nuclei_status="failed")
-    assert _find(store, NUC_FINDING)["status"] == "resolved"
+    assert _find(store, NUC_FINDING)["status"] == "open"
 
 
 def test_unknown_detector_never_auto_resolves(store, monkeypatch):

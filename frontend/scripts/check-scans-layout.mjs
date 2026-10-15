@@ -141,6 +141,7 @@ try {
     {
       stage: "nuclei",
       raw_data: {
+        tool_coverage: { version: 1, tool_version: "3.4.10", evaluated_templates: null },
         attempted_hosts: [
           "example.ng",
           "www.example.ng",
@@ -270,9 +271,11 @@ try {
     await page.waitForFunction(
       () =>
         document.body.textContent.includes("Completed with limited coverage") &&
-        document.body.textContent.includes("3 of 5 targets checked") &&
+        document.body.textContent.includes("3 of 5 tool runs completed") &&
         document.body.textContent.includes("3 in-scope hosts requested") &&
-        document.body.textContent.includes("DNS host limit reached"),
+        document.body.textContent.includes("DNS host limit reached") &&
+        document.body.textContent.includes("Engine version: 3.4.10") &&
+        document.body.textContent.includes("Template evaluation coverage: unknown"),
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (capture)

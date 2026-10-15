@@ -325,6 +325,12 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)
             (nf.get("evidence") or {}).get("template_id") == template_id
             for nf in rerun.get("findings") or []
         )
+        if not reproduced:
+            return _inconclusive(
+                task, org, hostname,
+                "Inconclusive — no matching finding was returned, but exact-template completion was not proven. The finding remains open.",
+                detector,
+            )
     else:
         # Shared security-check detector: the category must be observable
         # right now or the (possibly clean) result proves nothing.
