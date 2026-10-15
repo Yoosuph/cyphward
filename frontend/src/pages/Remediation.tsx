@@ -167,22 +167,15 @@ export default function Remediation() {
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
-        eyebrow="SECTION 06 · REMEDIATION"
         title="Remediation"
-        note="Track each fix, then check it against the live asset — Cyphward never takes a 'fixed' claim at face value."
-        meta={
-          <div className="flex flex-wrap items-center gap-3 mt-3">
-            <div className="flex items-center gap-1.5 tag"><ListTodo size={12} /> {tasks.length} TASKS</div>
-            <div className="flex items-center gap-1.5 tag"><PlayCircle size={12} /> {counts.progress} IN PROGRESS</div>
-            <div className="flex items-center gap-1.5 tag"><ShieldCheck size={12} /> {counts.ready} READY</div>
-            <div className="flex items-center gap-1.5 tag"><CheckCircle2 size={12} /> {counts.verified} VERIFIED</div>
-            <button
-              onClick={openCreate}
-              className="btn-tactile ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono bg-accent text-white hover:opacity-90"
-            >
-              <Plus size={13} /> NEW TASK
-            </button>
-          </div>
+        note="Track each fix to done. A recheck confirms it against the live host."
+        actions={
+          <button
+            onClick={openCreate}
+            className="btn-tactile flex items-center gap-1.5 px-3 py-2 rounded text-xs mono bg-accent text-white hover:opacity-90"
+          >
+            <Plus size={13} /> NEW TASK
+          </button>
         }
       />
 
@@ -225,7 +218,6 @@ export default function Remediation() {
             <thead>
               <tr className="border-b border-line text-soft text-[11px]">
                 <th className="px-4 py-3 font-medium">TASK</th>
-                <th className="px-4 py-3 font-medium">FINDING</th>
                 <th className="px-4 py-3 font-medium">PRIORITY</th>
                 <th className="px-4 py-3 font-medium">STATUS</th>
                 <th className="px-4 py-3 font-medium">ASSIGNEE</th>
@@ -235,12 +227,11 @@ export default function Remediation() {
             <tbody className="divide-y divide-line/60">
               {tasks.map(task => (
                 <tr key={task.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="px-4 py-3 text-ink font-semibold max-w-[240px] truncate">{task.title}</td>
-                  <td className="px-4 py-3 text-soft max-w-[200px] truncate">
-                    {task.finding_title || '—'}
-                    {task.severity ? (
-                      <span className="ml-2 text-[10px] uppercase text-accent">{task.severity}</span>
-                    ) : null}
+                  <td className="px-4 py-3 max-w-[320px]">
+                    <p className="text-ink font-semibold truncate">{task.title}</p>
+                    {task.finding_title && task.finding_title !== task.title && (
+                      <p className="text-[11px] text-soft truncate">From: {task.finding_title}</p>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className="tag uppercase">{task.priority}</span>

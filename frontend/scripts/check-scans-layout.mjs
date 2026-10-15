@@ -644,7 +644,8 @@ try {
         id: "v2-complete",
         domain: "example.ng",
         status: "completed",
-        score: 61.4,
+        // The real API serialises Postgres numeric scores as strings.
+        score: "61.4",
         created_at: "2026-10-14T06:00:00Z",
         completed_at: "2026-10-14T06:12:00Z",
         findings_discovered: 4,

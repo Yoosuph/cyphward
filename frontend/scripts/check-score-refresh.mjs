@@ -80,14 +80,15 @@ try {
   const ringIs = value => page.waitForFunction(value => document.querySelector('.ring-num')?.textContent === value, {}, value);
   const refresh = () => page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'REFRESH').click());
   await ringIs('38.5');
-  assert.ok(await page.evaluate(() => document.body.textContent.includes('Not enough comparable history')));
+  // No comparable history: no weekly change is claimed.
+  assert.ok(!await page.evaluate(() => document.body.textContent.includes('pts this week')));
   assert.ok(await page.evaluate(() => document.body.textContent.includes('0/100')));
-  assert.ok(await page.evaluate(() => document.body.textContent.includes('Legacy scan score')));
-  assert.ok(await page.evaluate(() => document.body.textContent.includes('Organization at scan completion')));
+  // Only the legacy-model row is tagged; current organisation scores carry no extra label.
+  assert.equal(await page.evaluate(() => document.body.textContent.split('Legacy score').length - 1), 1);
 
   mode = 'failure';
   await refresh();
-  await page.waitForFunction(() => document.body.textContent.includes('Refresh failed'));
+  await page.waitForFunction(() => document.body.textContent.includes("Couldn't refresh"));
   await ringIs('38.5');
 
   mode = 'success';
@@ -95,7 +96,7 @@ try {
   await refresh();
   await ringIs('50.0');
   assert.ok(await page.evaluate(() => document.body.textContent.includes('-2.4 pts')));
-  assert.ok(!await page.evaluate(() => document.body.textContent.includes('Refresh failed')));
+  assert.ok(!await page.evaluate(() => document.body.textContent.includes("Couldn't refresh")));
 
   // An older response arriving last must not overwrite the latest result.
   mode = 'delay';
@@ -116,7 +117,7 @@ try {
     posture_label: 'Partial assessment', counts: { ...payload.counts, total_findings: 0 } };
   await refresh();
   await page.waitForFunction(() => document.body.textContent.includes('NO SCORE YET'));
-  assert.ok(await page.evaluate(() => document.body.textContent.includes('insufficient evaluated evidence')));
+  assert.ok(await page.evaluate(() => document.body.textContent.includes('Not enough evidence for a score yet')));
   assert.equal(await page.$('.ring-num'), null);
   assert.ok(!await page.evaluate(() => document.body.textContent.includes('Run your first scan to get a score.')));
 

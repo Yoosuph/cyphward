@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
   Building,
@@ -451,28 +452,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12 content-fade-in">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">YOUR WORKSPACE</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Organization Settings
-          </h1>
-          <p className="text-xs mono text-soft mt-1">
-            Company profile, team roles, and sign-in.
-          </p>
-        </div>
-
-        <button
-          onClick={handleOpenExecutiveReport}
-          className="btn-tactile flex items-center justify-center gap-2 px-3.5 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors w-full sm:w-auto min-h-[38px]"
-        >
-          <Sparkles size={14} className="text-accent" />
-          <span>GENERATE BOARD REPORT</span>
-        </button>
-      </div>
+      <PageHead title="Settings" note="Company profile, team, billing and sign-in." />
 
       <div className="flex items-center gap-1 border-b border-line overflow-x-auto pb-px no-scrollbar">
         <button
@@ -556,15 +536,13 @@ export default function Settings() {
                   <label className="mono text-soft text-[11px]">YOUR ROLE</label>
                   <div className="flex items-center gap-2 p-2 rounded bg-inset border border-line mono">
                     <span className="tag">{myRole.toUpperCase()}</span>
-                    <span className="text-soft text-[11px] ml-auto">{data.membership?.user_id ? 'Linked to signed-in user' : ''}</span>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="mono text-soft text-[11px]">YOUR PLAN</label>
                   <div className="flex items-center gap-2 p-2 rounded bg-inset/50 border border-line/60 mono text-soft">
-                    <span className="text-ink font-semibold">{data.organization.plan || 'Enterprise Defense'}</span>
-                    <span className="tag ml-auto">ALWAYS ON</span>
+                    <span className="text-ink font-semibold">{data.organization.plan ? data.organization.plan.charAt(0).toUpperCase() + data.organization.plan.slice(1) : '—'}</span>
                   </div>
                 </div>
               </div>

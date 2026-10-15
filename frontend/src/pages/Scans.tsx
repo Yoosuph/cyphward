@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { scoreValue } from '../lib/format';
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -288,12 +289,12 @@ function StatusBadge({
     </span>
   );
 }
-function ScanStatus({ scan }: { scan: Scan }) {
+function ScanStatus({ scan, compact = false }: { scan: Scan; compact?: boolean }) {
   const quality = coverageLabel(scan);
   if (scan.status === "completed" && quality)
     return (
       <StatusBadge
-        label={quality}
+        label={compact && quality === DECLARED_COMPLETE ? "Complete" : quality}
         tone={
           quality === "Limited coverage"
             ? "warning"
@@ -564,8 +565,7 @@ function ScanSummary({
     ? discovery.length
     : progress(scan, "discovery")?.items;
   const elapsed = scanDuration(scan);
-  const score =
-    scan.score != null && Number.isFinite(scan.score) ? scan.score : null;
+  const score = scoreValue(scan.score);
   const orgScore = progress(scan, "scoring")?.scope === "organization";
   const declared = declaredCoverage(scan);
   return (
@@ -600,8 +600,8 @@ function ScanSummary({
         <div className="scan-score">
           <span>
             {orgScore
-              ? "Organization score at completion"
-              : "Legacy scan score"}
+              ? "Score at completion"
+              : "Legacy score"}
           </span>
           <strong>
             {score != null ? (
@@ -666,9 +666,6 @@ function ScanSummary({
             View scan details
           </button>
         )}
-        <span className="scan-scope-note">
-          Findings opens the workspace issue list.
-        </span>
       </div>
     </>
   );
@@ -1180,17 +1177,12 @@ export default function Scans() {
                               <small>{date(scan.created_at)}</small>
                             </td>
                             <td>
-                              <ScanStatus scan={scan} />
+                              <ScanStatus scan={scan} compact />
                             </td>
                             <td className="scan-history-score">
                               {scan.score != null ? scan.score : "—"}
-                              {scan.score != null && (
-                                <small>
-                                  {progress(scan, "scoring")?.scope ===
-                                  "organization"
-                                    ? "Organization at scan completion"
-                                    : "Legacy scan score"}
-                                </small>
+                              {scan.score != null && progress(scan, "scoring")?.scope !== "organization" && (
+                                <small>Legacy score</small>
                               )}
                             </td>
                             <td>
@@ -1220,16 +1212,13 @@ export default function Scans() {
                       >
                         <div>
                           <strong>{scan.domain || "Unknown domain"}</strong>
-                          <ScanStatus scan={scan} />
+                          <ScanStatus scan={scan} compact />
                         </div>
                         <p className="scan-meta">{date(scan.created_at)}</p>
                         <div className="scan-history-card-footer">
                           <span>
                             <small>
-                              {progress(scan, "scoring")?.scope ===
-                              "organization"
-                                ? "Organization at scan completion"
-                                : "Legacy scan score"}
+                              {progress(scan, "scoring")?.scope === "organization" ? "Score" : "Legacy score"}
                             </small>
                             <strong>
                               {scan.score != null

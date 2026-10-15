@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHead } from '../components/ui';
 import {
   Server,
   Search,
@@ -72,35 +73,19 @@ export default function Assets() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">WHAT'S EXPOSED ONLINE</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Assets we found
-          </h1>
-            <p className="text-xs mono text-soft mt-1">
-              Subdomains, IP addresses, open services, and the software running on them.
-              Found via Certificate Transparency and passive DNS during scans — plus
-              hosts you register on the Domains page. Names without a public footprint
-              may take time to appear.
-            </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-
+      <PageHead
+        title="Assets"
+        note="Hosts found on your verified domains, with their addresses, open services and software."
+        actions={
           <button
             onClick={loadAssets}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile ml-auto sm:ml-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
           {/* Filter and Search Bar */}
       <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
@@ -236,24 +221,26 @@ export default function Assets() {
                       {asset.tls_info?.valid ? (
                         <div className="flex items-center gap-1.5 text-ok text-[11px]">
                           <Lock size={11} />
-                          <span>{asset.tls_info.protocol || 'TLS 1.3'}</span>
-                          <span className="text-soft text-[10px]">
-                            ({asset.tls_info.days_remaining}d)
-                          </span>
+                          <span>{asset.tls_info.protocol || 'Valid'}</span>
+                          {asset.tls_info.days_remaining != null && (
+                            <span className="text-soft text-[10px]">({asset.tls_info.days_remaining}d)</span>
+                          )}
                         </div>
+                      ) : asset.tls_info?.issuer || asset.tls_info?.valid_to ? (
+                        <span className="text-accent text-[11px]">Invalid or expired</span>
                       ) : (
-                        <span className="text-soft text-[10px]">Unencrypted / None</span>
+                        <span className="text-soft text-[10px]">Not checked</span>
                       )}
                     </td>
 
                     <td className="py-3 px-4">
                       {asset.critical_findings_count && asset.critical_findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent text-white">
-                          {asset.critical_findings_count} CRIT
+                          {asset.critical_findings_count} high risk
                         </span>
                       ) : asset.findings_count && asset.findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                          {asset.findings_count} Issues
+                          {asset.findings_count} {asset.findings_count === 1 ? 'issue' : 'issues'}
                         </span>
                       ) : (
                         <span className="text-ok text-[11px] flex items-center gap-1">
@@ -341,11 +328,11 @@ export default function Assets() {
                 <div className="p-3 rounded bg-inset border border-line space-y-2 mono text-[11px]">
                   <div className="flex justify-between">
                     <span className="text-soft">Protocol:</span>
-                    <span className="text-ink font-semibold">{assetDetail.asset.tls_info.protocol || 'TLS 1.3'}</span>
+                    <span className="text-ink font-semibold">{assetDetail.asset.tls_info.protocol || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Issuer:</span>
-                    <span className="text-ink">{assetDetail.asset.tls_info.issuer || "Let's Encrypt"}</span>
+                    <span className="text-ink">{assetDetail.asset.tls_info.issuer || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Days Remaining:</span>
@@ -355,7 +342,7 @@ export default function Assets() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Cipher:</span>
-                    <span className="text-ink truncate max-w-[220px]">{assetDetail.asset.tls_info.cipher || 'AES-256-GCM'}</span>
+                    <span className="text-ink truncate max-w-[220px]">{assetDetail.asset.tls_info.cipher || 'Not recorded'}</span>
                   </div>
                 </div>
               </div>

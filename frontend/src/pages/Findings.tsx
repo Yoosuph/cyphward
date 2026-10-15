@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHead } from '../components/ui';
 import {
   ShieldAlert,
   AlertTriangle,
@@ -29,6 +30,7 @@ export default function Findings() {
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [statusView, setStatusView] = useState<'open' | 'resolved' | 'all'>('open');
   const [categories, setCategories] = useState<Record<string, number>>({});
 
   // Active drawer finding
@@ -128,6 +130,9 @@ export default function Findings() {
   };
 
   const severities = ['all', 'critical', 'high', 'medium', 'low', 'info'];
+  const openCount = findings.filter(f => f.status !== 'resolved').length;
+  const visible = findings.filter(f => statusView === 'all' || (statusView === 'resolved' ? f.status === 'resolved' : f.status !== 'resolved'));
+  const filtered = selectedSeverity !== 'all' || selectedCategory !== 'all' || !!search;
 
   if (loading && findings.length === 0) {
     return <FindingsSkeleton />;
@@ -135,28 +140,33 @@ export default function Findings() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">YOUR SECURITY ISSUES</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Security issues we found
-          </h1>
-          <p className="text-xs mono text-soft mt-1">
-            Issues ranked by severity, with the evidence behind them and clear steps to fix each one.
-          </p>
-        </div>
+      <PageHead
+        title="Findings"
+        note="Security issues from your scans, worst first. Open one to see the evidence and how to fix it."
+        actions={
+          <button
+            onClick={loadFindings}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
+        }
+      />
 
-        <button
-          onClick={loadFindings}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile"
-        >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          <span>Refresh</span>
-        </button>
+      {/* Open / resolved view: resolved issues no longer mix into the default list */}
+      <div className="flex flex-wrap items-center gap-1 p-1 rounded-md border border-line bg-raised w-fit" role="tablist" aria-label="Issue status">
+        {([['open', 'Open', openCount], ['resolved', 'Resolved', findings.length - openCount], ['all', 'All', findings.length]] as const).map(([key, label, count]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={statusView === key}
+            onClick={() => setStatusView(key)}
+            className={`px-3 py-1 rounded text-xs mono transition-colors ${statusView === key ? 'bg-ink text-bg font-semibold' : 'text-soft hover:text-ink'}`}
+          >
+            {label} <span className="opacity-70">{count}</span>
+          </button>
+        ))}
       </div>
 
       {/* Severity Filter Tabs */}
@@ -198,14 +208,18 @@ export default function Findings() {
           Array.from({ length: 5 }).map((_, i) => (
             <FindingCardSkeleton key={i} />
           ))
-        ) : findings.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="p-12 text-center border border-line rounded-lg bg-raised">
             <CheckCircle2 size={24} className="text-ok mx-auto mb-2" />
-            <p className="text-xs mono text-ink font-semibold">No issues found here.</p>
-            <p className="text-[11px] mono text-soft mt-1">Your setup looks good.</p>
+            <p className="text-sm text-ink font-semibold">
+              {filtered ? 'Nothing matches these filters.' : statusView === 'resolved' ? 'No resolved issues yet.' : statusView === 'open' ? 'No open issues.' : 'No issues recorded yet.'}
+            </p>
+            {!filtered && statusView === 'open' && (
+              <p className="text-xs text-soft mt-1">New scans add any issues they find here.</p>
+            )}
           </div>
         ) : (
-          findings.map((finding, idx) => (
+          visible.map((finding, idx) => (
             <div
               key={finding.id}
               onClick={() => setActiveFinding(finding)}
@@ -268,21 +282,15 @@ export default function Findings() {
                   <span className="hidden sm:inline">Ask CyphBot</span>
                 </button>
 
-                <button
-                  onClick={() => handleTriggerRemediate(finding)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 transition-opacity"
-                >
-                  <span>How to fix</span>
-                  <ArrowUpRight size={12} />
-                </button>
-
-                <button
-                  onClick={() => setActiveFinding(finding)}
-                  className="p-1.5 rounded border border-line bg-raised hover:bg-inset text-soft hover:text-ink"
-                  title="Open issue details"
-                >
-                  <Layers size={14} />
-                </button>
+                {finding.status !== 'resolved' && (
+                  <button
+                    onClick={() => handleTriggerRemediate(finding)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 transition-opacity"
+                  >
+                    <span>How to fix</span>
+                    <ArrowUpRight size={12} />
+                  </button>
+                )}
               </div>
             </div>
           ))

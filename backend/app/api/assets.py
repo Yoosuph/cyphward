@@ -22,8 +22,8 @@ def list_assets(
 
     query = """
         SELECT a.*, d.domain as parent_domain,
-               COUNT(f.id) as findings_count,
-               COUNT(CASE WHEN f.severity IN ('critical', 'high') AND f.status = 'open' THEN 1 END) as critical_findings_count
+               COUNT(CASE WHEN f.status != 'resolved' THEN 1 END) as findings_count,
+               COUNT(CASE WHEN f.severity IN ('critical', 'high') AND f.status != 'resolved' THEN 1 END) as critical_findings_count
         FROM assets a
         LEFT JOIN domains d ON a.domain_id = d.id
         LEFT JOIN findings f ON f.asset_id = a.id

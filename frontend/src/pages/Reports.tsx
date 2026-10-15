@@ -105,11 +105,10 @@ export default function Reports() {
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
-        eyebrow="SECTION 07 · REPORTS"
-        title="Security Reports"
-        note="Create a report from your latest security score, then email it to your team or board."
-        meta={
-          <div className="flex flex-wrap items-center gap-2 mt-3">
+        title="Reports"
+        note="Create a report from your latest score and share it with your team or board."
+        actions={
+          <>
             <button
               onClick={() => setEmailOpen(true)}
               className="btn-tactile flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink"
@@ -124,7 +123,7 @@ export default function Reports() {
               {creating ? <RefreshCw size={13} className="animate-spin" /> : <Plus size={13} />}
               GENERATE REPORT
             </button>
-          </div>
+          </>
         }
       />
 

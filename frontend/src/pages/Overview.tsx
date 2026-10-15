@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PageHead } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
@@ -193,25 +194,14 @@ export default function Overview() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
-      {/* Header Banner & Quick Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          {greeting && (
-            <p className="text-xs mono text-soft mb-1.5">{greeting}</p>
-          )}
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">COMMAND WORKSPACE{organization.cac_rc ? ` · ${organization.cac_rc}` : ''}</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            {organization.name}
-          </h1>
-          <p className="text-xs mono text-soft mt-1">
-            We check what your verified domains expose online and keep your score up to date.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+      <PageHead
+        title={organization.name}
+        note={greeting || 'Your score, open issues and latest scans.'}
+        actions={<>
+          <button type="button" onClick={loadData} aria-label="Refresh" title="Refresh"
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[38px] btn-tactile">
+            <RefreshCw size={14} /> <span className="sm:hidden">REFRESH</span>
+          </button>
           <button
             onClick={handleOpenSummary}
             className="flex items-center justify-center gap-2 px-3.5 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[38px] btn-tactile"
@@ -231,8 +221,8 @@ export default function Overview() {
             <Play size={13} fill="currentColor" />
             <span>{!canManageDomains ? 'WAITING FOR ADMIN' : !domainsLoaded || verifiedDomains.length ? 'START SCAN' : pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}</span>
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {domainsLoaded && (
         <SetupChecklist
@@ -266,82 +256,72 @@ export default function Overview() {
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs mono">
-        <p role="status" className={refreshFailed ? 'text-accent' : 'text-soft'}>
-          {refreshFailed ? 'Refresh failed — showing previously loaded data.' : 'Overview up to date.'}
-          {lastRefreshed && ` Last loaded ${lastRefreshed.toLocaleTimeString()}.`}
+      {refreshFailed && (
+        <p role="status" className="text-xs text-accent">
+          Couldn't refresh. Showing the last loaded data.{' '}
+          <button type="button" className="underline" onClick={loadData}>Try again</button>
         </p>
-        <button className="btn btn-mini" onClick={loadData}>
-          <RefreshCw size={12} className="mr-1" /> REFRESH
-        </button>
-      </div>
+      )}
 
       {/* Top Grid: Radial Score Ring & High-level Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Main Score Gauge */}
-        <div data-tour="score" className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
-          <div className="absolute top-3 left-4 text-[10px] mono text-soft tracking-wider">
-            KNOWN-RISK SCORE
-          </div>
-          <div className="absolute top-3 right-4">
-            <span className="inline-block max-w-[60%] text-right leading-snug text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
-              {grade
-                ? `${grade} RATING${scopeLabel ? ` · ${scopeLabel.toUpperCase()}` : ''}`
-                : assessment?.coverage?.state === 'partial' ? 'PARTIAL' : 'NO RATING'}
+        <div data-tour="score" className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 flex flex-col items-center text-center">
+          <div className="w-full flex items-center justify-between gap-2 text-[11px] mono text-soft">
+            <span>SECURITY SCORE</span>
+            <span className="px-2 py-0.5 rounded border border-line bg-inset">
+              {grade ? `${grade} RATING` : assessment?.coverage?.state === 'partial' ? 'PARTIAL' : 'NO RATING'}
             </span>
           </div>
 
-          <div className="my-2">
+          <div className="my-3">
             {score !== null ? (
-              <ScoreRing score={score} max={max_score} size={190} />
+              <ScoreRing score={score} max={max_score} size={176} />
             ) : (
               <div
                 className="flex flex-col items-center justify-center rounded-full border-2 border-dashed border-line-strong"
-                style={{ width: 190, height: 190 }}
+                style={{ width: 176, height: 176 }}
               >
                 <span className="text-4xl font-bold mono text-soft">—</span>
                 <span className="text-[10px] mono text-soft tracking-wider mt-1">NO SCORE YET</span>
               </div>
             )}
           </div>
-          {domainCoverageLine && (
-            <p className="text-[11px] mono text-soft -mt-1 max-w-[260px] break-words">{domainCoverageLine}</p>
+
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs mono font-semibold tracking-wider">
+            {posture_label}{grade && scopeLabel ? ' · within declared scope' : ''}
+          </div>
+          <p className="text-sm text-soft mt-2">
+            {assessed
+              ? <>
+                  {assessment?.completed_at ? `Last scan ${new Date(assessment.completed_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'Score from your latest scan'}
+                  {trend != null && trend !== 0 && (
+                    <span className={trend > 0 ? 'text-ok' : 'text-accent'}> · {trend > 0 ? '+' : ''}{trend.toFixed(1)} pts this week</span>
+                  )}
+                </>
+              : assessment ? 'Not enough evidence for a score yet.' : 'Run your first scan to get a score.'}
+          </p>
+          {!grade && domainCoverageLine && (
+            <p className="text-[11px] mono text-soft mt-1.5 max-w-[280px] break-words">{domainCoverageLine}</p>
           )}
 
-          <div className="mt-1">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs mono font-semibold tracking-wider">
-              {posture_label}
-            </div>
-            {assessed ? (
-              <div className="text-xs mono text-soft mt-2 space-y-2">
-                <p title={data.trend_baseline_at ? `Compared with posture recorded ${new Date(data.trend_baseline_at).toLocaleString()}` : undefined}>
-                  7-Day Change: {trend == null ? 'Not enough comparable history' : (
-                    <span className={trend > 0 ? 'text-ok font-medium' : trend < 0 ? 'text-accent font-medium' : 'text-soft'}>
-                      {trend > 0 ? '+' : ''}{trend.toFixed(1)} pts
-                    </span>
-                  )}
-                </p>
-                {assessment?.completed_at && (
-                  <p>Latest completed scan: {new Date(assessment.completed_at).toLocaleString()}</p>
-                )}
-                {data.risk_points != null && (
-                  <p>{data.risk_points} risk points across {counts.total_findings} open findings</p>
-                )}
-                <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>
+          {(assessment || nucleiLabel) && (
+            <details className="score-details">
+              <summary>What this score covers</summary>
+              <div className="space-y-1.5">
+                {grade && domainCoverageLine && <p>{domainCoverageLine}</p>}
+                {data.risk_points != null && <p>{data.risk_points} risk points across {counts.total_findings} open findings.</p>}
+                {grade
+                  ? <p>The grade applies to the checks we declare: SPF, DMARC, HTTP headers, TLS certificates and open ports on each verified domain.</p>
+                  : <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>}
+                {nucleiLabel && <p>{nucleiLabel}</p>}
               </div>
-            ) : (
-              <p className="text-xs mono text-soft mt-2">
-                {assessment ? 'The latest scan has insufficient evaluated evidence for a score. Recorded open findings still require attention.' : 'Run your first scan to get a score.'}
-              </p>
-            )}
-            {nucleiLabel && (
-              <p className="text-[11px] mono text-soft mt-2">{nucleiLabel}</p>
-            )}
-          </div>
+            </details>
+          )}
         </div>
 
         {/* 4 Stat Cards */}
-        <div className="lg:col-span-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="lg:col-span-8 grid grid-cols-2 md:grid-cols-4 gap-4 content-start">
           <div
             onClick={() => navigate('/assets')}
             className="p-4 rounded-lg border border-line bg-raised hover:border-line-strong card-hover transition-all cursor-pointer flex flex-col justify-between group"
@@ -381,14 +361,14 @@ export default function Overview() {
             className="p-4 rounded-lg border border-line bg-raised hover:border-accent card-hover transition-all cursor-pointer flex flex-col justify-between group"
           >
             <div className="flex items-center justify-between text-soft">
-              <span className="text-[11px] mono uppercase text-accent font-medium">Critical Issues</span>
-              <ShieldAlert size={15} className="text-accent" />
+              <span className={`text-[11px] mono uppercase font-medium ${counts.critical ? 'text-accent' : 'text-soft'}`}>Critical Issues</span>
+              <ShieldAlert size={15} className={counts.critical ? 'text-accent' : ''} />
             </div>
             <div className="my-2">
-              <div className="text-3xl font-bold mono text-accent">{counts.critical}</div>
-              <p className="text-[11px] text-soft">Requires immediate fix</p>
+              <div className={`text-3xl font-bold mono ${counts.critical ? 'text-accent' : 'text-ink'}`}>{counts.critical}</div>
+              <p className="text-[11px] text-soft">{counts.critical ? 'Fix these first' : 'Nothing urgent'}</p>
             </div>
-            <div className="text-[10px] mono text-accent flex items-center gap-1">
+            <div className={`text-[10px] mono flex items-center gap-1 ${counts.critical ? 'text-accent' : 'text-soft'}`}>
               Review issues <ArrowUpRight size={10} />
             </div>
           </div>
@@ -398,7 +378,7 @@ export default function Overview() {
             className="p-4 rounded-lg border border-line bg-raised hover:border-line-strong card-hover transition-all cursor-pointer flex flex-col justify-between group"
           >
             <div className="flex items-center justify-between text-soft">
-              <span className="text-[11px] mono uppercase">Total Issues</span>
+              <span className="text-[11px] mono uppercase">Open Issues</span>
               <AlertTriangle size={15} className="group-hover:text-accent transition-colors" />
             </div>
             <div className="my-2">
@@ -418,7 +398,7 @@ export default function Overview() {
             </div>
             <div className="h-3 w-full bg-raised rounded-full overflow-hidden flex gap-0.5 p-0.5 border border-line">
               <div
-                style={{ width: `${Math.max(5, (counts.critical / Math.max(1, counts.total_findings)) * 100)}%` }}
+                style={{ width: `${(counts.critical / Math.max(1, counts.total_findings)) * 100}%` }}
                 className="bg-accent h-full rounded-l-full transition-all"
                 title={`Critical: ${counts.critical}`}
               />
@@ -466,7 +446,7 @@ export default function Overview() {
       </div>
 
       {/* Middle Grid: 4 Security Pillars Subscores & Factors */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* 4 Pillars Breakdown */}
         <div className="lg:col-span-7 p-5 rounded-lg border border-line bg-raised">
           <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
@@ -480,9 +460,6 @@ export default function Overview() {
             </span>
           </div>
 
-          <p className="text-xs text-soft mb-4">
-            Each category is rated independently. The organization score accounts for all open findings.
-          </p>
           <div className="space-y-4">
             {subscores.length === 0 ? (
               <p className="text-xs mono text-soft py-6 text-center">
@@ -562,7 +539,6 @@ export default function Overview() {
       <div className="p-5 rounded-lg border border-line bg-raised">
         <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
           <div className="flex items-center gap-2">
-            <span className="live-dot" />
             <h3 className="mono text-xs font-semibold tracking-wider text-ink">
               RECENT SCANS
             </h3>
@@ -584,9 +560,9 @@ export default function Overview() {
                 <tr className="border-b border-line text-soft text-[11px]">
                   <th className="pb-2 font-medium">DOMAIN</th>
                   <th className="pb-2 font-medium">STATUS</th>
-                  <th className="pb-2 font-medium">PROGRESS</th>
+                  <th className="pb-2 font-medium hidden md:table-cell">PROGRESS</th>
                   <th className="pb-2 font-medium">SCORE</th>
-                  <th className="pb-2 font-medium">STARTED</th>
+                  <th className="pb-2 font-medium hidden md:table-cell">STARTED</th>
                   <th className="pb-2 font-medium text-right">ACTION</th>
                 </tr>
               </thead>
@@ -611,7 +587,8 @@ export default function Overview() {
                         {scan.status}
                       </span>
                     </td>
-                    <td className="py-3">
+                    <td className="py-3 hidden md:table-cell">
+                      {scan.status === 'queued' || scan.status === 'running' ? (
                       <div className="flex items-center gap-1">
                         {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map((st, i) => {
                           const stageData = (scan.stage_progress as any)?.[st];
@@ -631,17 +608,22 @@ export default function Overview() {
                           {scan.current_stage || 'Ready'}
                         </span>
                       </div>
+                      ) : (
+                        <span className={`text-[11px] ${scan.status === 'failed' ? 'text-accent' : 'text-soft'}`}>
+                          {scan.status === 'failed' ? 'Failed' : scan.status === 'cancelled' ? 'Cancelled' : 'Finished'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 font-bold text-ink">
                       {scan.score != null ? `${scan.score}/100` : '—'}
-                      {scan.score != null && (
-                        <div className="text-[10px] font-normal text-soft">
-                          {scan.stage_progress?.scoring?.scope === 'organization' ? 'Organization at scan completion' : 'Legacy scan score'}
+                      {scan.score != null && scan.stage_progress?.scoring?.scope !== 'organization' && (
+                        <div className="text-[10px] font-normal text-soft" title="Scored with an earlier model; not comparable with current scores">
+                          Legacy score
                         </div>
                       )}
                     </td>
-                    <td className="py-3 text-soft text-[11px]">
-                      {new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <td className="py-3 text-soft text-[11px] hidden md:table-cell">
+                      {new Date(scan.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="py-3 text-right">
                       <button
