@@ -446,7 +446,7 @@ export default function Overview() {
       </div>
 
       {/* Middle Grid: 4 Security Pillars Subscores & Factors */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* 4 Pillars Breakdown */}
         <div className="lg:col-span-7 p-5 rounded-lg border border-line bg-raised">
           <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
@@ -539,7 +539,6 @@ export default function Overview() {
       <div className="p-5 rounded-lg border border-line bg-raised">
         <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
           <div className="flex items-center gap-2">
-            <span className="live-dot" />
             <h3 className="mono text-xs font-semibold tracking-wider text-ink">
               RECENT SCANS
             </h3>
@@ -561,9 +560,9 @@ export default function Overview() {
                 <tr className="border-b border-line text-soft text-[11px]">
                   <th className="pb-2 font-medium">DOMAIN</th>
                   <th className="pb-2 font-medium">STATUS</th>
-                  <th className="pb-2 font-medium">PROGRESS</th>
+                  <th className="pb-2 font-medium hidden md:table-cell">PROGRESS</th>
                   <th className="pb-2 font-medium">SCORE</th>
-                  <th className="pb-2 font-medium">STARTED</th>
+                  <th className="pb-2 font-medium hidden md:table-cell">STARTED</th>
                   <th className="pb-2 font-medium text-right">ACTION</th>
                 </tr>
               </thead>
@@ -588,7 +587,7 @@ export default function Overview() {
                         {scan.status}
                       </span>
                     </td>
-                    <td className="py-3">
+                    <td className="py-3 hidden md:table-cell">
                       {scan.status === 'queued' || scan.status === 'running' ? (
                       <div className="flex items-center gap-1">
                         {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map((st, i) => {
@@ -623,7 +622,7 @@ export default function Overview() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 text-soft text-[11px]">
+                    <td className="py-3 text-soft text-[11px] hidden md:table-cell">
                       {new Date(scan.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="py-3 text-right">

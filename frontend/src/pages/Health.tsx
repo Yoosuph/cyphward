@@ -57,7 +57,13 @@ export default function Status() {
   return (
     <PublicShell
       eyebrow="SYSTEM STATUS"
-      title={<>All systems <em>nominal.</em></>}
+      title={loading && !health && !failed
+        ? <>Checking <em>status…</em></>
+        : ok
+          ? <>All systems <em>running.</em></>
+          : failed
+            ? <>We can't reach <em>the API.</em></>
+            : <>Service <em>degraded.</em></>}
       lede="Live, unauthenticated view of the Cyphward API. No sign-in needed — this page reads the public health endpoint."
     >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

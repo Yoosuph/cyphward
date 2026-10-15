@@ -141,8 +141,8 @@ export default function Findings() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
       <PageHead
-        title="Issues"
-        note="Sorted by severity. Open an issue to see the evidence and how to fix it."
+        title="Findings"
+        note="Security issues from your scans, worst first. Open one to see the evidence and how to fix it."
         actions={
           <button
             onClick={loadFindings}

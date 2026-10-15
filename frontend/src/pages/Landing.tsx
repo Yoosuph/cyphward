@@ -207,8 +207,7 @@ export default function Landing() {
         <section className="hero-sec">
           <div className="inline-block rise-in">
             <div className="telemetry-pill">
-              <span className="live-dot" />
-              <span>LIVE DATA · DAILY SCANS · DNS · PORTS · TLS · WEB · EMAIL</span>
+              <span>DAILY SCANS · DNS · PORTS · TLS · WEB · EMAIL</span>
             </div>
           </div>
 
@@ -227,9 +226,6 @@ export default function Landing() {
             <button className="btn btn-solid text-sm py-3.5 px-6 hover-lift" onClick={handleGetStarted}>
               CREATE YOUR ACCOUNT <ArrowRight size={14} />
             </button>
-            <Link to="/signup" className="btn btn-ghost text-sm py-3.5 px-6 hover-lift">
-              SET UP A BUSINESS ACCOUNT
-            </Link>
             <a href="#layers" className="btn-mini py-3 text-xs">
               EXPLORE THE 6 LAYERS ↓
             </a>
@@ -240,14 +236,14 @@ export default function Landing() {
             <div className="preview-head">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-accent" />
-                <span>CYPHWARD DEFENSE OS — LIVE WORKSPACE PREVIEW</span>
+                <span>EXAMPLE WORKSPACE · SAMPLE DATA</span>
               </div>
               <div className="preview-tabs flex gap-2">
                 <button
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'telemetry' ? 'on' : ''}`}
                   onClick={() => setPreviewTab('telemetry')}
                 >
-                  LIVE DATA
+                  SCORE
                 </button>
                 <button
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'findings' ? 'on' : ''}`}
@@ -274,9 +270,7 @@ export default function Landing() {
                   <div className="lg:col-span-7 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-line">
                       <span className="eyebrow">SCORE BREAKDOWN</span>
-                      <span className="text-xs mono text-ok flex items-center gap-1">
-                        <span className="live-dot" /> UPDATING LIVE
-                      </span>
+                      <span className="text-xs mono text-soft">SAMPLE</span>
                     </div>
                     <div className="sub-row">
                       <span className="sub-lbl mono">NETWORK &amp; DNS</span>
@@ -357,7 +351,7 @@ export default function Landing() {
 
             <div className="px-6 py-3 border-t border-line bg-inset flex items-center justify-between">
               <span className="text-xs mono text-soft flex items-center gap-2">
-                <Terminal size={13} className="text-accent" /> REAL SCAN WORKSPACE · EVIDENCE IN EVERY FINDING
+                <Terminal size={13} className="text-accent" /> SAMPLE DATA · YOUR WORKSPACE SHOWS YOUR OWN SCANS
               </span>
               <button className="stat-link text-xs" onClick={handleGetStarted}>
                 GET STARTED <ArrowRight size={12} />
@@ -392,9 +386,8 @@ export default function Landing() {
             <p className="eyebrow">THE DEFENSE ARCHITECTURE</p>
             <h2>The 6 Layers of Strata Defense.</h2>
             <p className="sec-note">
-              Complete security coverage for African businesses — from your public perimeter
-              to a prioritized fix queue, with an AI analyst on call. Click through each layer
-              to see what it does.
+              From your public footprint to a prioritised fix queue, with an AI assistant on
+              hand. Click through each layer to see what it does.
             </p>
           </div>
 
