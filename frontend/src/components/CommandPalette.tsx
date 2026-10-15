@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useRef, useState, ReactNode } from 'react';
+import { startTour } from '../lib/tour';
 import { useNavigate } from 'react-router-dom';
-import {
-  ArrowUpRight,
-  Moon,
-  Play,
-  Server,
-  ShieldAlert,
-  Radar,
-  Globe,
-  Sliders,
-  Copy,
-  LogOut,
-} from 'lucide-react';
+import { ArrowUpRight, Moon, Play, Server, ShieldAlert, Radar, Globe, Sliders, Copy, LogOut, Compass } from 'lucide-react';
 import { toggleTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
 import { useToast } from './Toast';
@@ -34,6 +24,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     { label: 'Go to Domains', hint: '05', icon: <Globe size={15} />, run: () => nav('/domains') },
     { label: 'Go to Settings', hint: '06', icon: <Sliders size={15} />, run: () => nav('/settings') },
     { label: 'Launch security scan', hint: 'quick action', icon: <Play size={15} />, run: () => nav('/scans') },
+    { label: 'Take the product tour', hint: 'help', icon: <Compass size={15} />, run: startTour },
     { label: 'Toggle theme (Light / Dark)', hint: 'appearance', icon: <Moon size={15} />, run: toggleTheme },
     {
       label: 'Copy app info', hint: 'clipboard', icon: <Copy size={15} />,

@@ -37,7 +37,7 @@ export default function CreateOrganization() {
       return;
     }
 
-    toast('Organization created successfully!');
+    toast('Workspace created.');
     nav('/onboarding/add-domain', { replace: true });
   };
 
@@ -45,15 +45,15 @@ export default function CreateOrganization() {
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <h3 className="font-display text-lg font-medium text-ink mb-1">
-          Create Your Organization
+          Name your workspace
         </h3>
         <p className="text-xs text-soft">
-          Your organization's name is shown across your workspace.
+          Use your company's name. Teammates you invite will see it.
         </p>
       </div>
 
       <div className="field">
-        <label htmlFor="orgName">ORGANIZATION NAME</label>
+        <label htmlFor="orgName">COMPANY NAME</label>
         <input
           id="orgName"
           type="text"
@@ -66,7 +66,7 @@ export default function CreateOrganization() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs mono text-soft">PLAN · 30-DAY TRIAL INCLUDED</label>
+        <label className="text-xs mono text-soft">PLAN · 30-DAY TRIAL, NO CARD NEEDED</label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {PLANS.map(p => (
             <button
@@ -93,9 +93,8 @@ export default function CreateOrganization() {
           ))}
         </div>
         <p className="text-[10px] text-soft">
-          Need single sign-on, a private deployment, or a custom agreement?{' '}
-          <a className="underline" href="mailto:info@cyphward.com">Talk to us</a> — enterprise
-          onboarding is assisted, not self-serve.
+          You can change plans later in Settings. Need a custom agreement?{' '}
+          <a className="underline" href="mailto:info@cyphward.com">Talk to us</a>.
         </p>
       </div>
 
@@ -112,7 +111,7 @@ export default function CreateOrganization() {
         className="btn btn-solid w-full justify-center"
       >
         {busy ? (
-          <span>CREATING ORGANIZATION…</span>
+          <span>CREATING WORKSPACE…</span>
         ) : (
           <>
             CONTINUE <ArrowRight size={14} />

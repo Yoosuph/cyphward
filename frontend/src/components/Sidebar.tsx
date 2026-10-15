@@ -150,6 +150,7 @@ export default function Sidebar({
             <NavLink
               key={n.to}
               to={n.to}
+              data-tour={`nav-${n.to === '/' ? 'overview' : n.to.slice(1)}`}
               end={n.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}

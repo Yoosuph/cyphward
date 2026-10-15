@@ -7,6 +7,7 @@ import { ToastProvider } from './components/Toast';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import CommandPalette from './components/CommandPalette';
+import ProductTour from './components/ProductTour';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
@@ -232,6 +233,8 @@ function AppShell() {
       />
 
       <CommandPalette open={palOpen} onClose={() => setPalOpen(false)} />
+      {/* First-run guided tour (once per user; replay from checklist or palette) */}
+      <ProductTour />
       {/* Floating CyphBot Sovereign AI Intelligence Window */}
       <CyphBotDrawer open={cyphBotOpen} onClose={() => setCyphBotOpen(false)} />
     </div>

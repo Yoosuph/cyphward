@@ -128,7 +128,7 @@ export default function Topbar({
             <LogOut size={14} />
           </button>
 
-          <button className="kbd-btn hover-lift hidden sm:inline-flex" onClick={onPalette} title="Open Command Palette">
+          <button data-tour="palette" className="kbd-btn hover-lift hidden sm:inline-flex" onClick={onPalette} title="Open Command Palette">
             {modKey}
           </button>
         </div>

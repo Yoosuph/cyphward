@@ -5,11 +5,11 @@ import StrataField from '../../components/StrataField';
 import CyphwardLogo from '../../components/CyphwardLogo';
 
 const STEPS = [
-  { key: 'verify_email', label: 'Verify Email', icon: MailCheck },
-  { key: 'create_org', label: 'Create Organization', icon: Building },
-  { key: 'add_domain', label: 'Add Domain', icon: Globe },
-  { key: 'verify_domain', label: 'Verify Domain', icon: CheckCircle2 },
-  { key: 'complete', label: 'Ready', icon: Radar },
+  { key: 'verify_email', label: 'Email', icon: MailCheck },
+  { key: 'create_org', label: 'Workspace', icon: Building },
+  { key: 'add_domain', label: 'Domain', icon: Globe },
+  { key: 'verify_domain', label: 'Verify', icon: CheckCircle2 },
+  { key: 'complete', label: 'First scan', icon: Radar },
 ];
 
 export default function OnboardingLayout() {
@@ -83,7 +83,7 @@ export default function OnboardingLayout() {
           Set up your <em>workspace.</em>
         </h1>
         <p className="login-sub text-center">
-          Verify your email, name your workspace, and add a domain to start monitoring.
+          About five minutes. You'll need access to your domain's DNS settings, or someone who has it.
         </p>
 
         {/* Progress Steps */}

@@ -249,6 +249,8 @@ try {
     else void request.abort();
   });
   await page.evaluateOnNewDocument((user) => {
+    // The first-run tour is covered by check-onboarding-flow.mjs.
+    localStorage.setItem(`cyphward-tour-v1:${user.id}`, "done");
     localStorage.setItem(
       "cyphward-session",
       JSON.stringify({

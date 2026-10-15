@@ -48,6 +48,7 @@ export default function ButtonPlate({
               <NavLink
                 key={item.to}
                 to={item.to}
+                data-tour={`plate-${item.to === '/' ? 'overview' : item.to.slice(1)}`}
                 className={`plate-btn ${active ? 'active' : ''}`}
                 title={item.full}
               >
@@ -70,6 +71,7 @@ export default function ButtonPlate({
               onClick={onOpenMenu}
               title="Open menu — see all pages"
               aria-label="Open menu"
+              data-tour="plate-menu"
             >
               <div className="relative flex items-center justify-center">
                 <Menu size={16} strokeWidth={1.8} />
@@ -83,6 +85,7 @@ export default function ButtonPlate({
               onClick={onPalette}
               title="Search / Command Palette (⌘K)"
               aria-label="Open Command Palette"
+              data-tour="plate-palette"
             >
               <Search size={16} strokeWidth={2} />
               <span className="plate-lbl">⌘K</span>

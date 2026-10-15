@@ -7,20 +7,17 @@ import {
   Lock,
   ArrowUpRight,
   RefreshCw,
-  Layers,
   ShieldAlert,
   Clock,
   CheckCircle2,
   AlertTriangle,
   X,
-  Radio,
 } from 'lucide-react';
 import { getAssets, getAssetDetail } from '../lib/api';
 import type { Asset, Finding } from '../types';
 import { useToast } from '../components/Toast';
 import { TableRowSkeleton, AssetDrawerSkeleton, AssetsSkeleton } from '../components/Skeleton';
 import Drawer from '../components/Drawer';
-import TopologyGraph from '../components/TopologyGraph';
 
 export default function Assets() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -30,7 +27,6 @@ export default function Assets() {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetDetail, setAssetDetail] = useState<{ asset: Asset; findings: Finding[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<'table' | 'topology'>('table');
 
   const toast = useToast();
 
@@ -95,56 +91,17 @@ export default function Assets() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          {/* View Mode Switcher */}
-          <div className="flex items-center p-0.5 rounded border border-line bg-raised flex-1 sm:flex-none justify-center">
-            <button
-              onClick={() => setViewMode('table')}
-              data-testid="view-mode-table"
-              aria-label="Table view"
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs mono transition-all btn-tactile ${
-                viewMode === 'table'
-                  ? 'bg-accent text-white font-medium shadow-sm shadow-accent/20'
-                  : 'text-soft hover:text-ink'
-              }`}
-            >
-              <Layers size={13} />
-              <span className="hidden xs:inline">Table view</span>
-              <span className="xs:hidden">Table</span>
-            </button>
-            <button
-              onClick={() => setViewMode('topology')}
-              data-testid="view-mode-topology"
-              aria-label="Topology view"
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs mono transition-all btn-tactile ${
-                viewMode === 'topology'
-                  ? 'bg-accent text-white font-medium shadow-sm shadow-accent/20'
-                  : 'text-soft hover:text-ink'
-              }`}
-            >
-              <Radio size={13} />
-              <span className="hidden xs:inline">Topology view</span>
-              <span className="xs:hidden">Topology</span>
-            </button>
-          </div>
 
-          {viewMode === 'table' && (
-            <button
-              onClick={loadAssets}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile ml-auto sm:ml-0"
-            >
-              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-              <span>Refresh</span>
-            </button>
-          )}
+          <button
+            onClick={loadAssets}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile ml-auto sm:ml-0"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
         </div>
       </div>
 
-      {viewMode === 'topology' ? (
-        <div className="rounded-lg border border-line bg-raised overflow-hidden shadow-sm">
-          <TopologyGraph />
-        </div>
-      ) : (
-        <>
           {/* Filter and Search Bar */}
       <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
         <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
@@ -323,8 +280,6 @@ export default function Assets() {
           </table>
         </div>
       </div>
-        </>
-      )}
 
       {/* Asset Detail Drawer */}
       <Drawer
