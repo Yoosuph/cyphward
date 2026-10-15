@@ -1,8 +1,22 @@
 # Packet 03 — defensible scan scope and coverage
 
-**Status:** in progress on `codex/scan-scope-coverage`; target-selection, DNS evidence and conservative Nuclei evidence/resolution implemented and locally validated, not released. The evidence-gated scoring slice is also implemented; complete template evaluation, remaining tool/deadline/network coverage and release are outstanding.
+**Status:** in progress on `codex/scan-scope-coverage`; target-selection, DNS evidence and conservative Nuclei evidence/resolution implemented and locally validated, not released. The evidence-gated scoring slice is also implemented. Release scope was trimmed on 15 October 2026 (below). Declared-scope completeness and the organisation grade gate are implemented and validated on the review branch; the remaining step is the coordinated release.
 **Dependency:** released Packet 02. Preserve protocol v2 ownership, attempt-specific evidence and monotonic progress.
 **Outcome:** users can tell what a scan evaluated, what it omitted or failed to evaluate, and what its findings/score can support.
+
+## Release scope (trimmed 15 October 2026)
+
+Reaching paid pilots now takes priority over exhaustive proof. Packet 03's release scope is:
+
+- target selection and recorded omissions;
+- DNS query evidence and the exact-query email-check gate;
+- Nuclei process evidence with conservative no-match handling;
+- the `cyphward-risk-v3` evidence gate with nullable snapshots;
+- **declared-scope completeness**: coverage is complete when every check in a versioned declared check set (`cyphward-checks-v1`) has a conclusive outcome for every in-scope target. Nuclei is reported separately and does not gate completeness.
+
+Moved to **Packet 03b** (not part of this release): a per-template Nuclei completion adapter, per-check identities beyond the declared set, shared end-to-end deadlines across queue/recon/Core (recon-phase budgets landed in `454c10f`), and external-tool/egress boundary verification. Until 03b ships, Nuclei no-match results stay inconclusive, and the customer-facing scope line says so.
+
+The numbered contract below remains the long-term target. Items it lists that fall under 03b are not release blockers for Packet 03.
 
 ## Read and map the current behavior
 
