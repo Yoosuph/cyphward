@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RefreshCw,
   ShieldCheck,
@@ -18,6 +18,7 @@ import {
 } from '../lib/api';
 import type { Finding } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead, Loading } from '../components/ui';
@@ -47,8 +48,10 @@ function statusChipLevel(status: string): 'ok' | 'warn' | 'bad' | 'idle' {
 
 export default function Remediation() {
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [tasks, setTasks] = useState<RemediationTask[]>([]);
+  // Last-seen list paints at once on a revisit; load() refreshes it.
+  const [loading, setLoading] = useState(() => readPageCache('remediation:') === undefined);
+  const [tasks, setTasks] = useState<RemediationTask[]>(() => readPageCache<RemediationTask[]>('remediation:') ?? []);
+  const shownKey = useRef<string | null>(null); // cache key of the rows on screen
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -61,10 +64,17 @@ export default function Remediation() {
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const cacheKey = `remediation:${statusFilter}`;
+    const cached = readPageCache<RemediationTask[]>(cacheKey);
+    if (cached) setTasks(cached);
+    // Skeleton only when this view has nothing to show yet (not on a refresh).
+    if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
+    else if (cached) setLoading(false);
+    shownKey.current = cacheKey;
     try {
       const res = await getRemediationTasks(statusFilter ? { status: statusFilter } : undefined);
       setTasks(res.tasks);
+      writePageCache(cacheKey, res.tasks);
     } catch (e: any) {
       toast(e.message || 'Failed to load tasks');
     } finally {

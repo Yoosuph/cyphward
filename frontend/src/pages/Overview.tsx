@@ -25,18 +25,22 @@ import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
 import { startTour, tourSeen } from '../lib/tour';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 
 export default function Overview() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Last-seen overview paints at once on a revisit; loadData refreshes it.
+  const [data, setData] = useState<OverviewData | null>(() => readPageCache<OverviewData>('overview') ?? null);
+  const [loading, setLoading] = useState(() => readPageCache('overview') === undefined);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const requestId = useRef(0);
   const [launching, setLaunching] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [domainsLoaded, setDomainsLoaded] = useState(false);
-  const [selectedDomain, setSelectedDomain] = useState<string>('');
+  const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('overview:domains') ?? []);
+  const [domainsLoaded, setDomainsLoaded] = useState(() => readPageCache('overview:domains') !== undefined);
+  const [selectedDomain, setSelectedDomain] = useState<string>(
+    () => readPageCache<Domain[]>('overview:domains')?.find(d => d.verification_status === 'verified')?.id || '',
+  );
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -87,6 +91,7 @@ export default function Overview() {
       if (id !== requestId.current) return;
       if (overview.status === 'fulfilled' && overview.value) {
         setData(overview.value);
+        writePageCache('overview', overview.value);
         setRefreshFailed(false);
         setLastRefreshed(new Date());
       } else {
@@ -94,6 +99,7 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
+        writePageCache('overview:domains', domainResult.value);
         setDomainsLoaded(true);
         setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');

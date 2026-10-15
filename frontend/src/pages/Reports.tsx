@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, FileText, Plus, Send, Eye, Download } from 'lucide-react';
 import { listReports, createReport, getReport, type ReportRow } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead, Loading } from '../components/ui';
@@ -9,8 +10,9 @@ import { sendReportEmail } from '../lib/api';
 
 export default function Reports() {
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [reports, setReports] = useState<ReportRow[]>([]);
+  // Last-seen list paints at once on a revisit; load() refreshes it.
+  const [loading, setLoading] = useState(() => readPageCache('reports') === undefined);
+  const [reports, setReports] = useState<ReportRow[]>(() => readPageCache<ReportRow[]>('reports') ?? []);
   const [creating, setCreating] = useState(false);
 
   const [preview, setPreview] = useState<ReportRow | null>(null);
@@ -24,10 +26,11 @@ export default function Reports() {
   const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const res = await listReports();
       setReports(res.reports);
+      writePageCache('reports', res.reports);
     } catch (e: any) {
       toast(e.message || 'Failed to load reports');
     } finally {

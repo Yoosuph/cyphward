@@ -24,6 +24,7 @@ import {
 
 type OnboardingStepValue = 'none' | 'verify_email' | 'create_org' | 'add_domain' | 'verify_domain' | 'complete';
 import type { Tenant } from '../types';
+import { clearPageCache } from './pageCache';
 
 const KEY = 'cyphward-tenant';
 const SIGNOUT_KEY = 'cyphward-signed-out';
@@ -170,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const clearAuthState = () => {
+    clearPageCache();
     setBootstrapError(null);
     pendingOrgIdRef.current = undefined;
     setUser(null);
@@ -183,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const beginSession = (tokens: AuthTokens) => {
+    clearPageCache();
     setBootstrapError(null);
     const previousUserId = loadSession()?.user.id || user?.id;
     if (previousUserId !== tokens.user.id) {
@@ -362,6 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    clearPageCache();
     setBootstrapError(null);
     pendingOrgIdRef.current = undefined;
     try {

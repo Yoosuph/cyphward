@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHead } from '../components/ui';
 import {
   Server,
@@ -17,12 +17,15 @@ import {
 import { getAssets, getAssetDetail } from '../lib/api';
 import type { Asset, Finding } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import { TableRowSkeleton, AssetDrawerSkeleton, AssetsSkeleton } from '../components/Skeleton';
 import Drawer from '../components/Drawer';
 
 export default function Assets() {
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Last-seen list paints at once on a revisit; the request below refreshes it.
+  const [assets, setAssets] = useState<Asset[]>(() => readPageCache<Asset[]>('assets:all:') ?? []);
+  const [loading, setLoading] = useState(() => readPageCache('assets:all:') === undefined);
+  const shownKey = useRef<string | null>(null); // cache key of the rows on screen
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -32,13 +35,20 @@ export default function Assets() {
   const toast = useToast();
 
   const loadAssets = async () => {
-    setLoading(true);
+    const cacheKey = `assets:${selectedType}:${search}`;
+    const cached = readPageCache<Asset[]>(cacheKey);
+    if (cached) setAssets(cached);
+    // Skeleton only when this view has nothing to show yet (not on a refresh).
+    if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
+    else if (cached) setLoading(false);
+    shownKey.current = cacheKey;
     try {
       const res = await getAssets({
         search: search || undefined,
         asset_type: selectedType !== 'all' ? selectedType : undefined,
       });
       setAssets(res.assets);
+      writePageCache(cacheKey, res.assets);
     } catch (e) {
       toast('Failed to load assets');
     } finally {

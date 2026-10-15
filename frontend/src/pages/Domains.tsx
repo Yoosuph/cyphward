@@ -20,6 +20,7 @@ import {
 import { getDomains, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 import DomainDnsInstructions from '../components/DomainDnsInstructions';
@@ -36,8 +37,9 @@ const statusLabel = (status: string) => STATUS_LABEL[status] || status;
 
 export default function Domains() {
   const confirmAction = useConfirm();
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Last-seen list paints at once on a revisit; loadDomains refreshes it.
+  const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('domains') ?? []);
+  const [loading, setLoading] = useState(() => readPageCache('domains') === undefined);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [newDomainInput, setNewDomainInput] = useState('');
   const [adding, setAdding] = useState(false);
@@ -56,10 +58,11 @@ export default function Domains() {
   const toast = useToast();
 
   const loadDomains = async () => {
-    setLoading(true);
+    // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const list = await getDomains();
       setDomains(list);
+      writePageCache('domains', list);
     } catch (e) {
       toast('Failed to load domains');
     } finally {
