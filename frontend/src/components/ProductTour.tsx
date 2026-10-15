@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { TOUR_EVENT, markTourSeen, tourSeen } from '../lib/tour';
+import { TOUR_EVENT, markTourSeen } from '../lib/tour';
 
 type Step = {
   id: string;
@@ -97,7 +97,7 @@ const sameBox = (a: Box | null, b: Box | null) =>
   a === b || (!!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height);
 
 export default function ProductTour() {
-  const { user, onboardingStep } = useAuth();
+  const { user } = useAuth();
   const location = useLocation();
   const nav = useNavigate();
   const userId = user?.id;
@@ -135,16 +135,9 @@ export default function ProductTour() {
     setIndex(clamp(next, 0, STEPS.length - 1));
   }, [index, close]);
 
-  // Auto-start once per user, on Overview, after setup is finished.
-  useEffect(() => {
-    if (open || !userId || onboardingStep !== 'complete') return;
-    if (location.pathname !== '/overview' && location.pathname !== '/') return;
-    if (tourSeen(userId)) return;
-    const id = setTimeout(begin, 900);
-    return () => clearTimeout(id);
-  }, [open, userId, onboardingStep, location.pathname, begin]);
-
-  // Replay from the checklist or the command palette.
+  // Started by Overview on a genuine first run (no completed scan yet), or
+  // replayed from the checklist or the command palette. Never auto-started
+  // for an established workspace.
   useEffect(() => {
     const onStart = () => {
       if (location.pathname !== '/overview') nav('/overview');

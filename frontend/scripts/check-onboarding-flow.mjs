@@ -17,9 +17,13 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  // Native browser dialogs are never acceptable; the app has a branded confirm.
+  page.on('dialog', dialog => { errors.push(`native dialog: ${dialog.message()}`); void dialog.dismiss(); });
   const user = { id: 'new-user', email: 'new@example.test', full_name: 'New User' };
   const org = { id: 'new-org', name: 'New Workspace', slug: 'new-workspace', plan: 'growth' };
   let domains = [];
+  let recentScans = [];
+  const deleteCalls = [];
   let hasOrg = true;
   let emailVerified = true;
   let bootstrapUnavailable = false;
@@ -32,12 +36,18 @@ try {
     score: null, max_score: 100, grade: null, posture_label: 'Not assessed',
     assessed: false, trend: null, risk_points: null, counts: {
       total_assets: 0, total_findings: 0, critical: 0, high: 0, medium: 0, low: 0,
-    }, subscores: [], factors: [], recent_scans: [],
+    }, subscores: [], factors: [], recent_scans: recentScans,
   });
   await page.setRequestInterception(true);
   page.on('request', request => {
     const url = new URL(request.url());
     if (!url.pathname.startsWith('/api/')) return void request.continue();
+    if (request.method() === 'DELETE' && /\/domains\/[^/]+$/.test(url.pathname)) {
+      const id = url.pathname.split('/').pop();
+      deleteCalls.push(id);
+      domains = domains.filter(d => d.id !== id);
+      return void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ deleted: true }) });
+    }
     let body = {};
     let status = 200;
     if (url.pathname.endsWith('/auth/bootstrap')) {
@@ -131,6 +141,42 @@ try {
     return card.left >= 0 && card.right <= window.innerWidth && document.documentElement.scrollWidth <= window.innerWidth;
   }), 'Tour card fits a 390px screen');
   await page.keyboard.press('Escape');
+  await page.evaluate(() => { sessionStorage.removeItem('tour-test'); localStorage.setItem('cyphward-tour-v1:new-user', 'done'); });
+  await page.setViewport({ width: 800, height: 600 });
+
+  // Regression (15 Oct): an established owner with completed scans must never get
+  // the tour unprompted, and START SCAN must open the scan dialog.
+  const previousDomains = domains;
+  domains = [
+    { id: 'verified-a', org_id: org.id, domain: 'cyphward.example', verification_status: 'verified', created_at: '2026-10-01T00:00:00Z' },
+    { id: 'pending-b', org_id: org.id, domain: 'kansadco.example', verification_status: 'pending', verification_token: 't', created_at: '2026-10-14T00:00:00Z' },
+  ];
+  recentScans.push({ id: 'done-scan', domain: 'cyphward.example', status: 'completed', score: 35.2, stage_progress: {}, created_at: '2026-10-14T06:00:00Z' });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluate(() => { sessionStorage.setItem('tour-test', '1'); localStorage.removeItem('cyphward-tour-v1:new-user'); });
+  await page.goto(`${origin}/overview`);
+  await page.waitForSelector('[data-tour="start-scan"]');
+  await new Promise(resolve => setTimeout(resolve, 1800));
+  assert.ok(!await page.$('[aria-labelledby="tour-title"]'), 'No unprompted tour for a workspace with completed scans');
+  await page.click('[data-tour="start-scan"]');
+  await page.waitForFunction(() => document.body.textContent.includes('Only your verified domains'));
+
+  // Removing a domain uses the branded confirm: Cancel sends nothing, Remove sends one DELETE.
+  await page.goto(`${origin}/domains`);
+  await page.waitForSelector('button[aria-label="Remove kansadco.example"]');
+  await page.click('button[aria-label="Remove kansadco.example"]');
+  await page.waitForFunction(() => document.body.textContent.includes('Remove kansadco.example?'));
+  await page.waitForFunction(() => document.activeElement?.textContent === 'CANCEL', { timeout: 3000 }); // destructive confirm focuses Cancel
+  await page.keyboard.press('Enter');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.deepEqual(deleteCalls, []);
+  await page.click('button[aria-label="Remove kansadco.example"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'REMOVE DOMAIN'));
+  await page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent === 'REMOVE DOMAIN').click());
+  await page.waitForFunction(() => document.body.textContent.includes('kansadco.example removed'));
+  assert.deepEqual(deleteCalls, ['pending-b']);
+  domains = previousDomains;
+  recentScans.length = 0;
   await page.evaluate(() => { sessionStorage.removeItem('tour-test'); localStorage.setItem('cyphward-tour-v1:new-user', 'done'); });
   await page.setViewport({ width: 800, height: 600 });
 
@@ -242,7 +288,7 @@ try {
   await page.waitForFunction(() => window.__lateRefreshStatus === 409);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('cyphward-session')).user.id), 'other-user');
   assert.deepEqual(errors, []);
-  console.log('PASS: onboarding/DNS/mobile navigation, setup checklist, first-run tour (auto-start, spotlight, skip, replay, 390px), bootstrap and refresh outages, invitation preservation, concurrent refresh and late account-switch response');
+  console.log('PASS: onboarding/DNS/mobile navigation, setup checklist, first-run tour (auto-start, spotlight, skip, replay, 390px, never for established workspaces), branded delete confirm, no native dialogs, bootstrap and refresh outages, invitation preservation, concurrent refresh and late account-switch response');
 } finally {
   if (browser) await browser.close();
   await server.close();

@@ -4,6 +4,7 @@ import { AuthProvider, useAuth, IDLE_REASON_KEY } from './lib/auth';
 import { hostTarget, IDLE_NOTICE_PARAM } from './lib/hosts';
 import { buildAppHandoff } from './lib/session';
 import { ToastProvider } from './components/Toast';
+import { ConfirmProvider } from './components/ConfirmDialog';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import CommandPalette from './components/CommandPalette';
@@ -302,6 +303,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        <ConfirmProvider>
         <BrowserRouter>
           <HostGate>
           {/* Custom precision branded cursor active throughout application */}
@@ -371,6 +373,7 @@ export default function App() {
           </AccountRecoveryGate>
           </HostGate>
         </BrowserRouter>
+        </ConfirmProvider>
       </ToastProvider>
     </AuthProvider>
   );
