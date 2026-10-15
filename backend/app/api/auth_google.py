@@ -153,14 +153,14 @@ def _verify_one_tap_credential(credential: str) -> Dict[str, Any]:
     return claims
 
 
-def _google_step_up(user: Dict[str, Any]) -> Optional[str]:
+async def _google_step_up(user: Dict[str, Any]) -> Optional[str]:
     """mfa_token when this Google login must clear the step-up, else None."""
     uid = str(user["id"])
     if not (_user_is_admin(uid) or user.get("mfa_enrolled_at") is not None
             or user.get("totp_enrolled_at") is not None):
         return None
     check_rate_limit(f"mfa:{uid}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
-    _send_mfa_code(user)
+    await _send_mfa_code(user)
     log_audit(None, uid, "auth.login", "user", uid, {"via": "google"})
     return _issue_mfa_token(uid)
 
@@ -271,7 +271,7 @@ async def google_callback(
 
     # Admins and enrolled users clear the same step-up as password logins.
     try:
-        stepped = _google_step_up(user)
+        stepped = await _google_step_up(user)
     except HTTPException:
         return fail("oauth_failed")
     if stepped:
@@ -308,7 +308,7 @@ async def google_one_tap(body: OneTapBody) -> Dict[str, Any]:
     user = _upsert_google_profile(email, name)
     if not user:
         raise HTTPException(status_code=500, detail="Could not create your account. Please try again.")
-    stepped = _google_step_up(user)
+    stepped = await _google_step_up(user)
     if stepped:
         email = (user.get("email") or "").strip().lower()
         return {"mfa_required": True, "mfa_token": stepped, "email_hint": _mask_email(email)}

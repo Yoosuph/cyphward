@@ -1103,23 +1103,25 @@ def send_email_sync(
     recipient_name: Optional[str] = None,
     kind: str = DEFAULT_EMAIL_SENDER_KIND,
 ) -> Dict[str, Any]:
-    """Synchronous wrapper for scripts and worker jobs."""
+    """Synchronous wrapper for scripts and worker jobs.
+
+    Request handlers must await send_email_async instead: this blocks the
+    calling thread until delivery finishes. Delivery errors propagate as-is;
+    they are never retried here.
+    """
     import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # In running event loop (e.g. jupyter or async runner)
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    asyncio.run,
-                    send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
-                ).result()
-        else:
-            return loop.run_until_complete(
-                send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
-            )
-    except RuntimeError:
+
+    def deliver() -> Dict[str, Any]:
+        # The coroutine is created inside the loop that runs it, so a failure
+        # can never leave an un-awaited coroutine behind.
         return asyncio.run(
             send_email_async(to_email, subject, html_content, text_content, recipient_name, kind=kind)
         )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return deliver()  # No loop in this thread: run one.
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(deliver).result()

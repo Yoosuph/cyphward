@@ -243,7 +243,7 @@ async def run_security_checks(
             if target_ip:
                 async with httpx.AsyncClient(verify=False, timeout=1.5) as client:
                     r_resp = await client.get(
-                        ip_guard.pinned_url("https", target_ip),
+                        ip_guard.pinned_url("https", target_ip, "/robots.txt"),
                         headers={"Host": hostname},
                         extensions={"sni_hostname": hostname},
                     )

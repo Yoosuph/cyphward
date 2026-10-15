@@ -198,6 +198,7 @@ async def probe_http_service(
         for scheme in ("https", "http"):
             current_host = hostname
             current_scheme = scheme
+            current_path = "/"
             logical_url = f"{scheme}://{hostname}"
             redirect_chain: List[str] = []
             block_reason: Optional[str] = None
@@ -221,7 +222,7 @@ async def probe_http_service(
                 try:
                     ensure_stage_budget()
                     resp = await client.get(
-                        _pinned_url(current_scheme, target_ip),
+                        _pinned_url(current_scheme, target_ip, current_path),
                         headers={
                             "User-Agent": "Cyphward-Security-Scanner/1.0",
                             "Host": current_host,
@@ -238,7 +239,8 @@ async def probe_http_service(
 
                 location = resp.headers.get("location")
                 if resp.status_code in _REDIRECT_CODES and location:
-                    nxt = urljoin(f"{current_scheme}://{current_host}", location)
+                    # Resolve relative locations against the current page, not the host root.
+                    nxt = urljoin(f"{current_scheme}://{current_host}{current_path}", location)
                     parsed = urlparse(nxt)
                     if parsed.scheme not in ("http", "https") or not parsed.hostname:
                         block_reason = f"redirect blocked: unsupported location {nxt[:120]}"
@@ -253,6 +255,7 @@ async def probe_http_service(
                     logical_url = nxt
                     current_host = parsed.hostname.strip().lower()
                     current_scheme = parsed.scheme
+                    current_path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
                     continue
                 break  # final (non-redirect) response
 
