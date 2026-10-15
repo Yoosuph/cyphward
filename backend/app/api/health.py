@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from backend.app.core.database import execute_one
+from backend.app.core.runtime_guard import background_status
 
 router = APIRouter(tags=["Health"])
 
@@ -17,4 +18,6 @@ def health_check():
         "database": "connected" if db_ok else "disconnected",
         "service": "cyphward-api",
         "version": "1.0.0",
+        # Scheduler / scan-recovery loop state; never includes URLs or secrets.
+        "background": background_status(),
     }

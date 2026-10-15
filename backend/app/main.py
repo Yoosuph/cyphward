@@ -7,6 +7,12 @@ import asyncio
 import logging
 
 from backend.app.core.config import CORS_ORIGINS, SCHEDULER_ENABLED
+from backend.app.core.runtime_guard import (
+    REFUSAL_REASON,
+    background_work_allowed,
+    set_background_status,
+    track_background_task,
+)
 from backend.app.api import (
     overview,
     domains,
@@ -137,6 +143,8 @@ app.include_router(billing.router)
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def recover_interrupted_scans_on_startup() -> None:
+    if not background_work_allowed("startup scan recovery"):
+        return
     try:
         from backend.app.core.scan_recovery import recover_interrupted_scans
         recover_interrupted_scans()
@@ -154,11 +162,16 @@ _execution_stop: asyncio.Event | None = None
 async def start_execution_recovery() -> None:
     from backend.app.core.config import EXECUTION_RECOVERY_ENABLED
     if not EXECUTION_RECOVERY_ENABLED:
+        set_background_status("recovery", "disabled (CYPHWARD_EXECUTION_RECOVERY_ENABLED=false)")
+        return
+    if not background_work_allowed("execution recovery loop"):
+        set_background_status("recovery", f"refused ({REFUSAL_REASON})")
         return
     from backend.app.core.scan_recovery import recover_scan_queue
     global _execution_task, _execution_stop
     _execution_stop = asyncio.Event()
     _execution_task = asyncio.create_task(recover_scan_queue(_execution_stop))
+    track_background_task("recovery", _execution_task)
 
 
 @app.on_event("shutdown")
@@ -184,11 +197,16 @@ async def start_daily_scan_scheduler() -> None:
         logging.getLogger("cyphward.scheduler").info(
             "daily scan scheduler disabled (CYPHWARD_SCHEDULER_ENABLED=false)"
         )
+        set_background_status("scheduler", "disabled (CYPHWARD_SCHEDULER_ENABLED=false)")
+        return
+    if not background_work_allowed("daily scan scheduler"):
+        set_background_status("scheduler", f"refused ({REFUSAL_REASON})")
         return
     from backend.app.scheduler import daily_scan_scheduler
 
     _scheduler_stop = asyncio.Event()
     _scheduler_task = asyncio.create_task(daily_scan_scheduler(_scheduler_stop))
+    track_background_task("scheduler", _scheduler_task)
 
 
 @app.on_event("shutdown")
