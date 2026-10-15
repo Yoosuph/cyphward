@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useConfirm } from '../components/ConfirmDialog';
 import {
   Globe,
   Plus,
@@ -33,6 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
 const statusLabel = (status: string) => STATUS_LABEL[status] || status;
 
 export default function Domains() {
+  const confirmAction = useConfirm();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -129,7 +131,11 @@ export default function Domains() {
   };
 
   const handleDelete = async (domainId: string, name: string) => {
-    if (!confirm(`Remove ${name}? We will stop scanning it.`)) return;
+    if (!(await confirmAction({
+      title: `Remove ${name}?`,
+      body: 'Scans of this domain stop. Its past scans and findings stay in your history. You can add it again later, but it will need to be verified again.',
+      confirmLabel: 'REMOVE DOMAIN', danger: true,
+    }))) return;
     try {
       await deleteDomain(domainId);
       toast(`${name} removed.`);
@@ -385,6 +391,7 @@ export default function Domains() {
                       <button
                         onClick={() => handleDelete(dom.id, dom.domain)}
                         className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent"
+                        aria-label={`Remove ${dom.domain}`}
                         title="Remove domain"
                       >
                         <Trash2 size={13} />

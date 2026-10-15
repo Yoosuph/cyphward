@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useConfirm } from '../components/ConfirmDialog';
 import {
   Building,
   Users,
@@ -20,6 +21,7 @@ import { QRCodeSVG } from 'qrcode.react';
 type SettingsTab = 'general' | 'team' | 'auth';
 
 export default function Settings() {
+  const confirmAction = useConfirm();
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -49,7 +51,11 @@ export default function Settings() {
   const handleDeleteAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!delEmail.trim()) return;
-    if (!window.confirm('Permanently delete your account and all its sessions? This cannot be undone.')) return;
+    if (!(await confirmAction({
+      title: 'Delete your account?',
+      body: 'This permanently deletes your account and signs out every session. This cannot be undone.',
+      confirmLabel: 'DELETE ACCOUNT', danger: true,
+    }))) return;
     setDelBusy(true);
     try {
       const res = await deleteOwnAccount(delEmail.trim(), delPw);
@@ -284,7 +290,11 @@ export default function Settings() {
   const handleClose = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!closeSlug.trim()) return;
-    if (!window.confirm('This permanently deletes the workspace and all its data. Continue?')) return;
+    if (!(await confirmAction({
+      title: 'Delete this workspace?',
+      body: 'This permanently deletes the workspace and all its data, including domains, scans, findings and reports. This cannot be undone.',
+      confirmLabel: 'DELETE WORKSPACE', danger: true,
+    }))) return;
     setCloseBusy(true);
     try {
       const res = await closeOrganization(closeSlug.trim());
@@ -347,7 +357,11 @@ export default function Settings() {
   };
 
   const handleCancelSub = async () => {
-    if (!window.confirm('Cancel the subscription at the end of the current period?')) return;
+    if (!(await confirmAction({
+      title: 'Cancel your subscription?',
+      body: 'Your plan stays active until the end of the current period, then it is not renewed.',
+      confirmLabel: 'CANCEL SUBSCRIPTION', cancelLabel: 'KEEP PLAN', danger: true,
+    }))) return;
     setBillingBusy(true);
     try {
       const res = await cancelSubscription();

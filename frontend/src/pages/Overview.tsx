@@ -23,7 +23,7 @@ import { useAuth } from '../lib/auth';
 import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
-import { startTour } from '../lib/tour';
+import { startTour, tourSeen } from '../lib/tour';
 
 export default function Overview() {
   const [data, setData] = useState<OverviewData | null>(null);
@@ -63,6 +63,21 @@ export default function Overview() {
       /* greeting is best-effort */
     }
   }, [user]);
+
+  // First-run tour: only for a workspace that has never completed a scan, once
+  // per user. Established workspaces never get it unprompted.
+  const tourChecked = useRef(false);
+  const [tourDue, setTourDue] = useState(false);
+  useEffect(() => {
+    if (tourChecked.current || !data || !domainsLoaded || !user?.id) return;
+    tourChecked.current = true;
+    if (!data.recent_scans.some(scan => scan.status === 'completed') && !tourSeen(user.id)) setTourDue(true);
+  }, [data, domainsLoaded, user?.id]);
+  useEffect(() => {
+    if (!tourDue) return;
+    const id = setTimeout(startTour, 900); // Cancelled only if the user leaves Overview first.
+    return () => clearTimeout(id);
+  }, [tourDue]);
 
   const loadData = useCallback(async () => {
     const id = ++requestId.current;
@@ -207,12 +222,14 @@ export default function Overview() {
 
           <button
             data-tour="start-scan"
-            onClick={() => verifiedDomains.length ? setScanModalOpen(true) : navigate(pendingDomain ? '/domains' : '/onboarding/add-domain')}
+            // Until the domain list loads (or if it fails), never send the user to
+            // "add a domain": the Scans page loads its own list and launcher.
+            onClick={() => !domainsLoaded ? navigate('/scans') : verifiedDomains.length ? setScanModalOpen(true) : navigate(pendingDomain ? '/domains' : '/onboarding/add-domain')}
             disabled={!canManageDomains}
             className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
           >
             <Play size={13} fill="currentColor" />
-            <span>{!canManageDomains ? 'WAITING FOR ADMIN' : verifiedDomains.length ? 'START SCAN' : pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}</span>
+            <span>{!canManageDomains ? 'WAITING FOR ADMIN' : !domainsLoaded || verifiedDomains.length ? 'START SCAN' : pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}</span>
           </button>
         </div>
       </div>
