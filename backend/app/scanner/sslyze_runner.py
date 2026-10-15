@@ -5,6 +5,7 @@ suites for HTTPS services. Falls back gracefully if sslyze is not installed.
 Emits raw observations only — risk decisions belong to Core (§19/§20).
 """
 import asyncio
+from shared.scan_budget import gather_with_deadline, ensure_stage_budget
 import json
 import logging
 import shutil
@@ -125,7 +126,7 @@ async def run_sslyze(
     """
     # SSRF boundary: sslyze connects by name (SNI matters), so validate the
     # resolution first and refuse non-public targets.
-    if not ip_guard.resolve_connect_ip(hostname):
+    if not await asyncio.to_thread(ip_guard.resolve_connect_ip, hostname):
         if strict:
             raise ToolExecutionError("SSLyze target is unresolved or not a public address")
         logger.info("sslyze skip %s:%s: unresolved or non-public address", hostname, port)
@@ -144,6 +145,7 @@ async def run_sslyze(
 
     proc = None
     try:
+        ensure_stage_budget()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -220,5 +222,5 @@ async def run_sslyze_batch(
         async with semaphore:
             return await run_sslyze(host, port=port, timeout=timeout, strict=True)
 
-    results = await asyncio.gather(*[_one(h) for h in hostnames], return_exceptions=True)
+    results = await gather_with_deadline([_one(h) for h in hostnames])
     return collect_tool_results(hostnames, results)

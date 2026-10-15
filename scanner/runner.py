@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from scanner.client import CoreClient, CoreError, JobLost
 from scanner.config import load_config
-from scanner.scope import ScopeError, assert_job_in_scope, filter_hosts, host_in_scope
+from scanner.scope import ScopeError, assert_job_in_scope
 
 from backend.app.scanner.discovery import discover_subdomains_with_health
 from backend.app.scanner.dns_resolver import resolve_host_dns
@@ -35,10 +35,11 @@ from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.scanner.dns_coverage import collect_dns_results
 from shared.contracts import ScanJob
 from shared.scan_scope import select_targets
+from shared.scan_budget import ReconBudget, gather_with_deadline
+from backend.app.scanner.recon_policy import stage_plan, evaluate_stage, collect_http_results
 
 logger = logging.getLogger("cyphward.scanner")
 
-TLS_HOST_CAP = 25
 PORTS_STAGE_CONCURRENCY = 4
 TLS_STAGE_CONCURRENCY = 2
 
@@ -128,6 +129,8 @@ async def run_stage(
     coro_factory,
     *,
     optional: bool = False,
+    plan=None,
+    budget=None,
 ) -> Optional[List[Any]]:
     """
     Run one recon stage with progress + heartbeat. Returns the result list,
@@ -141,7 +144,8 @@ async def run_stage(
         _heartbeat(client, job, stage, max(5.0, min(30.0, cfg.heartbeat_seconds)), stop)
     )
     try:
-        result = await _leased_result(coro_factory, beat)
+        work = (lambda: evaluate_stage(budget, plan, coro_factory)) if plan is not None else coro_factory
+        result = await _leased_result(work, beat)
     except asyncio.CancelledError:
         await _stop_beat(stop, beat)
         raise
@@ -153,8 +157,10 @@ async def run_stage(
         if optional:
             logger.warning("scan=%s stage=%s failed (continuing): %s", job.scan_id, stage, exc)
             await client.observations(job, stage, {
-                OBSERVATION_KEY[stage]: [], "attempted_hosts": [],
-                "successful_hosts": [], "failed_hosts": {},
+                OBSERVATION_KEY[stage]: [], "attempted_hosts": plan["selected_hosts"] if plan else [],
+                "successful_hosts": [], "failed_hosts": {host: str(exc)[:300] for host in plan["selected_hosts"]} if plan else {},
+                **({"stage_plan": plan, "omitted_hosts": plan["omitted_hosts"],
+                    "execution_budget": budget.payload()} if plan else {}),
             })
             await client.progress(job, stage, "failed",
                                   duration_ms=_ms(t0), error=str(exc)[:500])
@@ -185,12 +191,7 @@ async def run_stage(
     return result
 
 
-async def _gather_dicts(awaitables) -> List[Dict[str, Any]]:
-    results = await asyncio.gather(*awaitables, return_exceptions=True)
-    return [r for r in results if isinstance(r, dict)]
-
-
-async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str]:
+async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob, budget=None) -> List[str]:
     """Stage 1 (fatal): passive discovery + health + seed union.
 
     Not via run_stage — it coerces stage results to lists, but discovery
@@ -205,7 +206,8 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
     _beat = asyncio.create_task(
         _heartbeat(client, job, "discovery", max(5.0, min(30.0, cfg.heartbeat_seconds)), _stop))
     try:
-        hosts_raw, sources_failed = await _leased_result(lambda: discover_subdomains_with_health(job.target), _beat)
+        work = lambda: discover_subdomains_with_health(job.target)
+        hosts_raw, sources_failed = await _leased_result((lambda: budget.run(work)) if budget else work, _beat)
     except BaseException:
         await _stop_beat(_stop, _beat)
         raise
@@ -227,7 +229,8 @@ async def run_discovery_stage(client: CoreClient, cfg, job: ScanJob) -> List[str
     await client.observations(job, "discovery",
                               {"discovered_hosts": hosts_raw,
                                "sources_failed": sources_failed,
-                               "target_selection": selection.payload()})
+                               "target_selection": selection.payload(),
+                               **({"execution_budget": budget.payload()} if budget else {})})
     await client.progress(job, "discovery", "completed",
                           items=len(hosts_raw), duration_ms=_ms(_t0))
     return selection.selected_hosts
@@ -237,125 +240,59 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     """Run all recon stages for one claimed job (sequential, §16)."""
     assert_job_in_scope(job)
     limits = job.limits
-    max_hosts = limits.max_hosts
 
     stats: Dict[str, Any] = {}
 
-    # --- STAGE 1: discovery (fatal) --------------------------------------
-    hosts_raw = await run_discovery_stage(client, cfg, job)
-    # Per-host suffix validation (§40) + de-dup + cap (first scope check).
-    discovered = filter_hosts(hosts_raw, job.scope, max_hosts)
-    if len(hosts_raw) > len(discovered):
-        logger.info("scan=%s discovery: %d/%d hosts in scope",
-                    job.scan_id, len(discovered), len(hosts_raw))
+    budget = ReconBudget(limits.recon_timeout_seconds, limits.stage_timeout_seconds)
+    discovered = await run_discovery_stage(client, cfg, job, budget)
     stats["discovered"] = len(discovered)
-    if not discovered:
-        logger.warning("scan=%s discovery returned no in-scope hosts", job.scan_id)
 
-    # --- STAGE 2: dns (fatal) --------------------------------------------
+    dns_plan = stage_plan("dns", discovered, job.scope)
     async def _dns():
-        results = await asyncio.gather(*[resolve_host_dns(h) for h in discovered], return_exceptions=True)
-        return collect_dns_results(discovered, results)
-
-    dns_records = await run_stage(client, cfg, job, "dns", _dns)
+        results = await gather_with_deadline([resolve_host_dns(host) for host in dns_plan["selected_hosts"]])
+        return collect_dns_results(dns_plan["selected_hosts"], results)
+    dns_records = await run_stage(client, cfg, job, "dns", _dns, plan=dns_plan, budget=budget)
     assert dns_records is not None
     stats["dns"] = len(dns_records)
 
-    # --- STAGE 3: http (fatal, second scope check before probing) --------
-    http_targets = [d["hostname"] for d in dns_records
-                    if d.get("hostname") and d.get("primary_ip")
-                    and host_in_scope(d["hostname"], job.scope)]
-
+    http_plan = stage_plan("http", discovered, job.scope, dns_records)
     async def _http():
         sem = asyncio.Semaphore(max(1, cfg.http_probe_concurrency))
-
-        async def _one(host: str):
+        async def _one(host):
             async with sem:
                 return await probe_http_service(host, scope=list(job.scope))
-
-        return await _gather_dicts([_one(h) for h in http_targets])
-
-    http_probes = await run_stage(client, cfg, job, "http", _http)
+        results = await gather_with_deadline([_one(host) for host in http_plan["selected_hosts"]])
+        return collect_http_results(http_plan["selected_hosts"], results)
+    http_probes = await run_stage(client, cfg, job, "http", _http, plan=http_plan, budget=budget)
     assert http_probes is not None
     stats["http"] = len(http_probes)
 
-    # --- STAGE 4: ports (optional) ---------------------------------------
-    if not _tool("naabu"):
-        await client.progress(job, "ports", "skipped", error="naabu not installed")
-    else:
-        port_targets = [d["hostname"] for d in dns_records
-                        if d.get("hostname") and d.get("primary_ip")
-                        and host_in_scope(d["hostname"], job.scope)]
+    ports_plan = stage_plan("ports", discovered, job.scope, dns_records, available=_tool("naabu"))
+    async def _ports():
+        return await run_naabu_batch(ports_plan["selected_hosts"], top_ports=limits.max_ports,
+                                     timeout=limits.stage_timeout_seconds, concurrency=PORTS_STAGE_CONCURRENCY)
+    ports = await run_stage(client, cfg, job, "ports", _ports, optional=True, plan=ports_plan, budget=budget)
+    stats["ports"] = len(ports or [])
 
-        async def _ports():
-            return await run_naabu_batch(
-                port_targets,
-                top_ports=limits.max_ports,
-                timeout=limits.stage_timeout_seconds,
-                concurrency=PORTS_STAGE_CONCURRENCY,
-            )
+    tls_plan = stage_plan("tls", discovered, job.scope, dns_records, http_probes,
+                          cap=limits.tls_max_hosts, available=_tool("sslyze"))
+    async def _tls():
+        return await run_sslyze_batch(tls_plan["selected_hosts"], timeout=limits.stage_timeout_seconds,
+                                      concurrency=TLS_STAGE_CONCURRENCY)
+    tls = await run_stage(client, cfg, job, "tls", _tls, optional=True, plan=tls_plan, budget=budget)
+    stats["tls"] = len(tls or [])
 
-        open_ports = await run_stage(client, cfg, job, "ports", _ports, optional=True)
-        stats["ports"] = len(open_ports or [])
-
-    # --- STAGE 5: tls (optional) -----------------------------------------
-    if not _tool("sslyze"):
-        await client.progress(job, "tls", "skipped", error="sslyze not installed")
-    else:
-        tls_targets = [
-            h["hostname"] for h in http_probes
-            if h.get("http_status") and str(h.get("url", "")).startswith("https")
-            and host_in_scope(h["hostname"], job.scope)
-        ][:TLS_HOST_CAP]
-
-        async def _tls():
-            return await run_sslyze_batch(
-                tls_targets,
-                timeout=limits.stage_timeout_seconds,
-                concurrency=TLS_STAGE_CONCURRENCY,
-            )
-
-        tls_profiles = await run_stage(client, cfg, job, "tls", _tls, optional=True)
-        stats["tls"] = len(tls_profiles or [])
-
-    # --- STAGE 6: nuclei (optional, §23 + OOM guardrails) ----------------
-    if not _tool("nuclei"):
-        await client.progress(job, "nuclei", "skipped", error="nuclei not installed")
-    else:
-        active_hosts = [
-            h["hostname"] for h in http_probes
-            if h.get("http_status") and h.get("hostname")
-            and host_in_scope(h["hostname"], job.scope)
-        ][:limits.nuclei_max_hosts]
-
-        async def _nuclei():
-            findings = await run_nuclei_batch(
-                active_hosts,
-                concurrency=limits.nuclei_concurrency,
-                timeout=limits.stage_timeout_seconds,
-            )
-            for nf in findings:
-                if not nf.get("_hostname"):
-                    nf["_hostname"] = nf.get("evidence", {}).get("host") or job.target
-            return findings
-
-        nuclei_findings = await run_stage(client, cfg, job, "nuclei", _nuclei, optional=True)
-        stats["nuclei"] = len(nuclei_findings or [])
-
-        if nuclei_findings is not None:
-            # Re-submit the nuclei observation with the attempted host list:
-            # finalize gates baseline resolution on real coverage, so
-            # "not evaluated" is distinguishable from "no findings".
-            try:
-                await client.observations(job, "nuclei", {
-                    "nuclei_findings": nuclei_findings,
-                    "attempted_hosts": active_hosts,
-                    **(nuclei_findings.coverage() if isinstance(nuclei_findings, ToolBatchResult) else {}),
-                })
-            except JobLost:
-                raise
-            except CoreError as e:
-                logger.debug("scan=%s nuclei observation resubmit failed (transient): %s", job.scan_id, e)
+    nuclei_plan = stage_plan("nuclei", discovered, job.scope, dns_records, http_probes,
+                             cap=limits.nuclei_max_hosts, available=_tool("nuclei"))
+    async def _nuclei():
+        findings = await run_nuclei_batch(nuclei_plan["selected_hosts"], concurrency=limits.nuclei_concurrency,
+                                         timeout=limits.stage_timeout_seconds)
+        for finding in findings:
+            if not finding.get("_hostname"):
+                finding["_hostname"] = finding.get("evidence", {}).get("host") or job.target
+        return findings
+    nuclei = await run_stage(client, cfg, job, "nuclei", _nuclei, optional=True, plan=nuclei_plan, budget=budget)
+    stats["nuclei"] = len(nuclei or [])
 
     return stats
 

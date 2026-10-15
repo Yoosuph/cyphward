@@ -9,6 +9,7 @@ Gathers attack surface assets passively using:
 import shutil
 import subprocess
 import asyncio
+from shared.scan_budget import gather_with_deadline
 import re
 from typing import List, Set
 import httpx
@@ -21,6 +22,7 @@ async def run_subfinder_async(domain: str) -> Set[str]:
     if not subfinder_path:
         return subdomains
 
+    proc = None
     try:
         cmd = [subfinder_path, "-d", domain, "-silent", "-timeout", "20"]
         proc = await asyncio.create_subprocess_exec(
@@ -29,12 +31,19 @@ async def run_subfinder_async(domain: str) -> Set[str]:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=25)
+        if proc.returncode != 0:
+            raise RuntimeError(f"Subfinder exited with code {proc.returncode}")
         for line in stdout.decode(errors="replace").splitlines():
             line = line.strip().lower()
             if line.endswith(domain):
                 subdomains.add(line)
-    except Exception:
-        pass
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
     return subdomains
 
 COMMON_SUBDOMAINS = [
@@ -142,12 +151,12 @@ async def discover_subdomains_with_health(domain: str) -> tuple[List[str], List[
 
     # Run all passive queries concurrently
     tasks = {
-        "crt.sh": asyncio.create_task(query_crt_sh(domain)),
-        "hackertarget": asyncio.create_task(query_hackertarget(domain)),
-        "subfinder": asyncio.create_task(run_subfinder_async(domain)),
-        "certspotter": asyncio.create_task(query_certspotter(domain)),
+        "crt.sh": query_crt_sh(domain),
+        "hackertarget": query_hackertarget(domain),
+        "subfinder": run_subfinder_async(domain),
+        "certspotter": query_certspotter(domain),
     }
-    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    results = await gather_with_deadline(tasks.values())
     for (name, res) in zip(tasks.keys(), results):
         if isinstance(res, BaseException):
             failed.append(name)

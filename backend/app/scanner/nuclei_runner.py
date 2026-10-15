@@ -4,6 +4,7 @@ Executes ProjectDiscovery Nuclei templates against discovered hosts for deep vul
 Falls back gracefully if Nuclei binary is not installed.
 """
 import asyncio
+from shared.scan_budget import gather_with_deadline, ensure_stage_budget
 import json
 import os
 import shutil
@@ -31,6 +32,7 @@ async def _nuclei_version() -> str | None:
         return None
     proc = None
     try:
+        ensure_stage_budget()
         proc = await asyncio.create_subprocess_exec(
             binary, "-version", stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, env=_nuclei_environment())
@@ -169,7 +171,7 @@ async def run_nuclei_template(
     """
     # SSRF boundary: nuclei connects by name (vhost/Host header matter), so
     # validate the resolution first and refuse non-public targets.
-    if not ip_guard.resolve_connect_ip(hostname):
+    if not await asyncio.to_thread(ip_guard.resolve_connect_ip, hostname):
         return {
             "ok": False,
             "findings": [],
@@ -197,6 +199,7 @@ async def run_nuclei_template(
 
     proc = None
     try:
+        ensure_stage_budget()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -257,7 +260,7 @@ async def run_nuclei(
     """
     # SSRF boundary: validate resolution before handing the name to nuclei
     # (it needs the hostname for SNI/Host; redirects stay off by default).
-    if not ip_guard.resolve_connect_ip(hostname):
+    if not await asyncio.to_thread(ip_guard.resolve_connect_ip, hostname):
         if strict:
             raise ToolExecutionError("Nuclei target is unresolved or not a public address")
         return []
@@ -286,6 +289,7 @@ async def run_nuclei(
 
     proc = None
     try:
+        ensure_stage_budget()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -345,7 +349,7 @@ async def run_nuclei_batch(
             return await run_nuclei(host, templates, severity, timeout, strict=True)
 
     tasks = [_run_with_semaphore(h) for h in hostnames]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await gather_with_deadline(tasks)
 
     batch = collect_tool_results(hostnames, results)
     # CLI exit success and match JSONL do not attest that every selected
@@ -359,7 +363,8 @@ async def run_nuclei_batch(
         "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(),
         "per_host_timeout_seconds": timeout,
         "targets": {host: {
-            "process_status": "completed" if host in batch.successful_hosts else "failed",
+            "process_status": "completed" if host in batch.successful_hosts else
+                              "incomplete" if batch.failed_hosts.get(host) == "recon_stage_deadline" else "failed",
             "matched_templates": sorted({str((finding.get("evidence") or {}).get("template_id"))
                                           for finding in batch if finding.get("_hostname") == host
                                           and (finding.get("evidence") or {}).get("template_id")}),

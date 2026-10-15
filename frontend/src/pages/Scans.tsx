@@ -31,6 +31,40 @@ import "./Scans.css";
 type Observation = { stage: string; raw_data: any };
 type Detail = { scan: Scan; raw_results: Observation[] };
 
+function omissionReason(reason: unknown) {
+  const reasons: Record<string, string> = {
+    stage_host_cap: "Stage host limit reached",
+    tool_unavailable: "Scanner tool unavailable",
+    no_public_dns_address: "No public DNS address",
+    no_usable_http_response: "No usable HTTP response",
+    no_https_response: "No HTTPS response",
+    outside_authorised_scope: "Outside the verified domain",
+    recon_budget_exhausted: "Scan work budget exhausted",
+    recon_stage_deadline: "Stage time limit reached; evaluation incomplete",
+  };
+  return reasons[String(reason)] || String(reason);
+}
+
+function StageScope({ raw }: { raw: any }) {
+  const plan = raw?.stage_plan;
+  if (plan?.version !== 1 || !Array.isArray(plan.requested_hosts)) return null;
+  const omitted = raw?.omitted_hosts;
+  if (!omitted || typeof omitted !== "object" || Array.isArray(omitted)) return null;
+  return (
+    <div className="scan-target-scope">
+      <p>{plan.requested_hosts.length} targets requested · {Object.keys(omitted).length} omitted</p>
+      {Object.keys(omitted).length > 0 && (
+        <details>
+          <summary>Why targets were omitted</summary>
+          <ul>{Object.entries(omitted).map(([host, reason]) => (
+            <li key={host}><strong>{host}</strong>: {omissionReason(reason)}</li>
+          ))}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function TargetScope({ raw }: { raw: any }) {
   const selection = raw?.target_selection;
   if (
@@ -280,6 +314,7 @@ function CheckRow({
       <div className="scan-check-detail">
         <p>{stage.desc}</p>
         {stage.key === "discovery" && <TargetScope raw={raw} />}
+        {stage.key !== "discovery" && <StageScope raw={raw} />}
         {stage.key === "nuclei" && (raw || finished(scan)) && (
           <>
             <p>Tool completion does not confirm every template ran. An empty result cannot certify a fix.</p>
@@ -296,7 +331,7 @@ function CheckRow({
           <ul>
             {Object.entries(raw.failed_hosts).map(([host, reason]) => (
               <li key={host}>
-                <strong>{host}</strong>: {String(reason)}
+                <strong>{host}</strong>: {omissionReason(reason)}
               </li>
             ))}
           </ul>

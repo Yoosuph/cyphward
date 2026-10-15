@@ -142,6 +142,8 @@ try {
       stage: "nuclei",
       raw_data: {
         tool_coverage: { version: 1, tool_version: "3.4.10", evaluated_templates: null },
+        stage_plan: { version: 1, requested_hosts: ["example.ng", "capped.example.ng", "budget.example.ng"] },
+        omitted_hosts: { "capped.example.ng": "stage_host_cap", "budget.example.ng": "recon_budget_exhausted" },
         attempted_hosts: [
           "example.ng",
           "www.example.ng",
@@ -275,7 +277,9 @@ try {
         document.body.textContent.includes("3 in-scope hosts requested") &&
         document.body.textContent.includes("DNS host limit reached") &&
         document.body.textContent.includes("Engine version: 3.4.10") &&
-        document.body.textContent.includes("Template evaluation coverage: unknown"),
+        document.body.textContent.includes("Template evaluation coverage: unknown") &&
+        document.body.textContent.includes("Scan work budget exhausted") &&
+        document.body.textContent.includes("Stage host limit reached"),
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (capture)
@@ -316,6 +320,8 @@ try {
         document.querySelector(".scan-checks-panel").open = true;
         document.querySelector('.scan-check[data-stage="discovery"]').open = true;
         document.querySelector(".scan-target-scope details").open = true;
+        document.querySelector('.scan-check[data-stage="nuclei"]').open = true;
+        document.querySelectorAll('.scan-check[data-stage="nuclei"] .scan-target-scope details').forEach(element => { element.open = true; });
       });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width,
         "Expanded target exclusions fit desktop and mobile");

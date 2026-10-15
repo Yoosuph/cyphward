@@ -38,6 +38,8 @@ from backend.app.core.config import (
     SCANNER_MAX_HOSTS,
     SCANNER_DNS_MAX_HOSTS,
     SCANNER_STAGE_TIMEOUT_SECONDS,
+    SCANNER_RECON_TIMEOUT_SECONDS,
+    SCANNER_TLS_MAX_HOSTS,
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
@@ -66,8 +68,10 @@ from backend.app.risk.coverage import assessment_coverage
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
-from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress
+from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress, ScanJobLimits
 from shared.scan_scope import select_targets
+from shared.scan_budget import ReconBudget, gather_with_deadline
+from backend.app.scanner.recon_policy import stage_plan, evaluate_stage, collect_http_results
 
 import os
 
@@ -83,8 +87,6 @@ inngest_client = inngest.Inngest(
     event_key=event_key or None,
 )
 
-# TLS analysis is expensive — hard cap independent of discovery breadth.
-TLS_HOST_CAP = 25
 # Port-scan concurrency within the ports stage (one stage at a time, §16).
 PORTS_STAGE_CONCURRENCY = 4
 TLS_STAGE_CONCURRENCY = 2
@@ -245,7 +247,12 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
         # STAGE 1: Passive Subdomain Discovery
         # ---------------------------------------------------------------------
         t0 = time.time()
-        discovered_hosts, sources_failed = await discover_subdomains_with_health(domain)
+        limits = ScanJobLimits(max_hosts=SCANNER_MAX_HOSTS, dns_max_hosts=SCANNER_DNS_MAX_HOSTS,
+                               max_ports=SCANNER_MAX_PORTS, stage_timeout_seconds=SCANNER_STAGE_TIMEOUT_SECONDS,
+                               recon_timeout_seconds=SCANNER_RECON_TIMEOUT_SECONDS, tls_max_hosts=SCANNER_TLS_MAX_HOSTS,
+                               nuclei_max_hosts=SCANNER_NUCLEI_MAX_HOSTS, nuclei_concurrency=SCANNER_NUCLEI_CONCURRENCY)
+        budget = ReconBudget(limits.recon_timeout_seconds, limits.stage_timeout_seconds)
+        discovered_hosts, sources_failed = await budget.run(lambda: discover_subdomains_with_health(domain))
         d_dur = int((time.time() - t0) * 1000)
         if sources_failed:
             logger.warning("scan=%s discovery sources failed: %s", scan_id, sources_failed)
@@ -256,8 +263,8 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
             discovered_hosts = sorted(set(discovered_hosts) | set(registered))
 
         selection = select_targets(domain, [domain], discovered_hosts, registered,
-                                   max_hosts=SCANNER_MAX_HOSTS,
-                                   dns_max_hosts=SCANNER_DNS_MAX_HOSTS)
+                                   max_hosts=limits.max_hosts,
+                                   dns_max_hosts=limits.dns_max_hosts)
 
         progress["discovery"] = {"status": "completed", "items": len(discovered_hosts), "duration_ms": d_dur}
         if not _still_running(scan_id):
@@ -266,164 +273,74 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
         _save_progress(scan_id, progress, "dns")
         _store_observation(scan_id, "discovery", {"discovered_hosts": discovered_hosts,
                                                   "sources_failed": sources_failed,
-                                                  "target_selection": selection.payload()})
+                                                  "target_selection": selection.payload(),
+                                                  "execution_budget": budget.payload()})
 
-        # ---------------------------------------------------------------------
-        # STAGE 2: DNS Resolution
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        dns_tasks = [resolve_host_dns(h) for h in selection.selected_hosts]
-        dns_results = await asyncio.gather(*dns_tasks, return_exceptions=True)
-        valid_dns = collect_dns_results(selection.selected_hosts, dns_results)
-        dns_dur = int((time.time() - t0) * 1000)
-
-        progress["dns"] = {**valid_dns.progress(), "items": len(valid_dns), "duration_ms": dns_dur}
-        if not _still_running(scan_id):
-            return {"scan_id": scan_id, "cancelled": True}
-        progress["http"]["status"] = "running"
-        _save_progress(scan_id, progress, "http")
-        _store_observation(scan_id, "dns", {"dns_records": valid_dns, **valid_dns.coverage()})
-
-        # ---------------------------------------------------------------------
-        # STAGE 3: HTTP/HTTPS Probing — resolved hosts only; probing an
-        # unresolved name only manufactures null/error observations.
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        # scope=[domain]: redirect hops must stay under the scanned domain.
-        http_tasks = [
-            probe_http_service(h["hostname"], scope=[domain])
-            for h in valid_dns if h.get("primary_ip")
-        ]
-        http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
-        valid_http = [r for r in http_results if isinstance(r, dict)]
-        http_dur = int((time.time() - t0) * 1000)
-
-        progress["http"] = {"status": "completed", "items": len(valid_http), "duration_ms": http_dur}
-        if not _still_running(scan_id):
-            return {"scan_id": scan_id, "cancelled": True}
-        progress["ports"]["status"] = "running"
-        _save_progress(scan_id, progress, "ports")
-        _store_observation(scan_id, "http", {"http_probes": valid_http})
-
-        # ---------------------------------------------------------------------
-        # STAGE 4: TCP Port Discovery (naabu) — optional, degrades gracefully
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        if not _tool_available("naabu"):
-            progress["ports"] = {"status": "skipped", "items": 0, "duration_ms": 0,
-                                 "error": "naabu not installed"}
-        else:
+        async def local_stage(stage, plan, factory, *, optional=False):
+            started = time.monotonic()
+            progress[stage] = {"status": "running", "items": 0, "duration_ms": 0}
+            _save_progress(scan_id, progress, stage)
             try:
-                port_targets = [h["hostname"] for h in valid_dns if h.get("primary_ip")]
-                open_ports = await run_naabu_batch(
-                    port_targets,
-                    top_ports=SCANNER_MAX_PORTS,
-                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
-                    concurrency=PORTS_STAGE_CONCURRENCY,
-                )
-                ports_dur = int((time.time() - t0) * 1000)
-                progress["ports"] = {"status": "completed", "items": len(open_ports),
-                                     "duration_ms": ports_dur,
-                                     **(open_ports.progress() if isinstance(open_ports, ToolBatchResult) else {})}
-                _store_observation(scan_id, "ports", {"open_ports": open_ports,
-                    **(open_ports.coverage() if isinstance(open_ports, ToolBatchResult) else {})})
-            except Exception as ports_err:
-                ports_dur = int((time.time() - t0) * 1000)
-                progress["ports"] = {"status": "failed", "items": 0, "duration_ms": ports_dur,
-                                     "error": str(ports_err)[:500]}
+                batch = await evaluate_stage(budget, plan, factory)
+            except ClaimLost:
+                raise
+            except Exception as error:
+                if not optional:
+                    raise
+                batch = ToolBatchResult([], plan["selected_hosts"], [],
+                                        {host: str(error)[:300] for host in plan["selected_hosts"]})
+                batch.stage_plan, batch.omitted_hosts = plan, plan["omitted_hosts"]
+                batch.execution_budget = budget.payload()
+            progress[stage] = {**batch.progress(), "items": len(batch),
+                               "duration_ms": int((time.monotonic() - started) * 1000)}
+            keys = {"dns": "dns_records", "http": "http_probes", "ports": "open_ports",
+                    "tls": "tls_profiles", "nuclei": "nuclei_findings"}
+            _store_observation(scan_id, stage, {keys[stage]: batch, **batch.coverage()})
+            _save_progress(scan_id, progress, stage)
+            return batch
 
-        if not _still_running(scan_id):
-            return {"scan_id": scan_id, "cancelled": True}
-        progress["tls"]["status"] = "running"
-        _save_progress(scan_id, progress, "tls")
+        hosts = selection.selected_hosts
+        dns_plan = stage_plan("dns", hosts, [domain])
+        async def dns_work():
+            results = await gather_with_deadline([resolve_host_dns(host) for host in dns_plan["selected_hosts"]])
+            return collect_dns_results(dns_plan["selected_hosts"], results)
+        valid_dns = await local_stage("dns", dns_plan, dns_work)
 
-        # ---------------------------------------------------------------------
-        # STAGE 5: TLS Analysis (sslyze) — optional, degrades gracefully
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        if not _tool_available("sslyze"):
-            progress["tls"] = {"status": "skipped", "items": 0, "duration_ms": 0,
-                               "error": "sslyze not installed"}
-        else:
-            try:
-                tls_targets = [
-                    h["hostname"] for h in valid_http
-                    if h.get("http_status") and str(h.get("url", "")).startswith("https")
-                ][:TLS_HOST_CAP]
-                tls_profiles = await run_sslyze_batch(
-                    tls_targets,
-                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
-                    concurrency=TLS_STAGE_CONCURRENCY,
-                )
-                tls_dur = int((time.time() - t0) * 1000)
-                progress["tls"] = {"status": "completed", "items": len(tls_profiles),
-                                   "duration_ms": tls_dur,
-                                   **(tls_profiles.progress() if isinstance(tls_profiles, ToolBatchResult) else {})}
-                _store_observation(scan_id, "tls", {"tls_profiles": tls_profiles,
-                    **(tls_profiles.coverage() if isinstance(tls_profiles, ToolBatchResult) else {})})
-            except Exception as tls_err:
-                tls_dur = int((time.time() - t0) * 1000)
-                progress["tls"] = {"status": "failed", "items": 0, "duration_ms": tls_dur,
-                                   "error": str(tls_err)[:500]}
+        http_plan = stage_plan("http", hosts, [domain], valid_dns)
+        async def http_work():
+            semaphore = asyncio.Semaphore(25)
+            async def one(host):
+                async with semaphore:
+                    return await probe_http_service(host, scope=[domain])
+            results = await gather_with_deadline([one(host) for host in http_plan["selected_hosts"]])
+            return collect_http_results(http_plan["selected_hosts"], results)
+        valid_http = await local_stage("http", http_plan, http_work)
 
-        if not _still_running(scan_id):
-            return {"scan_id": scan_id, "cancelled": True}
-        progress["nuclei"]["status"] = "running"
-        _save_progress(scan_id, progress, "nuclei")
+        ports_plan = stage_plan("ports", hosts, [domain], valid_dns, available=_tool_available("naabu"))
+        async def ports_work():
+            return await run_naabu_batch(ports_plan["selected_hosts"], top_ports=limits.max_ports,
+                                         timeout=limits.stage_timeout_seconds, concurrency=PORTS_STAGE_CONCURRENCY)
+        await local_stage("ports", ports_plan, ports_work, optional=True)
 
-        # ---------------------------------------------------------------------
-        # STAGE 6: Nuclei Deep Vulnerability Scanning — optional (§23)
-        # ---------------------------------------------------------------------
-        t0 = time.time()
-        if not _tool_available("nuclei"):
-            progress["nuclei"] = {"status": "skipped", "items": 0, "duration_ms": 0,
-                                  "error": "nuclei not installed"}
-        else:
-            try:
-                active_hosts = [h["hostname"] for h in valid_dns if any(
-                    hp.get("hostname") == h["hostname"] and hp.get("http_status")
-                    for hp in valid_http
-                )][:SCANNER_NUCLEI_MAX_HOSTS]
-                nuclei_findings = await run_nuclei_batch(
-                    active_hosts,
-                    concurrency=SCANNER_NUCLEI_CONCURRENCY,
-                    timeout=SCANNER_STAGE_TIMEOUT_SECONDS,
-                )
-                for nf in nuclei_findings:
-                    if not nf.get("_hostname"):
-                        nf["_hostname"] = nf.get("evidence", {}).get("host") or domain
-                nuclei_dur = int((time.time() - t0) * 1000)
-                progress["nuclei"] = {"status": "completed", "items": len(nuclei_findings),
-                                      "duration_ms": nuclei_dur,
-                                      **(nuclei_findings.progress() if isinstance(nuclei_findings, ToolBatchResult) else {})}
-                _store_observation(scan_id, "nuclei", {
-                    "nuclei_findings": nuclei_findings,
-                    "attempted_hosts": active_hosts,
-                    **(nuclei_findings.coverage() if isinstance(nuclei_findings, ToolBatchResult) else {}),
-                })
-            except Exception as nuclei_err:
-                nuclei_dur = int((time.time() - t0) * 1000)
-                progress["nuclei"] = {"status": "failed", "items": 0, "duration_ms": nuclei_dur,
-                                      "error": str(nuclei_err)[:500]}
-                _store_observation(scan_id, "nuclei", {
-                    "nuclei_findings": [], "attempted_hosts": [],
-                    "successful_hosts": [], "failed_hosts": {},
-                })
+        tls_plan = stage_plan("tls", hosts, [domain], valid_dns, valid_http,
+                              cap=limits.tls_max_hosts, available=_tool_available("sslyze"))
+        async def tls_work():
+            return await run_sslyze_batch(tls_plan["selected_hosts"], timeout=limits.stage_timeout_seconds,
+                                          concurrency=TLS_STAGE_CONCURRENCY)
+        await local_stage("tls", tls_plan, tls_work, optional=True)
 
-        _save_progress(scan_id, progress)
-
-        if not _still_running(scan_id):
-            return {"scan_id": scan_id, "cancelled": True}
-
-        return {
-            "scan_id": scan_id,
-            "discovered": len(discovered_hosts),
-            "dns": len(valid_dns),
-            "http": len(valid_http),
-            "ports": progress["ports"].get("items", 0),
-            "tls": progress["tls"].get("items", 0),
-            "nuclei": progress["nuclei"].get("items", 0),
-        }
+        nuclei_plan = stage_plan("nuclei", hosts, [domain], valid_dns, valid_http,
+                                 cap=limits.nuclei_max_hosts, available=_tool_available("nuclei"))
+        async def nuclei_work():
+            findings = await run_nuclei_batch(nuclei_plan["selected_hosts"], concurrency=limits.nuclei_concurrency,
+                                             timeout=limits.stage_timeout_seconds)
+            for finding in findings:
+                if not finding.get("_hostname"):
+                    finding["_hostname"] = finding.get("evidence", {}).get("host") or domain
+            return findings
+        await local_stage("nuclei", nuclei_plan, nuclei_work, optional=True)
+        return {"scan_id": scan_id, "discovered": len(hosts), "dns": len(valid_dns), "http": len(valid_http),
+                **{stage: progress[stage].get("items", 0) for stage in ("ports", "tls", "nuclei")}}
 
     except ClaimLost:
         raise

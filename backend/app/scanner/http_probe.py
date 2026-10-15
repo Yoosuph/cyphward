@@ -10,6 +10,8 @@ hop must stay in scope and resolve public — and a host that resolves only to
 non-public addresses is never connected to.
 """
 from typing import Dict, Any, List, Optional
+import asyncio
+from shared.scan_budget import ensure_stage_budget
 import ssl
 import socket
 import datetime
@@ -61,7 +63,8 @@ def inspect_tls_certificate(hostname: str, port: int = 443) -> Dict[str, Any]:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE  # read cert details even if untrusted/self-signed
 
-        with socket.create_connection((target_ip, port), timeout=3.5) as sock:
+        remaining = ensure_stage_budget()
+        with socket.create_connection((target_ip, port), timeout=min(3.5, remaining) if remaining is not None else 3.5) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 result["protocol"] = ssock.version()
                 cipher_tuple = ssock.cipher()
@@ -181,10 +184,10 @@ async def probe_http_service(
         "error": None,
     }
 
-    res["tls_info"] = inspect_tls_certificate(hostname)
+    res["tls_info"] = await asyncio.to_thread(inspect_tls_certificate, hostname)
 
     # Revalidated again per request/hop below — this is the fast honest exit.
-    if not ip_guard.resolve_connect_ip(hostname):
+    if not await asyncio.to_thread(ip_guard.resolve_connect_ip, hostname):
         res["error"] = "refused: host resolves only to non-public addresses"
         return res
 
@@ -207,7 +210,7 @@ async def probe_http_service(
                     break
                 # Revalidate at connect time (defeats DNS rebinding between
                 # the discovery resolve and this request).
-                target_ip = ip_guard.resolve_connect_ip(current_host)
+                target_ip = await asyncio.to_thread(ip_guard.resolve_connect_ip, current_host)
                 if not target_ip:
                     block_reason = (
                         f"redirect blocked: {current_host} resolves to non-public address"
@@ -216,6 +219,7 @@ async def probe_http_service(
                     )
                     break
                 try:
+                    ensure_stage_budget()
                     resp = await client.get(
                         _pinned_url(current_scheme, target_ip),
                         headers={

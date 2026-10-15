@@ -16,6 +16,9 @@ class ToolBatchResult(list):
         self.successful_hosts = list(successful_hosts)
         self.failed_hosts = dict(failed_hosts)
         self.tool_coverage = None
+        self.stage_plan = None
+        self.omitted_hosts = {}
+        self.execution_budget = None
 
     def coverage(self) -> dict[str, Any]:
         return {
@@ -23,6 +26,8 @@ class ToolBatchResult(list):
             "successful_hosts": self.successful_hosts,
             "failed_hosts": self.failed_hosts,
             **({"tool_coverage": self.tool_coverage} if self.tool_coverage is not None else {}),
+            **({"stage_plan": self.stage_plan, "omitted_hosts": self.omitted_hosts,
+                "execution_budget": self.execution_budget} if self.stage_plan is not None else {}),
         }
 
     def progress(self) -> dict[str, Any]:

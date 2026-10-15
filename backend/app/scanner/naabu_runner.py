@@ -4,6 +4,7 @@ Runs ProjectDiscovery naabu (connect mode, top-N TCP ports) against hosts.
 Falls back gracefully if the naabu binary is not installed.
 """
 import asyncio
+from shared.scan_budget import gather_with_deadline, ensure_stage_budget
 import json
 import logging
 import shutil
@@ -28,7 +29,7 @@ async def run_naabu(
     """
     # SSRF boundary: only ever connect to an approved public IP — by IP, so
     # the target cannot rebind between validation and connect.
-    target_ip = ip_guard.resolve_connect_ip(hostname)
+    target_ip = await asyncio.to_thread(ip_guard.resolve_connect_ip, hostname)
     if not target_ip:
         if strict:
             raise ToolExecutionError("Naabu target is unresolved or not a public address")
@@ -55,6 +56,7 @@ async def run_naabu(
     findings: List[Dict[str, Any]] = []
     proc = None
     try:
+        ensure_stage_budget()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -123,6 +125,6 @@ async def run_naabu_batch(
         async with semaphore:
             return await run_naabu(host, top_ports=top_ports, timeout=timeout, strict=True)
 
-    results = await asyncio.gather(*[_one(h) for h in hostnames], return_exceptions=True)
+    results = await gather_with_deadline([_one(h) for h in hostnames])
 
     return collect_tool_results(hostnames, results)
