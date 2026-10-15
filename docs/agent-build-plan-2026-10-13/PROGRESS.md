@@ -2,7 +2,7 @@
 
 **Last updated:** 15 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection and DNS-evidence slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection, DNS-evidence and conservative Nuclei-evidence slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -150,3 +150,18 @@ Continued the same review branch and [draft PR #2](https://github.com/Yoosuph/cy
 - Additive JSON only: no migration, backfill or authority change. Core/API must be upgraded before the worker on release; old workers then yield unknown email-query coverage instead of false proof. Production remains unchanged; PR #2 remains draft.
 
 Remaining Packet 03 work: other per-target/check and template outcomes, tool/template version identity, end-to-end deadlines/downstream omissions, actual external-tool/egress boundaries, conservative template resolution, truthful partial/unassessed scoring and full acceptance/release review. Packets 04–09 remain later phases.
+
+## Packet 03 — Nuclei process evidence versus template proof
+
+Implementation: `2eebec3`, same review branch and draft PR #2. Production remains unchanged.
+
+- Source review confirmed that successful-host lists and empty Nuclei JSONL were sufficient to auto-resolve template findings and verify remediation. [ProjectDiscovery describes JSONL as match output](https://projectdiscovery.io/open-source); matcher-status is a match-event field, not a complete per-template execution receipt. We conservatively do not infer a clean template result from absent output.
+- Nuclei batches now persist `tool_coverage` version 1: a bounded actual `-version` lookup, requested selector and severity filter, timestamps, per-host process outcome and timeout, and matched template IDs. Unknown/unavailable engine identity remains null. Template-set identity, evaluated templates and negative verification remain explicitly unknown; no synthetic enumeration or completion was introduced.
+- Baseline resolution no longer treats successful-host/process lists, including legacy payloads, as template proof. No-match template rechecks are inconclusive and preserve open findings/tasks; confirmed matches for the exact requested template still reproduce findings. The API also rejects an unsupported clean assertion with no matching output. This temporarily limits automatic Nuclei fix verification until genuine per-template completion evidence is available.
+- Parser ignores failed-matcher events, rejects explicit error events/invalid matcher status/missing template identity in strict mode, and does not turn those records into vulnerability findings. Engine-version failure/timeout is bounded and reaps the process; an empty batch starts no process. Existing scan subprocess credential isolation is preserved.
+- Customer scan details distinguish completed tool runs from checked targets and explain unknown template evaluation. Engine version is shown only when observed. No scoring formula or historical data changed in this slice.
+- Preserved unrelated pre-existing billing/public-page changes in the shared workspace. Final verification used an isolated detached checkout of the committed scanner candidate, excluding those unrelated edits. A fresh owned PostgreSQL 18.6 loopback cluster on port 55434 was bootstrapped with all 25 migrations and used through restricted `cyphward_app`.
+- Isolated backend suite: **468 passed, 16 skipped**, including the admission/execution PostgreSQL cases and **13 new Nuclei evidence cases**. Frontend production build and browser scan suite passed at desktop/390px/320px, including engine-version/unknown-template text, target scope, history scrolling, role boundaries and intent retry behavior. External tool/version/DNS and browser API calls were stubbed; these are not live template/network-isolation tests.
+- No schema migration, main push, VPS replacement, template upgrade, customer scan or production mutation was performed. Review-branch publication does not deploy the scanner.
+
+Next scoring prerequisite verified in source: `score_snapshots.score` is NOT NULL and finalizer completion notifications compare/format a numeric score. A truthful unassessed outcome must update schema, atomic completion, current organization assessment selection, reports and UI together. Do not substitute zero/100 or let an empty scan manufacture a healthy score. Complete remaining template evidence/deadline/egress acceptance before the packet's release.
