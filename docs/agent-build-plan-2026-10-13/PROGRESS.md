@@ -2,7 +2,7 @@
 
 **Last updated:** 15 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection, DNS-evidence and conservative Nuclei-evidence slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection, DNS/Nuclei-evidence and scoring-gate slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -165,3 +165,20 @@ Implementation: `2eebec3`, same review branch and draft PR #2. Production remain
 - No schema migration, main push, VPS replacement, template upgrade, customer scan or production mutation was performed. Review-branch publication does not deploy the scanner.
 
 Next scoring prerequisite verified in source: `score_snapshots.score` is NOT NULL and finalizer completion notifications compare/format a numeric score. A truthful unassessed outcome must update schema, atomic completion, current organization assessment selection, reports and UI together. Do not substitute zero/100 or let an empty scan manufacture a healthy score. Complete remaining template evidence/deadline/egress acceptance before the packet's release.
+
+## Packet 03 — evidence-gated scoring and nullable completion
+
+Implementation `7ee8010`, UI/nullable-history refinements `92eeb49` and `d72bd7a`. Continued the same review branch; not deployed. See `03-scoring-release-notes.md` for the exact contract and rollout boundary.
+
+- `cyphward-risk-v3` keeps severity weights/formula but requires conclusive evaluated security-check evidence. No evidence or legacy/failed assessment yields no numeric score/grade. Partial coverage with known scored open findings yields a qualified known-risk index without a grade or unchecked category health. Partial zero-risk output remains non-numeric rather than manufacturing 100.
+- Coverage is derived from authoritative current-producing-attempt observations and successful security-check tasks, with evaluated host/check groups. Inventory and successful tool processes are insufficient. Current adapters never emit complete coverage. The engine's complete branch is reserved for future validated evidence; synthetic complete fixtures are explicit test inputs, not backfilled customer data.
+- Added migration `20261015120000_assessment_score_coverage.sql`: allow NULL snapshot scores and add `assessment_coverage jsonb`. Atomic fenced completion writes coverage/snapshot/null score, scan state, audit and a truthful notification together. Existing historical values are untouched. Latest current-risk reads retain completed-scan provenance with unknown coverage rather than inventing historical evaluation.
+- v3 trend history excludes null scores and older models. Counts, known risk points and negative drivers survive insufficient coverage. Organization risk remains distinct from selected-scan coverage; retained other-domain findings still count in known-risk burden.
+- Dashboard, board report copy/view, report metadata/email, scan detail/status and notifications support the new states. A partial assessment stays partial even if all seven stage processes completed. The existing numeric-availability boolean does not certify full coverage.
+- Removed hardcoded clean-surface/TLS strengths and invented actions from the fallback executive summary. Partial/unknown summaries use grounded deterministic findings rather than the LLM. No change to the separate general chat behavior is claimed.
+- Preserved unrelated shared-workspace billing/public-site edits. Verification ran on an isolated committed candidate with explicit test connections, external scanning/delivery disabled/stubbed and a freshly bootstrapped owned loopback PostgreSQL 18.6 database on port 55435. The complete **26-migration** chain succeeded, with restricted `cyphward_app` access.
+- Full isolated backend suite: **481 passed, 16 skipped**, including **23 execution PostgreSQL cases**, **14 admission cases** and **12 new eligibility cases**. A new real-PostgreSQL case completed an unassessed scan with a null snapshot score/coverage and one non-misleading notification under the existing fence. After the nullable-history/mail-text refinement, the **60-test scoring/mail/eligibility/execution subset** passed.
+- Frontend build, score browser suite and scan-page suite passed. Browser coverage includes desktop/390px/320px scan layouts, score refresh/stale-response protection, partial/no-score output after a completed scan, preserved logo/history/RBAC, and completed stages with still-partial coverage. Final type-only refinement passed the production build again. Browser APIs/tool/network calls were stubbed; no live domain was scanned.
+- Production migration/API/VPS/frontend remain unchanged. No private data, credentials or backups were added to the repository. New release notes require migration before Core/API, conservative old-worker compatibility, no historical backfill and preservation of null records on rollback.
+
+Next: finish actual per-template completion evidence, remaining per-target/check/tool identities and omission reasons, consistent end-to-end deadlines and real external-tool/egress boundary acceptance. Review and coordinate the full Packet 03 release before Packet 04. Payment activation remains deferred.
