@@ -1550,6 +1550,12 @@ body.drawer-open {
   .page {
     padding-bottom: 112px !important;
   }
+  /* Phones also carry the CyphBot button above the dock. */
+  @media (max-width: 639px) {
+    .page {
+      padding-bottom: 140px !important;
+    }
+  }
 
   /* Landing Floating Header Mobile */
   .landing-nav {
@@ -1835,3 +1841,74 @@ body.drawer-open {
 .score-details[open] summary::after{content:' −'}
 .score-details[open] summary{margin-bottom:8px}
 .score-details summary:hover{color:var(--ink)}
+
+/* ============ CYPHBOT FLOATING BUTTON (phones) ============ */
+.cyphbot-fab{
+  position:fixed;
+  right:16px;
+  bottom:calc(80px + env(safe-area-inset-bottom, 0px));
+  z-index:80;
+  width:50px; height:50px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.18);
+  background:var(--accent);
+  color:#fff;
+  box-shadow:0 10px 28px -8px rgba(var(--accent-rgb), .7), 0 2px 6px rgba(0,0,0,.18);
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s;
+  animation:fabIn .32s cubic-bezier(.16,1,.3,1) both;
+}
+.cyphbot-fab:active{transform:scale(.93)}
+.cyphbot-fab:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
+.cyphbot-fab-dot{
+  position:absolute; top:9px; right:9px;
+  width:7px; height:7px; border-radius:999px;
+  background:var(--ok, #2f9e5b);
+  box-shadow:0 0 0 2px var(--accent);
+}
+@keyframes fabIn{from{opacity:0; transform:scale(.8)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){ .cyphbot-fab{animation:none; transition:none} }
+
+/* ============ STACKED TABLES (phones) ============
+   Tables marked .table-stack become one card per row below 640px instead of
+   a clipped horizontal scroller. Cells carry their column name in data-label. */
+@media (max-width: 639px) {
+  .table-stack { min-width: 0 !important; }
+  .table-stack thead { display: none; }
+  .table-stack, .table-stack tbody, .table-stack tr { display: block; width: 100%; }
+  .table-stack tbody > tr { padding: 12px 14px; }
+  .table-stack td { padding: 0 !important; text-align: left !important; max-width: none !important; }
+  .table-stack td:not(.hidden) {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    min-height: 26px; white-space: normal;
+  }
+  .table-stack td > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .table-stack td[data-label]::before {
+    content: attr(data-label);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--soft); flex-shrink: 0;
+  }
+  .table-stack td.stack-title:not(.hidden) { display: block; font-size: 13px; padding-bottom: 6px !important; }
+  .table-stack td.stack-title > div { justify-content: flex-start; }
+  .table-stack td.stack-hide { display: none !important; }
+  .table-stack td.stack-actions:not(.hidden) { justify-content: flex-end; flex-wrap: wrap; padding-top: 8px !important; }
+  .table-stack td[colspan]:not(.hidden) { display: block; text-align: center !important; }
+  .table-stack td[colspan].bg-inset\/40 { text-align: left !important; margin: 8px -14px -12px; padding: 10px 14px !important; }
+}
+
+/* Filter chips: one swipeable row on phones instead of ragged wrapping. */
+@media (max-width: 639px) {
+  .chip-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin-right: -14px;
+    padding-right: 28px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .chip-row::-webkit-scrollbar { display: none; }
+  .chip-row > * { flex-shrink: 0; white-space: nowrap; }
+}

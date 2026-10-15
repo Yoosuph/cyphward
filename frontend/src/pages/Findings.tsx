@@ -170,7 +170,7 @@ export default function Findings() {
       </div>
 
       {/* Severity Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="chip-row flex flex-wrap items-center gap-2">
         {severities.map(sev => (
           <button
             key={sev}

@@ -179,7 +179,7 @@ export default function Remediation() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="chip-row flex flex-wrap items-center gap-1.5">
         {STATUS_FILTERS.map(f => (
           <button
             key={f.value}
@@ -214,7 +214,7 @@ export default function Remediation() {
         </div>
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
-          <table className="w-full text-left text-xs mono min-w-[720px]">
+          <table className="table-stack w-full text-left text-xs mono sm:min-w-[720px]">
             <thead>
               <tr className="border-b border-line text-soft text-[11px]">
                 <th className="px-4 py-3 font-medium">TASK</th>
@@ -227,22 +227,22 @@ export default function Remediation() {
             <tbody className="divide-y divide-line/60">
               {tasks.map(task => (
                 <tr key={task.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="px-4 py-3 max-w-[320px]">
+                  <td className="stack-title px-4 py-3 max-w-[320px]">
                     <p className="text-ink font-semibold truncate">{task.title}</p>
                     {task.finding_title && task.finding_title !== task.title && (
                       <p className="text-[11px] text-soft truncate">From: {task.finding_title}</p>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="Priority" className="px-4 py-3">
                     <span className="tag uppercase">{task.priority}</span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="Status" className="px-4 py-3">
                     <StatusChip level={statusChipLevel(task.status)}>
                       {task.status.replace(/_/g, ' ').toUpperCase()}
                     </StatusChip>
                   </td>
-                  <td className="px-4 py-3 text-soft">{task.assignee_name || task.assignee_email || '—'}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Assignee" className="px-4 py-3 text-soft">{task.assignee_name || task.assignee_email || '—'}</td>
+                  <td className="stack-actions px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-1.5">
                       {task.status !== 'verified' && task.status !== 'ready_for_verification' && (
                         <button

@@ -137,7 +137,7 @@ export default function Reports() {
         </div>
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
-          <table className="w-full text-left text-xs mono min-w-[640px]">
+          <table className="table-stack w-full text-left text-xs mono sm:min-w-[640px]">
             <thead>
               <tr className="border-b border-line text-soft text-[11px]">
                 <th className="px-4 py-3 font-medium">TITLE</th>
@@ -151,20 +151,20 @@ export default function Reports() {
             <tbody className="divide-y divide-line/60">
               {reports.map(r => (
                 <tr key={r.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="px-4 py-3 text-ink font-semibold max-w-[280px] truncate">{r.title}</td>
-                  <td className="px-4 py-3 text-soft">{r.domain || '—'}</td>
-                  <td className="px-4 py-3">
+                  <td className="stack-title px-4 py-3 text-ink font-semibold max-w-[280px] truncate">{r.title}</td>
+                  <td data-label="Domain" className="px-4 py-3 text-soft">{r.domain || '—'}</td>
+                  <td data-label="Status" className="px-4 py-3">
                     <StatusChip level={r.status === 'ready' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn'}>
                       {r.status.toUpperCase()}
                     </StatusChip>
                   </td>
-                  <td className="px-4 py-3 text-ink">
+                  <td data-label="Score" className="px-4 py-3 text-ink">
                     {r.summary?.score != null ? `${r.summary.score}/100` : '—'}
                   </td>
-                  <td className="px-4 py-3 text-soft">
+                  <td data-label="Created" className="px-4 py-3 text-soft">
                     {new Date(r.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="stack-actions px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-1.5">
                       <button
                         onClick={() => openPreview(r.id)}

@@ -237,7 +237,6 @@ function AppShell() {
           section={section}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
-          mobileAi={location.pathname === '/scans'}
         />
         {/* Boundary sits outside the keyed page so later navigations (transitions)
             keep the current page visible instead of re-showing a fallback. */}
@@ -254,10 +253,10 @@ function AppShell() {
       />
 
       {/* Floating Sovereign AI Assistant Trigger Button */}
-      {location.pathname !== '/scans' && <CyphBotFloatingButton
-        open={cyphBotOpen}
+      <CyphBotFloatingButton
+        open={cyphBotOpen || mobileMenuOpen || palOpen}
         onClick={() => setCyphBotOpen(o => !o)}
-      />}
+      />
 
       {/* Mobile Menu Bottom Sheet — Discloses the rest of the pages (Layers 05–10) */}
       <MobileMenuSheet

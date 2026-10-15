@@ -100,7 +100,7 @@ export default function Assets() {
           />
         </form>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+        <div className="chip-row flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="text-xs mono text-soft mr-1 hidden sm:inline">Type:</span>
           {assetTypes.map(type => (
             <button
@@ -121,7 +121,7 @@ export default function Assets() {
       {/* Assets Inventory Table */}
       <div className="rounded-lg border border-line bg-raised overflow-hidden">
         <div className="overflow-x-auto w-full max-w-full">
-          <table className="w-full text-left text-xs mono min-w-[760px]">
+          <table className="table-stack w-full text-left text-xs mono sm:min-w-[760px]">
             <thead>
               <tr className="border-b border-line bg-inset/40 text-soft text-[11px]">
                 <th className="py-3 px-4 font-medium">HOSTNAME & DOMAIN</th>
@@ -156,7 +156,7 @@ export default function Assets() {
                     className="hover:bg-inset/50 transition-colors cursor-pointer group stagger-row"
                     style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                   >
-                    <td className="py-3 px-4 font-semibold text-ink">
+                    <td className="stack-title py-3 px-4 font-semibold text-ink">
                       <div className="flex items-center gap-2">
                         <Globe size={13} className="text-soft group-hover:text-accent transition-colors" />
                         <span>{asset.hostname}</span>
@@ -168,17 +168,17 @@ export default function Assets() {
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-soft font-mono">
+                    <td data-label="IP address" className="py-3 px-4 text-soft font-mono">
                       {asset.ip_address || '—'}
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="Type" className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded text-[10px] bg-inset border border-line text-soft">
                         {asset.asset_type}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="HTTP" className="py-3 px-4">
                       {asset.http_status ? (
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -196,7 +196,7 @@ export default function Assets() {
                       )}
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="Software" className="py-3 px-4">
                       <div className="flex flex-wrap gap-1 max-w-[180px]">
                         {(asset.technologies || []).slice(0, 3).map((tech, i) => (
                           <span
@@ -217,7 +217,7 @@ export default function Assets() {
                       </div>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="TLS" className="py-3 px-4">
                       {asset.tls_info?.valid ? (
                         <div className="flex items-center gap-1.5 text-ok text-[11px]">
                           <Lock size={11} />
@@ -233,7 +233,7 @@ export default function Assets() {
                       )}
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="Issues" className="py-3 px-4">
                       {asset.critical_findings_count && asset.critical_findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent text-white">
                           {asset.critical_findings_count} high risk
@@ -249,7 +249,7 @@ export default function Assets() {
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-right">
+                    <td className="stack-hide py-3 px-4 text-right">
                       <button
                         onClick={e => {
                           e.stopPropagation();
