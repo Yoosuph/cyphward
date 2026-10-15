@@ -62,6 +62,7 @@ from backend.app.scanner.detectors import classify_detector, detector_key
 from backend.app.scanner.dns_coverage import dns_finding_evaluated, collect_dns_results
 from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
+from backend.app.risk.coverage import assessment_coverage
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
@@ -689,7 +690,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                     return bool(tls.get("valid_to") or tls.get("issuer"))
                 # A function returning [] when HTTP is unreachable does not
                 # mean headers, certificate or disclosure checks were clean.
-                return (http_by_host.get(hostname) or {}).get("http_status") is not None
+                http = http_by_host.get(hostname) or {}
+                return http.get("http_status") is not None and not http.get("error")
             return False
 
         if scanned_asset_ids:
@@ -918,6 +920,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                 "status": "completed",
                 "completed_at": scan_completed_at,
                 "model": SCORE_MODEL,
+                "coverage": assessment_coverage(domain, observations, check_success_hosts),
             },
         )
         final_score = score_result["score"]
@@ -927,6 +930,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             "status": "completed", "score": final_score, "duration_ms": score_dur,
             "model": SCORE_MODEL, "scope": SCORE_SCOPE,
             "risk_points": score_result.get("risk_points"),
+            "coverage": (score_result.get("assessment") or {}).get("coverage"),
         }
 
         # ---------------------------------------------------------------------
@@ -982,8 +986,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         }, {
             'model': SCORE_MODEL, 'scope': SCORE_SCOPE,
             'title': f'Scan completed for {domain}',
-            'body': f"Organization score {final_score}/100 · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
-            'severity': 'info' if final_score >= 70 else 'medium',
+            'body': f"{('Known-risk score ' + str(final_score) + '/100 · partial assessment') if final_score is not None else ('No score · ' + score_result['posture_label'])} · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
+            'severity': 'medium' if final_score is not None and final_score < 70 else 'info',
         })
 
         return {

@@ -729,3 +729,28 @@ def test_late_progress_is_monotonic_with_independent_connections(execution_db):
         final["current_stage"] == "http"
         and final["stage_progress"]["dns"]["status"] == "completed"
     )
+
+
+def test_unassessed_completion_atomically_persists_null_score_and_coverage(execution_db, monkeypatch):
+    conn, org, _ = execution_db
+    worker = held(execution_db)
+    ex.store_observation(worker, "discovery", {"target_selection": {
+        "version": 1, "selected_hosts": [], "omitted_hosts": {},
+    }})
+    core = ex.handoff_to_core(worker)
+    no_external(monkeypatch)
+    result = asyncio.run(wf.finalize_scan(core.scan_id, core))
+    assert result["status"] == "completed"
+    assert result["score"] is None
+    scan = row(conn, core.scan_id)
+    snapshot = conn.execute("SELECT * FROM score_snapshots WHERE scan_id=%s", (core.scan_id,)).fetchone()
+    assert scan["score"] is None and snapshot["score"] is None
+    assert snapshot["model"] == "cyphward-risk-v3"
+    assert snapshot["assessment_coverage"]["state"] == "unassessed"
+    assert snapshot["assessment_coverage"]["evaluated_checks"] == 0
+    assert scan["stage_progress"]["scoring"]["coverage"] == snapshot["assessment_coverage"]
+    notifications = conn.execute("SELECT body FROM notifications WHERE org_id=%s AND type='scan_completed'", (org,)).fetchall()
+    assert len(notifications) == 1
+    assert "No score" in notifications[0]["body"]
+    assert "None" not in notifications[0]["body"]
+    assert "/100" not in notifications[0]["body"]

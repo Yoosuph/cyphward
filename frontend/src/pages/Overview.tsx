@@ -240,11 +240,11 @@ export default function Overview() {
         {/* Main Score Gauge */}
         <div className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
           <div className="absolute top-3 left-4 text-[10px] mono text-soft tracking-wider">
-            ORGANIZATION SCORE
+            KNOWN-RISK SCORE
           </div>
           <div className="absolute top-3 right-4">
             <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
-              {grade ? `${grade} RATING` : 'NOT ASSESSED'}
+              {grade ? `${grade} RATING` : assessment?.coverage?.state === 'partial' ? 'PARTIAL' : 'NO RATING'}
             </span>
           </div>
 
@@ -281,11 +281,11 @@ export default function Overview() {
                 {data.risk_points != null && (
                   <p>{data.risk_points} risk points across {counts.total_findings} open findings</p>
                 )}
-                <p>Scores change when open risk changes. Scan coverage determines what was checked.</p>
+                <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>
               </div>
             ) : (
               <p className="text-xs mono text-soft mt-2">
-                Run your first scan to get a score.
+                {assessment ? 'The latest scan has insufficient evaluated evidence for a score. Recorded open findings still require attention.' : 'Run your first scan to get a score.'}
               </p>
             )}
           </div>
@@ -437,7 +437,7 @@ export default function Overview() {
           <div className="space-y-4">
             {subscores.length === 0 ? (
               <p className="text-xs mono text-soft py-6 text-center">
-                Not assessed yet — complete a scan to see your pillar breakdown.
+                Category ratings require sufficient evaluated evidence. Unchecked areas remain unknown.
               </p>
             ) : subscores.map(pillar => (
               <div key={pillar.name} className="space-y-1.5">

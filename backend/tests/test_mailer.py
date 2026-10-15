@@ -47,7 +47,8 @@ def test_report_uses_live_engine_scores():
         ],
         assessment={
             "scan_id": "scan-1", "status": "completed",
-            "completed_at": "2026-10-01T00:00:00", "model": "cyphward-risk-v1",
+            "completed_at": "2026-10-01T00:00:00", "model": "cyphward-risk-v3",
+            "coverage": {"version": 1, "state": "partial", "evaluated_checks": 2},
         },
     )
     assert 0 <= scoring["score"] <= 100

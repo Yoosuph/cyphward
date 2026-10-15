@@ -151,6 +151,7 @@ export interface ScoreAssessment {
   status: string;
   completed_at: string | null;
   model: string;
+  coverage?: { version: number; state: string; evaluated_checks: number; reason?: string } | null;
 }
 
 export interface OverviewData {

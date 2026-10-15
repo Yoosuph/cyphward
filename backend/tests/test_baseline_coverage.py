@@ -145,7 +145,7 @@ def test_failed_security_check_keeps_finding_open_as_not_evaluated(store, monkey
     completed = next(row for row in store.scans if row["id"] == sid)
     snapshot = store.snapshots[-1]
     assert completed["score"] == overview["score"] == snapshot["score"]
-    assert completed["score"] < 100
+    assert completed["score"] is None, "failed checks cannot manufacture a numeric assessment"
     assert snapshot["scope"] == "organization"
     assert snapshot["domain_id"] is None
     assert snapshot["risk_points"] == overview["risk_points"]

@@ -68,8 +68,8 @@ def generate_executive_report_html(
         score_text = str(score)
         score_label = f"{score}/100"
         score_suffix = "/100"
-        grade_text = str(grade)
-        grade_line = f"Grade {escape(str(grade or '—'))} · {escape(posture_label)}"
+        grade_text = str(grade or "not assigned")
+        grade_line = f"Grade {escape(str(grade))} · {escape(posture_label)}" if grade else escape(posture_label)
     else:
         score_color = "#64748B"
         score_width = 0
@@ -77,7 +77,7 @@ def generate_executive_report_html(
         score_label = "not assessed"
         score_suffix = ""
         grade_text = "not assessed"
-        grade_line = "Not assessed · run a scan"
+        grade_line = f"{escape(posture_label or 'Not assessed')} · Insufficient evidence for a score"
     report_ref = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
@@ -91,14 +91,14 @@ def generate_executive_report_html(
             )
         else:
             summary_text = (
-                f"{org_name} has no completed security assessment yet. "
-                "Verify a domain and run a scan to produce a score and findings."
+                f"{org_name} does not yet have sufficient evaluated evidence for a security score. "
+                "Recorded open findings still require attention; missing evidence is not proof of security."
             )
 
     if not drivers:
         drivers = [{
             "impact": "No findings" if assessed else "Awaiting scan",
-            "title": "No open findings" if assessed else "No completed scan yet",
+            "title": "No open findings" if assessed else "Insufficient assessment evidence",
             "desc": "The latest assessment has no open findings." if assessed else "Complete a scan to see findings here.",
             "remedy": "Continue monitoring your domains." if assessed else "Verify a domain and start a scan from your dashboard.",
         }]
@@ -197,7 +197,7 @@ def generate_executive_report_html(
               </td>
               <td style="vertical-align: middle; text-align: right;">
                 <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
-                  &#9679; {'Assessment available' if assessed else 'Awaiting first assessment'}
+                  &#9679; {'Known-risk score available' if assessed else 'Insufficient assessment evidence'}
                 </span>
               </td>
             </tr>

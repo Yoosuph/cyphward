@@ -73,6 +73,8 @@ def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[
         "posture_label": scoring.get("posture_label", ""),
         "assessed": scoring.get("assessed", False),
         "assessment": scoring.get("assessment"),
+        "model": scoring.get("model"),
+        "scope": scoring.get("scope"),
         "assets_count": assets_count,
         "critical_count": sum(1 for f in findings if f.get("severity") == "critical"),
         "high_count": sum(1 for f in findings if f.get("severity") == "high"),
@@ -154,6 +156,9 @@ def create_report(
         "grade": data["grade"],
         "assessed": data["assessed"],
         "assessed_at": (data.get("assessment") or {}).get("completed_at"),
+        "assessment_coverage": (data.get("assessment") or {}).get("coverage"),
+        "model": data["model"],
+        "scope": data["scope"],
         "assets": data["assets_count"],
         "critical": data["critical_count"],
         "high": data["high_count"],
@@ -217,7 +222,7 @@ async def send_executive_report_email(
     elif score_val is not None:
         subject = f"Your security report for {org_name} — score {score_val}/100"
     else:
-        subject = f"Your security report for {org_name} — not assessed yet"
+        subject = f"Your security report for {org_name} — no score available"
 
     html_content = generate_executive_report_html(
         org_name=org_name,

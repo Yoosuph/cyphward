@@ -6,7 +6,7 @@ import pytest
 from backend.app.risk.engine import compute_risk_score, finding_pillar, SCORE_MODEL
 from conftest import ALICE, ORG_A, ORG_B
 
-ASSESSMENT = {"scan_id": "latest", "status": "completed", "model": SCORE_MODEL}
+ASSESSMENT = {"scan_id": "latest", "status": "completed", "model": SCORE_MODEL, "coverage": {"version": 1, "state": "complete", "evaluated_checks": 4}}
 
 
 def finding(severity="high", category="HTTP Headers", **kwargs):

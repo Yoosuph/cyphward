@@ -22,10 +22,10 @@ try {
   const org = { id: 'local-org', name: 'Score Regression', slug: 'score-test', plan: 'growth', domains_count: 1, verified_domains_count: 1 };
   const domain = { id: 'local-domain', org_id: org.id, domain: 'example.test', verification_status: 'verified', created_at: '2026-10-01T00:00:00Z' };
   let payload = {
-    organization: org, score: 38.5, max_score: 100, grade: 'F', posture_label: 'Critical',
-    status_color: 'accent', assessed: true, model: 'cyphward-risk-v2', scope: 'organization',
+    organization: org, score: 38.5, max_score: 100, grade: null, posture_label: 'Partial assessment',
+    status_color: 'accent', assessed: true, model: 'cyphward-risk-v3', scope: 'organization',
     risk_points: 160, trend: null, trend_baseline_at: null,
-    assessment: { scan_id: 'scan-1', status: 'completed', completed_at: '2026-10-09T00:00:00Z' },
+    assessment: { scan_id: 'scan-1', status: 'completed', completed_at: '2026-10-09T00:00:00Z', coverage: { version: 1, state: 'partial', evaluated_checks: 1 } },
     counts: { total_assets: 1, total_findings: 8, critical: 0, high: 8, medium: 0, low: 0, info: 0 },
     subscores: [], factors: [], recent_scans: [
       { id: 'old-zero-score', domain: 'example.test', score: 0, status: 'completed', stage_progress: {}, created_at: '2026-10-01T00:00:00Z' },
@@ -109,6 +109,15 @@ try {
   await new Promise(resolve => setTimeout(resolve, 150));
   await ringIs('55.6');
 
+  // A completed partial assessment with no scored findings must not show 100.
+  payload = { ...payload, score: null, assessed: false, grade: null, risk_points: 0,
+    posture_label: 'Partial assessment', counts: { ...payload.counts, total_findings: 0 } };
+  await refresh();
+  await page.waitForFunction(() => document.body.textContent.includes('NO SCORE YET'));
+  assert.ok(await page.evaluate(() => document.body.textContent.includes('insufficient evaluated evidence')));
+  assert.equal(await page.$('.ring-num'), null);
+  assert.ok(!await page.evaluate(() => document.body.textContent.includes('Run your first scan to get a score.')));
+
   for (const width of [320, 390, 820, 1280]) {
     await page.setViewport({ width, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `No horizontal overflow at ${width}px`);
@@ -130,7 +139,7 @@ try {
   }
   await page.goto(`${origin}/scans`);
   await page.waitForFunction(() => document.body.textContent.includes('Completed with limited coverage'));
-  await page.waitForFunction(() => document.body.textContent.includes('1 of 2 targets checked'));
+  await page.waitForFunction(() => document.body.textContent.includes('1 of 2 tool runs completed'));
   await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Review coverage').click());
   await page.waitForFunction(() => document.querySelector('.scan-checks-panel')?.open);
   assert.ok(await page.evaluate(() => document.body.textContent.includes('Failed') && document.body.textContent.includes('Skipped')));

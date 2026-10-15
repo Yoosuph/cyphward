@@ -277,96 +277,32 @@ class HeuristicAIProvider(AIProvider):
     ) -> Dict[str, Any]:
         score = score_data.get("score")
         grade = score_data.get("grade")
-        posture = score_data.get("posture_label")
-        counts = score_data.get("counts", {})
-
-        if score is None:
-            # No completed scan — refuse to invent a score or claims.
-            return {
-                "org_name": org_name,
-                "score": None,
-                "grade": None,
-                "posture_label": "Not assessed",
-                "executive_headline": f"Security Score for {org_name}: Not assessed",
-                "board_summary": (
-                    f"{org_name} has not completed a full scan yet, so no security score has "
-                    "been assigned. A scan checks DNS, public web apps, email security, and "
-                    "encryption; the score, findings, and recommendations populate once it "
-                    "completes."
-                ),
-                "key_strengths": [],
-                "critical_action_items": [
-                    {
-                        "priority": "P1 - High",
-                        "title": "Run the first security scan",
-                        "impact": "Without a completed scan, security posture and compliance standing cannot be assessed.",
-                        "owner": "IT Infrastructure & Security",
-                    }
-                ],
-                "compliance_verdict": (
-                    "Not assessed — no completed scan exists yet. Cyphward reports "
-                    "technical evidence; it does not determine legal compliance."
-                ),
-                "generated_at": "Live Telemetry",
-            }
-
-        crit_count = counts.get("critical", 0)
-        high_count = counts.get("high", 0)
-        med_count = counts.get("medium", 0)
-
-        headline = f"Security Score for {org_name}: {score}/100 (Grade {grade} — {posture})"
-
+        posture = score_data.get("posture_label") or "Not assessed"
+        active = [finding for finding in findings if finding.get("status") != "resolved"]
+        priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        active.sort(key=lambda finding: (priority.get(finding.get("severity"), 4), finding.get("title", "")))
+        headline = f"Known-risk score for {org_name}: {score}/100 — {posture}" if score is not None else f"Security Score for {org_name}: {posture}"
         narrative = (
-            f"{org_name}'s security score is {score} out of 100 (Grade {grade} — {posture}). "
-            f"We checked DNS, public web apps, email security, and encryption. "
-            f"We found {crit_count} critical, {high_count} high, and {med_count} medium issues to fix. "
-            f"Strengths include modern TLS 1.3 encryption and a clean public surface. "
-            f"Weak spots are email authentication (DMARC) and the missing HSTS header, which can lead to spoofing or connection downgrades."
+            f"{org_name} has {len(active)} recorded open findings. "
+            + (f"Its known-risk score is {score}/100. " if score is not None else "There is insufficient evaluated evidence for a security score. ")
+            + "Only evaluated checks support these results; other areas remain unknown. "
+            "A domain assessment does not establish whole-organization security."
         )
-
-        strengths = [
-            "Modern TLS 1.3 cryptographic suites enforced across primary public endpoints",
-            "Zero open administrative database ports exposed directly to the public internet",
-            "Consistent reverse-proxy deployment shielding backend application runtimes"
-        ]
-
-        actions = [
-            {
-                "priority": "P0 - Immediate",
-                "title": "Enforce Strict DMARC Policy (p=reject)",
-                "impact": "Eliminates brand spoofing and executive phishing impersonation.",
-                "owner": "IT Infrastructure & Security"
-            },
-            {
-                "priority": "P1 - High",
-                "title": "Deploy Comprehensive HSTS with includeSubDomains",
-                "impact": "Prevents SSL-stripping and credential interception on corporate subdomains.",
-                "owner": "Web Operations Team"
-            },
-            {
-                "priority": "P2 - Medium",
-                "title": "Suppress Granular Web Server Software Version Banners",
-                "impact": "Reduces reconnaissance intelligence available to automated threat scanners.",
-                "owner": "DevOps Engineering"
-            }
-        ]
-
         return {
-            "org_name": org_name,
-            "score": score,
-            "grade": grade,
-            "posture_label": posture,
-            "executive_headline": headline,
-            "board_summary": narrative,
-            "key_strengths": strengths,
-            "critical_action_items": actions,
+            "org_name": org_name, "score": score, "grade": grade,
+            "posture_label": posture, "executive_headline": headline,
+            "board_summary": narrative, "key_strengths": [],
+            "critical_action_items": [{
+                "priority": str(finding.get("severity") or "medium").upper(),
+                "title": finding.get("title") or "Review recorded finding",
+                "impact": finding.get("description") or "Review the recorded evidence and remediation.",
+                "owner": "Assign an owner",
+            } for finding in active[:3]],
             "compliance_verdict": (
-                "Readiness note: the gaps above (DMARC, HSTS) are relevant to NDPA 2023 "
-                "Part V technical safeguards and CBN expectations — confirm legal "
-                "compliance with your DPO or licensed DPCO. This assessment is "
-                "technical evidence, not a compliance certification or filing."
+                "This is technical evidence, not a compliance certification or filing. "
+                "Cyphward does not determine legal compliance."
             ),
-            "generated_at": "Live Telemetry"
+            "generated_at": "Live Telemetry",
         }
 
     async def chat(

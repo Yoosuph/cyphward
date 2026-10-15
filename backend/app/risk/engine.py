@@ -1,15 +1,16 @@
 """
-Cyphward Risk Scoring Engine (0-100)
+Cyphward evidence-gated known-risk scoring (0-100)
 Computes organization risk and independent health scores for 4 categories.
 
-Scoring is assessment-gated: a numeric score is only produced when the
-caller passes `assessment` metadata from a completed scan. Without that,
-the engine returns an explicit "Not assessed" payload — an empty findings
-list must never be presented as a 100/100 score.
+Scoring requires evaluated evidence from a completed assessment. Partial
+coverage can describe known open risk but cannot certify a healthy score.
+Legacy/missing coverage remains unknown; history is never backfilled.
 """
 from typing import List, Dict, Any, Optional
 
-SCORE_MODEL = "cyphward-risk-v2"
+from backend.app.risk.coverage import coverage_state
+
+SCORE_MODEL = "cyphward-risk-v3"
 SCORE_SCOPE = "organization"
 # Relative risk burden, not direct deductions from the 0–100 score.
 RISK_WEIGHTS = {"critical": 60, "high": 20, "medium": 5, "low": 1, "info": 0}
@@ -45,6 +46,7 @@ def latest_assessment(org_id: str) -> Optional[Dict[str, Any]]:
     stages = row.get("stage_progress")
     if isinstance(stages, dict):
         assessment["stages"] = stages
+        assessment["coverage"] = (stages.get("scoring") or {}).get("coverage") if isinstance(stages.get("scoring"), dict) else None
     return assessment
 
 
@@ -129,6 +131,7 @@ def seven_day_baseline(org_id: str) -> Optional[Dict[str, Any]]:
         """
         SELECT score, created_at FROM score_snapshots
         WHERE org_id = %s AND model = %s AND scope = %s
+          AND score IS NOT NULL
           AND created_at <= now() - interval '7 days'
         ORDER BY created_at DESC, id DESC
         LIMIT 1
@@ -141,7 +144,7 @@ def compute_risk_score(
     findings: List[Dict[str, Any]],
     assessment: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Organization risk v2: 100 / (1 + total risk points / 100).
+    """Organization risk v3 (same severity formula, stricter evidence gate): 100 / (1 + total risk points / 100).
 
     Every unresolved finding contributes its severity weight to the overall
     risk burden, regardless of category. Category health uses the same
@@ -161,6 +164,7 @@ def compute_risk_score(
         burdens[finding_pillar(finding)] += weight
         weighted.append((weight, finding))
     total_risk = sum(burdens.values())
+    state = coverage_state(assessment) if assessment.get("status") == "completed" else "unknown"
     total_score = _health(total_risk)
     factors = []
     # Largest risks first, with deterministic ordering independent of SQL order.
@@ -178,13 +182,22 @@ def compute_risk_score(
         if finding.get("last_seen_at"):
             factor["assessed_at"] = str(finding["last_seen_at"])
         factors.append(factor)
-    if not total_risk:
+    if not total_risk and state == "complete":
         factors.append({
             "impact": "0 risk pts", "type": "positive",
             "label": "No scored open findings. Scan coverage still determines what was checked.",
             "scan_id": assessment.get("scan_id"),
             "assessed_at": assessment.get("completed_at"),
         })
+
+    # A completed job is not an assessed scan. Partial evidence may support
+    # a known-risk burden, never an empty 100 or a whole-organization grade.
+    if state not in {"partial", "complete"} or (state == "partial" and not total_risk):
+        result = _not_assessed(counts)
+        result.update(assessment={**assessment, "model": SCORE_MODEL},
+                      risk_points=total_risk, factors=factors[:6],
+                      posture_label={"partial": "Partial assessment", "unknown": "Coverage unknown"}.get(state, "Not assessed"))
+        return result
 
     if total_score >= 85:
         grade, posture_label, status_color = "A", "Excellent", "ok"
@@ -205,6 +218,10 @@ def compute_risk_score(
             "status": "Good" if health >= 80 else "OK" if health >= 55 else "Needs work",
             "risk_points": burden,
         })
+    if state == "partial":
+        grade, posture_label = None, "Partial assessment"
+        status_color = "warn" if total_score >= 55 else "accent"
+        subscores = []  # Unchecked categories must not acquire a healthy 100.
     return {
         "assessed": True, "score": total_score, "max_score": 100,
         "grade": grade, "posture_label": posture_label, "status_color": status_color,

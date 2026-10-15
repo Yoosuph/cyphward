@@ -459,7 +459,7 @@ function ScanSummary({
           <small>
             {score != null
               ? "Based on known findings"
-              : "A score is available after assessment."}
+              : "No score: evaluated evidence is insufficient. Recorded findings still require attention."}
           </small>
         </div>
       </div>

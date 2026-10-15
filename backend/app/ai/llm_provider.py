@@ -229,7 +229,7 @@ class CloudLLMProvider(AIProvider):
             return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
 
         # Never let a model invent a score when no scan has been completed.
-        if score_data.get("score") is None:
+        if score_data.get("score") is None or ((score_data.get("assessment") or {}).get("coverage") or {}).get("state") != "complete":
             return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
 
         sanitized_score = sanitize_for_ai(score_data)

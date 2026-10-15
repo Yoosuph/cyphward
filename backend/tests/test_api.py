@@ -307,7 +307,8 @@ ASSESSMENT = {
     "scan_id": SCAN_A1,
     "status": "completed",
     "completed_at": "2026-03-01T00:10:00",
-    "model": "cyphward-risk-v2",
+    "model": "cyphward-risk-v3",
+    "coverage": {"version": 1, "state": "complete", "evaluated_checks": 4},
 }
 
 
@@ -320,7 +321,7 @@ def test_risk_engine_not_assessed_without_completed_scan():
     assert res["subscores"] == []
     assert res["factors"] == []
     assert res["assessment"] is None
-    assert res["model"] == "cyphward-risk-v2"
+    assert res["model"] == "cyphward-risk-v3"
 
 
 def test_risk_engine_counts_but_never_scores_without_assessment():
