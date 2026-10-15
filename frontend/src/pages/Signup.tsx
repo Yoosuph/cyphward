@@ -393,9 +393,7 @@ export default function Signup() {
         <div className="mt-10 pt-6 border-t border-line">
           <dl className="meta-row">
             <div><dt>WORKSPACES</dt><dd>ONE PRIVATE WORKSPACE PER COMPANY</dd></div>
-            <div><dt>COMPLIANCE</dt><dd>NDPA 2023 · CBN</dd></div>
-            <div><dt>DATA LOCATION</dt><dd>LAGOS · NAIROBI</dd></div>
-            <div><dt>ACCOUNT STATUS</dt><dd className="text-ok font-medium">SECURE &amp; ACTIVE</dd></div>
+            <div><dt>SCANS</dt><dd>ONLY DOMAINS YOU VERIFY</dd></div>
           </dl>
         </div>
       </div>
