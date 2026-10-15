@@ -12,6 +12,7 @@ import {
   type AuthTokens,
   type SessionUser,
 } from './session';
+import { clearPageCache } from './pageCache';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
   Scan, FindingExplanation, RemediationGuide, ExecutiveSummary, SettingsData,
@@ -67,6 +68,10 @@ async function apiFetch<T>(
         res = await attempt(token);
       }
     }
+
+    // Any write may change what a cached list page shows; drop it all.
+    // /ai/* POSTs only read (explain, remediate, summaries, chat).
+    if ((options?.method || 'GET').toUpperCase() !== 'GET' && !endpoint.startsWith('/ai/')) clearPageCache();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));

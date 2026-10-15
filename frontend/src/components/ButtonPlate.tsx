@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
+import { prefetchRoute } from '../lib/routePrefetch';
 import {
   Activity,
   Server,
@@ -15,7 +16,7 @@ interface Props {
 }
 
 const NAV_ITEMS = [
-  { to: '/', label: 'CMD', full: 'Overview', idx: '01', icon: Activity, end: true },
+  { to: '/overview', label: 'OVERVIEW', full: 'Overview', idx: '01', icon: Activity, end: true },
   { to: '/assets', label: 'ASSETS', full: 'Assets', idx: '02', icon: Server, end: false },
   { to: '/findings', label: 'FINDINGS', full: 'Security findings', idx: '03', icon: ShieldAlert, end: false, hasBadge: true },
   { to: '/scans', label: 'SCANS', full: 'Scans', idx: '04', icon: Radar, end: false },
@@ -29,7 +30,7 @@ export default function ButtonPlate({
   const location = useLocation();
 
   const isItemActive = (to: string, end?: boolean) => {
-    if (to === '/') {
+    if (to === '/overview') {
       return location.pathname === '/' || location.pathname === '/overview' || location.pathname === '/dashboard';
     }
     return end ? location.pathname === to : location.pathname.startsWith(to);
@@ -48,7 +49,8 @@ export default function ButtonPlate({
               <NavLink
                 key={item.to}
                 to={item.to}
-                data-tour={`plate-${item.to === '/' ? 'overview' : item.to.slice(1)}`}
+                data-tour={`plate-${item.to.slice(1)}`}
+                onPointerDown={() => prefetchRoute(item.to)}
                 className={`plate-btn ${active ? 'active' : ''}`}
                 title={item.full}
               >

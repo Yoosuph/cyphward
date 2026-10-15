@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RefreshCw,
   ShieldCheck,
@@ -18,6 +18,7 @@ import {
 } from '../lib/api';
 import type { Finding } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead, Loading } from '../components/ui';
@@ -47,8 +48,10 @@ function statusChipLevel(status: string): 'ok' | 'warn' | 'bad' | 'idle' {
 
 export default function Remediation() {
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [tasks, setTasks] = useState<RemediationTask[]>([]);
+  // Last-seen list paints at once on a revisit; load() refreshes it.
+  const [loading, setLoading] = useState(() => readPageCache('remediation:') === undefined);
+  const [tasks, setTasks] = useState<RemediationTask[]>(() => readPageCache<RemediationTask[]>('remediation:') ?? []);
+  const shownKey = useRef<string | null>(null); // cache key of the rows on screen
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -61,10 +64,17 @@ export default function Remediation() {
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const cacheKey = `remediation:${statusFilter}`;
+    const cached = readPageCache<RemediationTask[]>(cacheKey);
+    if (cached) setTasks(cached);
+    // Skeleton only when this view has nothing to show yet (not on a refresh).
+    if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
+    else if (cached) setLoading(false);
+    shownKey.current = cacheKey;
     try {
       const res = await getRemediationTasks(statusFilter ? { status: statusFilter } : undefined);
       setTasks(res.tasks);
+      writePageCache(cacheKey, res.tasks);
     } catch (e: any) {
       toast(e.message || 'Failed to load tasks');
     } finally {
@@ -179,7 +189,7 @@ export default function Remediation() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="chip-row flex flex-wrap items-center gap-1.5">
         {STATUS_FILTERS.map(f => (
           <button
             key={f.value}
@@ -214,7 +224,7 @@ export default function Remediation() {
         </div>
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
-          <table className="w-full text-left text-xs mono min-w-[720px]">
+          <table className="table-stack w-full text-left text-xs mono sm:min-w-[720px]">
             <thead>
               <tr className="border-b border-line text-soft text-[11px]">
                 <th className="px-4 py-3 font-medium">TASK</th>
@@ -227,22 +237,22 @@ export default function Remediation() {
             <tbody className="divide-y divide-line/60">
               {tasks.map(task => (
                 <tr key={task.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="px-4 py-3 max-w-[320px]">
+                  <td className="stack-title px-4 py-3 max-w-[320px]">
                     <p className="text-ink font-semibold truncate">{task.title}</p>
                     {task.finding_title && task.finding_title !== task.title && (
                       <p className="text-[11px] text-soft truncate">From: {task.finding_title}</p>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="Priority" className="px-4 py-3">
                     <span className="tag uppercase">{task.priority}</span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="Status" className="px-4 py-3">
                     <StatusChip level={statusChipLevel(task.status)}>
                       {task.status.replace(/_/g, ' ').toUpperCase()}
                     </StatusChip>
                   </td>
-                  <td className="px-4 py-3 text-soft">{task.assignee_name || task.assignee_email || '—'}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Assignee" className="px-4 py-3 text-soft">{task.assignee_name || task.assignee_email || '—'}</td>
+                  <td className="stack-actions px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-1.5">
                       {task.status !== 'verified' && task.status !== 'ready_for_verification' && (
                         <button

@@ -20,6 +20,7 @@ import {
 import { getDomains, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
 import Modal from '../components/Modal';
 import DomainDnsInstructions from '../components/DomainDnsInstructions';
@@ -36,8 +37,9 @@ const statusLabel = (status: string) => STATUS_LABEL[status] || status;
 
 export default function Domains() {
   const confirmAction = useConfirm();
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Last-seen list paints at once on a revisit; loadDomains refreshes it.
+  const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('domains') ?? []);
+  const [loading, setLoading] = useState(() => readPageCache('domains') === undefined);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [newDomainInput, setNewDomainInput] = useState('');
   const [adding, setAdding] = useState(false);
@@ -56,10 +58,11 @@ export default function Domains() {
   const toast = useToast();
 
   const loadDomains = async () => {
-    setLoading(true);
+    // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const list = await getDomains();
       setDomains(list);
+      writePageCache('domains', list);
     } catch (e) {
       toast('Failed to load domains');
     } finally {
@@ -242,7 +245,7 @@ export default function Domains() {
       <div className="rounded-lg border border-line bg-raised overflow-hidden">
 
         <div className="overflow-x-auto w-full max-w-full">
-          <table className="w-full text-left text-xs mono min-w-[620px]">
+          <table className="table-stack w-full text-left text-xs mono sm:min-w-[620px]">
             <thead>
               <tr className="border-b border-line bg-inset/40 text-soft text-[11px]">
                 <th className="py-3 px-4 font-medium">DOMAIN NAME</th>
@@ -275,14 +278,14 @@ export default function Domains() {
                     style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                     className="stagger-row hover:bg-inset/40 transition-colors"
                   >
-                    <td className="py-3 px-4 font-bold text-ink">
+                    <td className="stack-title py-3 px-4 font-bold text-ink">
                       <div className="flex items-center gap-2">
                         <Globe size={14} className="text-accent" />
                         <span>{dom.domain}</span>
                       </div>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="Status" className="py-3 px-4">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold inline-flex items-center gap-1 ${
                           dom.verification_status === 'verified'
@@ -301,7 +304,7 @@ export default function Domains() {
                       </span>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td data-label="Record" className="py-3 px-4">
                       {dom.verification_status === 'verified' ? (
                         <span className="text-[11px] text-soft">In place</span>
                       ) : (
@@ -320,7 +323,7 @@ export default function Domains() {
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-soft text-[11px]">
+                    <td data-label="Verified" className="py-3 px-4 text-soft text-[11px]">
                       {dom.verified_at
                         ? new Date(dom.verified_at).toLocaleDateString([], {
                             day: 'numeric',
@@ -330,11 +333,11 @@ export default function Domains() {
                         : 'Not yet'}
                     </td>
 
-                    <td className="py-3 px-4 font-semibold text-ink">
+                    <td data-label="Assets" className="py-3 px-4 font-semibold text-ink">
                       {dom.asset_count !== undefined ? `${dom.asset_count} assets` : '—'}
                     </td>
 
-                    <td className="py-3 px-4 text-right space-x-2">
+                    <td className="stack-actions py-3 px-4 text-right space-x-2">
                       <button
                         disabled={verifyingId === dom.id}
                         onClick={() => handleVerify(dom)}

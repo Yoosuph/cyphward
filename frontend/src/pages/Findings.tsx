@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHead } from '../components/ui';
 import {
   ShieldAlert,
@@ -20,18 +20,24 @@ import {
 import { getFindings, updateFindingStatus, explainFinding, getRemediation } from '../lib/api';
 import type { Finding, FindingSeverity, FindingStatus, FindingExplanation, RemediationGuide } from '../types';
 import { useToast } from '../components/Toast';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 import { FindingCardSkeleton, Skeleton, SkeletonText, FindingsSkeleton } from '../components/Skeleton';
 import Drawer from '../components/Drawer';
 import Modal from '../components/Modal';
 
+type FindingsCache = { findings: Finding[]; categories: Record<string, number> };
+const FINDINGS_DEFAULT_KEY = 'findings:all:all:';
+
 export default function Findings() {
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Last-seen list paints at once on a revisit; loadFindings refreshes it.
+  const [findings, setFindings] = useState<Finding[]>(() => readPageCache<FindingsCache>(FINDINGS_DEFAULT_KEY)?.findings ?? []);
+  const [loading, setLoading] = useState(() => readPageCache(FINDINGS_DEFAULT_KEY) === undefined);
+  const shownKey = useRef<string | null>(null); // cache key of the rows on screen
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [statusView, setStatusView] = useState<'open' | 'resolved' | 'all'>('open');
-  const [categories, setCategories] = useState<Record<string, number>>({});
+  const [categories, setCategories] = useState<Record<string, number>>(() => readPageCache<FindingsCache>(FINDINGS_DEFAULT_KEY)?.categories ?? {});
 
   // Active drawer finding
   const [activeFinding, setActiveFinding] = useState<Finding | null>(null);
@@ -53,7 +59,16 @@ export default function Findings() {
   const toast = useToast();
 
   const loadFindings = async () => {
-    setLoading(true);
+    const cacheKey = `findings:${selectedSeverity}:${selectedCategory}:${search}`;
+    const cached = readPageCache<FindingsCache>(cacheKey);
+    if (cached) {
+      setFindings(cached.findings);
+      setCategories(cached.categories);
+    }
+    // Skeleton only when this view has nothing to show yet (not on a refresh).
+    if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
+    else if (cached) setLoading(false);
+    shownKey.current = cacheKey;
     try {
       const res = await getFindings({
         severity: selectedSeverity !== 'all' ? selectedSeverity : undefined,
@@ -62,6 +77,7 @@ export default function Findings() {
       });
       setFindings(res.findings);
       setCategories(res.categories);
+      writePageCache<FindingsCache>(cacheKey, { findings: res.findings, categories: res.categories });
       if (activeFinding) {
         const updated = res.findings.find(f => f.id === activeFinding.id);
         if (updated) setActiveFinding(updated);
@@ -170,7 +186,7 @@ export default function Findings() {
       </div>
 
       {/* Severity Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="chip-row flex flex-wrap items-center gap-2">
         {severities.map(sev => (
           <button
             key={sev}

@@ -25,18 +25,22 @@ import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
 import { startTour, tourSeen } from '../lib/tour';
+import { readPageCache, writePageCache } from '../lib/pageCache';
 
 export default function Overview() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Last-seen overview paints at once on a revisit; loadData refreshes it.
+  const [data, setData] = useState<OverviewData | null>(() => readPageCache<OverviewData>('overview') ?? null);
+  const [loading, setLoading] = useState(() => readPageCache('overview') === undefined);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const requestId = useRef(0);
   const [launching, setLaunching] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [domainsLoaded, setDomainsLoaded] = useState(false);
-  const [selectedDomain, setSelectedDomain] = useState<string>('');
+  const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('overview:domains') ?? []);
+  const [domainsLoaded, setDomainsLoaded] = useState(() => readPageCache('overview:domains') !== undefined);
+  const [selectedDomain, setSelectedDomain] = useState<string>(
+    () => readPageCache<Domain[]>('overview:domains')?.find(d => d.verification_status === 'verified')?.id || '',
+  );
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -87,6 +91,7 @@ export default function Overview() {
       if (id !== requestId.current) return;
       if (overview.status === 'fulfilled' && overview.value) {
         setData(overview.value);
+        writePageCache('overview', overview.value);
         setRefreshFailed(false);
         setLastRefreshed(new Date());
       } else {
@@ -94,6 +99,7 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
+        writePageCache('overview:domains', domainResult.value);
         setDomainsLoaded(true);
         setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
@@ -555,7 +561,7 @@ export default function Overview() {
           <p className="text-xs mono text-soft py-6 text-center">No scans yet. Click "Start scan" above.</p>
         ) : (
           <div className="overflow-x-auto w-full max-w-full">
-            <table className="w-full text-left text-xs mono min-w-[560px]">
+            <table className="table-stack w-full text-left text-xs mono sm:min-w-[560px]">
               <thead>
                 <tr className="border-b border-line text-soft text-[11px]">
                   <th className="pb-2 font-medium">DOMAIN</th>
@@ -573,8 +579,8 @@ export default function Overview() {
                     style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                     className="stagger-row hover:bg-inset/40 transition-colors"
                   >
-                    <td className="py-3 font-semibold text-ink">{scan.domain}</td>
-                    <td className="py-3">
+                    <td className="stack-title py-3 font-semibold text-ink">{scan.domain}</td>
+                    <td data-label="Status" className="py-3">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] uppercase font-medium ${
                           scan.status === 'completed'
@@ -587,7 +593,7 @@ export default function Overview() {
                         {scan.status}
                       </span>
                     </td>
-                    <td className="py-3 hidden md:table-cell">
+                    <td data-label="Progress" className="py-3 hidden md:table-cell">
                       {scan.status === 'queued' || scan.status === 'running' ? (
                       <div className="flex items-center gap-1">
                         {['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks', 'normalization', 'scoring', 'ai_analysis'].map((st, i) => {
@@ -614,7 +620,7 @@ export default function Overview() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 font-bold text-ink">
+                    <td data-label="Score" className="py-3 font-bold text-ink">
                       {scan.score != null ? `${scan.score}/100` : '—'}
                       {scan.score != null && scan.stage_progress?.scoring?.scope !== 'organization' && (
                         <div className="text-[10px] font-normal text-soft" title="Scored with an earlier model; not comparable with current scores">
@@ -622,10 +628,10 @@ export default function Overview() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 text-soft text-[11px] hidden md:table-cell">
+                    <td data-label="Started" className="py-3 text-soft text-[11px] hidden md:table-cell">
                       {new Date(scan.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className="py-3 text-right">
+                    <td className="stack-actions py-3 text-right">
                       <button
                         onClick={() => navigate('/scans')}
                         className="px-2.5 py-1 rounded text-[11px] border border-line bg-raised hover:border-line-strong text-ink"
