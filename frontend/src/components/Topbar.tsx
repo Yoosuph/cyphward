@@ -27,22 +27,10 @@ export default function Topbar({
   onToggleSidebar,
   mobileAi = false,
 }: Props) {
-  const [time, setTime] = useState('');
   const [theme, setTheme] = useState(getTheme());
   const { signOut } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
-
-  useEffect(() => {
-    const f = () => {
-      const d = new Date();
-      const p = (n: number) => String(n).padStart(2, '0');
-      setTime(`${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`);
-    };
-    f();
-    const iv = setInterval(f, 1000);
-    return () => clearInterval(iv);
-  }, []);
 
   useEffect(() => {
     const h = () => setTheme(getTheme());
@@ -88,19 +76,12 @@ export default function Topbar({
           </Link>
           <span className={`${sidebarCollapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`}>/</span>
           <p className="bar-sec truncate hidden min-[400px]:block">
-            <span className="hidden sm:inline">SECTION {section.idx} · {section.label}</span>
-            <span className="sm:hidden text-[11px] mono">SEC {section.idx} · {section.label}</span>
+            {section.label}
           </p>
-          <span className="flex items-center flex-none" title="Live activity">
-            <span className="live-dot" />
-          </span>
         </div>
 
         {/* Action Tools */}
         <div className="bar-tools flex-none">
-          <span className="bar-live mono"><span className="live-dot" />LIVE</span>
-          <span className="bar-clock mono">{time}</span>
-
           {handleAiClick && (
             <button
               className={`${mobileAi ? 'inline-flex min-h-[44px] min-w-[44px] justify-center' : 'hidden sm:inline-flex'} items-center gap-1.5 py-1 px-2.5 rounded border border-line bg-inset/40 hover:border-accent hover:text-ink text-soft text-xs mono transition-colors hover-lift`}

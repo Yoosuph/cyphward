@@ -144,7 +144,6 @@ export default function Sidebar({
           </div>
         </div>
 
-        <p className="eyebrow side-eyebrow">SECTIONS</p>
         <nav>
           {NAV.map(n => (
             <NavLink
@@ -154,10 +153,9 @@ export default function Sidebar({
               end={n.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}
-              title={collapsed ? `SECTION ${n.idx} · ${n.label}` : undefined}
+              title={collapsed ? n.label : undefined}
             >
               <n.icon size={15} strokeWidth={1.7} />
-              <span className="idx">{n.idx}</span>
               <span className="nav-label">{n.label}</span>
             </NavLink>
           ))}
@@ -168,10 +166,9 @@ export default function Sidebar({
               end={STAFF_NAV.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}
-              title={collapsed ? `SECTION ${STAFF_NAV.idx} · ${STAFF_NAV.label}` : undefined}
+              title={collapsed ? STAFF_NAV.label : undefined}
             >
               <STAFF_NAV.icon size={15} strokeWidth={1.7} />
-              <span className="idx">{STAFF_NAV.idx}</span>
               <span className="nav-label">{STAFF_NAV.label}</span>
             </NavLink>
           )}

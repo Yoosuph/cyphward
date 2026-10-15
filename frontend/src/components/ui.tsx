@@ -4,14 +4,27 @@ import { Skeleton, SkeletonText } from './Skeleton';
 
 export * from './Skeleton';
 
-export function PageHead({ eyebrow, title, note, meta }: {
-  eyebrow: string; title: string; note?: string; meta?: ReactNode;
+/**
+ * The one page header used by every app page: title, a single plain-language
+ * line, and actions on the right (stacked full width on phones).
+ */
+export function PageHead({ title, note, actions, meta }: {
+  /** @deprecated Section labels were removed; kept so older callers compile. */
+  eyebrow?: string;
+  title: ReactNode;
+  note?: ReactNode;
+  actions?: ReactNode;
+  meta?: ReactNode;
 }) {
   return (
-    <header className="sec-head">
-      <p className="eyebrow">{eyebrow}</p>
-      <h2>{title}</h2>
-      {note && <p className="sec-note">{note}</p>}
+    <header className="page-head">
+      <div className="page-head-row">
+        <div className="min-w-0">
+          <h1 className="page-head-title">{title}</h1>
+          {note && <p className="page-head-note">{note}</p>}
+        </div>
+        {actions && <div className="page-head-actions">{actions}</div>}
+      </div>
       {meta}
     </header>
   );

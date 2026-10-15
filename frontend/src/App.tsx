@@ -68,6 +68,7 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/remediation': { idx: '06', label: 'REMEDIATION' },
   '/reports': { idx: '07', label: 'REPORTS' },
   '/settings': { idx: '08', label: 'SETTINGS' },
+  '/platform': { idx: '09', label: 'PLATFORM' },
 };
 
 /** Fallback while a route-split page chunk downloads. */

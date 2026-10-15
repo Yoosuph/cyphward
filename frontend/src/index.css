@@ -217,7 +217,7 @@ body{
 .side-brand{display:flex; align-items:center; gap:10px; padding:18px 20px; border-bottom:1px solid var(--line); font-family:var(--font-mono); font-weight:500; font-size:13px; letter-spacing:.16em}
 .side-brand svg{width:19px; height:19px; color:var(--accent)}
 .side-eyebrow{padding:20px 20px 10px}
-.sidebar nav{display:flex; flex-direction:column; gap:2px}
+.sidebar nav{display:flex; flex-direction:column; gap:2px; padding-top:16px}
 .nav-item{
   display:flex; align-items:center; gap:11px; padding:10px 12px; margin:0 14px; border-radius:3px;
   font-family:var(--font-mono); font-size:11px; letter-spacing:.12em; color:var(--soft);
@@ -1816,3 +1816,21 @@ body.drawer-open {
 @media (prefers-reduced-motion: reduce){
   .tour-spot, .tour-card, .setup-checklist-bar span{transition:none}
 }
+
+/* ============ SHARED APP PAGE HEADER ============ */
+.page-head{padding-bottom:16px; border-bottom:1px solid var(--line)}
+.page-head-row{display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px 20px}
+.page-head-title{font-family:var(--font-body); font-size:clamp(1.5rem,2.4vw,1.875rem); font-weight:700; letter-spacing:-.02em; line-height:1.15; color:var(--ink); margin:0}
+.page-head-note{font-size:14px; line-height:1.5; color:var(--soft); margin-top:6px; max-width:68ch}
+.page-head-actions{display:flex; flex-wrap:wrap; align-items:center; gap:8px}
+@media (max-width:640px){
+  .page-head-actions{width:100%}
+  .page-head-actions > *{flex:1 1 auto; justify-content:center}
+}
+.score-details{width:100%; margin-top:14px; padding-top:10px; border-top:1px solid var(--line); text-align:left; font-size:12px; line-height:1.55; color:var(--soft)}
+.score-details summary{cursor:pointer; list-style:none; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--soft); text-align:center}
+.score-details summary::-webkit-details-marker{display:none}
+.score-details summary::after{content:' +'; color:var(--accent)}
+.score-details[open] summary::after{content:' −'}
+.score-details[open] summary{margin-bottom:8px}
+.score-details summary:hover{color:var(--ink)}
