@@ -27,7 +27,7 @@ const PAGES = [
     url: '/pricing',
     file: 'pricing/index.html',
     title: 'Pricing — Cyphward',
-    description: 'Starter is ₦7,000 a month. Growth is ₦15,000 a month. Both plans scan a verified domain and return a 0–100 security score with a fix for every finding.',
+    description: 'Starter is ₦15,000 a month. Growth is ₦25,000 a month. Both plans scan a verified domain and return a 0–100 security score with a fix for every finding.',
     canonical: 'https://cyphward.com/pricing',
   },
   {
@@ -36,6 +36,20 @@ const PAGES = [
     title: 'About — Cyphward',
     description: 'Cyphward is built by CYPHWARD LTD, CAC RC 9921694, based in Kano, Nigeria. Founded by Yusuf Lawan Nuhu. Contact info@cyphward.com.',
     canonical: 'https://cyphward.com/about',
+  },
+  {
+    url: '/teams',
+    file: 'teams/index.html',
+    title: 'Team — Cyphward',
+    description: 'Meet the Cyphward team: Yusuf Lawan Nuhu, Abdullahi Bala Musa and Abdullahi Kabir Sani.',
+    canonical: 'https://cyphward.com/teams',
+  },
+  {
+    url: '/contact',
+    file: 'contact/index.html',
+    title: 'Contact — Cyphward',
+    description: 'Email Cyphward at info@cyphward.com. The company is based in Kano, Nigeria.',
+    canonical: 'https://cyphward.com/contact',
   },
   {
     url: '/health',

@@ -8,7 +8,7 @@ export default function AccountRecoveryGate({ children }: { children: ReactNode 
   const [busy, setBusy] = useState(false);
   const location = useLocation();
   const nav = useNavigate();
-  const publicPage = ['/privacy', '/terms', '/pricing', '/about', '/health'].includes(location.pathname);
+  const publicPage = ['/privacy', '/terms', '/pricing', '/about', '/teams', '/contact', '/health'].includes(location.pathname);
 
   if (loading || !bootstrapError || publicPage) return <>{children}</>;
 

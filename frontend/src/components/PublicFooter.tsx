@@ -19,7 +19,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               </div>
               <p className="text-xs mono text-soft leading-relaxed">
                 African-built cyber security platform.
-                Technical evidence for your compliance programme, layer by layer defense for the continent.
+                Technical evidence about your external security, layer by layer, built for the continent.
               </p>
               <div className="flex items-center gap-2.5 mt-4">
                 <a
@@ -68,6 +68,8 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               <ul className="space-y-2 text-xs mono text-soft">
                 <li><Link to="/pricing" className="hover:text-ink">Pricing</Link></li>
                 <li><Link to="/about" className="hover:text-ink">About</Link></li>
+                <li><Link to="/teams" className="hover:text-ink">Team</Link></li>
+                <li><Link to="/contact" className="hover:text-ink">Contact</Link></li>
                 <li><Link to="/login" className="hover:text-ink">Sign In</Link></li>
                 <li><Link to="/signup" className="hover:text-ink">Create a Business Account</Link></li>
                 <li><Link to="/forgot-password" className="hover:text-ink">Reset Password</Link></li>
@@ -75,12 +77,13 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
             </div>
 
             <div>
-              <p className="eyebrow mb-3">REGULATIONS WE BUILD FOR</p>
+              <p className="eyebrow mb-3">REGULATORY CONTEXT</p>
               <ul className="space-y-2 text-xs mono text-soft">
                 <li>NDPA 2023 (Nigeria)</li>
                 <li>CBN Cybersecurity Guidelines</li>
                 <li>Kenya DPA 2019 / PoPIA ZA</li>
                 <li>AU Malabo Convention</li>
+                <li className="pt-1">Scans provide technical evidence, not a compliance certification.</li>
               </ul>
             </div>
           </div>
@@ -93,7 +96,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               <Link to="/terms" className="hover:text-ink transition-colors">TERMS</Link>
               <Link to="/privacy" className="hover:text-ink transition-colors">PRIVACY</Link>
               <Link to="/health" className="flex items-center gap-2 hover:text-ink transition-colors">
-                <span className="live-dot" /> SYSTEM STATUS: OPERATIONAL
+                <span className="live-dot" /> SYSTEM STATUS
               </Link>
             </div>
           </div>

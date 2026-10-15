@@ -15,8 +15,8 @@ PROVIDER_NAME = "manual"
 
 # NGN per month. Retired tiers never invoice (custom/legacy handling).
 PLAN_PRICES_KOBO = {
-    "starter": 700_000,      # ₦7,000
-    "growth": 1_500_000,     # ₦15,000
+    "starter": 1_500_000,    # ₦15,000
+    "growth": 2_500_000,     # ₦25,000
 }
 
 
