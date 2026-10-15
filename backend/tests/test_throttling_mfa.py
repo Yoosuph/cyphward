@@ -36,7 +36,7 @@ def test_member_login_issues_session_without_mfa(client, store):
 
 def test_owner_login_requires_mfa_step_up(client, store, monkeypatch):
     _set_password(store, ALICE)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
     resp = _login(client, f"{ALICE[:8]}@acme.test")
     assert resp.status_code == 200
@@ -58,7 +58,7 @@ def test_owner_login_requires_mfa_step_up(client, store, monkeypatch):
 
 def test_mfa_wrong_code_rejected(client, store, monkeypatch):
     _set_password(store, ADMI)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
     token = _login(client, f"{ADMI[:8]}@acme.test").json()["mfa_token"]
     resp = client.post("/api/v1/auth/mfa/verify",
@@ -126,7 +126,7 @@ def test_password_reset_sends_recovery_alert(client, store, monkeypatch):
 
 def test_mfa_resend_cooldown_and_recovery(client, store, monkeypatch):
     _set_password(store, ALICE)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 7)
     token = _login(client, f"{ALICE[:8]}@acme.test").json()["mfa_token"]
     # resend immediately after login-issued code -> 429 cooldown
@@ -152,7 +152,7 @@ def test_mfa_enroll_requires_verified_email(client, auth_headers, store):
 def test_member_enroll_disable_roundtrip(client, auth_headers, store, monkeypatch):
     _set_password(store, BOB)
     _verify(store, BOB)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
 
     status = client.get("/api/v1/auth/mfa/status", headers=_authz(auth_headers, BOB)).json()
@@ -190,7 +190,7 @@ def test_totp_enroll_requires_verified_email(client, auth_headers, store):
 def test_totp_full_roundtrip(client, auth_headers, store, monkeypatch):
     _set_password(store, BOB)
     _verify(store, BOB)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     start = client.post("/api/v1/auth/totp/enroll/start", headers=_authz(auth_headers, BOB))
     assert start.status_code == 200
     secret = start.json()["secret"]
@@ -220,7 +220,7 @@ def test_totp_full_roundtrip(client, auth_headers, store, monkeypatch):
 def test_totp_wrong_falls_back_to_email_code(client, auth_headers, store, monkeypatch):
     _set_password(store, BOB)
     _verify(store, BOB)
-    monkeypatch.setattr(auth_mod, "send_email_sync", lambda *a, **k: {"success": True})
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: {"success": True})
     monkeypatch.setattr(auth_mod.secrets, "randbelow", lambda _n: 42)
     secret = client.post("/api/v1/auth/totp/enroll/start",
                          headers=_authz(auth_headers, BOB)).json()["secret"]
@@ -236,10 +236,31 @@ def test_totp_wrong_falls_back_to_email_code(client, auth_headers, store, monkey
 
 def test_repeated_logins_reuse_valid_code_without_resending(client, auth_headers, store, monkeypatch):
     sent = []
-    monkeypatch.setattr(auth_mod, "send_email_sync",
+    monkeypatch.setattr(auth_mod, "send_email_async",
                         lambda *a, **k: sent.append(a) or {"success": True})
     _set_password(store, ALICE)
     first = _login(client, f"{ALICE[:8]}@acme.test").json()
     second = _login(client, f"{ALICE[:8]}@acme.test").json()
     assert first.get("mfa_required") is True and second.get("mfa_required") is True
     assert len(sent) == 1, "second login must reuse the still-valid code"
+
+
+def test_failed_code_email_returns_503_and_next_login_sends_a_fresh_code(client, store, monkeypatch):
+    # Regression (15 Oct): a failed send left the unsent code stored, so the
+    # next login "reused" it and the user never received any code.
+    attempts = []
+
+    async def flaky_send(*a, **k):
+        attempts.append(a)
+        if len(attempts) == 1:
+            raise RuntimeError("provider down")
+        return {"success": True}
+
+    monkeypatch.setattr(auth_mod, "send_email_async", flaky_send)
+    _set_password(store, ALICE)
+    email = f"{ALICE[:8]}@acme.test"
+    assert _login(client, email).status_code == 503
+    assert not [r for r in store.email_otps if r.get("purpose") == "mfa"], "unsent code must not linger"
+    second = _login(client, email).json()
+    assert second.get("mfa_required") is True
+    assert len(attempts) == 2, "the next login sends a fresh code"

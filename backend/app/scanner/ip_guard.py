@@ -71,13 +71,17 @@ def resolve_connect_ip(hostname: str) -> Optional[str]:
     return ips[0] if ips else None
 
 
-def pinned_url(scheme: str, ip: str) -> str:
+def pinned_url(scheme: str, ip: str, path: str = "/") -> str:
     """
     URL addressed by the validated IP (connection pin). Pair with a Host
     header and an sni_hostname request extension carrying the real hostname.
+    `path` (with any query) is the resource on that host; redirects must keep
+    it, or a site that redirects "/" to "/x" is probed in a loop.
     """
     netloc = f"[{ip}]" if ":" in ip else ip
-    return f"{scheme}://{netloc}/"
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{scheme}://{netloc}{path}"
 
 
 def hostname_in_scope(hostname: str, scope) -> bool:

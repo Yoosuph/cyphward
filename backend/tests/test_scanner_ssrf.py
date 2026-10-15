@@ -206,7 +206,8 @@ def test_probe_pinned_request_and_in_scope_redirects(fake_http_env, monkeypatch)
     # Pinned to the validated IP; hostname travels in the Host header.
     assert calls[0][0] == "https://93.184.216.34/"
     assert calls[0][1]["Host"] == "target.test"
-    assert calls[1][0] == "https://93.184.216.34/"
+    # The redirect target's path is requested, not "/" again.
+    assert calls[1][0] == "https://93.184.216.34/page"
     assert calls[1][1]["Host"] == "www.target.test"
 
 
@@ -316,3 +317,36 @@ def test_nuclei_template_rerun_refuses_non_public_target(monkeypatch):
     out = asyncio.run(nuclei_runner.run_nuclei_template("internal.target.test", "x"))
     assert out["ok"] is False
     assert "non-public" in out["error"]
+
+
+def test_probe_follows_relative_redirect_to_its_path_instead_of_looping(fake_http_env, monkeypatch):
+    # Regression (15 Oct): "/" -> 307 "/overview" was re-requested as "/" on
+    # every hop, so the probe looped until the hop limit and reported no
+    # usable HTTP response for a healthy site.
+    monkeypatch.setattr(ip_guard, "resolve_connect_ip", lambda h: "93.184.216.34")
+    fake_http_env.responses = [
+        _FakeResp(307, {"location": "/overview"}),
+        _FakeResp(200, {"server": "Vercel"}),
+    ]
+    out = asyncio.run(http_probe.probe_http_service("app.target.test", scope=["target.test"]))
+    assert out["http_status"] == 200 and out["error"] is None
+    assert out["url"] == "https://app.target.test/overview"
+    assert [c[0] for c in fake_http_env.calls] == ["https://93.184.216.34/", "https://93.184.216.34/overview"]
+
+
+def test_pinned_url_keeps_path_and_query_and_brackets_ipv6():
+    assert ip_guard.pinned_url("https", "93.184.216.34") == "https://93.184.216.34/"
+    assert ip_guard.pinned_url("https", "93.184.216.34", "/a/b?x=1") == "https://93.184.216.34/a/b?x=1"
+    assert ip_guard.pinned_url("http", "2001:db8::1", "robots.txt") == "http://[2001:db8::1]/robots.txt"
+
+
+def test_robots_check_requests_robots_txt_not_the_homepage(monkeypatch):
+    import backend.app.scanner.security_checks as security_checks
+    monkeypatch.setattr(ip_guard, "resolve_connect_ip", lambda h: "93.184.216.34")
+    _FakeHttpClient.calls = []
+    _FakeHttpClient.responses = [_FakeResp(200, {}, text="User-agent: *\nDisallow: /admin\n")]
+    monkeypatch.setattr(security_checks.httpx, "AsyncClient", _FakeHttpClient)
+    http_data = {"http_status": 200, "url": "https://target.test", "security_headers": {}, "raw_headers": {}, "tls_info": {}}
+    asyncio.run(security_checks.run_security_checks("target.test", {}, http_data, is_apex=False))
+    assert _FakeHttpClient.calls and _FakeHttpClient.calls[0][0] == "https://93.184.216.34/robots.txt"
+    assert _FakeHttpClient.calls[0][1]["Host"] == "target.test"

@@ -20,6 +20,7 @@ POST /api/v1/auth/welcome         welcome email (recipient from verified claims)
 """
 import hashlib
 import hmac
+import inspect
 import secrets
 import time
 from datetime import datetime, timezone
@@ -52,7 +53,6 @@ from backend.app.services.mailer import (
     generate_welcome_email_html,
     generate_welcome_email_text,
     send_email_async,
-    send_email_sync,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
@@ -359,11 +359,13 @@ def _user_is_admin(user_id: str) -> bool:
     return row is not None
 
 
-def _send_mfa_code(user: Dict[str, Any]) -> None:
+async def _send_mfa_code(user: Dict[str, Any]) -> None:
     """Create a fresh login step-up code and email it (purpose='mfa').
 
-    A mail outage surfaces as 503 (retryable via resend), never a 500 —
-    and never a session.
+    Awaited on the request's event loop, so a slow mail provider never blocks
+    other requests. A mail outage surfaces as 503 (retryable) and removes the
+    unsent code, so the next sign-in attempt or resend sends a fresh one
+    instead of waiting for a code that never arrived. Never a session.
     """
     email = (user.get("email") or "").strip().lower()
     code = f"{secrets.randbelow(1_000_000):06d}"
@@ -377,16 +379,21 @@ def _send_mfa_code(user: Dict[str, Any]) -> None:
     )
     name = (user.get("full_name") or email.split("@")[0]).strip()
     try:
-        send_email_sync(
+        result = send_email_async(
             email,
             "Your Cyphward sign-in code",
             generate_otp_email_html(name, code),
             generate_otp_email_text(name, code),
             recipient_name=name,
         )
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, dict) and result.get("success") is False:
+            raise RuntimeError("mail provider reported failure")
     except Exception:
         import logging
         logging.getLogger("cyphward.auth").warning("MFA code email failed for %s", email)
+        execute_query("DELETE FROM email_otps WHERE user_id = %s AND purpose = 'mfa'", (user["id"],))
         raise HTTPException(
             status_code=503,
             detail="Could not send the sign-in code — please try again shortly.",
@@ -465,7 +472,7 @@ async def login(body: LoginBody) -> Dict[str, Any]:
             (user["id"],),
         )
         if fresh is None:
-            _send_mfa_code(user)
+            await _send_mfa_code(user)
         return {
             "mfa_required": True,
             "mfa_token": _issue_mfa_token(str(user["id"])),
@@ -502,7 +509,7 @@ async def resend_mfa_code(body: MfaBody) -> Dict[str, Any]:
         check_rate_limit(f"mfa-send:{user_id}", 1, _MFA_SEND_WINDOW_SECONDS)
     except HTTPException:
         raise HTTPException(status_code=429, detail="A code was just sent — check your inbox.")
-    _send_mfa_code(user)
+    await _send_mfa_code(user)
     return {"sent": True}
 
 
@@ -623,7 +630,7 @@ async def request_mfa_disable(user: Dict[str, Any] = Depends(get_current_user)) 
         check_rate_limit(f"mfa-disable:{user['id']}", 1, _MFA_SEND_WINDOW_SECONDS)
     except HTTPException:
         raise HTTPException(status_code=429, detail="A code was just sent — check your inbox.")
-    _send_mfa_code(user)
+    await _send_mfa_code(user)
     return {"sent": True}
 
 

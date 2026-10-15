@@ -178,3 +178,32 @@ def test_send_email_async_defaults_to_system_sender(monkeypatch):
         "name": "Cyphward",
         "email": "no-reply@cyphward.com",
     }
+
+
+def test_send_email_sync_never_retries_a_delivery_failure_or_leaks_a_coroutine(monkeypatch, recwarn):
+    import asyncio
+    import pytest
+    from backend.app.services import mailer
+
+    calls = []
+
+    async def failing(*a, **k):
+        calls.append(a)
+        raise RuntimeError("All Brevo delivery methods failed")
+
+    monkeypatch.setattr(mailer, "send_email_async", failing)
+    with pytest.raises(RuntimeError):
+        mailer.send_email_sync("a@example.test", "s", "<p>h</p>", "t")
+    assert len(calls) == 1, "a delivery failure is not retried as a loop problem"
+
+    async def ok(*a, **k):
+        calls.append(a)
+        return {"success": True}
+
+    monkeypatch.setattr(mailer, "send_email_async", ok)
+
+    async def from_running_loop():
+        return mailer.send_email_sync("a@example.test", "s", "<p>h</p>", "t")
+
+    assert asyncio.run(from_running_loop()) == {"success": True}
+    assert not [w for w in recwarn if "never awaited" in str(w.message)]
