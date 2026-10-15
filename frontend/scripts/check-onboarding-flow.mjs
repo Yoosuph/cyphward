@@ -63,6 +63,8 @@ try {
       _expires_at: Date.now() + (location.search.includes('expired=1') ? -1000 : 3600000),
     }));
     localStorage.setItem('cyphward-welcome-sent', user.id);
+    // The tour has its own section below; elsewhere it must not cover the page.
+    if (!sessionStorage.getItem('tour-test')) localStorage.setItem(`cyphward-tour-v1:${user.id}`, 'done');
     // Simulate cached progress from another account; bootstrap must override it.
     localStorage.setItem('cyphward-onboarding', 'verify_domain');
     localStorage.setItem('cyphward-tenant', JSON.stringify({ id: 'old-org', name: 'Old Workspace', slug: 'old-workspace' }));
@@ -74,7 +76,7 @@ try {
   }, user);
 
   await page.goto(`${origin}/overview`);
-  await page.waitForFunction(() => document.body.textContent.includes('Finish setting up domain monitoring'));
+  await page.waitForFunction(() => document.body.textContent.includes('Get your first security score'));
   assert.equal(new URL(page.url()).pathname, '/overview');
   assert.ok(!await page.evaluate(() => document.body.textContent.includes('Old Workspace')));
   assert.equal(await page.evaluate(() => localStorage.getItem('cyphward-org-id')), org.id);
@@ -84,8 +86,53 @@ try {
   domains = [{ id: 'pending-domain', org_id: org.id, domain: 'mycompany.ng',
     verification_status: 'pending', verification_token: 'secret-token', created_at: '2026-10-11T00:00:00Z' }];
   await page.goto(`${origin}/overview`);
-  await page.waitForFunction(() => document.body.textContent.includes('Verify mycompany.ng'));
+  await page.waitForFunction(() => document.body.textContent.includes('Add one DNS TXT record for mycompany.ng'));
   assert.equal(new URL(page.url()).pathname, '/overview');
+
+  // First-run tour: auto-starts once, spotlights real UI, Esc skips, replayable.
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluate(() => { sessionStorage.setItem('tour-test', '1'); localStorage.removeItem('cyphward-tour-v1:new-user'); });
+  await page.goto(`${origin}/overview`);
+  await page.waitForSelector('[role="dialog"][aria-labelledby="tour-title"]', { visible: true });
+  const tourTitle = () => page.evaluate(() => document.querySelector('#tour-title')?.textContent);
+  assert.equal(await tourTitle(), 'Welcome to Cyphward');
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'START TOUR');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#tour-title')?.textContent === 'Your setup checklist');
+  const spotCovers = selector => page.evaluate(sel => {
+    const spot = document.querySelector('.tour-spot')?.getBoundingClientRect();
+    const target = document.querySelector(sel)?.getBoundingClientRect();
+    return !!spot && !!target && spot.left <= target.left && spot.right >= target.right && spot.top <= target.top + 1 && spot.bottom >= target.bottom - 1;
+  }, selector);
+  await page.waitForFunction(() => !!document.querySelector('.tour-spot'));
+  await new Promise(resolve => setTimeout(resolve, 400)); // spotlight moves over 250ms
+  assert.ok(await spotCovers('[data-tour="checklist"]'), 'Checklist step spotlights the checklist');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() => document.querySelector('#tour-title')?.textContent === 'Domains');
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.ok(await spotCovers('[data-tour="nav-domains"]'), 'Domains step spotlights the sidebar item');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('[aria-labelledby="tour-title"]'));
+  assert.equal(await page.evaluate(() => localStorage.getItem('cyphward-tour-v1:new-user')), 'skipped');
+  await page.goto(`${origin}/overview`);
+  await page.waitForSelector('[data-tour="checklist"]');
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.ok(!await page.$('[aria-labelledby="tour-title"]'), 'A skipped tour does not start again');
+  await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.includes('TAKE THE TOUR')).click());
+  await page.waitForFunction(() => document.querySelector('#tour-title')?.textContent === 'Welcome to Cyphward');
+  await page.setViewport({ width: 390, height: 844 });
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() => document.querySelector('#tour-title')?.textContent === 'Domains');
+  await page.waitForFunction(() => document.querySelector('#tour-body')?.textContent.includes('open Menu to find Domains'));
+  await new Promise(resolve => setTimeout(resolve, 400)); // card glides to its new place over 250ms
+  assert.ok(await page.evaluate(() => {
+    const card = document.querySelector('.tour-card').getBoundingClientRect();
+    return card.left >= 0 && card.right <= window.innerWidth && document.documentElement.scrollWidth <= window.innerWidth;
+  }), 'Tour card fits a 390px screen');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { sessionStorage.removeItem('tour-test'); localStorage.setItem('cyphward-tour-v1:new-user', 'done'); });
+  await page.setViewport({ width: 800, height: 600 });
 
   await page.goto(`${origin}/onboarding/verify-domain`);
   await page.waitForSelector('button[aria-label="Copy DNS host name"]');
@@ -102,7 +149,8 @@ try {
   await page.waitForSelector('#dns-zone');
   await page.$eval('#dns-zone', input => { input.value = ''; });
   await page.type('#dns-zone', 'mycompany.ng');
-  await page.click('button[aria-label="Copy DNS host name"]');
+  // At 320px the fixed cookie notice can cover this button; click it directly.
+  await page.$eval('button[aria-label="Copy DNS host name"]', button => button.click());
   assert.equal(await page.evaluate(() => window.__copied), '_cyphward.www');
   await page.$eval('button[aria-label="Copy full DNS record name"]', button => button.click());
   assert.equal(await page.evaluate(() => window.__copied), '_cyphward.www.mycompany.ng');
@@ -159,7 +207,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.get('invite'), 'offline-invite');
   bootstrapUnavailable = false;
   await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.includes('RETRY WORKSPACE')).click());
-  await page.waitForFunction(() => document.body.textContent.includes('Finish setting up domain monitoring'));
+  await page.waitForFunction(() => document.body.textContent.includes('Get your first security score'));
   assert.equal(new URL(page.url()).searchParams.get('invite'), 'offline-invite');
 
   // An expired access token plus a refresh outage is not a revoked session.
@@ -169,7 +217,7 @@ try {
   assert.ok(await page.evaluate(() => !!localStorage.getItem('cyphward-session')));
   refreshUnavailable = false;
   await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent.includes('RETRY WORKSPACE')).click());
-  await page.waitForFunction(() => document.body.textContent.includes('Finish setting up domain monitoring'));
+  await page.waitForFunction(() => document.body.textContent.includes('Get your first security score'));
 
   const beforeRefresh = refreshRequests;
   await page.evaluate(async () => {
@@ -194,7 +242,7 @@ try {
   await page.waitForFunction(() => window.__lateRefreshStatus === 409);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('cyphward-session')).user.id), 'other-user');
   assert.deepEqual(errors, []);
-  console.log('PASS: onboarding/DNS/mobile navigation, bootstrap and refresh outages, invitation preservation, concurrent refresh and late account-switch response');
+  console.log('PASS: onboarding/DNS/mobile navigation, setup checklist, first-run tour (auto-start, spotlight, skip, replay, 390px), bootstrap and refresh outages, invitation preservation, concurrent refresh and late account-switch response');
 } finally {
   if (browser) await browser.close();
   await server.close();

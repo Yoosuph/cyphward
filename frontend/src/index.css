@@ -1780,3 +1780,39 @@ body.drawer-open {
   }
 }
 
+
+/* ============ FIRST-RUN: SETUP CHECKLIST + PRODUCT TOUR ============ */
+.setup-checklist{padding:20px 22px}
+.setup-checklist-head{display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px}
+.setup-checklist-bar{height:4px; border-radius:2px; background:var(--inset); overflow:hidden; margin:14px 0 6px}
+.setup-checklist-bar span{display:block; height:100%; background:var(--accent); transition:width .4s cubic-bezier(.16,1,.3,1)}
+.setup-checklist-steps{list-style:none; margin:0; padding:0}
+.setup-checklist-steps li{display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid var(--line)}
+.setup-checklist-steps li:first-child{border-top:0}
+.setup-checklist-steps li.is-done p{color:var(--soft); text-decoration:line-through; text-decoration-color:var(--line-strong)}
+.setup-checklist-steps li.is-next{background:linear-gradient(90deg, var(--accent-soft), transparent 70%); margin:0 -22px; padding-left:22px; padding-right:22px}
+.setup-checklist-mark{flex:none; width:20px; height:20px; border-radius:999px; border:1.5px solid var(--line-strong); display:grid; place-items:center; color:#FCF9F0}
+.setup-checklist-steps li.is-done .setup-checklist-mark{background:var(--ok); border-color:var(--ok)}
+.setup-checklist-steps li.is-next .setup-checklist-mark{border-color:var(--accent)}
+@media (max-width:640px){
+  .setup-checklist{padding:18px 16px}
+  .setup-checklist-steps li{flex-wrap:wrap}
+  .setup-checklist-steps li.is-next{margin:0 -16px; padding-left:16px; padding-right:16px}
+  .setup-checklist-steps li.is-next .btn{width:100%; justify-content:center}
+}
+
+.tour-root{position:fixed; inset:0; z-index:200; --tour-scrim:rgba(18,17,13,.32)}
+.tour-blocker{position:fixed; inset:0}
+[data-theme="dark"] .tour-root{--tour-scrim:rgba(0,0,0,.6)}
+.tour-scrim{position:fixed; inset:0; background:var(--tour-scrim)}
+.tour-spot{position:fixed; border-radius:10px; box-shadow:0 0 0 2px var(--accent), 0 0 0 9999px var(--tour-scrim); pointer-events:none; transition:top .25s ease, left .25s ease, width .25s ease, height .25s ease}
+.tour-card{position:fixed; z-index:1; background:var(--raised); border:1px solid var(--line-strong); border-radius:8px; padding:18px 18px 16px; box-shadow:0 18px 50px -12px rgba(0,0,0,.35); transition:top .25s ease, left .25s ease}
+.tour-close{display:grid; place-items:center; width:32px; height:32px; margin:-6px -6px 0 0; border-radius:6px; color:var(--soft)}
+.tour-close:hover{background:var(--inset); color:var(--ink)}
+.tour-dots{display:flex; gap:5px; margin-top:14px}
+.tour-dots span{width:6px; height:6px; border-radius:999px; background:var(--line-strong)}
+.tour-dots span.past{background:color-mix(in srgb, var(--accent) 45%, var(--line-strong))}
+.tour-dots span.on{width:16px; background:var(--accent)}
+@media (prefers-reduced-motion: reduce){
+  .tour-spot, .tour-card, .setup-checklist-bar span{transition:none}
+}

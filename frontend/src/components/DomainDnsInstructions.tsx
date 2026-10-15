@@ -2,8 +2,19 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useToast } from './Toast';
 
+// Two-label public suffixes common for our customers (example.com.ng is a root domain).
+const TWO_LABEL_SUFFIXES = ['com.ng', 'org.ng', 'net.ng', 'edu.ng', 'gov.ng', 'name.ng', 'co.ke', 'or.ke', 'co.za', 'org.za', 'com.gh', 'co.uk', 'org.uk'];
+
+/** A root domain is almost always its own DNS zone; subdomains often are not. */
+function isRootDomain(domain: string) {
+  const labels = domain.split('.');
+  const suffix = labels.slice(-2).join('.');
+  return labels.length === 2 || (labels.length === 3 && TWO_LABEL_SUFFIXES.includes(suffix));
+}
+
 export default function DomainDnsInstructions({ domain, token }: { domain: string; token?: string }) {
   const [zone, setZone] = useState(domain);
+  const [showZone, setShowZone] = useState(() => !isRootDomain(domain));
   const [copied, setCopied] = useState<string | null>(null);
   const toast = useToast();
   const dnsZone = zone.trim().toLowerCase().replace(/\.$/, '');
@@ -41,11 +52,15 @@ export default function DomainDnsInstructions({ domain, token }: { domain: strin
 
   return (
     <div className="space-y-3">
-      <div className="field">
+      {showZone ? <div className="field">
         <label htmlFor="dns-zone">DNS ZONE MANAGED BY YOUR PROVIDER</label>
         <input id="dns-zone" value={zone} onChange={event => setZone(event.target.value)} autoCapitalize="none" spellCheck={false} aria-describedby="dns-zone-help" />
         <p id="dns-zone-help" className="text-xs text-soft mt-1">Use the zone shown in your DNS panel. For www.example.com, this is usually example.com. If your provider manages www.example.com as its own zone, enter that instead.</p>
-      </div>
+      </div> : (
+        <button type="button" className="text-xs text-soft underline hover:text-ink" onClick={() => setShowZone(true)}>
+          My DNS provider uses a different zone
+        </button>
+      )}
       {!validZone && <p role="alert" className="text-xs text-accent">Enter {domain} or a parent DNS zone containing this domain.</p>}
       <div className="p-3 bg-inset rounded border border-line space-y-1">
         <p className="text-[10px] mono text-soft">DNS RECORD TO ADD · TXT</p>

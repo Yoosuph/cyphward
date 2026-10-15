@@ -37,10 +37,10 @@ export default function OnboardingComplete() {
 
       <div>
         <h3 className="font-display text-xl font-medium text-ink mb-1">
-          Your workspace is ready
+          {canScan ? 'Ready for your first scan' : 'Your workspace is ready'}
         </h3>
         <p className="text-xs text-soft">
-          {canScan ? 'Your domain is verified and ready to scan.' : 'Your workspace is ready. Verify a domain when you are ready to scan.'}
+          {canScan ? `${primaryDomain?.domain} is verified.` : 'Verify a domain when you are ready to scan.'}
         </p>
       </div>
 
@@ -58,6 +58,19 @@ export default function OnboardingComplete() {
           </div>
         )}
       </div>
+
+      {canScan && (
+        <div className="text-left">
+          <p className="text-[10px] mono text-soft mb-2">WHAT THE FIRST SCAN DOES</p>
+          <ul className="space-y-1.5 text-xs text-soft">
+            <li>· Finds public subdomains of {primaryDomain?.domain}</li>
+            <li>· Checks SPF and DMARC email protection</li>
+            <li>· Checks HTTP headers, the TLS certificate and open ports on each public host</li>
+            <li>· Scores the result and writes a fix for every finding</li>
+          </ul>
+          <p className="text-xs text-soft mt-3">It usually takes 30–45 minutes. You can leave this page: results appear on Scans and Overview, and you'll get a notification.</p>
+        </div>
+      )}
 
       {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
       {canManage && <button

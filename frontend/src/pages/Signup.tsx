@@ -1,10 +1,7 @@
 import { FormEvent, useState, useEffect } from 'react';
+import AuthSidePanel from '../components/AuthSidePanel';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  ArrowRight, ShieldCheck, Lock,
-  Eye, EyeOff, Sun, Moon, Check, Globe, Server, CheckCircle2,
-  Radio, ShieldAlert, AlertCircle, User
-} from 'lucide-react';
+import { ArrowRight, Lock, Eye, EyeOff, Sun, Moon, Check, Globe, AlertCircle, User } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { signInWithGooglePopup } from '../lib/googlePopup';
@@ -214,115 +211,9 @@ export default function Signup() {
 
         {/* Main Split Grid on Desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 items-center">
-          {/* Left Column: Brand Manifesto & Live Telemetry */}
-          <div className="lg:col-span-7 flex flex-col gap-6 order-2 lg:order-1">
-            <div>
-              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded border border-line bg-inset font-mono text-[10.5px] tracking-wider text-soft mb-3">
-                <Radio size={12} className="text-accent animate-pulse" />
-                <span>PRIMARY REGION: LAGOS // KANO // NAIROBI</span>
-              </div>
-
-              <h1 className="display-h">
-                Start securing your <em>online presence.</em>
-              </h1>
-
-              <p className="login-sub">
-                Create an account to monitor your websites and apps for security issues, stay audit-ready for NDPA and CBN programmes, and catch threats early.
-              </p>
-            </div>
-
-            {/* Live Telemetry Showcase Box */}
-            <div className="login-telemetry-panel">
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-line">
-                <div className="flex items-center gap-2">
-                  <span className="live-dot" />
-                  <span className="eyebrow text-[10px] tracking-widest">LIVE ACTIVITY</span>
-                </div>
-                <span className="mono text-[10px] text-soft">LATENCY: 24ms · HEALTH: 100%</span>
-              </div>
-
-              <div className="flex flex-col gap-2.5">
-                <div className="login-feed-item">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Server size={14} className="text-accent flex-none" />
-                    <div>
-                      <span className="font-semibold text-ink">USSD payments</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(Kano region)</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">1,420 / min</span>
-                    <span className="tag text-[9px] text-ok border-ok/30 bg-ok/10">NORMAL</span>
-                  </div>
-                </div>
-
-                <div className="login-feed-item">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <ShieldAlert size={14} className="text-accent flex-none" />
-                    <div>
-                      <span className="font-semibold text-ink">SIM-swap attempts</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(Lagos network)</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">3 blocked</span>
-                    <span className="tag text-[9px] text-accent border-accent/30 bg-accent/10">BLOCKED</span>
-                  </div>
-                </div>
-
-                <div className="login-feed-item">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <ShieldCheck size={14} className="text-ok flex-none" />
-                    <div>
-                      <span className="font-semibold text-ink">NDPA 2023 readiness checks</span>
-                      <span className="text-soft ml-1.5 hidden sm:inline">(always on)</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-none">
-                    <span className="text-soft text-[10px]">14/18 controls</span>
-                    <span className="tag text-[9px] text-ok border-ok/30 bg-ok/10">PASS</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Metrics Row */}
-              <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-line text-center">
-                <div>
-                  <div className="mono text-xs font-semibold text-ink">99.98%</div>
-                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">UPTIME</div>
-                </div>
-                <div>
-                  <div className="mono text-xs font-semibold text-ink">&lt; 42ms</div>
-                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">AVG. RESPONSE</div>
-                </div>
-                <div>
-                  <div className="mono text-xs font-semibold text-ink">3 REGIONS</div>
-                  <div className="mono text-[9px] text-soft tracking-wider mt-0.5">WEST & EAST AFRICA</div>
-                </div>
-              </div>
-
-              {/* Compliance Badges */}
-              <div className="auth-trust-strip mt-4">
-                <span className="auth-trust-item">
-                  <ShieldCheck size={12} className="text-accent" /> NDPA 2023 READINESS
-                </span>
-                <span className="auth-trust-item">
-                  <Lock size={12} className="text-accent" /> BUILT FOR CBN RULES
-                </span>
-                <span className="auth-trust-item">
-                  <CheckCircle2 size={12} className="text-accent" /> SECURE SIGN-IN
-                </span>
-              </div>
-            </div>
-
-            {/* Testimonial Quote */}
-            <div className="p-3.5 rounded border border-line bg-inset/60 text-xs text-soft leading-relaxed flex items-start gap-3">
-              <span className="font-serif text-2xl text-accent leading-none select-none">"</span>
-              <p>
-                <strong className="text-ink">CYPHWARD</strong> gives our board a clear view of our security and compliance — no more guesswork.
-                <span className="block mt-1 text-[10.5px] mono text-soft">— Folake Adeyemi, Lead DPO, Lagos Core Switch</span>
-              </p>
-            </div>
+          {/* Left Column: what happens next / what we check (true statements only) */}
+          <div className="lg:col-span-7 order-2 lg:order-1">
+            <AuthSidePanel mode="signup" />
           </div>
 
           {/* Right Column: Authentication Terminal */}

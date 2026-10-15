@@ -4,6 +4,15 @@ import { ArrowRight, Globe, AlertCircle, Info } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
 
+/** Accept pasted URLs: drop scheme, path, port and a trailing dot. */
+function cleanInput(value: string) {
+  return value.trim().toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/[/?#].*$/, '')
+    .replace(/:\d+$/, '')
+    .replace(/\.$/, '');
+}
+
 export default function AddDomain() {
   const { addPrimaryDomain, organization, completeOnboarding } = useAuth();
   const nav = useNavigate();
@@ -19,9 +28,7 @@ export default function AddDomain() {
     setBusy(true);
     setError('');
 
-    // Clean domain input
-    let cleanDomain = domain.trim().toLowerCase();
-    cleanDomain = cleanDomain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const cleanDomain = cleanInput(domain);
 
     const result = await addPrimaryDomain(cleanDomain);
 
@@ -31,7 +38,7 @@ export default function AddDomain() {
       return;
     }
 
-    toast('Domain added successfully!');
+    toast('Domain added.');
     nav('/onboarding/verify-domain', { replace: true });
   };
 
@@ -39,10 +46,10 @@ export default function AddDomain() {
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <h3 className="font-display text-lg font-medium text-ink mb-1">
-          Add Your Primary Domain
+          Add your domain
         </h3>
         <p className="text-xs text-soft">
-          Add the domain you want to monitor for security threats and gather compliance evidence.
+          Usually your main website, like example.com. Subdomains we discover, such as www or mail, are included in the scan.
         </p>
       </div>
 
@@ -63,13 +70,23 @@ export default function AddDomain() {
           onChange={e => setDomain(e.target.value)}
           required
           autoFocus
+          autoCapitalize="none"
+          spellCheck={false}
         />
+        {cleanInput(domain).startsWith('www.') && cleanInput(domain).split('.').length > 2 && (
+          <p className="text-xs text-soft mt-1.5">
+            Most people mean the root domain.{' '}
+            <button type="button" className="text-accent underline" onClick={() => setDomain(cleanInput(domain).slice(4))}>
+              Use {cleanInput(domain).slice(4)} instead
+            </button>
+          </p>
+        )}
       </div>
 
       <div className="p-3 bg-accent/5 border border-accent/20 rounded text-xs text-soft flex items-start gap-2">
         <Info size={14} className="text-accent flex-none mt-0.5" />
         <span>
-          Verification requires access to this domain's DNS settings. You can copy instructions for your DNS administrator or add a domain later. This one will be used for your first security scan.
+          Next you'll add one DNS record to prove you own this domain. If someone else manages your DNS, you can copy the instructions for them.
         </span>
       </div>
 

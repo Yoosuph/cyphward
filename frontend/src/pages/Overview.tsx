@@ -22,6 +22,8 @@ import { getOverview, launchScan, getDomains, getExecutiveSummary } from '../lib
 import { useAuth } from '../lib/auth';
 import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
+import SetupChecklist from '../components/SetupChecklist';
+import { startTour } from '../lib/tour';
 
 export default function Overview() {
   const [data, setData] = useState<OverviewData | null>(null);
@@ -32,6 +34,7 @@ export default function Overview() {
   const [launching, setLaunching] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [domains, setDomains] = useState<Domain[]>([]);
+  const [domainsLoaded, setDomainsLoaded] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<string>('');
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [execSummary, setExecSummary] = useState<ExecutiveSummary | null>(null);
@@ -54,7 +57,7 @@ export default function Overview() {
       if (!first) return;
       const hour = new Date().getHours();
       const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-      setGreeting(`${part}, ${first} — welcome back.`);
+      setGreeting(`${part}, ${first}.`);
       sessionStorage.setItem('cyphward-greeted', '1');
     } catch {
       /* greeting is best-effort */
@@ -75,6 +78,7 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
+        setDomainsLoaded(true);
         setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
       }
@@ -188,7 +192,7 @@ export default function Overview() {
             {organization.name}
           </h1>
           <p className="text-xs mono text-soft mt-1">
-            We watch what's exposed online and keep your security score up to date.
+            We check what your verified domains expose online and keep your score up to date.
           </p>
         </div>
 
@@ -202,6 +206,7 @@ export default function Overview() {
           </button>
 
           <button
+            data-tour="start-scan"
             onClick={() => verifiedDomains.length ? setScanModalOpen(true) : navigate(pendingDomain ? '/domains' : '/onboarding/add-domain')}
             disabled={!canManageDomains}
             className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
@@ -212,20 +217,36 @@ export default function Overview() {
         </div>
       </div>
 
-      {verifiedDomains.length === 0 && (
-        <div className="p-4 rounded-lg border border-accent/30 bg-accent/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-ink">Finish setting up domain monitoring</p>
-            <p className="text-xs text-soft mt-1">{!canManageDomains
-              ? 'Ask a workspace admin to add and verify a domain before scanning can begin.'
-              : pendingDomain
-              ? `Verify ${pendingDomain.domain} with a DNS TXT record to start scans and earn a security score.`
-              : 'Add a domain you own to start scans and earn a security score.'}</p>
-          </div>
-          {canManageDomains && <button className="btn btn-solid btn-mini shrink-0" onClick={() => navigate(pendingDomain && primaryDomain?.id === pendingDomain.id ? '/onboarding/verify-domain' : pendingDomain ? '/domains' : '/onboarding/add-domain')}>
-            {pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}
-          </button>}
-        </div>
+      {domainsLoaded && (
+        <SetupChecklist
+          canManage={canManageDomains}
+          onTour={startTour}
+          steps={[
+            { key: 'workspace', label: 'Create your workspace', hint: '', done: true },
+            {
+              key: 'domain', label: 'Add a domain', done: domains.length > 0,
+              hint: 'Usually your main website, like example.com.',
+              action: { label: 'ADD DOMAIN', onClick: () => navigate('/onboarding/add-domain') },
+            },
+            {
+              key: 'verify', label: 'Verify you own it', done: verifiedDomains.length > 0,
+              hint: pendingDomain ? `Add one DNS TXT record for ${pendingDomain.domain}. Nothing is scanned before that.` : 'Add one DNS TXT record.',
+              action: { label: 'VERIFY DOMAIN', onClick: () => navigate(pendingDomain && primaryDomain?.id === pendingDomain.id ? '/onboarding/verify-domain' : '/domains') },
+            },
+            {
+              key: 'scan', label: 'Run your first scan', done: recent_scans.length > 0,
+              hint: 'Usually takes 30–45 minutes. You can leave this page while it runs.',
+              action: { label: 'START SCAN', onClick: () => setScanModalOpen(true) },
+            },
+            {
+              key: 'review', label: 'Review your score and findings', done: recent_scans.some(scan => scan.status === 'completed'),
+              hint: recent_scans.some(scan => scan.status === 'queued' || scan.status === 'running')
+                ? 'Your first scan is running. Results appear here when it finishes.'
+                : 'Open the scan to see what was checked and what to fix first.',
+              action: { label: 'OPEN SCANS', onClick: () => navigate('/scans') },
+            },
+          ]}
+        />
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs mono">
@@ -241,7 +262,7 @@ export default function Overview() {
       {/* Top Grid: Radial Score Ring & High-level Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Main Score Gauge */}
-        <div className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
+        <div data-tour="score" className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
           <div className="absolute top-3 left-4 text-[10px] mono text-soft tracking-wider">
             KNOWN-RISK SCORE
           </div>
