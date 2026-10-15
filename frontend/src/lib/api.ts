@@ -70,7 +70,8 @@ async function apiFetch<T>(
     }
 
     // Any write may change what a cached list page shows; drop it all.
-    if ((options?.method || 'GET').toUpperCase() !== 'GET') clearPageCache();
+    // /ai/* POSTs only read (explain, remediate, summaries, chat).
+    if ((options?.method || 'GET').toUpperCase() !== 'GET' && !endpoint.startsWith('/ai/')) clearPageCache();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));

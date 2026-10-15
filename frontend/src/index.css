@@ -1869,6 +1869,8 @@ body.drawer-open {
 }
 @keyframes fabIn{from{opacity:0; transform:scale(.8)} to{opacity:1; transform:none}}
 @media (prefers-reduced-motion: reduce){ .cyphbot-fab{animation:none; transition:none} }
+/* The topbar button takes over from 640px; never show both. */
+@media (min-width: 640px){ .cyphbot-fab{display:none} }
 
 /* ============ STACKED TABLES (phones) ============
    Tables marked .table-stack become one card per row below 640px instead of
