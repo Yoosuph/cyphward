@@ -1152,6 +1152,9 @@ body.drawer-open {
   .roster-card:hover{background:var(--inset)}
 }
 .roster-photo{position:relative; margin:0; overflow:hidden; background:var(--inset)}
+.roster-initials{display:grid; place-items:center; width:100%; aspect-ratio:4/5; font-family:var(--font-display); font-weight:500; font-size:clamp(3.2rem,7vw,5.5rem); letter-spacing:-.04em; color:var(--soft); background:linear-gradient(160deg, var(--inset), var(--raised))}
+.roster-photo:has(.roster-initials)::after{display:none}
+@media (max-width:859px){ .roster-initials{aspect-ratio:16/9} }
 .roster-photo img{width:100%; aspect-ratio:4/5; object-fit:cover; object-position:center 22%; display:block; filter:saturate(.92); transform:scale(1.01); transition:transform .7s cubic-bezier(.16,1,.3,1), filter .5s}
 @media (hover:hover) and (pointer:fine){
   .roster-card:hover .roster-photo img{transform:scale(1.04); filter:saturate(1)}

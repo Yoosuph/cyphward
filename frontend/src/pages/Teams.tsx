@@ -5,26 +5,30 @@ import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
 import { usePageMotion } from '../lib/usePageMotion';
 
-const PEOPLE = [
+// Add `image: '/team/<name>.jpg'` once a real, approved headshot exists
+// (about 1200x1500, consistent lighting). Until then the card shows initials.
+const PEOPLE: { name: string; role: string; note: string; image?: string }[] = [
   {
     name: 'Yusuf Lawan Nuhu',
     role: 'Chief Executive Officer',
     note: 'Cybersecurity engineer and developer',
-    image: '/team/yusuf-lawan-nuhu.jpg?v=2',
   },
   {
     name: 'Abdullahi Bala Musa',
     role: 'Chief Technology Officer',
     note: '',
-    image: '/team/abdullahi-bala-musa.jpg?v=2',
   },
   {
     name: 'Abdullahi Kabir Sani',
     role: 'Marketing Strategist',
     note: '',
-    image: '/team/abdullahi-kabir-sani.jpg?v=2',
   },
 ];
+
+function initials(name: string) {
+  const parts = name.split(/\s+/).filter(Boolean);
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
 
 export default function Teams() {
   const motionRef = usePageMotion<HTMLElement>();
@@ -48,7 +52,11 @@ export default function Teams() {
           {PEOPLE.map((person, index) => (
             <li key={person.name} className={`roster-card rise-in rise-in-${index + 2}`}>
               <figure className="roster-photo">
-                <img src={person.image} alt="" loading="lazy" decoding="async" />
+                {person.image ? (
+                  <img src={person.image} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="roster-initials" aria-hidden="true">{initials(person.name)}</span>
+                )}
                 <span className="roster-index">0{index + 1}</span>
               </figure>
               <div className="roster-copy">
