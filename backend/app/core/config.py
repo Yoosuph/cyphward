@@ -18,6 +18,10 @@ else:
 # Secrets are environment-only — never hardcode credentials in source.
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+# "production" only on deployed services. Anything else, with a non-loopback
+# DATABASE_URL, refuses scheduler/recovery work (core/runtime_guard.py).
+CYPHWARD_ENV = os.getenv("CYPHWARD_ENV", "development").strip().lower()
+
 # Cyphward Auth — our own JWT sessions (Supabase Auth is not used).
 AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "")
 # Access tokens are short-lived: get_current_user checks session revocation on
