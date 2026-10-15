@@ -14,7 +14,7 @@ export const PUBLIC_PLANS: PublicPlan[] = [
   {
     id: 'starter',
     name: 'Starter',
-    priceLabel: '₦7,000',
+    priceLabel: '₦15,000',
     blurb: 'For one business that wants a clear external score.',
     points: [
       'Verify your domain with a DNS record before any scan',
@@ -27,7 +27,7 @@ export const PUBLIC_PLANS: PublicPlan[] = [
   {
     id: 'growth',
     name: 'Growth',
-    priceLabel: '₦15,000',
+    priceLabel: '₦25,000',
     blurb: 'For a team that shares findings, fixes and reports.',
     featured: true,
     points: [

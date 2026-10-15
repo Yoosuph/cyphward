@@ -22,7 +22,7 @@ def test_set_plan_creates_subscription_and_invoice(client, auth_headers, store):
     body = resp.json()
     assert body["subscription"]["plan"] == "growth"
     assert body["subscription"]["status"] == "active"
-    assert body["invoice"]["amount_kobo"] == 1_500_000
+    assert body["invoice"]["amount_kobo"] == 2_500_000
     assert body["invoice"]["currency"] == "NGN"
 
     got = client.get("/api/v1/billing/subscription", headers=_h(auth_headers, ALICE, ORG_A))

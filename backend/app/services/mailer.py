@@ -928,6 +928,7 @@ async def send_email_async(
     text_content: Optional[str] = None,
     recipient_name: Optional[str] = None,
     kind: str = DEFAULT_EMAIL_SENDER_KIND,
+    reply_to: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Sends an email using Brevo REST API v3 with automatic failover to Brevo SMTP.
@@ -965,6 +966,8 @@ async def send_email_async(
                 "textContent": text_content,
                 "tracking": {"enabled": False, "opens": False, "clicks": False},
             }
+            if reply_to:
+                payload["replyTo"] = {"email": reply_to}
 
             async with httpx.AsyncClient(timeout=12.0) as client:
                 response = await client.post(url, json=payload, headers=headers)
@@ -1005,6 +1008,8 @@ async def send_email_async(
         msg["Subject"] = subject
         msg["From"] = f"{sender_name} <{sender_email}>"
         msg["To"] = to_email
+        if reply_to:
+            msg["Reply-To"] = reply_to
 
         part1 = MIMEText(text_content, "plain", "utf-8")
         part2 = MIMEText(html_content, "html", "utf-8")

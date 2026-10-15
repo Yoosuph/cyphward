@@ -33,7 +33,8 @@ export default function About() {
       lede="Cyphward Ltd builds Cyphward, external security scoring for Nigerian businesses. You prove a domain is yours. We scan what the internet can already see. You get one 0–100 score, and a fix for every finding."
     >
       <div className="space-y-10 text-sm text-soft leading-relaxed">
-        <section className="space-y-3">
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">01 · COMPANY</p>
           <h2 className="font-display text-2xl font-medium text-ink">A Nigerian company, based in Kano</h2>
           <p>
             Cyphward is built by CYPHWARD LTD, also known as Cyphward Limited.
@@ -47,7 +48,8 @@ export default function About() {
             Our official LinkedIn, X and Instagram profiles are linked below.
           </p>
         </section>
-        <section className="space-y-3">
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">02 · METHOD</p>
           <h2 className="font-display text-2xl font-medium text-ink">What we scan</h2>
           <p>
             A scan covers SPF and DMARC, security headers, TLS certificates, open ports
@@ -61,12 +63,13 @@ export default function About() {
           </p>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">03 · AUDIENCE</p>
           <h2 className="font-display text-2xl font-medium text-ink">Who it is for</h2>
           <p>
             A Nigerian business that wants to know how it looks from the outside:
             a small company on the Starter plan, or a team on Growth that shares
-            findings and reports. Plans are ₦7,000 and ₦15,000 a month.{' '}
+            findings and reports. Plans are ₦15,000 and ₦25,000 a month.{' '}
             <Link to="/pricing" className="text-accent underline">See pricing</Link>.
           </p>
           <p>
@@ -75,7 +78,8 @@ export default function About() {
           </p>
         </section>
 
-        <section>
+        <section className="about-section" data-reveal>
+          <p className="eyebrow">04 · RECORD</p>
           <h2 className="font-display text-2xl font-medium text-ink mb-4">Company details</h2>
           <dl className="panel p-6 md:p-8 grid sm:grid-cols-2 gap-x-8 gap-y-5">
             {FACTS.map(fact => (
@@ -93,7 +97,8 @@ export default function About() {
           </dl>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">05 · ONLINE</p>
           <h2 className="font-display text-2xl font-medium text-ink">Profiles</h2>
           <p>The same name, Cyphward, on each of these:</p>
           <ul className="flex flex-wrap gap-3">

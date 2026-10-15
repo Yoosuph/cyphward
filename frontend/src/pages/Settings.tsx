@@ -596,8 +596,8 @@ export default function Settings() {
                     onChange={e => setNewPlan(e.target.value)}
                     className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
                   >
-                    <option value="starter">Starter — ₦7,000/mo</option>
-                    <option value="growth">Growth — ₦15,000/mo</option>
+                    <option value="starter">Starter — ₦15,000/mo</option>
+                    <option value="growth">Growth — ₦25,000/mo</option>
                   </select>
                   <button
                     type="button"

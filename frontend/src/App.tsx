@@ -21,6 +21,8 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
+import Teams from './pages/Teams';
+import Contact from './pages/Contact';
 import Health from './pages/Health';
 import NotFound from './pages/NotFound';
 
@@ -323,6 +325,8 @@ export default function App() {
             <Route path="/health" element={<Health />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/about" element={<About />} />
+            <Route path="/teams" element={<Teams />} />
+            <Route path="/contact" element={<Contact />} />
 
             {/* Onboarding Routes */}
             <Route path="/onboarding" element={<OnboardingLayout />}>

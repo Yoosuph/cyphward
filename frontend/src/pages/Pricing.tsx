@@ -7,7 +7,7 @@ const SHARED_CHECKS = [
   'You prove the domain is yours with a DNS TXT record before a scan starts',
   'SPF and DMARC, so a spoofer cannot quietly send mail as you',
   'Security headers, including HSTS, CSP and clickjacking protection',
-  'TLS certificate health, open ports, and known web vulnerabilities',
+  'TLS certificate health, open ports, and known-CVE template matches (matches reported; clean results not proven)',
   'One 0–100 score across network, web apps, encryption and exposure',
   'A written fix for every finding, and a daily rescan after you verify',
 ];
@@ -22,23 +22,24 @@ export default function Pricing() {
           Two plans. <em>Same checks.</em>
         </>
       }
-      lede="Starter is ₦7,000 a month. Growth is ₦15,000 a month. Prices are in Nigerian naira. Both plans scan domains you verify and return one score your team can act on."
+      lede="Starter is ₦15,000 a month. Growth is ₦25,000 a month. Prices are in Nigerian naira. Both plans scan domains you verify and return one score your team can act on."
     >
       <div className="pricing-grid cols-2">
         {PUBLIC_PLANS.map(plan => (
-          <article key={plan.id} className={`pricing-card ${plan.featured ? 'featured' : ''}`}>
-            <div className="flex justify-between items-center mb-3 gap-2">
+          <article key={plan.id} className={`pricing-card ${plan.featured ? 'featured' : ''} rise-in ${plan.featured ? 'rise-in-4' : 'rise-in-3'}`}>
+            <div className="flex justify-between items-center mb-6 gap-2">
               <span className="tag w-fit">{plan.name.toUpperCase()}</span>
               {plan.featured && <span className="tag acc text-[9px]">FOR TEAMS</span>}
             </div>
-            <h2 className="font-display text-2xl font-medium mb-1">{plan.name}</h2>
-            <p className="text-xs mono text-soft mb-4">{plan.blurb}</p>
-            <p className="font-display text-3xl font-medium my-2">
-              {plan.priceLabel} <span className="text-xs font-mono text-soft">/ month</span>
+            <h2 className="font-display text-3xl font-medium">{plan.name}</h2>
+            <p className="text-xs mono text-soft mt-2 mb-6">{plan.blurb}</p>
+            <p className="pricing-price">
+              <span className="pricing-amount">{plan.priceLabel}</span>
+              <span className="pricing-unit">/ month</span>
             </p>
-            <ul className="space-y-2.5 my-6 text-xs mono text-soft flex-1">
+            <ul className="pricing-points">
               {plan.points.map(point => (
-                <li key={point} className="flex items-start gap-2">
+                <li key={point}>
                   <Check size={14} className="text-ok flex-none mt-0.5" />
                   <span>{point}</span>
                 </li>
@@ -55,20 +56,20 @@ export default function Pricing() {
         The checks are the same on both plans. Growth is the plan when more than one person works the fixes.
       </p>
 
-      <section className="mt-14">
+      <section className="mt-14" data-reveal>
         <p className="eyebrow mb-3">ON EVERY PLAN</p>
         <h2 className="font-display text-2xl font-medium mb-5">What a scan actually covers.</h2>
-        <ul className="panel p-6 md:p-8 space-y-3 text-sm text-soft">
-          {SHARED_CHECKS.map(item => (
-            <li key={item} className="flex items-start gap-2.5">
-              <Check size={14} className="text-ok flex-none mt-1" />
+        <ul className="panel shared-checks p-6 md:p-8 text-sm text-soft">
+          {SHARED_CHECKS.map((item, index) => (
+            <li key={item}>
+              <span className="shared-index">0{index + 1}</span>
               <span>{item}</span>
             </li>
           ))}
         </ul>
       </section>
 
-      <section className="mt-14 panel p-6 md:p-8">
+      <section className="mt-14 panel p-6 md:p-8" data-reveal>
         <p className="eyebrow mb-3">PAYMENT</p>
         <h2 className="font-display text-2xl font-medium mb-3">Monthly, until you cancel.</h2>
         <p className="text-sm text-soft leading-relaxed">

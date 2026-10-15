@@ -9,12 +9,12 @@ import {
 import { useAuth } from '../lib/auth';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
+import { usePageMotion } from '../lib/usePageMotion';
 import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import ScoreRing from '../components/ScoreRing';
 import Meter from '../components/Meter';
 import CyphwardLogo from '../components/CyphwardLogo';
-import { PUBLIC_PLANS } from '../lib/publicPlans';
 
 const LAYERS = [
   {
@@ -36,7 +36,7 @@ const LAYERS = [
     name: 'EXPOSE',
     icon: Globe,
     tagline: 'Your external footprint, mapped',
-    summary: 'We discover and watch everything the internet can see about you — subdomains, hosts, open ports, certificates and web technologies.',
+    summary: 'We discover and track what the internet can see about your verified domains — subdomains, hosts, open ports, certificates and web technologies.',
     features: [
       'Asset discovery across your domains and subdomains',
       'Open port and service inventory for public IPs',
@@ -50,11 +50,11 @@ const LAYERS = [
     name: 'ANALYZE',
     icon: Radar,
     tagline: 'Automated checks that map to real rules',
-    summary: 'Every scan validates the controls regulators expect you to have — email authentication, TLS, security headers — and flags what is missing or weak.',
+    summary: 'Every scan checks common external controls — email authentication, TLS, security headers — and flags what is missing or weak.',
     features: [
       'SPF and DMARC email authentication checks',
       'HSTS, CSP and clickjacking header checks',
-      'Known vulnerability scanning with Nuclei templates',
+      'Known-CVE template matching with Nuclei (matches reported)',
     ],
     metric: 'DAILY',
     metricLabel: 'AUTOMATED CHECK RUNS',
@@ -64,7 +64,7 @@ const LAYERS = [
     name: 'SCORE',
     icon: Gauge,
     tagline: 'A security rating built for finance',
-    summary: 'A clear security score your executives and insurers can read at a glance — built from what is actually exposed online, with history across every scan.',
+    summary: 'A clear security score your executives and board can read at a glance — built from what is actually exposed online, with history across every scan.',
     features: [
       'Breakdown across network, web apps, encryption and exposure',
       'Score history tracked across every scan',
@@ -82,7 +82,7 @@ const LAYERS = [
     features: [
       'Prioritized fix queue ordered by severity',
       'Step-by-step remediation guidance per finding',
-      'Evidence attached so you can verify every fix',
+      'Evidence attached, with rechecks to confirm fixes',
     ],
     metric: 'STEP-BY-STEP',
     metricLabel: 'REMEDIATION FOR EVERY FINDING',
@@ -110,11 +110,11 @@ const CHECKS = [
   },
   {
     check: 'TLS certificates',
-    detail: 'Expiry, chain and cipher issues surfaced weeks before they break trust',
+    detail: 'Expiry and validity issues surfaced before they break trust',
   },
   {
     check: 'Exposed ports & services',
-    detail: 'Open ports on your public IPs, listed with the services actually running on them',
+    detail: 'Open TCP ports on your public addresses (top 100 ports), as an inventory',
   },
   {
     check: 'Web security headers',
@@ -122,7 +122,7 @@ const CHECKS = [
   },
   {
     check: 'Known vulnerabilities',
-    detail: 'Nuclei templates scan your web apps for publicly known CVEs',
+    detail: 'Nuclei templates check your web apps for publicly known CVEs. Matches are reported; a clean run is not proof of absence',
   },
   {
     check: 'Exposure hygiene',
@@ -188,6 +188,8 @@ export default function Landing() {
   const [calcCountry, setCalcCountry] = useState('Nigeria');
   const [previewTab, setPreviewTab] = useState<'telemetry' | 'findings' | 'fixes'>('telemetry');
 
+  const motionRef = usePageMotion<HTMLElement>();
+
   const handleGetStarted = () => {
     // Real flow only: no mock sessions. Send visitors to create a real account.
     nav('/signup', { replace: true });
@@ -198,30 +200,30 @@ export default function Landing() {
       {/* Background Strata field */}
       <StrataField variant="hero" opacity={0.6} />
 
-      <PublicHeader anchorPrefix="" />
+      <PublicHeader />
 
       {/* Hero Section */}
-      <main className="landing-container relative z-10">
+      <main ref={motionRef} className="landing-container relative z-10">
         <section className="hero-sec">
-          <div className="inline-block">
+          <div className="inline-block rise-in">
             <div className="telemetry-pill">
               <span className="live-dot" />
               <span>LIVE DATA · DAILY SCANS · DNS · PORTS · TLS · WEB · EMAIL</span>
             </div>
           </div>
 
-          <h1 className="hero-h1 max-w-4xl">
+          <h1 className="hero-h1 max-w-4xl rise-in rise-in-2">
             Cyber defense built in Africa for <em>African businesses.</em>
           </h1>
 
-          <p className="hero-desc">
+          <p className="hero-desc rise-in rise-in-3">
             Big global security tools weren't built for African networks. CYPHWARD checks
             what the internet can see about you — DNS, ports, TLS certificates, web apps and
             email security — and turns it into a clear 0–100 score with plain-English findings,
             fix guides and board-ready reports. Built with NDPA 2023 in mind.
           </p>
 
-          <div className="hero-ctas">
+          <div className="hero-ctas rise-in rise-in-4">
             <button className="btn btn-solid text-sm py-3.5 px-6 hover-lift" onClick={handleGetStarted}>
               CREATE YOUR ACCOUNT <ArrowRight size={14} />
             </button>
@@ -234,7 +236,7 @@ export default function Landing() {
           </div>
 
           {/* Interactive Live Preview Terminal */}
-          <div className="preview-card mt-12 hover-lift">
+          <div className="preview-card mt-12 hover-lift rise-in rise-in-5">
             <div className="preview-head">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-accent" />
@@ -365,7 +367,7 @@ export default function Landing() {
         </section>
 
         {/* Pan-African Metrics Strip */}
-        <section className="stat-matrix">
+        <section className="stat-matrix" data-reveal>
           <div className="stat-matrix-cell">
             <div className="stat-matrix-val text-accent">0–100</div>
             <div className="stat-matrix-lbl">ONE SCORE ACROSS FOUR AREAS</div>
@@ -385,7 +387,7 @@ export default function Landing() {
         </section>
 
         {/* The 6 Strata Defense Layers */}
-        <section id="layers" className="py-16">
+        <section id="layers" className="py-16" data-reveal>
           <div className="sec-head">
             <p className="eyebrow">THE DEFENSE ARCHITECTURE</p>
             <h2>The 6 Layers of Strata Defense.</h2>
@@ -452,7 +454,7 @@ export default function Landing() {
         </section>
 
         {/* What a scan checks: honest capability table */}
-        <section id="checks" className="py-16">
+        <section id="checks" className="py-16" data-reveal>
           <div className="sec-head">
             <p className="eyebrow">WHAT WE CHECK</p>
             <h2>Everything a scan puts in front of you.</h2>
@@ -487,7 +489,7 @@ export default function Landing() {
         </section>
 
         {/* Interactive Regulatory Exposure Calculator */}
-        <section id="compliance" className="py-16">
+        <section id="compliance" className="py-16" data-reveal>
           <div className="calc-panel">
             <div className="sec-head mb-6">
               <p className="eyebrow">WHAT NON-COMPLIANCE COSTS</p>
@@ -564,7 +566,7 @@ export default function Landing() {
         </section>
 
         {/* Teams & roles */}
-        <section id="teams" className="py-16">
+        <section id="teams" className="py-16" data-reveal>
           <div className="sec-head">
             <p className="eyebrow">BUILT FOR TEAMS</p>
             <h2>One workspace, the right access for everyone.</h2>
@@ -640,24 +642,8 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Pricing — prices live on the dedicated page */}
-        <section id="pricing" className="py-16">
-          <div className="sec-head">
-            <p className="eyebrow">SIMPLE PLANS</p>
-            <h2>Two plans, priced in naira.</h2>
-            <p className="sec-note">
-              Starter for one business, Growth for teams. The checks are the same.
-            </p>
-          </div>
-          <div className="flex justify-center">
-            <Link to="/pricing" className="btn btn-solid justify-center">
-              SEE PLANS & PRICING <ArrowRight size={14} className="ml-1" />
-            </Link>
-          </div>
-        </section>
-
         {/* Final CTA Banner */}
-        <section className="my-20 text-center py-16 panel bg-inset border-line-strong">
+        <section className="my-20 text-center py-16 panel bg-inset border-line-strong" data-reveal>
           <p className="eyebrow mb-3">TRY IT WITH NO COMMITMENT</p>
           <h2 className="font-display text-4xl font-medium mb-4 max-w-xl mx-auto">
             Check how secure you are right now.

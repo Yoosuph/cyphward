@@ -33,6 +33,7 @@ from backend.app.api import (
     auth_google,
     platform,
     billing,
+    contact,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -134,6 +135,7 @@ app.include_router(health.router)
 app.include_router(scanner_jobs.router)
 app.include_router(platform.router)
 app.include_router(billing.router)
+app.include_router(contact.router)
 
 # ---------------------------------------------------------------------------
 # Startup recovery for legacy unleased local work. New local/Core executions

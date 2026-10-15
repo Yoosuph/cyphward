@@ -1,16 +1,21 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Moon, X, Menu, ArrowRight, ChevronRight } from 'lucide-react';
 import { getTheme, toggleTheme } from '../lib/theme';
 import CyphwardLogo from './CyphwardLogo';
 
-/**
- * The full landing navigation header, shared by every public page.
- * `anchorPrefix` is '' on the landing itself (same-page anchors) and '/'
- * everywhere else (e.g. /pricing links back to /#layers).
- */
-export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: string }) {
+const NAV = [
+  ['/', 'HOME'],
+  ['/about', 'ABOUT'],
+  ['/teams', 'TEAM'],
+  ['/pricing', 'PRICING'],
+  ['/contact', 'CONTACT'],
+] as const;
+
+/** The public navigation header, shared by every marketing page. */
+export default function PublicHeader() {
   const nav = useNavigate();
+  const { pathname } = useLocation();
   const [theme, setTheme] = useState(getTheme());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -24,8 +29,6 @@ export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: str
     nav('/signup', { replace: true });
   };
 
-  const a = (hash: string) => `${anchorPrefix}${hash}`;
-
   return (
     <header className={`landing-nav ${mobileMenuOpen ? 'menu-open' : ''}`}>
       <div className="landing-nav-inner">
@@ -35,11 +38,9 @@ export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: str
         </Link>
 
         <nav className="landing-links">
-          <a href={a('#layers')} className="landing-link">LAYERS</a>
-          <a href={a('#checks')} className="landing-link">WHAT WE CHECK</a>
-          <a href={a('#compliance')} className="landing-link">REGULATION</a>
-          <a href={a('#teams')} className="landing-link">TEAMS</a>
-          <Link to="/pricing" className="landing-link">PRICING</Link>
+          {NAV.map(([to, label]) => (
+            <Link key={to} to={to} className={`landing-link${pathname === to ? ' is-on' : ''}`}>{label}</Link>
+          ))}
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
@@ -74,46 +75,17 @@ export default function PublicHeader({ anchorPrefix = '' }: { anchorPrefix?: str
       {mobileMenuOpen && (
         <div className="landing-mobile-menu min-[901px]:hidden border-t border-line px-4 py-3 flex flex-col gap-2.5 bg-raised/95 backdrop-blur-md rounded-b-2xl">
           <nav className="flex flex-col gap-1 pt-1">
-            <a
-              href={a('#layers')}
-              className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <span>01–06 · DEFENSE LAYERS</span>
-              <ChevronRight size={13} className="text-soft" />
-            </a>
-            <a
-              href={a('#checks')}
-              className="py-2 px-2.5 rounded text-xs mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <span>WHAT WE CHECK</span>
-              <ChevronRight size={13} className="text-soft" />
-            </a>
-            <a
-              href={a('#compliance')}
-              className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <span>PENALTY CALCULATOR</span>
-              <ChevronRight size={13} className="text-soft" />
-            </a>
-            <a
-              href={a('#teams')}
-              className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <span>TEAMS &amp; ROLES</span>
-              <ChevronRight size={13} className="text-soft" />
-            </a>
-            <Link
-              to="/pricing"
-              className="py-2 px-2.5 rounded text-xs font-mono tracking-wider text-soft hover:text-ink flex items-center justify-between hover:bg-inset transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <span>PLANS &amp; PRICING</span>
-              <ChevronRight size={13} className="text-soft" />
-            </Link>
+            {NAV.map(([to, label]) => (
+              <Link
+                key={to}
+                to={to}
+                className={`py-2 px-2.5 rounded text-xs font-mono tracking-wider flex items-center justify-between transition-colors ${pathname === to ? 'text-ink bg-inset' : 'text-soft hover:text-ink hover:bg-inset'}`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span>{label}</span>
+                <ChevronRight size={13} className="text-soft" />
+              </Link>
+            ))}
           </nav>
 
           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-line/60">
