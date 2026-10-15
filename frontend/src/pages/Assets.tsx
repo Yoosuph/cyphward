@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHead } from '../components/ui';
 import {
   Server,
   Search,
@@ -72,35 +73,19 @@ export default function Assets() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">WHAT'S EXPOSED ONLINE</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Assets we found
-          </h1>
-            <p className="text-xs mono text-soft mt-1">
-              Subdomains, IP addresses, open services, and the software running on them.
-              Found via Certificate Transparency and passive DNS during scans — plus
-              hosts you register on the Domains page. Names without a public footprint
-              may take time to appear.
-            </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-
+      <PageHead
+        title="Assets"
+        note="Hosts found on your verified domains, with their addresses, open services and software."
+        actions={
           <button
             onClick={loadAssets}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile ml-auto sm:ml-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors btn-tactile"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
           {/* Filter and Search Bar */}
       <div className="flex flex-col md:flex-row gap-3 items-center justify-between">

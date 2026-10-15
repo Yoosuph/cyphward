@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
   Globe,
@@ -211,22 +212,10 @@ export default function Domains() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="live-dot" />
-            <p className="eyebrow text-accent">YOUR DOMAINS</p>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink mt-1">
-            Domains
-          </h1>
-          <p className="text-xs mono text-soft mt-1">
-            Add the domains you want to monitor, prove they're yours, and we'll start scanning them.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+      <PageHead
+        title="Domains"
+        note="Add a domain, prove you own it with one DNS record, and it is scanned every day."
+        actions={<>
           <button
             onClick={loadDomains}
             className="btn-tactile flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors min-h-[38px]"
@@ -234,7 +223,6 @@ export default function Domains() {
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
-
           <button
             onClick={() => setAddModalOpen(true)}
             className="btn-tactile flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px]"
@@ -242,33 +230,16 @@ export default function Domains() {
             <Plus size={14} />
             <span>ADD DOMAIN</span>
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
-      {/* Security Scope Banner */}
-      <div className="p-4 rounded-lg bg-inset/40 border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs mono">
-        <div className="flex items-center gap-3">
-          <ShieldCheck size={20} className="text-ok shrink-0" />
-          <div>
-            <span className="font-bold text-ink">We only scan domains you own.</span>
-            <p className="text-soft text-[11.5px] mt-0.5">
-              Before we scan a site, you add a one-time DNS record to prove it's yours. This stops anyone — including us — from scanning domains you don't control.
-            </p>
-          </div>
-        </div>
-        <span className="text-[11px] text-accent bg-accent-soft px-2.5 py-1 rounded border border-accent/20 shrink-0 self-start sm:self-center">
-          Ownership-verified scanning
-        </span>
-      </div>
+      <p className="flex items-center gap-2 text-xs text-soft">
+        <ShieldCheck size={14} className="text-ok shrink-0" />
+        We only scan domains you have verified. Nobody, including us, can scan a domain you don't control.
+      </p>
 
       {/* Domains Table */}
       <div className="rounded-lg border border-line bg-raised overflow-hidden">
-        <div className="p-4 border-b border-line bg-inset/30 flex items-center justify-between">
-          <h3 className="mono text-xs font-bold text-ink uppercase tracking-wider">
-            YOUR DOMAINS
-          </h3>
-          <span className="text-[11px] mono text-soft">{domains.length} domains</span>
-        </div>
 
         <div className="overflow-x-auto w-full max-w-full">
           <table className="w-full text-left text-xs mono min-w-[620px]">
@@ -331,6 +302,9 @@ export default function Domains() {
                     </td>
 
                     <td className="py-3 px-4">
+                      {dom.verification_status === 'verified' ? (
+                        <span className="text-[11px] text-soft">In place</span>
+                      ) : (
                       <div className="flex items-center gap-1.5 max-w-xs">
                         <code className="text-[11px] text-soft bg-inset px-2 py-0.5 rounded border border-line truncate">
                           cyphward-verification={dom.verification_token}
@@ -343,6 +317,7 @@ export default function Domains() {
                           {copiedToken === dom.id ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
                         </button>
                       </div>
+                      )}
                     </td>
 
                     <td className="py-3 px-4 text-soft text-[11px]">
