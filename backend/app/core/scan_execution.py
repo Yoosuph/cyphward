@@ -232,11 +232,12 @@ def finish_assessment(
             raise ClaimLost("Invalid assessment authority")
         cur.execute(
             """INSERT INTO score_snapshots
-            (org_id,domain_id,score,subscores,factors,model,scope,risk_points,scan_id)
-            VALUES (%s,NULL,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s)
+            (org_id,domain_id,score,subscores,factors,model,scope,risk_points,scan_id,assessment_coverage)
+            VALUES (%s,NULL,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s::jsonb)
             ON CONFLICT (scan_id) WHERE scan_id IS NOT NULL DO UPDATE SET
                 score=EXCLUDED.score,subscores=EXCLUDED.subscores,factors=EXCLUDED.factors,
-                model=EXCLUDED.model,scope=EXCLUDED.scope,risk_points=EXCLUDED.risk_points""",
+                model=EXCLUDED.model,scope=EXCLUDED.scope,risk_points=EXCLUDED.risk_points,
+                assessment_coverage=EXCLUDED.assessment_coverage""",
             (
                 org_id,
                 score["score"],
@@ -246,6 +247,7 @@ def finish_assessment(
                 notification["scope"],
                 score.get("risk_points"),
                 claim.scan_id,
+                json.dumps((score.get("assessment") or {}).get("coverage")),
             ),
         )
         cur.execute(

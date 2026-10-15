@@ -1,8 +1,22 @@
 # Packet 03 — defensible scan scope and coverage
 
-**Status:** specified; not implemented.
+**Status:** in progress on `codex/scan-scope-coverage`; target-selection, DNS evidence and conservative Nuclei evidence/resolution implemented and locally validated, not released. The evidence-gated scoring slice is also implemented. Release scope was trimmed on 15 October 2026 (below). Declared-scope completeness and the organisation grade gate are implemented and validated on the review branch; the remaining step is the coordinated release.
 **Dependency:** released Packet 02. Preserve protocol v2 ownership, attempt-specific evidence and monotonic progress.
 **Outcome:** users can tell what a scan evaluated, what it omitted or failed to evaluate, and what its findings/score can support.
+
+## Release scope (trimmed 15 October 2026)
+
+Reaching paid pilots now takes priority over exhaustive proof. Packet 03's release scope is:
+
+- target selection and recorded omissions;
+- DNS query evidence and the exact-query email-check gate;
+- Nuclei process evidence with conservative no-match handling;
+- the `cyphward-risk-v3` evidence gate with nullable snapshots;
+- **declared-scope completeness**: coverage is complete when every check in a versioned declared check set (`cyphward-checks-v1`) has a conclusive outcome for every in-scope target. Nuclei is reported separately and does not gate completeness.
+
+Moved to **Packet 03b** (not part of this release): a per-template Nuclei completion adapter, per-check identities beyond the declared set, shared end-to-end deadlines across queue/recon/Core (recon-phase budgets landed in `454c10f`), and external-tool/egress boundary verification. Until 03b ships, Nuclei no-match results stay inconclusive, and the customer-facing scope line says so.
+
+The numbered contract below remains the long-term target. Items it lists that fall under 03b are not release blockers for Packet 03.
 
 ## Read and map the current behavior
 
@@ -11,6 +25,14 @@ Inspect `shared/contracts.py`, `scanner/runner.py`, local recon/Core finalisatio
 Trace requested hosts/checks through discovery, scope filtering, caps, invocation, tool output, persisted observations, normalisation, resolution and presentation. Record where local/remote limits differ and where a cap, timeout or omission loses its reason. Keep a table of those verified source findings in `PROGRESS.md`.
 
 ## Implementation contract
+
+The first slice adds `discovery.target_selection` version 1 to existing attempt-specific JSON observations. It records validated in-scope requested hosts, hosts selected for DNS, omitted candidate reasons and selection limits. This is intent, not evidence of successful evaluation. It requires no migration, keeps worker protocol v2 and allows older workers/history to remain explicitly unknown. `SCANNER_DNS_MAX_HOSTS` (default 40) is transported in job limits; both execution paths use the same selection function. Prioritise the scanned domain, sorted registered hosts, then sorted passive hosts. No historical backfill or network-policy deployment is included. See `PROGRESS.md` for actual evidence and remaining work.
+
+The DNS slice adds `records.query_coverage` version 1: each question records its exact name/type, source, timestamps and answered/no-data/NXDOMAIN/failed outcome. DoH retries only failed questions and preserves prior failure evidence. Both paths retain partial DNS observations while flagging incomplete host coverage. SPF and DMARC checks, automatic resolution and remediation verification require their exact completed question. Missing/legacy metadata and unidentified DNS rules remain unknown. Deploy the updated Core/API before the updated worker so old worker evidence is handled conservatively; no protocol bump or schema migration is needed for these additive fields. DNS evidence does not establish complete Nuclei/template coverage or sufficiently evaluated scoring.
+
+The Nuclei slice records `tool_coverage` version 1: observed engine version when available, requested selector/severity filter, batch times, per-host timeout, process outcomes and matched template identities. Template-set version, evaluated templates and negative verification remain explicitly unknown. A successful process is not an exact-template negative receipt; current Nuclei findings therefore remain open when absent from a subsequent scan, and no-match remediation returns inconclusive. Positive exact-template matches still reproduce findings. The UI calls these completed tool runs and explains the evidence limit. This is deliberately conservative until an actual per-template completion adapter exists; do not fabricate coverage from aggregate counts or failed-matcher events.
+
+The scoring slice introduces `cyphward-risk-v3`, nullable score snapshots and assessment coverage version 1. It blocks numeric healthy scores from empty/failed/unassessed evidence, preserves a qualified known-risk index for partial assessments with open risk, and removes unsupported grades/category health/summary strengths. It requires the new migration and coordinated Core/API/frontend deployment. See [scoring release notes](03-scoring-release-notes.md) for eligibility, compatibility and limitations.
 
 1. Define a versioned assessment scope/coverage contract. Persist target identity, requested checks/templates, evaluated checks/templates, tool/template versions, outcomes, timestamps, limits and exclusion/cap reasons. Bind authoritative observations to Packet 02's producing recon attempt and current claim.
 2. Distinguish successful evaluation with no finding from failure, omission, skipped checks and unknown legacy coverage. Missing fields from old workers/history cannot become evidence of a clean check. Do not backfill fabricated success.

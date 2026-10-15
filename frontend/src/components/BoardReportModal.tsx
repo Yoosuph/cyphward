@@ -25,6 +25,12 @@ export default function BoardReportModal({
   const [showEmailInput, setShowEmailInput] = useState(false);
   const [emailTarget, setEmailTarget] = useState('kankarofi125@gmail.com');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const nucleiLabel = summary?.coverage?.version === 2 ? summary.coverage.nuclei?.label?.trim() || null : null;
+  const scopeLines = [
+    summary?.scope_label?.trim() && `Scope: ${summary.scope_label.trim()}`,
+    summary?.domain_coverage_line?.trim() && `Domain coverage: ${summary.domain_coverage_line.trim()}`,
+    nucleiLabel,
+  ].filter((line): line is string => Boolean(line));
 
   const handleEmailDispatch = async () => {
     if (!emailTarget.trim() || !emailTarget.includes('@')) {
@@ -215,8 +221,8 @@ export default function BoardReportModal({
     const text = `
 CYPHWARD SECURITY REPORT FOR THE BOARD
 Organization: ${summary.org_name}
-Security Score: ${summary.score !== null ? `${summary.score}/100 (Grade ${summary.grade} — ${summary.posture_label})` : 'Not assessed (no completed scan yet)'}
-Date: ${summary.generated_at}
+Known-risk Score: ${summary.score !== null ? `${summary.score}/100 (${summary.posture_label})` : `${summary.posture_label} (insufficient evaluated evidence)`}
+${scopeLines.map((line) => `${line}\n`).join('')}Date: ${summary.generated_at}
 
 SUMMARY:
 ${summary.board_summary}
@@ -368,7 +374,7 @@ ${summary.compliance_verdict}
               <span className="text-[10px] mono text-soft">External security review</span>
             </div>
             <div className="text-right">
-              <span className="text-[10px] mono text-soft block">SECURITY SCORE</span>
+              <span className="text-[10px] mono text-soft block">KNOWN-RISK SCORE</span>
               <div className="flex items-baseline gap-1 justify-end">
                 <span className="text-2xl font-bold mono text-accent font-display">{summary.score ?? '—'}</span>
                 {summary.score !== null && <span className="text-xs mono text-soft">/100</span>}
@@ -376,10 +382,18 @@ ${summary.compliance_verdict}
               <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9.5px] mono font-bold bg-accent/10 text-accent border border-accent/25 report-badge">
                 {summary.grade
                   ? `GRADE ${summary.grade} · ${summary.posture_label.toUpperCase()}`
-                  : 'NOT ASSESSED · RUN A SCAN'}
+                  : summary.posture_label.toUpperCase()}
               </span>
             </div>
           </div>
+
+          {scopeLines.length > 0 && (
+            <div className="space-y-0.5 text-[10.5px] mono text-soft">
+              {scopeLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          )}
 
           {/* Executive Narrative */}
           <div>

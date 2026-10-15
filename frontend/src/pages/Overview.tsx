@@ -165,6 +165,9 @@ export default function Overview() {
   }
 
   const { score, max_score, grade, posture_label, trend, counts, subscores, factors, recent_scans, organization, assessed, assessment } = data;
+  const scopeLabel = data.scope_label?.trim() || null;
+  const domainCoverageLine = data.domain_coverage_line?.trim() || null;
+  const nucleiLabel = assessment?.coverage?.version === 2 ? assessment.coverage.nuclei?.label?.trim() || null : null;
   const verifiedDomains = domains.filter(d => d.verification_status === 'verified');
   const pendingDomain = domains.find(d => d.verification_status !== 'verified');
   const canManageDomains = ['owner', 'admin'].includes(activeOrganization?.membership_role || 'member');
@@ -240,11 +243,13 @@ export default function Overview() {
         {/* Main Score Gauge */}
         <div className="lg:col-span-4 p-6 rounded-lg border border-line bg-raised/70 backdrop-blur flex flex-col items-center justify-center text-center relative overflow-hidden">
           <div className="absolute top-3 left-4 text-[10px] mono text-soft tracking-wider">
-            ORGANIZATION SCORE
+            KNOWN-RISK SCORE
           </div>
           <div className="absolute top-3 right-4">
-            <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
-              {grade ? `${grade} RATING` : 'NOT ASSESSED'}
+            <span className="inline-block max-w-[60%] text-right leading-snug text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
+              {grade
+                ? `${grade} RATING${scopeLabel ? ` · ${scopeLabel.toUpperCase()}` : ''}`
+                : assessment?.coverage?.state === 'partial' ? 'PARTIAL' : 'NO RATING'}
             </span>
           </div>
 
@@ -261,6 +266,9 @@ export default function Overview() {
               </div>
             )}
           </div>
+          {domainCoverageLine && (
+            <p className="text-[11px] mono text-soft -mt-1 max-w-[260px] break-words">{domainCoverageLine}</p>
+          )}
 
           <div className="mt-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs mono font-semibold tracking-wider">
@@ -281,12 +289,15 @@ export default function Overview() {
                 {data.risk_points != null && (
                   <p>{data.risk_points} risk points across {counts.total_findings} open findings</p>
                 )}
-                <p>Scores change when open risk changes. Scan coverage determines what was checked.</p>
+                <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>
               </div>
             ) : (
               <p className="text-xs mono text-soft mt-2">
-                Run your first scan to get a score.
+                {assessment ? 'The latest scan has insufficient evaluated evidence for a score. Recorded open findings still require attention.' : 'Run your first scan to get a score.'}
               </p>
+            )}
+            {nucleiLabel && (
+              <p className="text-[11px] mono text-soft mt-2">{nucleiLabel}</p>
             )}
           </div>
         </div>
@@ -437,7 +448,7 @@ export default function Overview() {
           <div className="space-y-4">
             {subscores.length === 0 ? (
               <p className="text-xs mono text-soft py-6 text-center">
-                Not assessed yet — complete a scan to see your pillar breakdown.
+                Category ratings require sufficient evaluated evidence. Unchecked areas remain unknown.
               </p>
             ) : subscores.map(pillar => (
               <div key={pillar.name} className="space-y-1.5">

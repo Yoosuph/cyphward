@@ -76,8 +76,11 @@ SCANNER_API_KEY = os.getenv("SCANNER_API_KEY", "")
 # Shared secret is enforced only when SCANNER_MODE=remote; never run remote unarmed.
 SCANNER_LEASE_SECONDS = int(os.getenv("SCANNER_LEASE_SECONDS", "3600"))
 SCANNER_MAX_HOSTS = int(os.getenv("SCANNER_MAX_HOSTS", "500"))
+SCANNER_DNS_MAX_HOSTS = int(os.getenv("SCANNER_DNS_MAX_HOSTS", "40"))
 SCANNER_MAX_PORTS = int(os.getenv("SCANNER_MAX_PORTS", "100"))
 SCANNER_STAGE_TIMEOUT_SECONDS = int(os.getenv("SCANNER_STAGE_TIMEOUT_SECONDS", "300"))
+SCANNER_RECON_TIMEOUT_SECONDS = int(os.getenv("SCANNER_RECON_TIMEOUT_SECONDS", "900"))
+SCANNER_TLS_MAX_HOSTS = int(os.getenv("SCANNER_TLS_MAX_HOSTS", "25"))
 CORE_AI_TIMEOUT_SECONDS = max(1, int(os.getenv("CORE_AI_TIMEOUT_SECONDS", "120")))
 SCANNER_NUCLEI_CONCURRENCY = int(os.getenv("SCANNER_NUCLEI_CONCURRENCY", "1"))
 SCANNER_NUCLEI_MAX_HOSTS = int(os.getenv("SCANNER_NUCLEI_MAX_HOSTS", "50"))
@@ -107,3 +110,6 @@ EMAIL_SENDERS: Dict[str, Tuple[str, str]] = {
     "general": ("Cyphward", "info@cyphward.com"),
 }
 DEFAULT_EMAIL_SENDER_KIND = "system"
+# Inbox for the public contact form. The address shown on the site is
+# info@cyphward.com; delivery goes here so a person reads it.
+CONTACT_INBOX = os.getenv("CONTACT_INBOX", "cyphward@gmail.com")

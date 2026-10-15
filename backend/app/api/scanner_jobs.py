@@ -12,11 +12,14 @@ from backend.app.core.config import (
     SCANNER_CLAIMS_ENABLED,
     SCANNER_LEASE_SECONDS,
     SCANNER_MAX_HOSTS,
+    SCANNER_DNS_MAX_HOSTS,
     SCANNER_MAX_PORTS,
     SCANNER_MODE,
     SCANNER_NUCLEI_CONCURRENCY,
     SCANNER_NUCLEI_MAX_HOSTS,
     SCANNER_STAGE_TIMEOUT_SECONDS,
+    SCANNER_RECON_TIMEOUT_SECONDS,
+    SCANNER_TLS_MAX_HOSTS,
 )
 from backend.app.core.execution_fence import ClaimLost, ExecutionClaim
 from backend.app.core import scan_execution as execution
@@ -140,8 +143,11 @@ def claim_job(scanner_id: Scanner) -> Any:
         },
         limits=ScanJobLimits(
             max_hosts=SCANNER_MAX_HOSTS,
+            dns_max_hosts=SCANNER_DNS_MAX_HOSTS,
             max_ports=SCANNER_MAX_PORTS,
             stage_timeout_seconds=SCANNER_STAGE_TIMEOUT_SECONDS,
+            recon_timeout_seconds=SCANNER_RECON_TIMEOUT_SECONDS,
+            tls_max_hosts=SCANNER_TLS_MAX_HOSTS,
             nuclei_concurrency=SCANNER_NUCLEI_CONCURRENCY,
             nuclei_max_hosts=SCANNER_NUCLEI_MAX_HOSTS,
         ),

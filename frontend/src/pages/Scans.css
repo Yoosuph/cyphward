@@ -316,6 +316,16 @@
 .scan-check-detail p + p {
   margin-top: 5px;
 }
+.scan-target-scope {
+  margin-top: 8px;
+}
+.scan-target-scope details {
+  margin-top: 8px;
+}
+.scan-target-scope ul {
+  max-height: 180px;
+  overflow-y: auto;
+}
 .scan-check-error {
   color: var(--accent);
   font-size: 12px;

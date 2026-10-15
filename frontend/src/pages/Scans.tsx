@@ -20,7 +20,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { getScans, getScanDetail, launchScan, getDomains } from "../lib/api";
-import type { Scan, Domain, StageInfo } from "../types";
+import type { Scan, Domain, StageInfo, ScanCoverage } from "../types";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../lib/auth";
 import { Skeleton, ScanDrawerSkeleton } from "../components/Skeleton";
@@ -30,6 +30,126 @@ import "./Scans.css";
 
 type Observation = { stage: string; raw_data: any };
 type Detail = { scan: Scan; raw_results: Observation[] };
+
+function omissionReason(reason: unknown) {
+  const reasons: Record<string, string> = {
+    stage_host_cap: "Stage host limit reached",
+    tool_unavailable: "Scanner tool unavailable",
+    no_public_dns_address: "No public DNS address",
+    no_usable_http_response: "No usable HTTP response",
+    no_https_response: "No HTTPS response",
+    outside_authorised_scope: "Outside the verified domain",
+    recon_budget_exhausted: "Scan work budget exhausted",
+    recon_stage_deadline: "Stage time limit reached; evaluation incomplete",
+  };
+  return reasons[String(reason)] || String(reason);
+}
+
+const DECLARED_COMPLETE = "Declared checks complete";
+const FAMILY_ORDER = [
+  "dns.spf",
+  "dns.dmarc",
+  "ports.inventory",
+  "http.headers",
+  "tls.certificate",
+] as const;
+const FAMILY_NAMES: Record<string, string> = {
+  "dns.spf": "SPF",
+  "dns.dmarc": "DMARC",
+  "ports.inventory": "port inventory",
+  "http.headers": "HTTP headers",
+  "tls.certificate": "TLS certificate",
+  "target.selection": "target selection",
+};
+const COVERAGE_REASONS: Record<string, string> = {
+  no_web_service: "No web service (ports 80 and 443 not open)",
+  no_https: "No HTTPS service (port 443 not open)",
+  no_https_response: "No HTTPS response",
+  dns_address_unknown: "Address lookup failed",
+  dns_not_observed: "DNS result not recorded",
+  dns_query_failed: "DNS lookup failed",
+  no_public_dns_address: "No public address",
+  no_public_hosts: "No public hosts found",
+  not_selected: "Not selected for this scan",
+  security_checks_failed: "Security checks did not complete",
+  tool_unavailable: "Scanner tool unavailable",
+  stage_host_cap: "Stage host limit reached",
+  recon_budget_exhausted: "Scan time budget exhausted",
+  recon_stage_deadline: "Stage time limit reached; evaluation incomplete",
+  no_usable_http_response: "No usable HTTP response",
+  http_not_observed: "HTTP result not recorded",
+  port_scan_failed: "Port scan did not complete",
+  ports_not_observed: "Port scan result not recorded",
+  certificate_not_observed: "No certificate observed",
+  outside_authorised_scope: "Outside the verified domain",
+  invalid_hostname: "Invalid hostname",
+  max_hosts: "Scan host limit reached",
+  dns_max_hosts: "DNS host limit reached",
+};
+function coverageReason(reason: unknown) {
+  return COVERAGE_REASONS[String(reason)] || String(reason);
+}
+function familyName(check: unknown) {
+  return FAMILY_NAMES[String(check)] || String(check);
+}
+
+function StageScope({ raw }: { raw: any }) {
+  const plan = raw?.stage_plan;
+  if (plan?.version !== 1 || !Array.isArray(plan.requested_hosts)) return null;
+  const omitted = raw?.omitted_hosts;
+  if (!omitted || typeof omitted !== "object" || Array.isArray(omitted)) return null;
+  return (
+    <div className="scan-target-scope">
+      <p>{plan.requested_hosts.length} targets requested · {Object.keys(omitted).length} omitted</p>
+      {Object.keys(omitted).length > 0 && (
+        <details>
+          <summary>Why targets were omitted</summary>
+          <ul>{Object.entries(omitted).map(([host, reason]) => (
+            <li key={host}><strong>{host}</strong>: {omissionReason(reason)}</li>
+          ))}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function TargetScope({ raw }: { raw: any }) {
+  const selection = raw?.target_selection;
+  if (
+    selection?.version !== 1 ||
+    !Array.isArray(selection.requested_hosts) ||
+    !Array.isArray(selection.selected_hosts) ||
+    !selection.omitted_hosts ||
+    typeof selection.omitted_hosts !== "object" ||
+    Array.isArray(selection.omitted_hosts)
+  ) {
+    return <p>Target selection was not recorded. Full coverage cannot be confirmed.</p>;
+  }
+  const reasons: Record<string, string> = {
+    max_hosts: "Scan host limit reached",
+    dns_max_hosts: "DNS host limit reached",
+    outside_authorised_scope: "Outside the verified domain",
+    invalid_hostname: "Invalid hostname",
+  };
+  return (
+    <div className="scan-target-scope">
+      <p>
+        {selection.requested_hosts.length} in-scope hosts requested · {selection.selected_hosts.length} selected for DNS
+      </p>
+      <p>The domain is prioritised, followed by registered hosts and discovered hosts. Selection does not confirm a completed check. Public discovery may miss assets.</p>
+      {Object.keys(selection.omitted_hosts).length > 0 && (
+        <details>
+          <summary>{Object.keys(selection.omitted_hosts).length} hosts excluded — see reasons</summary>
+          <ul>
+            {Object.entries(selection.omitted_hosts).map(([host, reason]) => (
+              <li key={host}><strong>{host}</strong>: {reasons[String(reason)] || "Reason unavailable"}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
 const CHECKS = [
   {
     key: "discovery",
@@ -103,8 +223,23 @@ const incomplete = (scan: Scan) =>
   CHECKS.filter((check) =>
     ["failed", "skipped"].includes(progress(scan, check.key)?.status || ""),
   );
+// Version 2 coverage is authoritative: the payload decides the label, so an
+// optional stage (Nuclei, TLS) that failed does not downgrade a complete scan.
+function declaredCoverage(scan: Scan): ScanCoverage | null {
+  const coverage = progress(scan, "scoring")?.coverage;
+  return coverage?.version === 2 ? coverage : null;
+}
 function coverageLabel(scan: Scan) {
+  const declared = declaredCoverage(scan);
+  if (declared) {
+    if (declared.state === "complete") return DECLARED_COMPLETE;
+    if (declared.state === "partial") return "Limited coverage";
+    return "Coverage unavailable";
+  }
   if (incomplete(scan).length) return "Limited coverage";
+  const coverage = progress(scan, "scoring")?.coverage;
+  if (coverage?.version === 1 && coverage.state === "partial") return "Limited coverage";
+  if (coverage?.version === 1 && ["unknown", "unassessed"].includes(coverage.state)) return "Coverage unavailable";
   if (
     scan.status === "completed" &&
     CHECKS.some((check) => progress(scan, check.key)?.status !== "completed")
@@ -159,7 +294,13 @@ function ScanStatus({ scan }: { scan: Scan }) {
     return (
       <StatusBadge
         label={quality}
-        tone={quality === "Limited coverage" ? "warning" : "neutral"}
+        tone={
+          quality === "Limited coverage"
+            ? "warning"
+            : quality === DECLARED_COMPLETE
+              ? "success"
+              : "neutral"
+        }
       />
     );
   const label = {
@@ -212,7 +353,7 @@ function CheckRow({
   )?.raw_data;
   const coverage =
     Array.isArray(raw?.successful_hosts) && Array.isArray(raw?.attempted_hosts)
-      ? `${raw.successful_hosts.length} of ${raw.attempted_hosts.length} targets checked`
+      ? `${raw.successful_hosts.length} of ${raw.attempted_hosts.length} ${stage.key === "nuclei" ? "tool runs completed" : "targets checked"}`
       : null;
   const Icon = stage.icon;
   return (
@@ -238,6 +379,14 @@ function CheckRow({
       </summary>
       <div className="scan-check-detail">
         <p>{stage.desc}</p>
+        {stage.key === "discovery" && <TargetScope raw={raw} />}
+        {stage.key !== "discovery" && <StageScope raw={raw} />}
+        {stage.key === "nuclei" && (raw || finished(scan)) && (
+          <>
+            <p>Tool completion does not confirm every template ran. An empty result cannot certify a fix.</p>
+            <p>Engine version: {raw?.tool_coverage?.version === 1 ? raw.tool_coverage.tool_version || "Not recorded" : "Not recorded"}. Template evaluation coverage: unknown.</p>
+          </>
+        )}
         {info?.items != null && (
           <p>
             {info.items} observations recorded · {duration(info.duration_ms)}
@@ -248,7 +397,7 @@ function CheckRow({
           <ul>
             {Object.entries(raw.failed_hosts).map(([host, reason]) => (
               <li key={host}>
-                <strong>{host}</strong>: {String(reason)}
+                <strong>{host}</strong>: {omissionReason(reason)}
               </li>
             ))}
           </ul>
@@ -258,6 +407,56 @@ function CheckRow({
     </details>
   );
 }
+function DeclaredCoverageDetails({ coverage }: { coverage: ScanCoverage }) {
+  const families = FAMILY_ORDER.filter((key) => coverage.families?.[key]);
+  const missing = coverage.missing ?? [];
+  const omitted = coverage.omitted_checks ?? [];
+  return (
+    <div className="scan-check-detail" aria-label="Declared check coverage">
+      {coverage.label && <p>{coverage.label}</p>}
+      {families.length > 0 && (
+        <ul>
+          {families.map((key) => {
+            const count = coverage.families?.[key];
+            return (
+              <li key={key}>
+                {familyName(key)} {count?.evaluated ?? 0}/{count?.requested ?? 0}
+                {count?.omitted ? ` · ${count.omitted} not applicable` : ""}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {missing.length > 0 && (
+        <>
+          <p>Not conclusive</p>
+          <ul>
+            {missing.map((issue, index) => (
+              <li key={`missing-${index}`}>
+                <strong>{issue.hostname}</strong> · {familyName(issue.check)}:{" "}
+                {coverageReason(issue.reason)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {omitted.length > 0 && (
+        <>
+          <p>Not applicable</p>
+          <ul>
+            {omitted.map((issue, index) => (
+              <li key={`omitted-${index}`}>
+                <strong>{issue.hostname}</strong> · {familyName(issue.check)}:{" "}
+                {coverageReason(issue.reason)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {coverage.nuclei?.label && <p>{coverage.nuclei.label}</p>}
+    </div>
+  );
+}
 function CheckList({
   scan,
   observations,
@@ -265,6 +464,7 @@ function CheckList({
   scan: Scan;
   observations: Observation[];
 }) {
+  const declared = declaredCoverage(scan);
   const processing = PROCESSING.map((stage) => progress(scan, stage.key));
   const processLabel = processing.some((info) => info?.status === "failed")
     ? "Needs attention"
@@ -277,6 +477,7 @@ function CheckList({
           : "Pending";
   return (
     <>
+      {declared && <DeclaredCoverageDetails coverage={declared} />}
       <div className="scan-check-list">
         {CHECKS.map((stage) => (
           <CheckRow
@@ -366,6 +567,7 @@ function ScanSummary({
   const score =
     scan.score != null && Number.isFinite(scan.score) ? scan.score : null;
   const orgScore = progress(scan, "scoring")?.scope === "organization";
+  const declared = declaredCoverage(scan);
   return (
     <>
       <div className="scan-summary-heading">
@@ -414,11 +616,11 @@ function ScanSummary({
           <small>
             {score != null
               ? "Based on known findings"
-              : "A score is available after assessment."}
+              : "No score: evaluated evidence is insufficient. Recorded findings still require attention."}
           </small>
         </div>
       </div>
-      {quality && (
+      {quality && quality !== DECLARED_COMPLETE && (
         <div className="scan-coverage-notice" role="status">
           <AlertCircle size={21} aria-hidden="true" />
           <div>
@@ -430,9 +632,11 @@ function ScanSummary({
                 : "Coverage is unavailable"}
             </strong>
             <p>
-              {missing.length
-                ? `${missing.map((stage) => stage.label).join(", ")}: ${missing.length === 1 ? "this check was" : "these checks were"} not fully completed. Completed checks remain available.`
-                : "This scan does not have a complete check record. Review the available evidence."}
+              {declared
+                ? `${declared.label || "Declared checks are not conclusive."} Completed checks remain available.`
+                : missing.length
+                  ? `${missing.map((stage) => stage.label).join(", ")}: ${missing.length === 1 ? "this check was" : "these checks were"} not fully completed. Completed checks remain available.`
+                  : "This scan does not have a complete check record. Review the available evidence."}
             </p>
             <p className="scan-coverage-note">
               An incomplete check does not prove a system is secure.

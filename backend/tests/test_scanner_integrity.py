@@ -196,8 +196,13 @@ def test_worker_discovery_stage_keeps_tuple_shape_and_seeds(monkeypatch):
             posted[stage] = data
 
     cfg = SimpleNamespace(heartbeat_seconds=9999)
-    job = SimpleNamespace(scan_id="s1", target="example.com", seed_hosts=["extra.example.com"])
+    from shared.contracts import ScanJobLimits
+    job = SimpleNamespace(scan_id="s1", target="example.com", scope=["example.com"],
+                          seed_hosts=["extra.example.com"], limits=ScanJobLimits())
 
     hosts = asyncio.run(runner_mod.run_discovery_stage(FakeClient(), cfg, job))
-    assert hosts == ["b.test", "extra.example.com"]
-    assert posted["discovery"] == {"discovered_hosts": hosts, "sources_failed": ["crt.sh"]}
+    assert hosts == ["example.com", "extra.example.com"]
+    assert posted["discovery"]["discovered_hosts"] == ["b.test", "extra.example.com"]
+    assert posted["discovery"]["sources_failed"] == ["crt.sh"]
+    assert posted["discovery"]["target_selection"]["omitted_hosts"] == {
+        "b.test": "outside_authorised_scope"}

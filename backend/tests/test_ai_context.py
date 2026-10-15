@@ -112,7 +112,7 @@ def test_exec_summary_not_assessed_without_completed_scan(store):
     assert summary["grade"] is None
     assert "Not assessed" in summary["executive_headline"]
     assert summary["key_strengths"] == []
-    assert "not completed a full scan" in summary["board_summary"]
+    assert "insufficient evaluated evidence" in summary["board_summary"]
     # No invented strengths on an unassessed org.
     assert "TLS 1.3" not in summary["board_summary"]
 

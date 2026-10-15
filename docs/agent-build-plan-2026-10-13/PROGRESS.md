@@ -1,8 +1,8 @@
 # Agent progress record
 
-**Last updated:** 13 October 2026
+**Last updated:** 15 October 2026
 **Baseline:** `c7edb77`
-**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 is the next implementation phase.
+**Current state:** Packets 00–02 are released. Packet 02's production migration, API and VPS worker are verified; claims are enabled. API implementation revision is `1948e42`, worker-affecting revision is `11cdcea` (worker/shared files are identical between those revisions). Packet 03 target-selection, DNS/Nuclei-evidence and scoring-gate slices are implemented on the review branch `codex/scan-scope-coverage`, based on `76c80a4`; they are not deployed and Packet 03 is not complete. Packet 03's release scope was trimmed on 15 October 2026; see the entry at the end of this file.
 
 ## Packet 01 pre-release review — 13 October 2026
 
@@ -107,3 +107,131 @@ Accepted intermediate asset/finding/notification writes remain incremental; canc
 - Fresh private full/application dumps and restore/migration verification are retained outside Git. Temporary database servers and the bridge worktree are cleaned up after release.
 
 Never include credentials, private keys, customer evidence or raw production personal data in this record. Keep implementation, validation and deployment states separate.
+
+## Packet 03 — target-selection foundation, 14 October 2026
+
+Review branch: `codex/scan-scope-coverage`, based on released main `76c80a4`. This is the first slice, not the completed packet or a production release.
+
+### Verified source findings
+
+| Boundary | Source finding | Current action or remaining work |
+| --- | --- | --- |
+| DNS target selection | Local recon sliced discovery to 40; worker used up to 500. Sorted discovery/seed union could omit registered hosts. | Both now use `shared/scan_scope.py`, with explicit `SCANNER_DNS_MAX_HOSTS` job limits (default 40). Scanned domain first, sorted registered hosts next, then sorted passive hosts. |
+| Selection evidence | Scope/cap filtering did not persist exclusion reasons. | New discovery `target_selection` version 1 records requested/selected hosts, limits and invalid/out-of-scope/cap reasons under the producing attempt. Selection is intent, never successful evaluation. |
+| Worker probe inputs | Worker HTTP/ports selected any DNS hostname, unlike local gating on `primary_ip`. | Worker now also requires a public-address DNS result and suffix scope; existing actual connection/tool guards remain in place. |
+| DNS outcomes | Resolver catches individual query errors and returns empty fields; DoH fallback queries a smaller record-type set. | Still outstanding: distinguish negative DNS answers from failed/unattempted per-record checks before allowing DNS finding resolution. |
+| Tool coverage | Tool batches distinguish host success/failure; Nuclei success does not prove each template ran. | Still outstanding: requested/evaluated check/template identity, tool/template versions and conservative detector-specific resolution. |
+| Network enforcement | HTTP pins requests to revalidated IPs; Naabu passes a validated IP; Nuclei receives a hostname after a preflight resolution check. | No new claim of complete external-tool network isolation. Actual tool/egress boundaries and deployment controls require further review/testing. |
+| Scoring | Finalizer passes a completed assessment to organization scoring without a per-check evaluation gate. | Still outstanding: truthful unassessed/partial semantics and distinguish organization risk from selected-scan assessment scope. |
+| Customer presentation | Existing scan details expose only current-producing-attempt raw observations. | Discovery details now show requested/selected/excluded targets with readable reasons. Missing/unknown version explicitly says selection was not recorded. Existing history remains scrollable. |
+
+### Compatibility and validation
+
+- Additive JSON observation contract; no new migration and no historical backfill. Required protocol v2 authority stays intact. Older v2 workers may still operate without selection records; their coverage remains unknown. Upgraded workers default to the conservative 40-host DNS cap when an older API lacks the new job limit. The complete coverage contract is still to be designed/implemented.
+- Fresh owned PostgreSQL 18.6 cluster bound only to `127.0.0.1:55433`; full 25-migration bootstrap; test database `cyphward_test`, restricted `cyphward_app`. No restored customer snapshot or inherited production database connection was used.
+- Full backend suite: **434 passed, 16 skipped**. This includes **22 execution PostgreSQL cases** and the preserved admission cases. The new independent-connection case verifies current-attempt target-selection persistence, retained older evidence, stale-write rejection and Core loading only the current producing attempt.
+- Local/worker stubbed recon cases verify the same deterministic selection, registered/apex priority under caps, explicit invalid/out-of-scope omissions and no worker HTTP probe for a DNS result without a public address.
+- Frontend production build passed. Scan-page browser suite passed desktop/390px/320px with expanded exclusions, legacy unknown-selection text, scrollable history and preserved launch/RBAC/polling behavior. Browser APIs and external scanners were stubbed; this is not live scanning/network-isolation evidence. The prior non-failing Vite post-assertion proxy `ECONNREFUSED` recurred.
+- No production migration, main push, worker replacement, live target scan or customer-account mutation is part of this slice. Review branch publication does not deploy the VPS.
+
+Next: complete versioned per-target/check outcomes and tool/template identity, explicit downstream omissions and deadlines, conservative DNS/template resolution and truthful scoring. Then perform the packet's complete acceptance/release review. Do not begin Packet 04 or broader admin work yet.
+
+## Packet 03 — DNS query evidence and email verification, 15 October 2026
+
+Continued the same review branch and [draft PR #2](https://github.com/Yoosuph/cyphward/pull/2). The initial target-selection implementation `d7bbfc5` passed all three primary-repository CI jobs before this continuation.
+
+- Verified the resolver swallowed all per-question errors, DoH discarded answers for other native questions when A succeeded, and the old resolution/recheck gates could use unrelated DNS/HTTP success as proof of an email check. These source findings are addressed by this slice.
+- Added `records.query_coverage` version 1, keyed by A/AAAA/CNAME/MX/TXT/NS/DMARC. Each record includes the exact question name/type, source, start/completion timestamps and answered/no_data/nxdomain/failed outcome. A negative DNS response is distinct from timeout/SERVFAIL, malformed data and truncated responses.
+- DoH retries only failed questions, queries the complete supported set, filters answers by record type and correctly joins TXT chunks. Fallback preserves the native attempt's failure metadata and unrelated native answers. Socket-derived IP inventory does not certify TXT or DMARC evaluation. Blocking native/socket work runs outside the event loop so it cannot block lease heartbeats.
+- Both local and remote DNS stages preserve partial observations and attempted/successful/failed host coverage. A host is fully assessed only when all seven supported questions have conclusive outcomes. Per-query successes remain available when another query fails. Invalid/mismatched returned hosts cannot become success or inject observations for another target.
+- SPF and DMARC finding generation, baseline resolution and remediation verification use the exact query required by a known check. Legacy/missing coverage and unknown DNS rule titles cannot certify a fix. A DNS-only recheck does not depend on an unrelated HTTP probe. This is still the existing limited email-check set, not validation of every SPF/DMARC mechanism or policy syntax.
+- Fresh synthetic loopback `cyphward_test` database on port 55433, full 25-migration bootstrap, restricted `cyphward_app` connection. Full suite: **455 passed, 16 skipped**, including all admission/execution PostgreSQL cases and **21 new DNS cases**. The subsequent DNS-only HTTP-independence refinement passed the **34-test DNS/remediation subset**, then the final full regression again passed **455/16**. DNS, DoH, HTTP and checker dependencies were stubbed where exercised; no live target scan or live DNS query was required by the new tests.
+- No frontend source changed in this continuation; the prior build/browser evidence remains scoped to the target-selection slice. Existing UI consumes DNS batch coverage/failure reasons through the existing raw-result contract. This is not a fresh visual or deployment verification.
+- Additive JSON only: no migration, backfill or authority change. Core/API must be upgraded before the worker on release; old workers then yield unknown email-query coverage instead of false proof. Production remains unchanged; PR #2 remains draft.
+
+Remaining Packet 03 work: other per-target/check and template outcomes, tool/template version identity, end-to-end deadlines/downstream omissions, actual external-tool/egress boundaries, conservative template resolution, truthful partial/unassessed scoring and full acceptance/release review. Packets 04–09 remain later phases.
+
+## Packet 03 — Nuclei process evidence versus template proof
+
+Implementation: `2eebec3`, same review branch and draft PR #2. Production remains unchanged.
+
+- Source review confirmed that successful-host lists and empty Nuclei JSONL were sufficient to auto-resolve template findings and verify remediation. [ProjectDiscovery describes JSONL as match output](https://projectdiscovery.io/open-source); matcher-status is a match-event field, not a complete per-template execution receipt. We conservatively do not infer a clean template result from absent output.
+- Nuclei batches now persist `tool_coverage` version 1: a bounded actual `-version` lookup, requested selector and severity filter, timestamps, per-host process outcome and timeout, and matched template IDs. Unknown/unavailable engine identity remains null. Template-set identity, evaluated templates and negative verification remain explicitly unknown; no synthetic enumeration or completion was introduced.
+- Baseline resolution no longer treats successful-host/process lists, including legacy payloads, as template proof. No-match template rechecks are inconclusive and preserve open findings/tasks; confirmed matches for the exact requested template still reproduce findings. The API also rejects an unsupported clean assertion with no matching output. This temporarily limits automatic Nuclei fix verification until genuine per-template completion evidence is available.
+- Parser ignores failed-matcher events, rejects explicit error events/invalid matcher status/missing template identity in strict mode, and does not turn those records into vulnerability findings. Engine-version failure/timeout is bounded and reaps the process; an empty batch starts no process. Existing scan subprocess credential isolation is preserved.
+- Customer scan details distinguish completed tool runs from checked targets and explain unknown template evaluation. Engine version is shown only when observed. No scoring formula or historical data changed in this slice.
+- Preserved unrelated pre-existing billing/public-page changes in the shared workspace. Final verification used an isolated detached checkout of the committed scanner candidate, excluding those unrelated edits. A fresh owned PostgreSQL 18.6 loopback cluster on port 55434 was bootstrapped with all 25 migrations and used through restricted `cyphward_app`.
+- Isolated backend suite: **468 passed, 16 skipped**, including the admission/execution PostgreSQL cases and **13 new Nuclei evidence cases**. Frontend production build and browser scan suite passed at desktop/390px/320px, including engine-version/unknown-template text, target scope, history scrolling, role boundaries and intent retry behavior. External tool/version/DNS and browser API calls were stubbed; these are not live template/network-isolation tests.
+- No schema migration, main push, VPS replacement, template upgrade, customer scan or production mutation was performed. Review-branch publication does not deploy the scanner.
+
+Next scoring prerequisite verified in source: `score_snapshots.score` is NOT NULL and finalizer completion notifications compare/format a numeric score. A truthful unassessed outcome must update schema, atomic completion, current organization assessment selection, reports and UI together. Do not substitute zero/100 or let an empty scan manufacture a healthy score. Complete remaining template evidence/deadline/egress acceptance before the packet's release.
+
+## Packet 03 — evidence-gated scoring and nullable completion
+
+Implementation `7ee8010`, UI/nullable-history refinements `92eeb49` and `d72bd7a`. Continued the same review branch; not deployed. See `03-scoring-release-notes.md` for the exact contract and rollout boundary.
+
+- `cyphward-risk-v3` keeps severity weights/formula but requires conclusive evaluated security-check evidence. No evidence or legacy/failed assessment yields no numeric score/grade. Partial coverage with known scored open findings yields a qualified known-risk index without a grade or unchecked category health. Partial zero-risk output remains non-numeric rather than manufacturing 100.
+- Coverage is derived from authoritative current-producing-attempt observations and successful security-check tasks, with evaluated host/check groups. Inventory and successful tool processes are insufficient. Current adapters never emit complete coverage. The engine's complete branch is reserved for future validated evidence; synthetic complete fixtures are explicit test inputs, not backfilled customer data.
+- Added migration `20261015120000_assessment_score_coverage.sql`: allow NULL snapshot scores and add `assessment_coverage jsonb`. Atomic fenced completion writes coverage/snapshot/null score, scan state, audit and a truthful notification together. Existing historical values are untouched. Latest current-risk reads retain completed-scan provenance with unknown coverage rather than inventing historical evaluation.
+- v3 trend history excludes null scores and older models. Counts, known risk points and negative drivers survive insufficient coverage. Organization risk remains distinct from selected-scan coverage; retained other-domain findings still count in known-risk burden.
+- Dashboard, board report copy/view, report metadata/email, scan detail/status and notifications support the new states. A partial assessment stays partial even if all seven stage processes completed. The existing numeric-availability boolean does not certify full coverage.
+- Removed hardcoded clean-surface/TLS strengths and invented actions from the fallback executive summary. Partial/unknown summaries use grounded deterministic findings rather than the LLM. No change to the separate general chat behavior is claimed.
+- Preserved unrelated shared-workspace billing/public-site edits. Verification ran on an isolated committed candidate with explicit test connections, external scanning/delivery disabled/stubbed and a freshly bootstrapped owned loopback PostgreSQL 18.6 database on port 55435. The complete **26-migration** chain succeeded, with restricted `cyphward_app` access.
+- Full isolated backend suite: **481 passed, 16 skipped**, including **23 execution PostgreSQL cases**, **14 admission cases** and **12 new eligibility cases**. A new real-PostgreSQL case completed an unassessed scan with a null snapshot score/coverage and one non-misleading notification under the existing fence. After the nullable-history/mail-text refinement, the **60-test scoring/mail/eligibility/execution subset** passed.
+- Frontend build, score browser suite and scan-page suite passed. Browser coverage includes desktop/390px/320px scan layouts, score refresh/stale-response protection, partial/no-score output after a completed scan, preserved logo/history/RBAC, and completed stages with still-partial coverage. Final type-only refinement passed the production build again. Browser APIs/tool/network calls were stubbed; no live domain was scanned.
+- Production migration/API/VPS/frontend remain unchanged. No private data, credentials or backups were added to the repository. New release notes require migration before Core/API, conservative old-worker compatibility, no historical backfill and preservation of null records on rollback.
+
+Next: finish actual per-template completion evidence, remaining per-target/check/tool identities and omission reasons, consistent end-to-end deadlines and real external-tool/egress boundary acceptance. Review and coordinate the full Packet 03 release before Packet 04. Payment activation remains deferred.
+
+- Scoring implementation CI for `028c9ff` passed backend regression, frontend build and PostgreSQL races: [primary CI](https://github.com/Yoosuph/cyphward/actions/runs/38698233079). Subsequent handoff clarification changes only documentation/archive content.
+
+## Packet 03 — release-scope trim and declared-scope completeness, 15 October 2026
+
+**State:** implemented and validated on the review branch; review-ready. Not deployed. No migration, VPS, main or fork change.
+
+### Orientation and review of `454c10f`
+
+- Local `codex/scan-scope-coverage` was at `454c10f` ("bound recon batches and record downstream omissions"). Origin, fork and draft PR #2 were at `e6a9df0`, so `454c10f` was unpushed and unrecorded here. It adds `shared/scan_budget.py` (per-attempt recon budgets) and `backend/app/scanner/recon_policy.py` (per-stage plans with omission reasons: `no_public_dns_address`, `no_usable_http_response`, `no_https_response`, `tool_unavailable`, `stage_host_cap`, `recon_budget_exhausted`, `recon_stage_deadline`). It changes worker/shared paths, so it is **worker-affecting**.
+- Review found no blocking issue. Budget checks sit at connection/process boundaries; resolution moved off the event loop; optional or timed-out stages record every selected host as failed rather than dropping it; new `ScanJobLimits` fields have defaults and old workers ignore unknown fields (pydantic default). Notes: an unrelated `CONTACT_INBOX` setting from the public-site contact work rode along in `backend/app/core/config.py` (unused on this branch). The stage omission reasons are host-level and naabu reports only open ports, so they do not distinguish "port closed" from "connection failed"; web applicability is derived from a successful port run instead (below).
+- Work continued in a separate worktree (`../cyphward-p03`, local branch `p03-declared-scope` from `454c10f`) because the branch is checked out in the shared workspace with unrelated billing/public-site edits. Those edits were not touched.
+
+### Scope decision
+
+Packet 03 release scope is target selection, DNS evidence, Nuclei evidence, the v3 scoring gate and declared-scope completeness. The per-template completion adapter, per-check identities beyond the declared set, shared end-to-end deadlines across queue/recon/Core, and external-tool/egress boundary verification move to Packet 03b. See `03-scan-scope-and-coverage.md`.
+
+### Problem and changed behaviour
+
+Under `cyphward-risk-v3`, `assessment_coverage` never returned `complete` and always recorded `requested_checks: null`. A clean domain got no score, and a domain with findings got an index with no grade.
+
+- **Coverage version 2, check set `cyphward-checks-v1`** (`backend/app/risk/check_set.py` is the contract; `coverage.py` implements it). Declared checks: `dns.spf` and `dns.dmarc` on the apex; `ports.inventory`, `http.headers` and `tls.certificate` on each in-scope host (selected for DNS with a public address). `complete` when every requested check is conclusive and at least one host is in scope. `requested_checks` is an integer; per-check missing and omitted reasons, per-family counts, target counts and the check-set version are recorded.
+- **Targets.** No public address with conclusive A/AAAA: omitted (`no_public_dns_address`). Failed address lookup: missing (`dns_address_unknown`). A registered host dropped by selection blocks complete (compared in canonical form). Passive hosts beyond the cap are reported and do not block.
+- **Web applicability from port inventory** (no worker change). A conclusive port run showing neither 80 nor 443 open omits `http.headers` and `tls.certificate` (`no_web_service`). Only 80 open omits `tls.certificate` (`no_https`) and keeps `http.headers` required. 80/443 open with no usable response stays missing. Direct evidence wins over the inventory.
+- **Nuclei** is a separate, non-gating line: "Known-CVE templates: matches reported; clean results not proven." Confirmed matches still count as evaluated evidence; no-match remediation stays inconclusive.
+- **Organisation grade gate** (`backend/app/risk/domain_coverage.py`, tenant-scoped by `org_id`). A grade requires every verified domain's latest completed assessment to be complete. Otherwise: a known-risk index without a grade when scored open risk exists, no number when none, posture "Not all domains assessed", and a per-domain line such as `example.com: complete · other.ng: not scanned`. Re-evaluated on every read (`latest_assessment`) and at finalisation (with the current scan's coverage). Graded results carry `scope_label: "Within declared scope"`.
+- **Presentation.** Scans shows "Declared checks complete" (a failed optional Nuclei/sslyze stage no longer downgrades it), per-family counts, missing/not-applicable reasons and the Nuclei line. Overview shows the scope label beside the grade and the per-domain line. Board report, report summary, report email and completion notification carry the scope, domain and Nuclei lines. The LLM executive summary runs only for a graded, complete, scope-labelled result and is instructed not to claim anything beyond the declared checks. Email copy no longer says "How safe your public-facing systems are right now" or labels total assets "Systems checked".
+- **Unchanged:** claim fencing, producing-attempt identity, atomic completion, the nullable snapshot migration, the no-backfill rule, immutable history, severity weights and formula. Version-1 snapshots keep their meaning and never become complete. No new migration: version 2 is additive JSON in the existing `assessment_coverage` column and `stage_progress.scoring`.
+
+### Delegation and review
+
+Implementation of coverage/engine (T2), UI (T3) and copy (T4) was delegated to Haiku subagents against the written contract; the contract, tenant-scoped domain query, finaliser wiring, API pass-through and PostgreSQL case were written by the lead. Every diff was reviewed before commit. Review changes: certificate missing-reasons no longer cite the sslyze stage (the certificate comes from the HTTP probe); registered hosts are canonicalised before comparison; the executive-summary, overview and dashboard endpoints pass the new display fields through; two misleading email phrases and one UI reason string were corrected.
+
+### Validation evidence
+
+- Fresh owned PostgreSQL 18.6 cluster bound to `127.0.0.1:55436` (TCP only), `cyphward_test` bootstrapped by `backend/scripts/bootstrap_test_database.py` with all **26 migrations**, restricted `cyphward_app` verified (no superuser/BYPASSRLS). No `.env` exists in the worktree; scanning, AI and email were stubbed or disabled.
+- Baseline at `454c10f`: **494 passed, 16 skipped**.
+- Final full backend suite: **532 passed, 16 skipped**. The 16 skips are the opt-in live integrations (billing, db pool, plans, platform, RLS, throttling), unchanged. PostgreSQL modules: **38 passed** (14 admission, 24 execution).
+- New tests: 25 declared-scope coverage/engine cases (clean complete graded; one failed DMARC query partial with no grade; legacy never complete; Nuclei no-match and absent Nuclei stay complete; no-public-address host omitted not missing; the three port-applicability cases; direct evidence wins; unknown address; registered vs passive cap omission; unavailable port tool; failed checker; no public hosts; two verified domains with one unscanned; missing domains list; forged complete payload; determinism; canonical registered host; certificate reason). 12 copy cases (graded/ungraded/not-assessed email, escaping, LLM gate, report summary keys). One real-PostgreSQL case through the fenced finaliser: a complete clean scan of the first verified domain gets no score and no grade while the second is unscanned; completing the second grades 100/A with a "within declared scope" notification and a version-2 snapshot.
+- Frontend production build passed. `test:scans-ui` and `test:score-ui` passed with mocked APIs (desktop/390px/320px), including the new complete, partial, graded-scope and two-domain fixtures. These are browser checks against stubbed APIs, not live scans.
+- `git diff --check` passed.
+
+### Limitations
+
+- Port applicability trusts naabu connect-scan results; a dropped packet can hide an open port and omit web checks for that host. `-top-ports` values (100/1000/full) all include 80 and 443; this is relied on, not recorded per scan.
+- The score is organisation-wide. A graded result still includes retained findings from every domain; the gate only ensures every verified domain is complete. Per-domain versus organisation snapshots remain Packet 04.
+- An email-only domain (no in-scope public host) is partial and gets no grade.
+- Nuclei clean results are not proven (Packet 03b). Recon budgets do not cover queue time or Core finalisation (Packet 03b).
+- Existing completed scans keep version-1 coverage and therefore show no grade until each verified domain is rescanned on this release.
+
+### Release prerequisites
+
+Follow `02-release-runbook.md` and `03-scoring-release-notes.md`: pause claims and drain; take fresh private backups and rehearse on a restored application snapshot; apply **only** `20261015120000_assessment_score_coverage.sql`; deploy Core/API, then the worker built from the same revision (required for `454c10f`), then the frontend; verify health, protocol v2 negotiation and authenticated empty claims; resume claims. Scanner/shared paths changed, so merging to main triggers scanner CD; do it only as part of that coordinated release.

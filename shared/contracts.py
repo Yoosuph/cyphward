@@ -69,8 +69,11 @@ def empty_stage_progress() -> Dict[str, Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 class ScanJobLimits(BaseModel):
     max_hosts: int = Field(default=500, ge=1)
+    dns_max_hosts: int = Field(default=40, ge=1)
     max_ports: int = Field(default=100, ge=1)
     stage_timeout_seconds: int = Field(default=300, ge=10)
+    recon_timeout_seconds: int = Field(default=900, ge=10)
+    tls_max_hosts: int = Field(default=25, ge=0)
     nuclei_concurrency: int = Field(default=1, ge=1, le=4)
     nuclei_max_hosts: int = Field(default=50, ge=0)
 

@@ -65,6 +65,28 @@ def expire(conn, claim):
     conn.commit()
 
 
+def test_target_selection_is_persisted_only_for_current_producing_attempt(execution_db):
+    from shared.scan_scope import select_targets
+    conn, _, _ = execution_db
+    old = held(execution_db)
+    plan = select_targets("acme.test", ["acme.test"], ["a.acme.test"],
+                          ["z.acme.test"], max_hosts=500, dns_max_hosts=2).payload()
+    ex.store_observation(old, "discovery", {"target_selection": plan})
+    expire(conn, old)
+    new = ex.claim_from_row(ex.claim_recon("replacement", "worker", 120, old.scan_id))
+    with pytest.raises(ClaimLost):
+        ex.store_observation(old, "discovery", {"target_selection": {"stale": True}})
+    current_plan = select_targets("acme.test", ["acme.test"], [], [],
+                                  max_hosts=500, dns_max_hosts=2).payload()
+    ex.store_observation(new, "discovery", {"target_selection": current_plan})
+    core = ex.handoff_to_core(new)
+    with execution_scope(core):
+        assert wf._load_observations(old.scan_id) == {"discovery": {"target_selection": current_plan}}
+    saved = conn.execute("SELECT attempt_generation,raw_data FROM scan_results WHERE scan_id=%s AND stage='discovery' ORDER BY attempt_generation", (old.scan_id,)).fetchall()
+    assert [(r["attempt_generation"], r["raw_data"]["target_selection"]) for r in saved] == [
+        (old.observation_generation, plan), (new.observation_generation, current_plan)]
+
+
 def row(conn, scan_id):
     return conn.execute("SELECT * FROM scans WHERE id=%s", (scan_id,)).fetchone()
 
@@ -707,3 +729,93 @@ def test_late_progress_is_monotonic_with_independent_connections(execution_db):
         final["current_stage"] == "http"
         and final["stage_progress"]["dns"]["status"] == "completed"
     )
+
+
+def test_unassessed_completion_atomically_persists_null_score_and_coverage(execution_db, monkeypatch):
+    conn, org, _ = execution_db
+    worker = held(execution_db)
+    ex.store_observation(worker, "discovery", {"target_selection": {
+        "version": 1, "selected_hosts": [], "omitted_hosts": {},
+    }})
+    core = ex.handoff_to_core(worker)
+    no_external(monkeypatch)
+    result = asyncio.run(wf.finalize_scan(core.scan_id, core))
+    assert result["status"] == "completed"
+    assert result["score"] is None
+    scan = row(conn, core.scan_id)
+    snapshot = conn.execute("SELECT * FROM score_snapshots WHERE scan_id=%s", (core.scan_id,)).fetchone()
+    assert scan["score"] is None and snapshot["score"] is None
+    assert snapshot["model"] == "cyphward-risk-v3"
+    assert snapshot["assessment_coverage"]["state"] == "unassessed"
+    assert snapshot["assessment_coverage"]["evaluated_checks"] == 0
+    assert scan["stage_progress"]["scoring"]["coverage"] == snapshot["assessment_coverage"]
+    notifications = conn.execute("SELECT body FROM notifications WHERE org_id=%s AND type='scan_completed'", (org,)).fetchall()
+    assert len(notifications) == 1
+    assert "No score" in notifications[0]["body"]
+    assert "None" not in notifications[0]["body"]
+    assert "/100" not in notifications[0]["body"]
+
+
+def _clean_declared_scope_scan(execution_db, domain_index):
+    """Store a complete, clean declared-scope observation set and hand off to Core."""
+    conn, org, domains = execution_db
+    host = conn.execute("SELECT domain FROM domains WHERE id=%s", (domains[domain_index],)).fetchone()["domain"]
+    sid = str(admission.admit_scan(org, domains[domain_index], request_scope="declared-scope",
+                                   request_key=str(uuid4())).scan["id"])
+    worker = ex.claim_from_row(ex.claim_recon("worker", "worker", 120, sid))
+    answered = {q: {"status": "no_data" if q in ("CNAME", "AAAA") else "answered",
+                    "name": f"_dmarc.{host}" if q == "DMARC" else host,
+                    "record_type": "TXT" if q == "DMARC" else q}
+                for q in ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "DMARC")}
+    ex.store_observation(worker, "discovery", {"target_selection": {
+        "version": 1, "policy": "apex_registered_passive", "requested_hosts": [host],
+        "selected_hosts": [host], "omitted_hosts": {}, "limits": {"max_hosts": 500, "dns_max_hosts": 40}}})
+    ex.store_observation(worker, "dns", {"dns_records": [{
+        "hostname": host, "primary_ip": "93.184.216.34",
+        "records": {"A": ["93.184.216.34"], "TXT": ["v=spf1 -all"], "DMARC": ["v=DMARC1; p=reject"],
+                    "query_coverage": {"version": 1, "queries": answered}}}],
+        "attempted_hosts": [host], "successful_hosts": [host], "failed_hosts": {}})
+    ex.store_observation(worker, "http", {"http_probes": [{
+        "hostname": host, "url": f"https://{host}", "http_status": 200, "error": None,
+        "security_headers": {}, "tls_info": {"issuer": "Synthetic CA", "valid_to": "2027-01-01T00:00:00Z"}}],
+        "attempted_hosts": [host], "successful_hosts": [host], "failed_hosts": {}})
+    ex.store_observation(worker, "ports", {"open_ports": [
+        {"hostname": host, "port": 80, "protocol": "tcp"}, {"hostname": host, "port": 443, "protocol": "tcp"}],
+        "attempted_hosts": [host], "successful_hosts": [host], "failed_hosts": {}})
+    return ex.handoff_to_core(worker)
+
+
+def test_declared_scope_complete_scan_grades_only_when_every_verified_domain_is_complete(
+        execution_db, monkeypatch):
+    conn, org, domains = execution_db
+    no_external(monkeypatch)
+
+    async def clean_checks(hostname, dns_item, http_item, is_apex=True):
+        return []  # Checker completed with no findings; no network access.
+
+    monkeypatch.setattr(wf, "run_security_checks", clean_checks)
+
+    first = _clean_declared_scope_scan(execution_db, 0)
+    result = asyncio.run(wf.finalize_scan(first.scan_id, first))
+    scoring = result["stage_progress"]["scoring"]
+    assert result["status"] == "completed" and scoring["coverage"]["state"] == "complete"
+    assert scoring["coverage"]["requested_checks"] == 5 and scoring["coverage"]["missing"] == []
+    # The second verified domain was never scanned: no grade, no healthy 100.
+    assert result["score"] is None and scoring["grade"] is None
+    assert [d["state"] for d in scoring["domain_coverage"]] == ["complete", "not_scanned"]
+
+    second = _clean_declared_scope_scan(execution_db, 1)
+    result = asyncio.run(wf.finalize_scan(second.scan_id, second))
+    scoring = result["stage_progress"]["scoring"]
+    assert result["score"] == 100.0 and scoring["grade"] == "A"
+    assert [d["state"] for d in scoring["domain_coverage"]] == ["complete", "complete"]
+    snapshot = conn.execute("SELECT * FROM score_snapshots WHERE scan_id=%s", (second.scan_id,)).fetchone()
+    assert snapshot["score"] == 100.0 and snapshot["assessment_coverage"]["state"] == "complete"
+    assert snapshot["assessment_coverage"]["check_set"] == "cyphward-checks-v1"
+    assert row(conn, second.scan_id)["stage_progress"]["scoring"]["coverage"] == snapshot["assessment_coverage"]
+    bodies = [r["body"] for r in conn.execute(
+        "SELECT body FROM notifications WHERE org_id=%s AND type='scan_completed' ORDER BY created_at",
+        (org,)).fetchall()]
+    assert len(bodies) == 2
+    assert bodies[0].startswith("No score · Not all domains assessed")
+    assert bodies[1].startswith("Score 100.0/100 · grade A · within declared scope")

@@ -90,7 +90,67 @@ export interface Finding {
   asset_type?: string;
 }
 
+export type CoverageFamily =
+  | 'dns.spf'
+  | 'dns.dmarc'
+  | 'ports.inventory'
+  | 'http.headers'
+  | 'tls.certificate';
+
+export interface CoverageIssue {
+  hostname: string;
+  check: string;
+  reason: string;
+}
+
+export interface CoverageFamilyCount {
+  requested: number;
+  evaluated: number;
+  omitted: number;
+}
+
+export interface NucleiCoverage {
+  gating: false;
+  state: string;
+  hosts_run: number;
+  matches: number;
+  label: string;
+}
+
+/**
+ * Assessment coverage. Version 1 carries only state, evaluated_checks and reason.
+ * Version 2 (declared check set) adds the optional fields below.
+ */
+export interface ScanCoverage {
+  version: number;
+  state: string;
+  evaluated_checks: number;
+  reason?: string;
+  check_set?: string;
+  domain?: string;
+  requested_checks?: number | null;
+  evaluated_groups?: { hostname: string; check: string }[];
+  missing?: CoverageIssue[];
+  omitted_checks?: CoverageIssue[];
+  families?: Partial<Record<CoverageFamily, CoverageFamilyCount>>;
+  targets?: {
+    selected: number | null;
+    in_scope: number;
+    assessed: number;
+    omitted: Record<string, string>;
+  };
+  nuclei?: NucleiCoverage;
+  label?: string;
+}
+
+export interface DomainCoverage {
+  domain: string;
+  state: 'complete' | 'partial' | 'unassessed' | 'unknown' | 'not_scanned';
+}
+
 export interface StageInfo {
+  coverage?: ScanCoverage | null;
+  domain_coverage?: DomainCoverage[];
   status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   items?: number;
   duration_ms?: number;
@@ -120,7 +180,7 @@ export interface Scan {
   domain_id: string;
   domain?: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  score?: number;
+  score?: number | null;
   stage_progress: ScanStageProgress;
   current_stage?: string;
   started_at?: string;
@@ -151,6 +211,7 @@ export interface ScoreAssessment {
   status: string;
   completed_at: string | null;
   model: string;
+  coverage?: ScanCoverage | null;
 }
 
 export interface OverviewData {
@@ -179,6 +240,9 @@ export interface OverviewData {
   subscores: ScorePillar[];
   factors: ScoreFactorItem[];
   recent_scans: Scan[];
+  scope_label?: string | null;
+  domain_coverage?: DomainCoverage[];
+  domain_coverage_line?: string | null;
 }
 
 export interface FindingExplanation {
@@ -208,6 +272,10 @@ export interface ExecutiveSummary {
   org_name: string;
   score: number | null;
   grade: string | null;
+  scope_label?: string | null;
+  domain_coverage?: DomainCoverage[];
+  domain_coverage_line?: string | null;
+  coverage?: ScanCoverage | null;
   posture_label: string;
   executive_headline: string;
   board_summary: string;

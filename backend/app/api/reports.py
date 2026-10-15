@@ -11,6 +11,7 @@ import logging
 from backend.app.core.database import execute_query, execute_one
 from backend.app.core.auth import get_current_org, require_admin, log_audit
 from backend.app.core.plans import require_quota
+from backend.app.risk.check_set import COVERAGE_VERSION, NUCLEI_LINE, domain_coverage_line
 from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.services.mailer import (
     generate_executive_report_html,
@@ -33,6 +34,19 @@ class SendReportEmailRequest(BaseModel):
 class CreateReportRequest(BaseModel):
     domain_id: Optional[str] = None
     title: Optional[str] = None
+
+
+def _report_scope(scoring: Dict[str, Any]) -> Dict[str, Any]:
+    """Declared-scope copy read from the scoring result. Display only; never changes scoring."""
+    coverage = (scoring.get("assessment") or {}).get("coverage") or {}
+    domain_coverage = list(scoring.get("domain_coverage") or [])
+    return {
+        "scope_label": scoring.get("scope_label"),
+        "coverage_label": coverage.get("label") or None,
+        "domain_coverage": domain_coverage,
+        "domain_coverage_line": scoring.get("domain_coverage_line") or domain_coverage_line(domain_coverage),
+        "nuclei_line": NUCLEI_LINE if coverage.get("version") == COVERAGE_VERSION else None,
+    }
 
 
 def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[str, Any]:
@@ -73,6 +87,9 @@ def _build_report(org: Dict[str, Any], domain_id: Optional[str] = None) -> Dict[
         "posture_label": scoring.get("posture_label", ""),
         "assessed": scoring.get("assessed", False),
         "assessment": scoring.get("assessment"),
+        "model": scoring.get("model"),
+        "scope": scoring.get("scope"),
+        **_report_scope(scoring),
         "assets_count": assets_count,
         "critical_count": sum(1 for f in findings if f.get("severity") == "critical"),
         "high_count": sum(1 for f in findings if f.get("severity") == "high"),
@@ -147,6 +164,10 @@ def create_report(
         high_count=data["high_count"],
         medium_count=data["medium_count"],
         drivers=_report_drivers(data["findings"]),
+        scope_label=data["scope_label"],
+        coverage_label=data["coverage_label"],
+        domain_line=data["domain_coverage_line"] or None,
+        nuclei_line=data["nuclei_line"],
     )
 
     summary = {
@@ -154,6 +175,14 @@ def create_report(
         "grade": data["grade"],
         "assessed": data["assessed"],
         "assessed_at": (data.get("assessment") or {}).get("completed_at"),
+        "assessment_coverage": (data.get("assessment") or {}).get("coverage"),
+        "model": data["model"],
+        "scope": data["scope"],
+        "scope_label": data["scope_label"],
+        "coverage_label": data["coverage_label"],
+        "domain_coverage_line": data["domain_coverage_line"],
+        "domain_coverage": data["domain_coverage"],
+        "nuclei_line": data["nuclei_line"],
         "assets": data["assets_count"],
         "critical": data["critical_count"],
         "high": data["high_count"],
@@ -217,7 +246,7 @@ async def send_executive_report_email(
     elif score_val is not None:
         subject = f"Your security report for {org_name} — score {score_val}/100"
     else:
-        subject = f"Your security report for {org_name} — not assessed yet"
+        subject = f"Your security report for {org_name} — no score available"
 
     html_content = generate_executive_report_html(
         org_name=org_name,
@@ -231,6 +260,10 @@ async def send_executive_report_email(
         medium_count=medium_count,
         summary_text=req.custom_note,
         drivers=_report_drivers(findings),
+        scope_label=data["scope_label"],
+        coverage_label=data["coverage_label"],
+        domain_line=data["domain_coverage_line"] or None,
+        nuclei_line=data["nuclei_line"],
     )
 
     try:

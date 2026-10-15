@@ -47,7 +47,7 @@ def email_sender(kind: str) -> "tuple[str, str]":
 def generate_executive_report_html(
     org_name: str,
     domain: str,
-    score: Optional[int] = None,
+    score: Optional[float] = None,
     grade: Optional[str] = None,
     posture_label: str = "",
     assets_count: int = 0,
@@ -56,10 +56,18 @@ def generate_executive_report_html(
     medium_count: int = 0,
     summary_text: Optional[str] = None,
     drivers: Optional[List[Dict[str, Any]]] = None,
+    scope_label: Optional[str] = None,
+    coverage_label: Optional[str] = None,
+    domain_line: Optional[str] = None,
+    nuclei_line: Optional[str] = None,
 ) -> str:
     """
     Renders a clean, light-themed HTML security report email in plain English.
     Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
+
+    A graded score (grade plus scope_label) is described as valid only within the
+    declared scope. Ungraded results keep the "does not establish complete coverage"
+    wording. The SCOPE block lists the coverage, per-domain and Nuclei lines when given.
     """
     assessed = score is not None
     if assessed:
@@ -68,8 +76,8 @@ def generate_executive_report_html(
         score_text = str(score)
         score_label = f"{score}/100"
         score_suffix = "/100"
-        grade_text = str(grade)
-        grade_line = f"Grade {escape(str(grade or '—'))} · {escape(posture_label)}"
+        grade_text = str(grade or "not assigned")
+        grade_line = f"Grade {escape(str(grade))} · {escape(posture_label)}" if grade else escape(posture_label)
     else:
         score_color = "#64748B"
         score_width = 0
@@ -77,28 +85,38 @@ def generate_executive_report_html(
         score_label = "not assessed"
         score_suffix = ""
         grade_text = "not assessed"
-        grade_line = "Not assessed · run a scan"
+        grade_line = f"{escape(posture_label or 'Not assessed')} · Insufficient evidence for a score"
     report_ref = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
     if not summary_text:
-        if assessed:
+        if assessed and grade and scope_label:
+            coverage_sentence = f"Coverage: {coverage_label}. " if coverage_label else ""
             summary_text = (
-                f"The latest assessment gave {org_name} a security score of {score} out of 100 "
-                f"(grade {grade or '—'} — {posture_label}). "
+                f"The available evidence gives {org_name} a known-risk score of {score} out of 100 "
+                f"(grade {grade}, {posture_label}), which applies within declared scope. "
+                f"{coverage_sentence}"
+                "This is not a statement about security beyond the declared checks. "
+                f"There are {critical_count} critical, {high_count} high and {medium_count} medium open findings. "
+                "Review the findings and recommended actions in your dashboard."
+            )
+        elif assessed:
+            summary_text = (
+                f"The available evidence gives {org_name} a known-risk score of {score} out of 100 "
+                f"({posture_label}). This reflects recorded findings and does not establish complete coverage. "
                 f"There are {critical_count} critical, {high_count} high and {medium_count} medium open findings. "
                 f"Review the findings and recommended actions in your dashboard."
             )
         else:
             summary_text = (
-                f"{org_name} has no completed security assessment yet. "
-                "Verify a domain and run a scan to produce a score and findings."
+                f"{org_name} does not yet have sufficient evaluated evidence for a security score. "
+                "Recorded open findings still require attention; missing evidence is not proof of security."
             )
 
     if not drivers:
         drivers = [{
             "impact": "No findings" if assessed else "Awaiting scan",
-            "title": "No open findings" if assessed else "No completed scan yet",
+            "title": "No open findings" if assessed else "Insufficient assessment evidence",
             "desc": "The latest assessment has no open findings." if assessed else "Complete a scan to see findings here.",
             "remedy": "Continue monitoring your domains." if assessed else "Verify a domain and start a scan from your dashboard.",
         }]
@@ -110,6 +128,27 @@ def generate_executive_report_html(
     org_name = escape(org_name or "Organization")
     domain = escape(domain or "No verified domain")
     summary_text = escape(summary_text)
+
+    scope_lines = [line for line in (coverage_label, domain_line, nuclei_line) if line]
+    scope_html = ""
+    if scope_lines:
+        scope_items = "".join(
+            f"""
+            <div style="font-size: 13px; color: #3A352D; line-height: 1.6; margin-bottom: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">{escape(line)}</div>"""
+            for line in scope_lines
+        )
+        scope_html = f"""
+      <!-- Declared Scope -->
+      <tr>
+        <td style="padding: 0 28px 22px;">
+          <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
+            SCOPE
+          </div>
+          <div style="padding: 12px 18px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px;">{scope_items}
+          </div>
+        </td>
+      </tr>
+"""
 
     drivers_html = ""
     for d in drivers:
@@ -197,7 +236,7 @@ def generate_executive_report_html(
               </td>
               <td style="vertical-align: middle; text-align: right;">
                 <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
-                  &#9679; {'Assessment available' if assessed else 'Awaiting first assessment'}
+                  &#9679; {'Known-risk score available' if assessed else 'Insufficient assessment evidence'}
                 </span>
               </td>
             </tr>
@@ -235,7 +274,7 @@ def generate_executive_report_html(
                   {org_name}
                 </div>
                 <div style="font-size: 13px; color: #6B6459; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                  How safe your public-facing systems are right now
+                  What the latest external assessment found
                 </div>
               </td>
               <td style="vertical-align: middle; text-align: right; width: 150px;">
@@ -272,7 +311,7 @@ def generate_executive_report_html(
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
               <td width="25%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
-                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Systems checked</div>
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Assets on record</div>
                 <div style="font-size: 17px; font-weight: 700; color: #1F1A14; margin-top: 4px;">{assets_count}</div>
               </td>
               <td width="2%" style="font-size: 0;">&nbsp;</td>
@@ -307,6 +346,7 @@ def generate_executive_report_html(
         </td>
       </tr>
 
+{scope_html}
       <!-- Steps To Improve -->
       <tr>
         <td style="padding: 0 28px 24px;">

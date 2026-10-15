@@ -14,6 +14,7 @@ from typing import Dict, Any, List
 from backend.app.ai.base import AIProvider
 from backend.app.ai.privacy import sanitize_for_ai
 from backend.app.ai.heuristic_provider import HeuristicAIProvider
+from backend.app.risk.check_set import NUCLEI_LINE
 
 logger = logging.getLogger("cyphward.ai")
 
@@ -228,8 +229,16 @@ class CloudLLMProvider(AIProvider):
         if not self.gemini_key and not self.openai_key:
             return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
 
-        # Never let a model invent a score when no scan has been completed.
-        if score_data.get("score") is None:
+        # Never let a model invent a score, or describe coverage beyond the declared checks.
+        # The model path needs a graded, complete result with a declared-scope label.
+        coverage = (score_data.get("assessment") or {}).get("coverage") or {}
+        scope_label = score_data.get("scope_label")
+        if (
+            score_data.get("score") is None
+            or score_data.get("grade") is None
+            or coverage.get("state") != "complete"
+            or not scope_label
+        ):
             return await self.heuristic.generate_executive_summary(org_name, score_data, findings)
 
         sanitized_score = sanitize_for_ai(score_data)
@@ -239,10 +248,16 @@ class CloudLLMProvider(AIProvider):
             "You are Cyphward Chief Information Security Advisor. Generate an executive board-ready security report "
             "strictly as JSON with keys: executive_headline, board_summary, critical_action_items (array of objects with title, priority, rationale), compliance_implication. "
             "compliance_implication must describe technical evidence only and must state it is not a compliance "
-            "certification or DPCO filing — never declare an organisation compliant or non-compliant with any law."
+            "certification or DPCO filing — never declare an organisation compliant or non-compliant with any law. "
+            "The assessment covers only the declared checks listed in the scope: state that it covers only those checks, "
+            "never claim the organisation or domain is secure beyond them, and never claim that known-CVE templates found nothing."
         )
         user_prompt = (
             f"Enterprise: {org_name}\n"
+            f"Scope: {scope_label}\n"
+            f"Coverage: {coverage.get('label') or 'not recorded'}\n"
+            f"Domain Coverage: {score_data.get('domain_coverage_line') or 'not recorded'}\n"
+            f"Known-CVE Check Note: {NUCLEI_LINE}\n"
             f"Score Data: {json.dumps(sanitized_score, default=str)}\n"
             f"Active Findings: {json.dumps(sanitized_findings, default=str)}"
         )

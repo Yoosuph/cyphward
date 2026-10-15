@@ -221,13 +221,13 @@ class FakeStore:
         if s.startswith("UPDATE scans SET status='completed',current_stage='completed'"):
             score,progress,scan_id=params
             row=next(r for r in self.scans if r['id']==scan_id)
-            row.update(status='completed',current_stage='completed',score=score,stage_progress=json.loads(progress),
+            row.update(status='completed',current_stage='completed',score=score,completed_at=datetime.now(timezone.utc).isoformat(),stage_progress=json.loads(progress),
                 claimed_by=None,claim_token=None,execution_phase=None,lease_expires_at=None,claim_generation=row['claim_generation']+1)
             return []
-        if s.startswith('INSERT INTO score_snapshots') and 'risk_points,scan_id)' in s:
-            org_id,score,subscores,factors,model,scope,risk_points,scan_id=params
+        if s.startswith('INSERT INTO score_snapshots') and 'risk_points,scan_id,assessment_coverage)' in s:
+            org_id,score,subscores,factors,model,scope,risk_points,scan_id,coverage=params
             self.snapshots.append(dict(org_id=str(org_id),domain_id=None,score=score,model=model,scope=scope,
-                risk_points=risk_points,scan_id=scan_id,subscores=json.loads(subscores),factors=json.loads(factors),created_at='2026-10-13T00:00:00'))
+                risk_points=risk_points,scan_id=scan_id,assessment_coverage=json.loads(coverage),subscores=json.loads(subscores),factors=json.loads(factors),created_at='2026-10-13T00:00:00'))
             return []
         if s.startswith("INSERT INTO notifications (org_id,type,title,body,severity,link)"):
             org_id,title,body,severity=params
@@ -1431,10 +1431,25 @@ class FakeStore:
             if "model = %s AND scope = %s" in s:
                 cutoff = datetime.now(timezone.utc) - timedelta(days=7)
                 rows = [row for row in rows
-                        if row.get("model") == params[1] and row.get("scope") == params[2]
+                        if row.get("model") == params[1] and row.get("scope") == params[2] and row.get("score") is not None
                         and datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= cutoff]
                 return rows[:1]
             return rows[:2]
+
+        # Per-verified-domain latest completed assessment (organisation grade gate)
+        if s.startswith("SELECT d.id AS domain_id, d.domain, s.id AS scan_id, s.completed_at, s.stage_progress FROM domains d LEFT JOIN LATERAL"):
+            org_id = params[0]
+            rows = []
+            for dom in sorted((d for d in self.domains if d["org_id"] == org_id
+                               and d.get("verification_status") == "verified"),
+                              key=lambda d: (str(d.get("created_at") or ""), d["domain"])):
+                latest = sorted((sc for sc in self.scans if sc["org_id"] == org_id
+                                 and sc.get("domain_id") == dom["id"] and sc.get("status") == "completed"),
+                                key=lambda r: r.get("completed_at") or "", reverse=True)[:1]
+                scan = latest[0] if latest else {}
+                rows.append({"domain_id": dom["id"], "domain": dom["domain"], "scan_id": scan.get("id"),
+                             "completed_at": scan.get("completed_at"), "stage_progress": scan.get("stage_progress")})
+            return rows
 
         # completed-scan assessment lookup (risk engine "not assessed" gate)
         if s.startswith("SELECT id, status, completed_at, stage_progress FROM scans WHERE org_id = %s AND status = 'completed'"):
@@ -1717,7 +1732,7 @@ class FakeStore:
         self.scans = [
             {
                 "id": SCAN_A1, "org_id": ORG_A, "domain_id": DOM_A1, "domain": "acme.test",
-                "status": "completed", "score": 72, "current_stage": 6, "stage_progress": 100,
+                "status": "completed", "score": 72, "current_stage": 6, "stage_progress": {"scoring": {"coverage": {"version": 1, "state": "complete", "evaluated_checks": 4}}},
                 "scan_type": "full", "started_at": "2026-03-01T00:00:00",
                 "completed_at": "2026-03-01T00:10:00", "created_at": "2026-03-01T00:00:00",
             },
