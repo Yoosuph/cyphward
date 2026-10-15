@@ -611,6 +611,130 @@ try {
     await existingDetailRequest;
     await page.waitForSelector(".drawer.open");
     assert.equal(launchRequests, 5);
+    // Declared-scope (version 2) coverage: the payload decides the label, detail lists and Known-CVE line.
+    const nucleiLine = "Known-CVE templates: matches reported; clean results not proven.";
+    const declaredCoverage = (state) => ({
+      version: 2,
+      check_set: "cyphward-checks-v1",
+      domain: "example.ng",
+      state,
+      requested_checks: 8,
+      evaluated_checks: state === "complete" ? 7 : 6,
+      evaluated_groups: [],
+      missing: state === "complete" ? [] : [{ hostname: "example.ng", check: "dns.dmarc", reason: "dns_not_observed" }],
+      omitted_checks: [{ hostname: "static.example.ng", check: "tls.certificate", reason: "no_https" }],
+      families: {
+        "dns.spf": { requested: 1, evaluated: 1, omitted: 0 },
+        "dns.dmarc": { requested: 1, evaluated: state === "complete" ? 1 : 0, omitted: 0 },
+        "ports.inventory": { requested: 2, evaluated: 2, omitted: 0 },
+        "http.headers": { requested: 2, evaluated: 2, omitted: 0 },
+        "tls.certificate": { requested: 2, evaluated: 1, omitted: 1 },
+      },
+      targets: { selected: 2, in_scope: 2, assessed: 2, omitted: {} },
+      nuclei: { gating: false, state: "matches_only", hosts_run: 2, matches: 0, label: nucleiLine },
+      label: state === "complete"
+        ? "example.ng: all declared checks complete on 2 hosts"
+        : "example.ng: 6 of 8 declared checks conclusive",
+      reason: "",
+    });
+    const declaredScans = [
+      {
+        id: "v2-complete",
+        domain: "example.ng",
+        status: "completed",
+        score: 61.4,
+        created_at: "2026-10-14T06:00:00Z",
+        completed_at: "2026-10-14T06:12:00Z",
+        findings_discovered: 4,
+        current_stage: "completed",
+        stage_progress: {
+          ...progress,
+          nuclei: { status: "failed", items: 0, duration_ms: 90000, error: "Known-CVE run timed out." },
+          scoring: { status: "completed", scope: "organization", coverage: declaredCoverage("complete") },
+        },
+      },
+      {
+        id: "v2-partial",
+        domain: "example.ng",
+        status: "completed",
+        score: 48.2,
+        created_at: "2026-10-13T06:00:00Z",
+        completed_at: "2026-10-13T06:12:00Z",
+        findings_discovered: 9,
+        current_stage: "completed",
+        stage_progress: {
+          ...progress,
+          scoring: { status: "completed", scope: "organization", coverage: declaredCoverage("partial") },
+        },
+      },
+    ];
+    scans.push(...declaredScans);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+    for (const [width, height] of [
+      [1440, 1000],
+      [390, 844],
+      [320, 844],
+    ]) {
+      await page.setViewport({ width, height });
+      await page.goto(`${origin}/scans`);
+      await page.waitForSelector('button[aria-label="View scan v2-complete"]');
+      await page.evaluate(() =>
+        document.querySelector('button[aria-label="View scan v2-complete"]').click(),
+      );
+      await page.waitForFunction(() =>
+        document.querySelector(".scan-summary .scan-score strong")?.textContent.startsWith("61.4"),
+      );
+      const complete = await page.evaluate((nucleiLine) => ({
+        badge: document.querySelector(".scan-summary .scan-badge")?.textContent,
+        notice: !!document.querySelector(".scan-summary .scan-coverage-notice"),
+        limitedNotice: document.body.textContent.includes("Completed with limited coverage"),
+        nuclei: document.body.textContent.includes(nucleiLine),
+        overflow: document.documentElement.scrollWidth <= window.innerWidth,
+      }), nucleiLine);
+      assert.equal(complete.badge, "Declared checks complete", `Complete v2 coverage label at ${width}px`);
+      assert.equal(complete.notice, false, "Complete v2 coverage has no limited-coverage notice");
+      assert.equal(complete.limitedNotice, false, "Optional failed stage does not downgrade complete v2 coverage");
+      assert.ok(complete.nuclei, "Known-CVE line is shown separately");
+      assert.ok(complete.overflow, `No horizontal overflow on complete v2 scan at ${width}px`);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+
+      await page.evaluate(() =>
+        document.querySelector('button[aria-label="View scan v2-partial"]').click(),
+      );
+      await page.waitForFunction(() =>
+        document.querySelector(".scan-summary .scan-score strong")?.textContent.startsWith("48.2"),
+      );
+      await page.evaluate(() => {
+        document.querySelector(".scan-checks-panel").open = true;
+      });
+      const partial = await page.evaluate(() => ({
+        badge: document.querySelector(".scan-summary .scan-badge")?.textContent,
+        notice: document.querySelector(".scan-summary .scan-coverage-notice strong")?.textContent,
+        dmarc: document.body.textContent.includes("example.ng · DMARC: DNS result not recorded"),
+        label: document.body.textContent.includes("example.ng: 6 of 8 declared checks conclusive"),
+        overflow: document.documentElement.scrollWidth <= window.innerWidth,
+      }));
+      assert.equal(partial.badge, "Limited coverage", `Partial v2 coverage label at ${width}px`);
+      assert.equal(partial.notice, "Completed with limited coverage");
+      assert.ok(partial.dmarc, "Missing DMARC check has a readable reason");
+      assert.ok(partial.label, "Partial v2 coverage shows its label line");
+      assert.ok(partial.overflow, `No horizontal overflow on partial v2 scan at ${width}px`);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+    }
+    // Return to the monitored scan so the polling check below still covers it.
+    await page.goto(`${origin}/scans`);
+    await page.waitForSelector('button[aria-label="View scan demo-scan-002"]');
+    await page.evaluate(() =>
+      document.querySelector('button[aria-label="View scan demo-scan-002"]').click(),
+    );
+    await page.waitForFunction(() =>
+      document.querySelector(".scan-summary .scan-section-label")?.textContent === "Selected scan",
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".drawer.open"));
     slowResponses = true;
     const monitoredScan = scans.find((scan) => scan.id === "demo-scan-002");
     monitoredScan.status = "completed";

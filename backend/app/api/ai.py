@@ -97,6 +97,15 @@ async def generate_executive_summary(
 
     ai = get_ai_provider()
     summary = await ai.generate_executive_summary(org["name"], score_data, findings)
+    if isinstance(summary, dict):
+        # Display-only declared-scope context from the same score; the
+        # provider's own text is never overridden.
+        summary = {
+            "scope_label": score_data.get("scope_label"),
+            "domain_coverage_line": score_data.get("domain_coverage_line"),
+            "coverage": (score_data.get("assessment") or {}).get("coverage"),
+            **summary,
+        }
     return summary
 
 

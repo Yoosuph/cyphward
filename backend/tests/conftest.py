@@ -1436,6 +1436,21 @@ class FakeStore:
                 return rows[:1]
             return rows[:2]
 
+        # Per-verified-domain latest completed assessment (organisation grade gate)
+        if s.startswith("SELECT d.id AS domain_id, d.domain, s.id AS scan_id, s.completed_at, s.stage_progress FROM domains d LEFT JOIN LATERAL"):
+            org_id = params[0]
+            rows = []
+            for dom in sorted((d for d in self.domains if d["org_id"] == org_id
+                               and d.get("verification_status") == "verified"),
+                              key=lambda d: (str(d.get("created_at") or ""), d["domain"])):
+                latest = sorted((sc for sc in self.scans if sc["org_id"] == org_id
+                                 and sc.get("domain_id") == dom["id"] and sc.get("status") == "completed"),
+                                key=lambda r: r.get("completed_at") or "", reverse=True)[:1]
+                scan = latest[0] if latest else {}
+                rows.append({"domain_id": dom["id"], "domain": dom["domain"], "scan_id": scan.get("id"),
+                             "completed_at": scan.get("completed_at"), "stage_progress": scan.get("stage_progress")})
+            return rows
+
         # completed-scan assessment lookup (risk engine "not assessed" gate)
         if s.startswith("SELECT id, status, completed_at, stage_progress FROM scans WHERE org_id = %s AND status = 'completed'"):
             org_id = params[0]

@@ -8,6 +8,7 @@ Legacy/missing coverage remains unknown; history is never backfilled.
 """
 from typing import List, Dict, Any, Optional
 
+from backend.app.risk.check_set import domain_coverage_line
 from backend.app.risk.coverage import coverage_state
 
 SCORE_MODEL = "cyphward-risk-v3"
@@ -47,6 +48,10 @@ def latest_assessment(org_id: str) -> Optional[Dict[str, Any]]:
     if isinstance(stages, dict):
         assessment["stages"] = stages
         assessment["coverage"] = (stages.get("scoring") or {}).get("coverage") if isinstance(stages.get("scoring"), dict) else None
+    # Re-evaluated on every read: a newly verified domain removes the grade
+    # until it has its own complete assessment.
+    from backend.app.risk.domain_coverage import org_domain_coverage
+    assessment["domains"] = org_domain_coverage(org_id)
     return assessment
 
 
@@ -60,7 +65,18 @@ def _severity_counts(findings: List[Dict[str, Any]]) -> Dict[str, int]:
     return counts
 
 
-def _not_assessed(counts: Dict[str, int]) -> Dict[str, Any]:
+def _domain_fields(domains: Any, scope_label: Optional[str] = None) -> Dict[str, Any]:
+    """Per-domain coverage shown beside every score, including unassessed results."""
+    coverage = domains if isinstance(domains, list) else []
+    lines = [item for item in coverage if isinstance(item, dict) and isinstance(item.get("domain"), str)]
+    return {
+        "domain_coverage": coverage,
+        "domain_coverage_line": domain_coverage_line(lines),
+        "scope_label": scope_label,
+    }
+
+
+def _not_assessed(counts: Dict[str, int], domains: Any = None) -> Dict[str, Any]:
     """Explicit unassessed payload — no score, no grade, no claims."""
     return {
         "assessed": False,
@@ -76,6 +92,7 @@ def _not_assessed(counts: Dict[str, int]) -> Dict[str, Any]:
         "counts": counts,
         "subscores": [],
         "factors": [],
+        **_domain_fields(domains),
     }
 
 
@@ -165,6 +182,14 @@ def compute_risk_score(
         weighted.append((weight, finding))
     total_risk = sum(burdens.values())
     state = coverage_state(assessment) if assessment.get("status") == "completed" else "unknown"
+    domains = assessment.get("domains")
+    org_complete = (isinstance(domains, list) and len(domains) > 0
+                    and all(isinstance(item, dict) and item.get("state") == "complete" for item in domains))
+    # A complete scan of one domain is not an organisation grade until every verified domain is complete.
+    domains_gap = state == "complete" and not org_complete
+    if domains_gap:
+        state = "partial"
+    partial_label = "Not all domains assessed" if domains_gap else "Partial assessment"
     total_score = _health(total_risk)
     factors = []
     # Largest risks first, with deterministic ordering independent of SQL order.
@@ -185,7 +210,7 @@ def compute_risk_score(
     if not total_risk and state == "complete":
         factors.append({
             "impact": "0 risk pts", "type": "positive",
-            "label": "No scored open findings. Scan coverage still determines what was checked.",
+            "label": "No scored open findings within declared scope.",
             "scan_id": assessment.get("scan_id"),
             "assessed_at": assessment.get("completed_at"),
         })
@@ -193,10 +218,10 @@ def compute_risk_score(
     # A completed job is not an assessed scan. Partial evidence may support
     # a known-risk burden, never an empty 100 or a whole-organization grade.
     if state not in {"partial", "complete"} or (state == "partial" and not total_risk):
-        result = _not_assessed(counts)
+        result = _not_assessed(counts, domains)
         result.update(assessment={**assessment, "model": SCORE_MODEL},
                       risk_points=total_risk, factors=factors[:6],
-                      posture_label={"partial": "Partial assessment", "unknown": "Coverage unknown"}.get(state, "Not assessed"))
+                      posture_label={"partial": partial_label, "unknown": "Coverage unknown"}.get(state, "Not assessed"))
         return result
 
     if total_score >= 85:
@@ -219,7 +244,7 @@ def compute_risk_score(
             "risk_points": burden,
         })
     if state == "partial":
-        grade, posture_label = None, "Partial assessment"
+        grade, posture_label = None, partial_label
         status_color = "warn" if total_score >= 55 else "accent"
         subscores = []  # Unchecked categories must not acquire a healthy 100.
     return {
@@ -229,4 +254,5 @@ def compute_risk_score(
         "assessment": {**assessment, "model": SCORE_MODEL},
         "risk_points": total_risk, "counts": counts,
         "subscores": subscores, "factors": factors[:6],
+        **_domain_fields(domains, "Within declared scope" if state == "complete" else None),
     }

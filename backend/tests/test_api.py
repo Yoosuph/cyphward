@@ -309,6 +309,7 @@ ASSESSMENT = {
     "completed_at": "2026-03-01T00:10:00",
     "model": "cyphward-risk-v3",
     "coverage": {"version": 1, "state": "complete", "evaluated_checks": 4},
+    "domains": [{"domain": "acme.test", "state": "complete"}],
 }
 
 

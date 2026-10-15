@@ -65,6 +65,7 @@ from backend.app.scanner.dns_coverage import dns_finding_evaluated, collect_dns_
 from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
 from backend.app.risk.coverage import assessment_coverage
+from backend.app.risk.domain_coverage import org_domain_coverage
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
@@ -389,7 +390,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
     discovered_hosts = (observations.get("discovery") or {}).get("discovered_hosts") or []
     # Belt-and-braces: owner-registered hosts apply even when the recon
     # side (older worker, pre-union scans) never saw them.
-    for h in _registered_hosts(str(org_id), str(domain_id)):
+    registered_hosts = _registered_hosts(str(org_id), str(domain_id))
+    for h in registered_hosts:
         if h not in discovered_hosts:
             discovered_hosts.append(h)
     discovered_hosts = sorted(set(discovered_hosts))
@@ -830,6 +832,14 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             "SELECT * FROM findings WHERE org_id = %s AND status != 'resolved'",
             (org_id,),
         ) or []
+        coverage = assessment_coverage(domain, observations, check_success_hosts,
+                                       registered_hosts=registered_hosts)
+        # A grade needs every verified domain complete; this scan's domain
+        # is judged on the coverage being committed now.
+        domain_states = org_domain_coverage(str(org_id), current={
+            "domain_id": str(domain_id), "domain": domain, "scan_id": str(scan_id),
+            "completed_at": scan_completed_at, "coverage": coverage,
+        })
         score_result = compute_risk_score(
             open_findings,
             assessment={
@@ -837,7 +847,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                 "status": "completed",
                 "completed_at": scan_completed_at,
                 "model": SCORE_MODEL,
-                "coverage": assessment_coverage(domain, observations, check_success_hosts),
+                "coverage": coverage,
+                "domains": domain_states,
             },
         )
         final_score = score_result["score"]
@@ -848,6 +859,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             "model": SCORE_MODEL, "scope": SCORE_SCOPE,
             "risk_points": score_result.get("risk_points"),
             "coverage": (score_result.get("assessment") or {}).get("coverage"),
+            "grade": score_result.get("grade"),
+            "domain_coverage": score_result.get("domain_coverage"),
         }
 
         # ---------------------------------------------------------------------
@@ -896,6 +909,12 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         not_evaluated_msg = (
             f" · {len(baseline['not_evaluated'])} not evaluated" if baseline['not_evaluated'] else ''
         )
+        if final_score is not None and score_result.get("grade"):
+            score_msg = f"Score {final_score}/100 · grade {score_result['grade']} · within declared scope"
+        elif final_score is not None:
+            score_msg = f"Known-risk score {final_score}/100 · {score_result['posture_label'].lower()}"
+        else:
+            score_msg = f"No score · {score_result['posture_label']}"
         execution.finish_assessment(require_execution(scan_id), str(org_id), score_result, progress, {
             'domain': domain, 'score': final_score, 'findings': len(normalized_all),
             'new': len(baseline['new']), 'reopened': len(baseline['reopened']),
@@ -903,7 +922,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         }, {
             'model': SCORE_MODEL, 'scope': SCORE_SCOPE,
             'title': f'Scan completed for {domain}',
-            'body': f"{('Known-risk score ' + str(final_score) + '/100 · partial assessment') if final_score is not None else ('No score · ' + score_result['posture_label'])} · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
+            'body': f"{score_msg} · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
             'severity': 'medium' if final_score is not None and final_score < 70 else 'info',
         })
 

@@ -56,10 +56,18 @@ def generate_executive_report_html(
     medium_count: int = 0,
     summary_text: Optional[str] = None,
     drivers: Optional[List[Dict[str, Any]]] = None,
+    scope_label: Optional[str] = None,
+    coverage_label: Optional[str] = None,
+    domain_line: Optional[str] = None,
+    nuclei_line: Optional[str] = None,
 ) -> str:
     """
     Renders a clean, light-themed HTML security report email in plain English.
     Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
+
+    A graded score (grade plus scope_label) is described as valid only within the
+    declared scope. Ungraded results keep the "does not establish complete coverage"
+    wording. The SCOPE block lists the coverage, per-domain and Nuclei lines when given.
     """
     assessed = score is not None
     if assessed:
@@ -82,7 +90,17 @@ def generate_executive_report_html(
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
     if not summary_text:
-        if assessed:
+        if assessed and grade and scope_label:
+            coverage_sentence = f"Coverage: {coverage_label}. " if coverage_label else ""
+            summary_text = (
+                f"The available evidence gives {org_name} a known-risk score of {score} out of 100 "
+                f"(grade {grade}, {posture_label}), which applies within declared scope. "
+                f"{coverage_sentence}"
+                "This is not a statement about security beyond the declared checks. "
+                f"There are {critical_count} critical, {high_count} high and {medium_count} medium open findings. "
+                "Review the findings and recommended actions in your dashboard."
+            )
+        elif assessed:
             summary_text = (
                 f"The available evidence gives {org_name} a known-risk score of {score} out of 100 "
                 f"({posture_label}). This reflects recorded findings and does not establish complete coverage. "
@@ -110,6 +128,27 @@ def generate_executive_report_html(
     org_name = escape(org_name or "Organization")
     domain = escape(domain or "No verified domain")
     summary_text = escape(summary_text)
+
+    scope_lines = [line for line in (coverage_label, domain_line, nuclei_line) if line]
+    scope_html = ""
+    if scope_lines:
+        scope_items = "".join(
+            f"""
+            <div style="font-size: 13px; color: #3A352D; line-height: 1.6; margin-bottom: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">{escape(line)}</div>"""
+            for line in scope_lines
+        )
+        scope_html = f"""
+      <!-- Declared Scope -->
+      <tr>
+        <td style="padding: 0 28px 22px;">
+          <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
+            SCOPE
+          </div>
+          <div style="padding: 12px 18px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px;">{scope_items}
+          </div>
+        </td>
+      </tr>
+"""
 
     drivers_html = ""
     for d in drivers:
@@ -235,7 +274,7 @@ def generate_executive_report_html(
                   {org_name}
                 </div>
                 <div style="font-size: 13px; color: #6B6459; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                  How safe your public-facing systems are right now
+                  What the latest external assessment found
                 </div>
               </td>
               <td style="vertical-align: middle; text-align: right; width: 150px;">
@@ -272,7 +311,7 @@ def generate_executive_report_html(
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
               <td width="25%" style="padding: 11px 6px; background-color: #FAF9F6; border: 1px solid #EFECE5; border-radius: 8px; text-align: center;">
-                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Systems checked</div>
+                <div style="font-size: 9px; color: #8A8377; text-transform: uppercase; letter-spacing: 0.5px;">Assets on record</div>
                 <div style="font-size: 17px; font-weight: 700; color: #1F1A14; margin-top: 4px;">{assets_count}</div>
               </td>
               <td width="2%" style="font-size: 0;">&nbsp;</td>
@@ -307,6 +346,7 @@ def generate_executive_report_html(
         </td>
       </tr>
 
+{scope_html}
       <!-- Steps To Improve -->
       <tr>
         <td style="padding: 0 28px 24px;">

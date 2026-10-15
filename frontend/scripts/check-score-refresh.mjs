@@ -159,8 +159,51 @@ try {
   await page.reload();
   await page.waitForFunction(() => document.body.textContent.includes('7 of 7 checks completed') &&
     document.body.textContent.includes('Completed with limited coverage'));
+  // Declared-scope (version 2) payloads: the API sends the grade and scope copy; the page only shows them.
+  const nucleiLabel = 'Known-CVE templates: matches reported; clean results not proven.';
+  const declaredCoverage = state => ({
+    version: 2, check_set: 'cyphward-checks-v1', domain: 'example.com', state,
+    requested_checks: 8, evaluated_checks: state === 'complete' ? 8 : 6,
+    evaluated_groups: [], omitted_checks: [], families: {},
+    missing: state === 'complete' ? [] : [{ hostname: 'example.com', check: 'dns.dmarc', reason: 'dns_not_observed' }],
+    targets: { selected: 1, in_scope: 1, assessed: 1, omitted: {} },
+    nuclei: { gating: false, state: 'matches_only', hosts_run: 1, matches: 0, label: nucleiLabel },
+    label: state === 'complete' ? 'example.com: all declared checks complete on 1 host' : 'example.com: 6 of 8 declared checks conclusive',
+    reason: '',
+  });
+  const bodyText = () => page.evaluate(() => document.body.textContent);
+  domain.verification_status = 'verified';
+  await page.goto(`${origin}/overview`);
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'REFRESH'));
+  payload = { ...payload, score: 91, grade: 'A', posture_label: 'Strong posture', assessed: true,
+    scope_label: 'Within declared scope', domain_coverage: [{ domain: 'example.com', state: 'complete' }],
+    domain_coverage_line: 'example.com: complete', assessment: { ...payload.assessment, coverage: declaredCoverage('complete') } };
+  await refresh();
+  await ringIs('91.0');
+  let text = await bodyText();
+  assert.ok(text.includes('A RATING'), 'Grade is shown when the API sends one');
+  assert.match(text, /within declared scope/i, 'Scope label is shown with the grade');
+  assert.ok(text.includes('example.com: complete'), 'Domain coverage line is shown under the score');
+  assert.ok(text.includes(nucleiLabel), 'Known-CVE line is shown separately');
+
+  payload = { ...payload, score: 72.5, grade: null, posture_label: 'Partial assessment', scope_label: null,
+    domain_coverage: [{ domain: 'example.com', state: 'complete' }, { domain: 'other.ng', state: 'not_scanned' }],
+    domain_coverage_line: 'example.com: complete · other.ng: not scanned',
+    assessment: { ...payload.assessment, coverage: declaredCoverage('partial') } };
+  await refresh();
+  await ringIs('72.5');
+  text = await bodyText();
+  assert.ok(!text.includes('A RATING'), 'No grade badge without an API grade');
+  assert.ok(!/within declared scope/i.test(text), 'No scope label without an API scope');
+  assert.ok(text.includes('example.com: complete · other.ng: not scanned'), 'Partial domain line is shown');
+  assert.ok(text.includes(nucleiLabel), 'Known-CVE line is shown separately without a grade');
+  for (const width of [320, 390, 1280]) {
+    await page.setViewport({ width, height: 900 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `No horizontal overflow on declared-scope overview at ${width}px`);
+  }
+
   assert.deepEqual(errors, []);
-  console.log('PASS: score refresh/history, full mobile logo, partial coverage, and role/verification-aware scan launch');
+  console.log('PASS: score refresh/history, full mobile logo, partial coverage, role/verification-aware scan launch, and declared-scope grade/domain copy');
 } finally {
   if (browser) await browser.close();
   await server.close();
