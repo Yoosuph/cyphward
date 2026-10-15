@@ -327,7 +327,7 @@ export default function Overview() {
                 {data.risk_points != null && (
                   <p>{data.risk_points} risk points across {counts.total_findings} open findings</p>
                 )}
-                <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>
+                {!grade && <p>Known-risk scores reflect recorded open findings. Partial coverage does not establish whole-organization security.</p>}
               </div>
             ) : (
               <p className="text-xs mono text-soft mt-2">

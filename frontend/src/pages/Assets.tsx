@@ -236,24 +236,26 @@ export default function Assets() {
                       {asset.tls_info?.valid ? (
                         <div className="flex items-center gap-1.5 text-ok text-[11px]">
                           <Lock size={11} />
-                          <span>{asset.tls_info.protocol || 'TLS 1.3'}</span>
-                          <span className="text-soft text-[10px]">
-                            ({asset.tls_info.days_remaining}d)
-                          </span>
+                          <span>{asset.tls_info.protocol || 'Valid'}</span>
+                          {asset.tls_info.days_remaining != null && (
+                            <span className="text-soft text-[10px]">({asset.tls_info.days_remaining}d)</span>
+                          )}
                         </div>
+                      ) : asset.tls_info?.issuer || asset.tls_info?.valid_to ? (
+                        <span className="text-accent text-[11px]">Invalid or expired</span>
                       ) : (
-                        <span className="text-soft text-[10px]">Unencrypted / None</span>
+                        <span className="text-soft text-[10px]">Not checked</span>
                       )}
                     </td>
 
                     <td className="py-3 px-4">
                       {asset.critical_findings_count && asset.critical_findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent text-white">
-                          {asset.critical_findings_count} CRIT
+                          {asset.critical_findings_count} high risk
                         </span>
                       ) : asset.findings_count && asset.findings_count > 0 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                          {asset.findings_count} Issues
+                          {asset.findings_count} {asset.findings_count === 1 ? 'issue' : 'issues'}
                         </span>
                       ) : (
                         <span className="text-ok text-[11px] flex items-center gap-1">
@@ -341,11 +343,11 @@ export default function Assets() {
                 <div className="p-3 rounded bg-inset border border-line space-y-2 mono text-[11px]">
                   <div className="flex justify-between">
                     <span className="text-soft">Protocol:</span>
-                    <span className="text-ink font-semibold">{assetDetail.asset.tls_info.protocol || 'TLS 1.3'}</span>
+                    <span className="text-ink font-semibold">{assetDetail.asset.tls_info.protocol || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Issuer:</span>
-                    <span className="text-ink">{assetDetail.asset.tls_info.issuer || "Let's Encrypt"}</span>
+                    <span className="text-ink">{assetDetail.asset.tls_info.issuer || 'Not recorded'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Days Remaining:</span>
@@ -355,7 +357,7 @@ export default function Assets() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-soft">Cipher:</span>
-                    <span className="text-ink truncate max-w-[220px]">{assetDetail.asset.tls_info.cipher || 'AES-256-GCM'}</span>
+                    <span className="text-ink truncate max-w-[220px]">{assetDetail.asset.tls_info.cipher || 'Not recorded'}</span>
                   </div>
                 </div>
               </div>

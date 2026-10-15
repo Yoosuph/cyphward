@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { scoreValue } from '../lib/format';
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -564,8 +565,7 @@ function ScanSummary({
     ? discovery.length
     : progress(scan, "discovery")?.items;
   const elapsed = scanDuration(scan);
-  const score =
-    scan.score != null && Number.isFinite(scan.score) ? scan.score : null;
+  const score = scoreValue(scan.score);
   const orgScore = progress(scan, "scoring")?.scope === "organization";
   const declared = declaredCoverage(scan);
   return (
