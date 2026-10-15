@@ -143,6 +143,9 @@ const incomplete = (scan: Scan) =>
   );
 function coverageLabel(scan: Scan) {
   if (incomplete(scan).length) return "Limited coverage";
+  const coverage = progress(scan, "scoring")?.coverage;
+  if (coverage?.version === 1 && coverage.state === "partial") return "Limited coverage";
+  if (coverage?.version === 1 && ["unknown", "unassessed"].includes(coverage.state)) return "Coverage unavailable";
   if (
     scan.status === "completed" &&
     CHECKS.some((check) => progress(scan, check.key)?.status !== "completed")

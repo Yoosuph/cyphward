@@ -91,6 +91,7 @@ export interface Finding {
 }
 
 export interface StageInfo {
+  coverage?: { version: number; state: string; evaluated_checks: number; reason?: string } | null;
   status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   items?: number;
   duration_ms?: number;

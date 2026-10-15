@@ -151,6 +151,14 @@ try {
   domain.verification_status = 'pending';
   await page.reload();
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Verify domain'));
+  // Finished stage processes do not imply complete assessment coverage.
+  for (const key of ['discovery', 'dns', 'http', 'ports', 'tls', 'nuclei', 'security_checks']) {
+    partialScan.stage_progress[key] = { status: 'completed', items: 0 };
+  }
+  partialScan.stage_progress.scoring.coverage = { version: 1, state: 'partial', evaluated_checks: 1 };
+  await page.reload();
+  await page.waitForFunction(() => document.body.textContent.includes('7 of 7 checks completed') &&
+    document.body.textContent.includes('Completed with limited coverage'));
   assert.deepEqual(errors, []);
   console.log('PASS: score refresh/history, full mobile logo, partial coverage, and role/verification-aware scan launch');
 } finally {
