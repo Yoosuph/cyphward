@@ -39,5 +39,7 @@ jobs:
             sudo -n systemctl restart cyphward-scanner.service
             sleep 15
             sudo -n systemctl is-active --quiet cyphward-scanner.service
-            sudo -n docker ps --format '{{.Names}}' | grep -qx cyphward-scanner
-            sudo -n docker logs --since 2m cyphward-scanner 2>&1 | grep -q polling
+            # `grep -c` drains its input; `grep -q` exits on the first hit, and
+            # under pipefail the writer's SIGPIPE (141) fails a healthy deploy.
+            sudo -n docker ps --format '{{.Names}}' | grep -cx cyphward-scanner >/dev/null
+            sudo -n docker logs --since 2m cyphward-scanner 2>&1 | grep -c polling >/dev/null
