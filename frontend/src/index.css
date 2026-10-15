@@ -277,7 +277,7 @@ body{
   max-width:1220px;
   margin:0 auto;
   padding:24px 28px 80px;
-  animation: pageEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: pageEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .ticker-card{
   margin-bottom:24px;
@@ -291,10 +291,11 @@ body{
 .bleed{margin:-24px -28px 32px}
 @media (max-width:900px){ .page{padding:16px 14px 112px !important} .bleed{margin:-16px -14px 24px} }
 
+/* Short and subtle: a page switch should feel instant, not staged. */
 @keyframes pageEnter {
   0% {
     opacity: 0;
-    transform: translateY(12px) scale(0.995);
+    transform: translateY(4px);
   }
   100% {
     opacity: 1;

@@ -65,7 +65,7 @@ const STEPS: Step[] = [
     id: 'palette', targets: ['[data-tour="palette"]', '[data-tour="plate-palette"]'],
     title: 'Find anything fast',
     body: "Press Ctrl K (⌘K on Mac) to jump anywhere, and Ctrl J to ask CyphBot about your own findings. That's the tour.",
-    touchBody: "Tap CMD to jump anywhere, or open CyphBot to ask about your own findings. That's the tour.",
+    touchBody: "Tap MENU to reach every page, or tap CyphBot to ask about your own findings. That's the tour.",
   },
 ];
 

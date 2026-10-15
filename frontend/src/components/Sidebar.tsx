@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { prefetchRoute } from '../lib/routePrefetch';
 import {
   Activity,
   Server,
@@ -153,6 +154,8 @@ export default function Sidebar({
               end={n.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}
+              onPointerEnter={() => prefetchRoute(n.to)}
+              onFocus={() => prefetchRoute(n.to)}
               title={collapsed ? n.label : undefined}
             >
               <n.icon size={15} strokeWidth={1.7} />

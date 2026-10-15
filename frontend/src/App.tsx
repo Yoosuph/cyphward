@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
+import { appPageLoaders, prefetchAppPagesWhenIdle } from './lib/routePrefetch';
 import { AuthProvider, useAuth, IDLE_REASON_KEY } from './lib/auth';
 import { hostTarget, IDLE_NOTICE_PARAM } from './lib/hosts';
 import { buildAppHandoff } from './lib/session';
@@ -45,15 +46,16 @@ const VerifyDomain = lazy(() => import('./pages/onboarding/VerifyDomain'));
 const OnboardingComplete = lazy(() => import('./pages/onboarding/OnboardingComplete'));
 
 // Core MVP Pages
-const Overview = lazy(() => import('./pages/Overview'));
-const Assets = lazy(() => import('./pages/Assets'));
-const Findings = lazy(() => import('./pages/Findings'));
-const Scans = lazy(() => import('./pages/Scans'));
-const Domains = lazy(() => import('./pages/Domains'));
-const Settings = lazy(() => import('./pages/Settings'));
-const Remediation = lazy(() => import('./pages/Remediation'));
-const Reports = lazy(() => import('./pages/Reports'));
-const Platform = lazy(() => import('./pages/Platform'));
+// Shared loaders so the shell can prefetch them (see lib/routePrefetch).
+const Overview = lazy(appPageLoaders['/overview']);
+const Assets = lazy(appPageLoaders['/assets']);
+const Findings = lazy(appPageLoaders['/findings']);
+const Scans = lazy(appPageLoaders['/scans']);
+const Domains = lazy(appPageLoaders['/domains']);
+const Settings = lazy(appPageLoaders['/settings']);
+const Remediation = lazy(appPageLoaders['/remediation']);
+const Reports = lazy(appPageLoaders['/reports']);
+const Platform = lazy(appPageLoaders['/platform']);
 import CyphBotDrawer from './components/CyphBotDrawer';
 import CyphBotFloatingButton from './components/CyphBotFloatingButton';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -70,6 +72,25 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/settings': { idx: '08', label: 'SETTINGS' },
   '/platform': { idx: '09', label: 'PLATFORM' },
 };
+
+/**
+ * In-shell placeholder for a cold page chunk (a deep link straight to an app
+ * page). Later navigations never show it: route changes run as transitions,
+ * so the current page stays up until the next one is ready.
+ */
+function PageFallback() {
+  return (
+    <div className="page page-fallback" aria-busy="true" aria-label="Loading page">
+      <div className="skeleton skeleton-text" style={{ width: 180, height: 30 }} />
+      <div className="skeleton skeleton-text mt-3" style={{ width: '62%', height: 13 }} />
+      <div className="grid gap-4 mt-8 sm:grid-cols-2">
+        <div className="skeleton" style={{ height: 132, borderRadius: 10 }} />
+        <div className="skeleton" style={{ height: 132, borderRadius: 10 }} />
+      </div>
+      <div className="skeleton mt-4" style={{ height: 260, borderRadius: 10 }} />
+    </div>
+  );
+}
 
 /** Fallback while a route-split page chunk downloads. */
 function RouteLoading() {
@@ -120,10 +141,20 @@ function AppShell() {
     }
   });
 
+  const navigationType = useNavigationType();
+
   // Close mobile drawer when route changes
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  // New pages open at the top; back/forward keeps the browser's position.
+  useLayoutEffect(() => {
+    if (navigationType !== 'POP') window.scrollTo(0, 0);
+  }, [location.pathname, navigationType]);
+
+  // Warm every app page chunk once the shell is idle, so taps never wait on a download.
+  useEffect(() => (tenant ? prefetchAppPagesWhenIdle() : undefined), [tenant]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -208,9 +239,13 @@ function AppShell() {
           onToggleSidebar={toggleSidebar}
           mobileAi={location.pathname === '/scans'}
         />
-        <div className="page" key={location.pathname}>
-          <Outlet />
-        </div>
+        {/* Boundary sits outside the keyed page so later navigations (transitions)
+            keep the current page visible instead of re-showing a fallback. */}
+        <Suspense fallback={<PageFallback />}>
+          <div className="page" key={location.pathname}>
+            <Outlet />
+          </div>
+        </Suspense>
       </div>
       {/* Mobile Floating Bottom Dock (CMD, ASSETS, FINDINGS, SCANS, MENU) */}
       <ButtonPlate
@@ -305,7 +340,7 @@ export default function App() {
     <AuthProvider>
       <ToastProvider>
         <ConfirmProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true }}>
           <HostGate>
           {/* Custom precision branded cursor active throughout application */}
           <BrandedCursor />
