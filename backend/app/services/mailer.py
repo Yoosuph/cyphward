@@ -47,7 +47,7 @@ def email_sender(kind: str) -> "tuple[str, str]":
 def generate_executive_report_html(
     org_name: str,
     domain: str,
-    score: Optional[int] = None,
+    score: Optional[float] = None,
     grade: Optional[str] = None,
     posture_label: str = "",
     assets_count: int = 0,
@@ -84,8 +84,8 @@ def generate_executive_report_html(
     if not summary_text:
         if assessed:
             summary_text = (
-                f"The latest assessment gave {org_name} a security score of {score} out of 100 "
-                f"(grade {grade or '—'} — {posture_label}). "
+                f"The available evidence gives {org_name} a known-risk score of {score} out of 100 "
+                f"({posture_label}). This reflects recorded findings and does not establish complete coverage. "
                 f"There are {critical_count} critical, {high_count} high and {medium_count} medium open findings. "
                 f"Review the findings and recommended actions in your dashboard."
             )

@@ -121,7 +121,7 @@ export interface Scan {
   domain_id: string;
   domain?: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  score?: number;
+  score?: number | null;
   stage_progress: ScanStageProgress;
   current_stage?: string;
   started_at?: string;

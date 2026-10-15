@@ -73,6 +73,8 @@ def test_seven_day_change_excludes_recent_legacy_domain_and_other_tenant_scores(
     store.snapshots = [
         snapshot(9, 20), snapshot(8, 40),  # most recent eligible baseline
         snapshot(7.5, 90, model="cyphward-risk-v1"),
+        snapshot(7.45, 90, model="cyphward-risk-v2"),
+        snapshot(7.44, None),
         snapshot(7.4, 90, scope="domain"),
         snapshot(7.3, 90, org_id=ORG_B),
         snapshot(1, 99),  # too recent to represent seven days ago
