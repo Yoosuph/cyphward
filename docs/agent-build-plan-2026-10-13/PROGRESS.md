@@ -182,3 +182,5 @@ Implementation `7ee8010`, UI/nullable-history refinements `92eeb49` and `d72bd7a
 - Production migration/API/VPS/frontend remain unchanged. No private data, credentials or backups were added to the repository. New release notes require migration before Core/API, conservative old-worker compatibility, no historical backfill and preservation of null records on rollback.
 
 Next: finish actual per-template completion evidence, remaining per-target/check/tool identities and omission reasons, consistent end-to-end deadlines and real external-tool/egress boundary acceptance. Review and coordinate the full Packet 03 release before Packet 04. Payment activation remains deferred.
+
+- Scoring implementation CI for `028c9ff` passed backend regression, frontend build and PostgreSQL races: [primary CI](https://github.com/Yoosuph/cyphward/actions/runs/38698233079). Subsequent handoff clarification changes only documentation/archive content.
