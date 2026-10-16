@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Sliders,
   Terminal,
+  Scale,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -30,6 +31,7 @@ const NAV = [
   { to: '/domains', label: 'DOMAINS', idx: '05', icon: Globe, end: false },
   { to: '/remediation', label: 'REMEDIATION', idx: '06', icon: ShieldCheck, end: false },
   { to: '/reports', label: 'REPORTS', idx: '07', icon: Network, end: false },
+  { to: '/comply', label: 'COMPLIANCE', idx: '07', icon: Scale, end: false },
   { to: '/settings', label: 'SETTINGS', idx: '08', icon: Sliders, end: false },
 ];
 

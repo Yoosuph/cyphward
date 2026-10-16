@@ -30,9 +30,9 @@ Three further defaults surfaced while planning C1. They follow section 0 of the 
 
 | # | Decision | Default adopted |
 |---|---|---|
-| D5 | Readiness numerator | Only requirements with current **present** evidence count. A gap is evidence of a problem, not readiness, so it never raises the percentage. Gaps and not-assessed counts are shown beside the percentage. |
+| D5 | Readiness figure (revised by the founder, 16 Oct) | No bare percentage. Shown as **"N of 29 have evidence · M awaiting input or upcoming checks"**, where N = present + gap (current evidence either way) and present, gaps, not assessed and awaiting input are each counted. |
 | D6 | Tool evidence and applicability | Tool evidence never produces `not_applicable`. A check omitted for a known reason (for example, no web service) yields `not_assessed` with that reason. Only an answered applicability question (C3) can remove a requirement from the denominator. |
-| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. The C1 maximum is therefore 6 of 29 (Nuclei can show gaps only, never present). |
+| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. They read **"Awaiting your input"** (customer answer) or **"Upcoming check"** (C2 check), never "Not assessed", which is reserved for a check that could have run but did not finish (founder, 16 Oct). |
 
 ### Rule keys
 
@@ -46,3 +46,76 @@ Three further defaults surfaced while planning C1. They follow section 0 of the 
 - Production data note: one stored finding titled `rls-probe` (category Security Configuration) is not a detector output. It stays unmapped, and was left untouched.
 
 Next: C1, as planned in `C1-plan.md`.
+
+## C1 — register, s.39 mapping, Compliance page (16 October 2026)
+
+**State:** implemented and validated locally; review-ready on `codex/compliance-c1` (stacked on C0). **Not released.** No production migration has been applied.
+
+### Changed behaviour
+
+- **Register** `ndpa_gaid_v1.json`:
+  - 29 requirements in 11 groups, all `clause_verified: false`;
+  - clause references are only those in the plan (no new legal references were introduced);
+  - every tool-backed entry states what was checked and what was not;
+  - validated at startup by `compliance/register.py`, so an invalid register stops the API.
+- **Evidence written at finalisation:** five tool-backed requirements get one append-only `compliance_evidence` row each, for the **scanned** domain. The rows are computed before the completion transaction and inserted inside the held claim under a SAVEPOINT:
+  - if the computation or the insert fails, no rows are written;
+  - the scan still completes, and the `scan.completed` audit records `compliance_evidence: "error"`;
+  - on success, the audit records the row count.
+- **Status is derived on read:**
+  - any currently open mapped issue finding (status other than `resolved`) is a live gap, whatever the stored row says;
+  - `present` needs a current, unexpired row that recorded conclusive declared checks;
+  - legacy/missing coverage, missing checks, omitted-only checks, expired evidence and gaps whose findings were since resolved all read `not_assessed`;
+  - Nuclei can only be a gap;
+  - the two scan-history requirements need a complete-coverage scan for every verified domain within the window.
+- **API:** `GET /api/v1/compliance/overview` and `GET /api/v1/compliance/requirements/{key}`.
+  - Any member can read them, scoped by `get_current_org`.
+  - Starter gets readiness plus the security group; other groups are locked and the detail endpoint returns 403 for them (D1).
+  - Every response carries the plan's disclaimer word for word.
+- **Page:** `/comply` (Compliance in the sidebar and mobile menu) replaces the old redirect. It shows:
+  - the readiness coverage % with present / gap / not-assessed counts;
+  - status chips with source labels, or "No evidence yet";
+  - "reference pending review" on unverified clauses;
+  - checked / not-checked lines, per-domain detail, open ports and complete-scan counts;
+  - gap findings with "Create task", which uses the existing remediation API and shows an existing task instead of duplicating it.
+- **Readiness** reads "N of 29 have evidence · M awaiting input or upcoming checks" with present / gap / not assessed / awaiting counts; no percentage. 22 requirements await input or upcoming checks; Nuclei can never be present, so at most 6 can be present in C1.
+
+### Files and migration
+
+- **Backend:** `compliance/{register,mapping,status,scan_evidence}.py`, `compliance/registers/ndpa_gaid_v1.json`, `api/compliance.py`, plus small changes to `core/scan_execution.py` (`finish_assessment(..., compliance_evidence=)`), `workflows/inngest_workflow.py` and `main.py`.
+- **Migration** `20261017090000_compliance_evidence.sql` (additive): the table, a latest-row index, a unique `(scan_id, requirement_key)` for replay, RLS policy for `cyphward_app`, and append-only grants (SELECT, INSERT). `scan_id ON DELETE SET NULL` keeps history.
+- **Frontend:** `pages/Compliance.tsx`, `lib/api.ts`, `App.tsx`, `Sidebar.tsx`, `MobileMenuSheet.tsx`, `lib/routePrefetch.ts`, and the browser suite `scripts/check-compliance-page.mjs` (`npm run test:compliance-ui`).
+- **CI:** `test_compliance_postgres.py` is added to the PostgreSQL job.
+
+### Validation (fresh owned loopback PostgreSQL 18.6 on 127.0.0.1:55439, bootstrap script only, 30 migrations, restricted `cyphward_app`)
+
+- PostgreSQL modules: **62 passed**, including **11 new compliance cases**:
+  - evidence written inside the completion;
+  - a stale claim writes nothing (no evidence, no snapshot);
+  - replay can't duplicate;
+  - a mapping exception and an invalid insert each leave the scan completed with zero evidence;
+  - UPDATE/DELETE are refused for the app role;
+  - an HSTS finding and an apex DMARC finding become gaps linked to the real finding rows;
+  - a reopened finding turns stored `present` into a live gap;
+  - scan history needs every verified domain;
+  - member read, tenant isolation (including 403 for a foreign `X-Organization-Id`) and Starter gating.
+- Full backend suite with the test database: **685 passed, 16 skipped** (baseline 611/16). Without a test database: **623 passed, 78 skipped**.
+- New pure tests:
+  - truth table and register validation: 48;
+  - rule keys: 11 (C0);
+  - banned phrases over the register, API strings and field names across all statuses, and page copy, with the exact disclaimer: 4 new.
+- Frontend build passed. Browser suites passed: `test:compliance-ui` at desktop/390/320, plus the existing `test:scans-ui`, `test:score-ui` and `test:onboarding-ui`. `git diff --check` passed.
+- APIs and the browser were stubbed in the UI suite; no live scan, email or production data was used.
+
+### Release (needs the founder's OK)
+
+1. Back up, then apply only `20261017090000_compliance_evidence.sql` to production as `postgres`. Verify the table, RLS, the append-only grants through the `cyphward_app` connection, and that existing row counts are unchanged.
+2. Merge C0, then C1. This deploys the Render API and the Vercel frontend. No scanner deploy: scanner paths are unchanged.
+3. Verify `/health`, that `GET /api/v1/compliance/overview` returns 401 without auth, that `/comply` loads, and that the next completed scan's audit shows a numeric `compliance_evidence` count.
+
+### Limitations
+
+- Evidence starts at each domain's next completed scan; there is no backfill.
+- Production currently has no complete-coverage v2 scans (4 partial in 90 days), so the scan-history requirements and most security requirements will start as not assessed.
+- There are no immutable snapshots yet (C4/Packet 04).
+- `rls-probe` remains an unmapped stray finding in production.

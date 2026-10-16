@@ -13,6 +13,7 @@ export const appPageLoaders = {
   '/reports': () => import('../pages/Reports'),
   '/settings': () => import('../pages/Settings'),
   '/platform': () => import('../pages/Platform'),
+  '/comply': () => import('../pages/Compliance'),
 } as const;
 
 type AppPath = keyof typeof appPageLoaders;

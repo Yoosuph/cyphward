@@ -5,6 +5,7 @@ import {
   Network,
   ShieldCheck,
   Sliders,
+  Scale,
   X,
   Search,
   Moon,
@@ -45,6 +46,13 @@ const EXTENDED_MODULES = [
     label: 'REPORTS',
     icon: Network,
     badge: 'SUMMARIES',
+  },
+  {
+    to: '/comply',
+    idx: '07',
+    label: 'COMPLIANCE',
+    icon: Scale,
+    badge: 'NDPA READINESS',
   },
   {
     to: '/settings',

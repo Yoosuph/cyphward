@@ -225,11 +225,20 @@ def finish_assessment(
     progress: dict,
     audit_metadata: dict,
     notification: dict,
+    compliance_evidence: list | str | None = None,
 ) -> None:
-    """All mandatory terminal records commit together, while ownership is held."""
+    """All mandatory terminal records commit together, while ownership is held.
+
+    `compliance_evidence` (rows from compliance.mapping.domain_rows, or "error"
+    when they could not be computed) is optional evidence: it is inserted
+    under a savepoint so a failure there never fails the assessment.
+    """
     with owned_transaction(claim) as (cur, row):
         if str(row["org_id"]) != str(org_id) or claim.phase != "core":
             raise ClaimLost("Invalid assessment authority")
+        if compliance_evidence is not None:
+            audit_metadata = {**audit_metadata,
+                              "compliance_evidence": _insert_compliance_evidence(cur, claim, org_id, compliance_evidence)}
         cur.execute(
             """INSERT INTO score_snapshots
             (org_id,domain_id,score,subscores,factors,model,scope,risk_points,scan_id,assessment_coverage)
@@ -272,6 +281,31 @@ def finish_assessment(
             claim_generation=claim_generation+1 WHERE id=%s""",
             (score["score"], json.dumps(progress), claim.scan_id),
         )
+
+
+def _insert_compliance_evidence(cur, claim: ExecutionClaim, org_id: str, rows: list | str) -> int | str:
+    """Append evidence rows inside the held claim; returns the count or "error"."""
+    if rows == "error" or not isinstance(rows, list):
+        return "error"
+    try:
+        with cur.connection.transaction():  # savepoint: a failure here rolls back alone
+            for item in rows:
+                if str(item["org_id"]) != str(org_id) or str(item["scan_id"]) != str(claim.scan_id):
+                    raise ValueError("compliance evidence for another organization or scan")
+                cur.execute(
+                    """INSERT INTO compliance_evidence
+                    (org_id,domain_id,requirement_key,register_version,source,status,observed_at,expires_at,
+                     scan_id,finding_ids,details)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::uuid[],%s::jsonb)
+                    ON CONFLICT (scan_id, requirement_key) WHERE scan_id IS NOT NULL DO NOTHING""",
+                    (org_id, item["domain_id"], item["requirement_key"], item["register_version"], item["source"],
+                     item["status"], item["observed_at"], item["expires_at"], claim.scan_id,
+                     list(item["finding_ids"]), json.dumps(item["details"], default=str)),
+                )
+        return len(rows)
+    except Exception:
+        logger.warning("scan=%s compliance evidence not written; assessment continues", claim.scan_id, exc_info=True)
+        return "error"
 
 
 def inspect_status(scan_id: str) -> str:

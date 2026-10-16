@@ -56,6 +56,7 @@ const Settings = lazy(appPageLoaders['/settings']);
 const Remediation = lazy(appPageLoaders['/remediation']);
 const Reports = lazy(appPageLoaders['/reports']);
 const Platform = lazy(appPageLoaders['/platform']);
+const Compliance = lazy(appPageLoaders['/comply']);
 import CyphBotDrawer from './components/CyphBotDrawer';
 import CyphBotFloatingButton from './components/CyphBotFloatingButton';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -71,6 +72,7 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/reports': { idx: '07', label: 'REPORTS' },
   '/settings': { idx: '08', label: 'SETTINGS' },
   '/platform': { idx: '09', label: 'PLATFORM' },
+  '/comply': { idx: '10', label: 'COMPLIANCE' },
 };
 
 /**
@@ -390,10 +392,10 @@ export default function App() {
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/platform" element={<Platform />} />
+              <Route path="/comply" element={<Compliance />} />
 
               {/* Legacy alias redirects */}
               <Route path="/analytics" element={<Navigate to="/overview" replace />} />
-              <Route path="/comply" element={<Navigate to="/overview" replace />} />
               <Route path="/dashboard" element={<Navigate to="/overview" replace />} />
               <Route path="/copilot" element={<Navigate to="/overview" replace />} />
               <Route path="/detect" element={<Navigate to="/scans" replace />} />

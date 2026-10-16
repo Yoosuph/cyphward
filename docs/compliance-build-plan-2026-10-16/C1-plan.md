@@ -113,7 +113,7 @@ Positive findings never affect status. A gap is written even with legacy coverag
 
 **Scan history** (`periodic_risk_assessment`, `regular_testing`): a requirement is `present` only if **every** verified domain has at least one completed scan whose stored `assessment_coverage.state` is `complete` within `freshness_days`. Otherwise it is `not_assessed`. It lists, per domain, the count and dates of complete scans in the window, and the latest partial or legacy scans as "not counted". It is never `gap`.
 
-**Readiness coverage %** = requirements with status `present` ÷ applicable requirements (D5). In C1 all 29 are applicable (D6/D7). The percentage is rounded down, and its counts are shown.
+**Readiness** (D5, revised 16 Oct) is shown as counts, never a percentage: "N of 29 have evidence · M awaiting input or upcoming checks", where N = present + gap, plus separate present / gap / not assessed / awaiting counts. Requirements without an evidence source read `awaiting_input` (read-only, never stored), not `not_assessed`.
 
 ## 5. Tests
 
@@ -166,7 +166,7 @@ Positive findings never affect status. A gap is written even with legacy coverag
 
 - **Overview** returns:
   - `disclaimer`, plus `register: {version, clauses_pending_review: n}`;
-  - `readiness: {percent, present, gap, not_assessed, applicable}`;
+  - `readiness: {with_evidence, present, gap, awaiting_input, not_assessed, applicable}`;
   - `groups[]`, each with counts, `locked`, and `requirements[]`. Each requirement has `key, title, clause, clause_verified, summary, status, source, reason, domains[], findings[], remediation_hint, freshness_days`.
 - **Requirement** returns the same requirement plus `history[]`: the newest 50 rows, each with domain, status, source, observed/expires and scan id. A Starter locked group returns 403 with an upgrade message.
 - **Page:**

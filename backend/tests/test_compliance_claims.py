@@ -37,3 +37,100 @@ def test_verdict_without_scan_refuses_determination():
     for phrase in BANNED:
         assert phrase not in verdict, f"certifying language leaked: {phrase}"
     assert "does not determine legal compliance" in res["compliance_verdict"]
+
+
+# ── Compliance readiness (packet C1): register, API copy and page ─────────
+import json
+import pathlib
+import re
+
+from backend.app.compliance import register as compliance_register
+from backend.app.compliance import status as compliance_status
+
+READINESS_BANNED = ("compliant", "certified", "satisfies", "satisfied", "passes audit", "pass the audit",
+                    "compliance score", "fully meets", "meets the requirement", "is met")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def _strings(value, keys=False):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if keys:
+                yield str(k)
+            yield from _strings(v, keys)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v, keys)
+    elif isinstance(value, str):
+        yield value
+
+
+def _assert_clean(texts, where):
+    for text in texts:
+        lowered = text.lower()
+        for phrase in READINESS_BANNED:
+            assert phrase not in lowered, f"{where}: verdict language {phrase!r} in {text!r}"
+
+
+def test_register_has_no_verdict_language():
+    raw = json.loads(compliance_register.REGISTER_FILE.read_text())
+    _assert_clean(_strings(raw, keys=True), "register")
+
+
+def _synthetic_context():
+    d1 = {"id": "11111111-1111-4111-8111-111111111111", "domain": "acme.test"}
+    d2 = {"id": "22222222-2222-4222-8222-222222222222", "domain": "shop.test"}
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    present = {"status": "present", "observed_at": now, "expires_at": now + timedelta(days=5), "scan_id": "s",
+               "finding_ids": [], "details": {"reason": "checks_conclusive", "open_ports": {"acme.test": [443]}}}
+    gap = {**present, "status": "gap", "finding_ids": ["f1"], "details": {"reason": "open_findings"}}
+    old = {**present, "expires_at": now - timedelta(days=1)}
+    latest = {r["key"]: {d1["id"]: present, d2["id"]: present} for r in compliance_register.tool_requirements()}
+    latest["ndpa.s39.web_security_headers"] = {d1["id"]: present, d2["id"]: old}
+    latest["ndpa.s39.email_anti_spoofing"] = {d1["id"]: gap}
+    live = [{"id": "f1", "title": "Missing Email DMARC Authentication Policy", "category": "DNS & Email Security",
+             "evidence": {}, "status": "open", "domain_id": d1["id"]},
+            {"id": "f2", "title": "Robots.txt Discloses Sensitive Endpoint Paths", "category": "Exposure",
+             "evidence": {}, "status": "open", "domain_id": None}]
+    history = [{"scan_id": "s", "domain_id": d1["id"], "completed_at": now, "state": "complete"},
+               {"scan_id": "t", "domain_id": d2["id"], "completed_at": now, "state": "partial"}]
+    return {"domains": [d1, d2], "latest": latest, "live": live, "history": history}
+
+
+def test_api_copy_and_field_names_have_no_verdict_language(monkeypatch):
+    ctx = _synthetic_context()
+    monkeypatch.setattr(compliance_status, "_context", lambda org_id: ctx)
+    monkeypatch.setattr(compliance_status, "_plan", lambda org: "growth")
+    monkeypatch.setattr(compliance_status, "_findings", lambda org_id, ids: {})
+    monkeypatch.setattr(compliance_status, "execute_query", lambda *a, **k: [])
+    payload = compliance_status.overview({"id": "org"})
+    statuses = {r["status"] for g in payload["groups"] for r in g["requirements"]}
+    assert {"present", "gap", "not_assessed"} <= statuses, "exercise every status"
+    _assert_clean(_strings(payload, keys=True), "overview")
+    for req in compliance_register.requirements():
+        _assert_clean(_strings(compliance_status.requirement_detail({"id": "org"}, req["key"]), keys=True), req["key"])
+    _assert_clean(compliance_status.STATUS_LABELS.values(), "status labels")
+    _assert_clean(compliance_status.REASON_TEXT.values(), "reason text")
+    _assert_clean([compliance_status.C1_NOTE], "note")
+
+
+def test_disclaimer_is_the_plan_text_and_is_always_returned(monkeypatch):
+    assert compliance_register.DISCLAIMER == (
+        "Readiness evidence, not legal advice or a compliance determination. Filing of Compliance Audit Returns "
+        "for UHL/EHL organisations must go through a licensed DPCO.")
+    monkeypatch.setattr(compliance_status, "_context", lambda org_id: _synthetic_context())
+    monkeypatch.setattr(compliance_status, "_plan", lambda org: "starter")
+    monkeypatch.setattr(compliance_status, "_findings", lambda org_id, ids: {})
+    assert compliance_status.overview({"id": "org"})["disclaimer"] == compliance_register.DISCLAIMER
+    assert compliance_status.requirement_detail({"id": "org"}, "gaid.dpo.designated")["disclaimer"] == \
+        compliance_register.DISCLAIMER
+
+
+def test_compliance_page_copy_has_no_verdict_language():
+    source = (ROOT / "frontend" / "src" / "pages" / "Compliance.tsx").read_text()
+    # User-visible text: JSX text nodes and string literals.
+    texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
+    flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
+    _assert_clean(flat, "Compliance.tsx")
+    assert "data.disclaimer" in source, "the page renders the API disclaimer"
