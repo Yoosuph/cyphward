@@ -33,6 +33,17 @@ DELETE FROM platform_owners WHERE user_id = (SELECT id FROM profiles WHERE email
 
 `vercel.json` keeps the console out of search engines: `X-Robots-Tag: noindex` and a noindex `robots.txt`. It also sends `/admin` on the customer hosts to the console. On localhost the console runs at `http://127.0.0.1:5181/admin`.
 
+## What the console shows (read-only)
+
+- Overview: users, organizations, domains, 24-hour scans, the queue, expired claims, subscriptions, sign-ups, recorded invoices and recent activity.
+- Organizations and Users: searchable lists, plus details (members, domains, plan and billing, scans, open findings, sessions, activity).
+- Subscriptions: plans, renewal and trial dates, and invoices. Invoices are records, not proof of payment.
+- Scans: every scan with a real state (queued, delayed over 10 minutes, running, worker stopped, completed, failed), plus per-stage results and failed or omitted hosts.
+- Logs: customer events (`audit_log`) and owner console events (`owner_audit`).
+- System: database, background jobs, deployed commit, scanner activity, scheduled runs and integrations.
+
+Secrets are never selected: password hashes, authenticator secrets, token hashes, claim tokens and DNS verification tokens.
+
 ## Audit
 
-`owner_audit` records every sign-in attempt (success, denied with a reason, throttled), every sign-out and, from stage 2, every view and action. The app role can only insert and read it. It has no foreign keys, so deleting a customer leaves it intact. If an audit write fails, the request fails and returns no data.
+`owner_audit` records every sign-in attempt (success, denied with a reason, throttled), every sign-out and every console view, including what was opened. The app role can only insert and read it. It has no foreign keys, so deleting a customer leaves it intact. If an audit write fails, the request fails and returns no data.

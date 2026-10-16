@@ -1,7 +1,11 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { AlertCircle, KeyRound, LogOut, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Building2, CreditCard, KeyRound, LayoutDashboard, LogOut, Radar, ScrollText, Server, Users } from 'lucide-react';
+import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import CyphwardLogo from '../components/CyphwardLogo';
 import { OwnerApiError, ownerMe, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
+import { SessionEndedContext } from './ui';
+import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
+import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
 
 /**
  * Platform owner console (admin.cyphward.com; /admin on localhost).
@@ -9,7 +13,7 @@ import { OwnerApiError, ownerMe, ownerSignIn, ownerSignOut, type OwnerMe } from 
  * A separate app from the customer product: no customer session, workspace
  * or CyphBot. Entry needs email + password + an authenticator code; the
  * session is an httpOnly cookie that ends after inactivity or at its fixed
- * expiry. Data sections are added in the next stages.
+ * expiry. Every view is recorded in the owner audit log by the API.
  */
 
 type State =
@@ -68,7 +72,13 @@ export default function OwnerApp() {
   if (state.kind === 'signed-out') {
     return <SignIn notice={state.notice} onSignedIn={() => void load()} />;
   }
-  return <Console me={state.me} onSignedOut={() => setState({ kind: 'signed-out', notice: 'Signed out.' })} />;
+  return (
+    <Console
+      me={state.me}
+      onSignedOut={() => setState({ kind: 'signed-out', notice: 'Signed out.' })}
+      onSessionEnded={() => setState({ kind: 'signed-out', notice: 'Your owner session ended. Sign in again.' })}
+    />
+  );
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -152,7 +162,17 @@ function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => voi
   );
 }
 
-function Console({ me, onSignedOut }: { me: OwnerMe; onSignedOut: () => void }) {
+const NAV = [
+  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/organizations', label: 'Organizations', icon: Building2, end: false },
+  { to: '/users', label: 'Users', icon: Users, end: false },
+  { to: '/subscriptions', label: 'Subscriptions', icon: CreditCard, end: false },
+  { to: '/scans', label: 'Scans', icon: Radar, end: false },
+  { to: '/logs', label: 'Logs', icon: ScrollText, end: false },
+  { to: '/system', label: 'System', icon: Server, end: false },
+];
+
+function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut: () => void; onSessionEnded: () => void }) {
   const [busy, setBusy] = useState(false);
   const signOut = async () => {
     setBusy(true);
@@ -164,41 +184,73 @@ function Console({ me, onSignedOut }: { me: OwnerMe; onSignedOut: () => void }) 
     }
   };
   const ends = new Date(me.expires_at);
+  const basename = window.location.hostname === 'admin.cyphward.com' ? '/console' : '/admin';
+  const navClass = ({ isActive }: { isActive: boolean }) =>
+    `flex items-center gap-2.5 px-3 py-2 rounded text-[12.5px] mono whitespace-nowrap transition-colors ${
+      isActive ? 'bg-inset text-ink border border-line-strong' : 'text-soft hover:text-ink border border-transparent'}`;
 
   return (
-    <div className="min-h-[100svh] bg-[var(--bg)]">
-      <header className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-line bg-raised">
-        <div className="flex items-center gap-3 min-w-0">
-          <CyphwardLogo size={20} showSubtitle={false} />
-          <span className="hidden min-[440px]:inline-block">
-            <span className="tag text-[10px]">OWNER CONSOLE</span>
-          </span>
-        </div>
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="hidden sm:inline text-xs mono text-soft truncate">{me.email}</span>
-          <button type="button" className="btn btn-ghost whitespace-nowrap" onClick={() => void signOut()} disabled={busy}>
-            <LogOut size={13} /> {busy ? 'SIGNING OUT…' : 'SIGN OUT'}
-          </button>
-        </div>
-      </header>
-      <main className="max-w-4xl mx-auto px-5 py-10">
-        <div className="panel">
-          <div className="panel-body flex items-start gap-3">
-            <ShieldCheck size={20} className="text-ok flex-none mt-0.5" />
-            <div>
-              <h1 className="font-display text-2xl mb-1">Signed in as the platform owner</h1>
-              <p className="text-sm text-soft">
-                This session ends after {me.idle_minutes} minutes without activity, and at{' '}
-                {ends.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} at the latest. Every sign-in and
-                action here is recorded in the owner audit log.
-              </p>
-              <p className="text-sm text-soft mt-3">
-                Organizations, users, subscriptions, scans, logs and system health arrive in the next release.
-              </p>
+    <SessionEndedContext.Provider value={onSessionEnded}>
+      <BrowserRouter basename={basename}>
+        <div className="min-h-[100svh] bg-[var(--bg)] lg:flex">
+          <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-line bg-raised sticky top-0 h-[100svh]">
+            <div className="px-5 py-4 border-b border-line">
+              <CyphwardLogo size={20} showSubtitle={false} />
+              <span className="tag text-[10px] mt-2">OWNER CONSOLE</span>
             </div>
+            <nav className="flex-1 p-3 space-y-1" aria-label="Owner console">
+              {NAV.map(n => (
+                <NavLink key={n.to} to={n.to} end={n.end} className={navClass}>
+                  <n.icon size={15} /> {n.label}
+                </NavLink>
+              ))}
+            </nav>
+            <div className="p-4 border-t border-line text-[11px] mono text-soft">
+              <div className="truncate" title={me.email}>{me.email}</div>
+              <div className="mt-1">Ends {ends.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {me.idle_minutes} min idle</div>
+              <button type="button" className="btn btn-ghost w-full justify-center mt-3" onClick={() => void signOut()} disabled={busy}>
+                <LogOut size={13} /> {busy ? 'SIGNING OUT…' : 'SIGN OUT'}
+              </button>
+            </div>
+          </aside>
+
+          <div className="flex-1 min-w-0">
+            <header className="lg:hidden sticky top-0 z-20 bg-raised border-b border-line">
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <CyphwardLogo size={20} showSubtitle={false} />
+                  <span className="hidden min-[440px]:inline-block"><span className="tag text-[10px]">OWNER CONSOLE</span></span>
+                </div>
+                <button type="button" className="btn btn-ghost whitespace-nowrap" onClick={() => void signOut()} disabled={busy}>
+                  <LogOut size={13} /> {busy ? '…' : 'SIGN OUT'}
+                </button>
+              </div>
+              <nav className="no-scrollbar flex gap-1.5 px-4 pb-3 overflow-x-auto" aria-label="Owner console sections">
+                {NAV.map(n => (
+                  <NavLink key={n.to} to={n.to} end={n.end} className={navClass}>
+                    <n.icon size={14} /> {n.label}
+                  </NavLink>
+                ))}
+              </nav>
+            </header>
+            <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+              <Routes>
+                <Route path="/" element={<OverviewView />} />
+                <Route path="/organizations" element={<OrganizationsView />} />
+                <Route path="/organizations/:id" element={<OrganizationDetailView />} />
+                <Route path="/users" element={<UsersView />} />
+                <Route path="/users/:id" element={<UserDetailView />} />
+                <Route path="/subscriptions" element={<SubscriptionsView />} />
+                <Route path="/scans" element={<ScansView />} />
+                <Route path="/scans/:id" element={<ScanDetailView />} />
+                <Route path="/logs" element={<LogsView />} />
+                <Route path="/system" element={<SystemView />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
           </div>
         </div>
-      </main>
-    </div>
+      </BrowserRouter>
+    </SessionEndedContext.Provider>
   );
 }

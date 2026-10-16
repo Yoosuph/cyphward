@@ -30,6 +30,16 @@ async function ownerFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** GET a console view; empty params are dropped. */
+export function ownerGet<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+  const qs = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') qs.set(k, String(v));
+  });
+  const query = qs.toString();
+  return ownerFetch<T>(query ? `${path}?${query}` : path);
+}
+
 export type OwnerMe = { email: string; expires_at: string; idle_minutes: number };
 
 export const ownerMe = () => ownerFetch<OwnerMe>('/me');
