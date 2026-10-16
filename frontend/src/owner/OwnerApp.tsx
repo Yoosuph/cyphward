@@ -1,8 +1,10 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Building2, CreditCard, KeyRound, LayoutDashboard, LogOut, Radar, ScrollText, Server, Users } from 'lucide-react';
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { AlertCircle, ArrowRight, Eye, EyeOff, KeyRound, Lock, ShieldCheck } from 'lucide-react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import CyphwardLogo from '../components/CyphwardLogo';
+import StrataField from '../components/StrataField';
 import { QRCodeSVG } from 'qrcode.react';
+import { OwnerShell, ThemeButton } from './shell';
 import { OwnerApiError, ownerMe, ownerSetupAuthenticator, ownerSetupComplete, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
 import { SessionEndedContext } from './ui';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
@@ -52,18 +54,21 @@ export default function OwnerApp() {
 
   if (state.kind === 'loading') {
     return (
-      <Frame>
-        <p className="mono text-[11px] text-soft tracking-widest text-center">CHECKING OWNER SESSION…</p>
-      </Frame>
+      <div className="shell relative min-h-screen flex items-center justify-center">
+        <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
+        <div className="text-center p-8 z-10">
+          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="mono text-[11px] text-soft tracking-widest">CHECKING OWNER SESSION…</p>
+        </div>
+      </div>
     );
   }
   if (state.kind === 'unavailable') {
     return (
-      <Frame>
-        <div className="auth-card text-center">
-          <AlertCircle className="mx-auto text-accent mb-3" size={28} />
-          <h1 className="font-display text-2xl mb-2">Console unavailable</h1>
-          <p className="text-sm text-soft mb-5">{state.message}</p>
+      <Frame tab="CONSOLE UNAVAILABLE">
+        <div className="text-center">
+          <AlertCircle className="mx-auto text-accent mb-3" size={24} />
+          <p className="text-sm mono mb-5">{state.message}</p>
           <button type="button" className="btn btn-solid justify-center w-full" onClick={() => void load()}>
             RETRY
           </button>
@@ -88,16 +93,57 @@ export default function OwnerApp() {
   );
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+/** The customer login page's layout: strata field, utility bar, terminal card. */
+function Frame({ tab, wide = false, children }: { tab: string; wide?: boolean; children: React.ReactNode }) {
   return (
     <div className="login-wrap">
-      <div className="relative z-10 w-full max-w-md mx-auto">
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <CyphwardLogo size={22} />
-          <span className="tag text-[10px]">OWNER CONSOLE</span>
+      <StrataField variant="auth" />
+      <div className="relative z-10 w-full max-w-6xl mx-auto my-auto py-6">
+        <div className="flex items-center justify-between pb-6 mb-8 border-b border-line">
+          <div className="flex items-center gap-3">
+            <CyphwardLogo variant="compact" size={20} />
+            <span className="text-line select-none">/</span>
+            <div className="eyebrow flex items-center gap-1.5 text-[10px]">
+              <span className="live-dot" /> CYPHWARD · OWNER CONSOLE
+            </div>
+          </div>
+          <ThemeButton />
         </div>
-        {children}
+
+        <div className={`mx-auto w-full ${wide ? 'max-w-lg' : 'max-w-md'}`}>
+          <div className="login-terminal-card">
+            <div className="auth-tabs">
+              <button type="button" className="auth-tab active" tabIndex={-1}>
+                <KeyRound size={13} className="inline mr-1.5" /> {tab}
+              </button>
+            </div>
+            {children}
+            <div className="mt-5 pt-3 border-t border-line/60 flex items-center justify-between text-[9.5px] mono text-soft">
+              <span className="flex items-center gap-1.5">
+                <Lock size={11} className="text-accent" /> PROTECTED CONNECTION
+              </span>
+              <span>EVERY VIEW IS LOGGED</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-10 pt-6 border-t border-line">
+          <dl className="meta-row">
+            <div><dt>ACCESS</dt><dd>PLATFORM OWNER ONLY</dd></div>
+            <div><dt>SIGN-IN</dt><dd>PASSWORD + AUTHENTICATOR APP</dd></div>
+            <div><dt>SESSION</dt><dd>ENDS AFTER 30 MIN IDLE</dd></div>
+          </dl>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function ErrorNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="alert" className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex items-start gap-2">
+      <AlertCircle size={14} className="flex-none mt-0.5" />
+      <span>{children}</span>
     </div>
   );
 }
@@ -106,6 +152,7 @@ function SignIn({ notice, onSignedIn, onSetup }: { notice?: string; onSignedIn: 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -130,17 +177,13 @@ function SignIn({ notice, onSignedIn, onSetup }: { notice?: string; onSignedIn: 
   };
 
   return (
-    <Frame>
-      <form className="auth-card" onSubmit={submit}>
-        <div className="flex items-center gap-2 mb-1">
-          <KeyRound size={16} className="text-accent" />
-          <h1 className="font-display text-2xl">Owner sign-in</h1>
-        </div>
-        <p className="text-xs text-soft mb-5">
-          Your admin password plus the 6-digit code from your authenticator app. Google sign-in and emailed codes
-          don't open this console. First sign-in with a new admin login? Leave the code empty.
+    <Frame tab="OWNER SIGN-IN">
+      <form onSubmit={submit} className="content-fade-in">
+        <p className="text-xs mono text-soft leading-relaxed mb-5">
+          Admin password plus the 6-digit code from your authenticator app. Google sign-in and emailed codes don't open
+          this console. First sign-in with a new admin login? Leave the code empty.
         </p>
-        {notice && <p className="text-xs mono text-soft mb-4">{notice}</p>}
+        {notice && <div className="p-3 mb-4 bg-accent/10 border border-accent/30 rounded text-xs mono text-ink">{notice}</div>}
         <div className="field">
           <label htmlFor="owner-email">EMAIL</label>
           <input id="owner-email" type="email" autoComplete="username" required value={email}
@@ -148,22 +191,24 @@ function SignIn({ notice, onSignedIn, onSetup }: { notice?: string; onSignedIn: 
         </div>
         <div className="field">
           <label htmlFor="owner-password">PASSWORD</label>
-          <input id="owner-password" type="password" autoComplete="current-password" required value={password}
-                 onChange={e => setPassword(e.target.value)} />
+          <div className="pw-input-wrap">
+            <input id="owner-password" type={showPw ? 'text' : 'password'} autoComplete="current-password" required value={password}
+                   placeholder="••••••••••••••" onChange={e => setPassword(e.target.value)} />
+            <button type="button" className="pw-toggle-btn" onClick={() => setShowPw(v => !v)}
+                    aria-label={showPw ? 'Hide password' : 'Show password'} title={showPw ? 'Hide password' : 'Show password'}>
+              {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
         </div>
         <div className="field">
           <label htmlFor="owner-code">AUTHENTICATOR CODE</label>
-          <input id="owner-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
-                 maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+          <input id="owner-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" placeholder="000000"
+                 className="tracking-[.4em]" maxLength={6} value={code}
+                 onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
         </div>
-        {error && (
-          <div role="alert" className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex gap-2">
-            <AlertCircle size={14} className="flex-none mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-        <button type="submit" className="btn btn-solid justify-center w-full" disabled={busy || (code.length > 0 && code.length !== 6)}>
-          {busy ? 'SIGNING IN…' : 'SIGN IN'}
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <button type="submit" className="btn btn-solid w-full justify-center mt-5" disabled={busy || (code.length > 0 && code.length !== 6)}>
+          {busy ? 'SIGNING IN…' : <>SIGN IN <ArrowRight size={14} className="ml-1" /></>}
         </button>
       </form>
     </Frame>
@@ -205,16 +250,19 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
     }
   };
 
+  const step = (n: string, label: string) => (
+    <p className="eyebrow text-[10px] mb-3 mt-1 flex items-center gap-2"><span className="text-accent">{n}</span> {label}</p>
+  );
+
   return (
-    <Frame>
-      <form className="auth-card" onSubmit={submit}>
-        <h1 className="font-display text-2xl mb-1">Set up your admin login</h1>
-        <p className="text-xs text-soft mb-5">
+    <Frame tab="SET UP ADMIN LOGIN" wide>
+      <form onSubmit={submit} className="content-fade-in">
+        <p className="text-xs mono text-soft leading-relaxed mb-5">
           {email} · one time only. Choose your own password and connect an authenticator app. The password you were
           given stops working when you finish. This screen expires after 15 minutes.
         </p>
 
-        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2">1 · NEW PASSWORD</p>
+        {step('01', 'NEW PASSWORD')}
         <div className="field">
           <label htmlFor="setup-password">PASSWORD (12+ CHARACTERS)</label>
           <input id="setup-password" type="password" autoComplete="new-password" value={password}
@@ -226,57 +274,43 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
                  onChange={e => setConfirm(e.target.value)} />
         </div>
         {(tooShort || mismatch) && (
-          <p className="text-xs mono text-amber-600 -mt-2 mb-4">{tooShort ? 'Use at least 12 characters.' : 'The passwords don\'t match.'}</p>
+          <p className="text-xs mono text-warn -mt-2 mb-4">{tooShort ? 'Use at least 12 characters.' : 'The passwords don\'t match.'}</p>
         )}
 
-        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2 mt-2">2 · AUTHENTICATOR APP</p>
+        {step('02', 'AUTHENTICATOR APP')}
         {auth ? (
-          <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-            <div className="bg-white p-2 rounded border border-line">
-              <QRCodeSVG value={auth.otpauth_url} size={148} />
+          <div className="flex flex-col sm:flex-row items-center gap-4 mb-5 p-3 rounded border border-line bg-inset/50">
+            <div className="bg-white p-2 rounded border border-line flex-none">
+              <QRCodeSVG value={auth.otpauth_url} size={132} />
             </div>
-            <div className="text-xs text-soft">
+            <div className="text-xs text-soft min-w-0">
               Scan with Google Authenticator, Microsoft Authenticator or 1Password. Can't scan? Enter this key:
-              <code className="block mono text-ink break-all mt-1 select-all">{auth.secret}</code>
+              <code className="block mono text-ink break-all mt-1.5 select-all">{auth.secret}</code>
             </div>
           </div>
         ) : (
-          <div className="skeleton mb-4" style={{ height: 150, borderRadius: 6 }} />
+          <div className="skeleton mb-5" style={{ height: 150, borderRadius: 6 }} />
         )}
 
-        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2">3 · CONFIRM</p>
+        {step('03', 'CONFIRM')}
         <div className="field">
           <label htmlFor="setup-code">6-DIGIT CODE FROM THE APP</label>
-          <input id="setup-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
-                 onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+          <input id="setup-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+                 className="tracking-[.4em]" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
         </div>
-        {error && (
-          <div role="alert" className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex gap-2">
-            <AlertCircle size={14} className="flex-none mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-        <button type="submit" className="btn btn-solid justify-center w-full" disabled={!ready || busy}>
-          {busy ? 'FINISHING…' : 'FINISH SETUP'}
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <button type="submit" className="btn btn-solid justify-center w-full mt-5" disabled={!ready || busy}>
+          {busy ? 'FINISHING…' : <><ShieldCheck size={14} className="mr-1" /> FINISH SETUP</>}
         </button>
       </form>
     </Frame>
   );
 }
 
-const NAV = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/organizations', label: 'Organizations', icon: Building2, end: false },
-  { to: '/users', label: 'Users', icon: Users, end: false },
-  { to: '/subscriptions', label: 'Subscriptions', icon: CreditCard, end: false },
-  { to: '/scans', label: 'Scans', icon: Radar, end: false },
-  { to: '/logs', label: 'Logs', icon: ScrollText, end: false },
-  { to: '/system', label: 'System', icon: Server, end: false },
-];
-
 function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut: () => void; onSessionEnded: () => void }) {
   const [busy, setBusy] = useState(false);
   const signOut = async () => {
+    if (busy) return;
     setBusy(true);
     try {
       await ownerSignOut();
@@ -285,73 +319,26 @@ function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut
       onSignedOut();
     }
   };
-  const ends = new Date(me.expires_at);
   const basename = window.location.hostname === 'admin.cyphward.com' ? '/console' : '/admin';
-  const navClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2.5 px-3 py-2 rounded text-[12.5px] mono whitespace-nowrap transition-colors ${
-      isActive ? 'bg-inset text-ink border border-line-strong' : 'text-soft hover:text-ink border border-transparent'}`;
 
   return (
     <SessionEndedContext.Provider value={onSessionEnded}>
       <BrowserRouter basename={basename}>
-        <div className="min-h-[100svh] bg-[var(--bg)] lg:flex">
-          <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-line bg-raised sticky top-0 h-[100svh]">
-            <div className="px-5 py-4 border-b border-line">
-              <CyphwardLogo size={20} showSubtitle={false} />
-              <span className="tag text-[10px] mt-2">OWNER CONSOLE</span>
-            </div>
-            <nav className="flex-1 p-3 space-y-1" aria-label="Owner console">
-              {NAV.map(n => (
-                <NavLink key={n.to} to={n.to} end={n.end} className={navClass}>
-                  <n.icon size={15} /> {n.label}
-                </NavLink>
-              ))}
-            </nav>
-            <div className="p-4 border-t border-line text-[11px] mono text-soft">
-              <div className="truncate" title={me.email}>{me.email}</div>
-              <div className="mt-1">Ends {ends.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {me.idle_minutes} min idle</div>
-              <button type="button" className="btn btn-ghost w-full justify-center mt-3" onClick={() => void signOut()} disabled={busy}>
-                <LogOut size={13} /> {busy ? 'SIGNING OUT…' : 'SIGN OUT'}
-              </button>
-            </div>
-          </aside>
-
-          <div className="flex-1 min-w-0">
-            <header className="lg:hidden sticky top-0 z-20 bg-raised border-b border-line">
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <CyphwardLogo size={20} showSubtitle={false} />
-                  <span className="hidden min-[440px]:inline-block"><span className="tag text-[10px]">OWNER CONSOLE</span></span>
-                </div>
-                <button type="button" className="btn btn-ghost whitespace-nowrap" onClick={() => void signOut()} disabled={busy}>
-                  <LogOut size={13} /> {busy ? '…' : 'SIGN OUT'}
-                </button>
-              </div>
-              <nav className="no-scrollbar flex gap-1.5 px-4 pb-3 overflow-x-auto" aria-label="Owner console sections">
-                {NAV.map(n => (
-                  <NavLink key={n.to} to={n.to} end={n.end} className={navClass}>
-                    <n.icon size={14} /> {n.label}
-                  </NavLink>
-                ))}
-              </nav>
-            </header>
-            <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-              <Routes>
-                <Route path="/" element={<OverviewView />} />
-                <Route path="/organizations" element={<OrganizationsView />} />
-                <Route path="/organizations/:id" element={<OrganizationDetailView />} />
-                <Route path="/users" element={<UsersView />} />
-                <Route path="/users/:id" element={<UserDetailView />} />
-                <Route path="/subscriptions" element={<SubscriptionsView />} />
-                <Route path="/scans" element={<ScansView />} />
-                <Route path="/scans/:id" element={<ScanDetailView />} />
-                <Route path="/logs" element={<LogsView />} />
-                <Route path="/system" element={<SystemView />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </main>
-          </div>
-        </div>
+        <OwnerShell me={me} signingOut={busy} onSignOut={() => void signOut()}>
+          <Routes>
+            <Route path="/" element={<OverviewView />} />
+            <Route path="/organizations" element={<OrganizationsView />} />
+            <Route path="/organizations/:id" element={<OrganizationDetailView />} />
+            <Route path="/users" element={<UsersView />} />
+            <Route path="/users/:id" element={<UserDetailView />} />
+            <Route path="/subscriptions" element={<SubscriptionsView />} />
+            <Route path="/scans" element={<ScansView />} />
+            <Route path="/scans/:id" element={<ScanDetailView />} />
+            <Route path="/logs" element={<LogsView />} />
+            <Route path="/system" element={<SystemView />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </OwnerShell>
       </BrowserRouter>
     </SessionEndedContext.Provider>
   );

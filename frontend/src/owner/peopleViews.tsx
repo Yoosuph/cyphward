@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Activity, AlertTriangle, Building2, Clock, CreditCard, Globe, Radar, Users } from 'lucide-react';
 import {
   Cell, Empty, PageHead, Pager, Panel, Pill, SearchBox, Stat, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
@@ -24,35 +25,43 @@ export function useListParams() {
 export function OverviewView() {
   const { data, error, loading, reload } = useOwnerView<Row>('/overview');
   const c = data?.counts || {};
-  const maxSignups = Math.max(1, ...((data?.signups_14d || []) as Row[]).map(r => Number(r.users)));
+  // Days without sign-ups aren't returned; draw all 14 so the bars keep a fixed width.
+  const signupsByDay = Object.fromEntries(((data?.signups_14d || []) as Row[]).map(r => [String(r.day).slice(0, 10), Number(r.users)]));
+  const signupDays = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(((data?.as_of as number) || 0) * 1000 || Date.now());
+    d.setUTCDate(d.getUTCDate() - 13 + i);
+    const day = d.toISOString().slice(0, 10);
+    return { day, users: signupsByDay[day] || 0 };
+  });
+  const maxSignups = Math.max(1, ...signupDays.map(r => r.users));
   const oldest = c.oldest_queued_seconds;
   return (
     <>
       <PageHead title="Overview" subtitle={data ? `As of ${fmtDate(new Date(data.as_of * 1000).toISOString())}` : 'Everything on the platform, at a glance.'} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Stat label="Users" value={c.users_total ?? '—'} hint={`+${c.users_7d ?? 0} this week · +${c.users_30d ?? 0} in 30 days`} to="/users" />
-          <Stat label="Organizations" value={c.orgs_total ?? '—'} hint={`+${c.orgs_7d ?? 0} this week`} to="/organizations" />
-          <Stat label="Domains" value={c.domains_verified ?? '—'} hint={`verified · ${c.domains_pending ?? 0} awaiting DNS`} />
-          <Stat label="Scans (24 h)" value={c.scans_24h ?? '—'} hint={`${c.scans_failed_24h ?? 0} failed`} tone={c.scans_failed_24h ? 'bad' : undefined} to="/scans" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <Stat label="Users" value={c.users_total ?? '—'} hint={`+${c.users_7d ?? 0} this week · +${c.users_30d ?? 0} in 30 days`} to="/users" icon={Users} />
+          <Stat label="Organizations" value={c.orgs_total ?? '—'} hint={`+${c.orgs_7d ?? 0} this week`} to="/organizations" icon={Building2} />
+          <Stat label="Domains" value={c.domains_verified ?? '—'} hint={`verified · ${c.domains_pending ?? 0} awaiting DNS`} icon={Globe} />
+          <Stat label="Scans (24 h)" value={c.scans_24h ?? '—'} hint={`${c.scans_failed_24h ?? 0} failed`} tone={c.scans_failed_24h ? 'bad' : undefined} to="/scans" icon={Radar} />
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
           <Stat label="Queued" value={c.scans_queued ?? 0} hint={oldest ? `oldest waiting ${fmtDuration(oldest)}` : 'nothing waiting'}
-                tone={oldest && oldest > (data?.queue_delay_seconds || 600) ? 'warn' : undefined} to="/scans?state=queued_delayed" />
-          <Stat label="Running" value={c.scans_running ?? 0} hint="scans in progress" to="/scans?state=running" />
+                tone={oldest && oldest > (data?.queue_delay_seconds || 600) ? 'warn' : undefined} to="/scans?state=queued_delayed" icon={Clock} />
+          <Stat label="Running" value={c.scans_running ?? 0} hint="scans in progress" to="/scans?state=running" icon={Activity} />
           <Stat label="Expired claims" value={c.scans_lease_expired ?? 0} hint="running scans whose worker stopped reporting"
-                tone={c.scans_lease_expired ? 'bad' : undefined} to="/scans?state=running_lease_expired" />
-          <Stat label="Subscriptions" value={((data?.subscriptions || []) as Row[]).reduce((n, r) => n + Number(r.n), 0)} hint="all plans and states" to="/subscriptions" />
+                tone={c.scans_lease_expired ? 'bad' : undefined} to="/scans?state=running_lease_expired" icon={AlertTriangle} />
+          <Stat label="Subscriptions" value={((data?.subscriptions || []) as Row[]).reduce((n, r) => n + Number(r.n), 0)} hint="all plans and states" to="/subscriptions" icon={CreditCard} />
         </div>
-        <div className="grid lg:grid-cols-2 gap-4">
+        <div className="grid lg:grid-cols-2 gap-5">
           <Panel title="Sign-ups, last 14 days">
             {(data?.signups_14d || []).length === 0 ? <Empty>No sign-ups in the last 14 days.</Empty> : (
               <div className="flex items-end gap-1.5 h-32" role="img" aria-label="Daily sign-ups">
-                {(data!.signups_14d as Row[]).map(r => (
-                  <div key={r.day} className="flex-1 flex flex-col items-center gap-1" title={`${r.day}: ${r.users}`}>
-                    <span className="text-[10px] mono text-soft">{r.users}</span>
-                    <div className="w-full rounded-t bg-[var(--accent)]" style={{ height: `${(Number(r.users) / maxSignups) * 90}px` }} />
-                    <span className="text-[9px] mono text-soft">{String(r.day).slice(8)}</span>
+                {signupDays.map(r => (
+                  <div key={r.day} className="flex-1 min-w-0 flex flex-col items-center gap-1" title={`${r.day}: ${r.users}`}>
+                    <span className="text-[10px] mono text-soft">{r.users || ''}</span>
+                    <div className={`w-full rounded-t ${r.users ? 'bg-[var(--accent)]' : 'bg-line'}`} style={{ height: `${Math.max(2, (r.users / maxSignups) * 90)}px` }} />
+                    <span className="text-[9px] mono text-soft">{r.day.slice(8)}</span>
                   </div>
                 ))}
               </div>
@@ -70,7 +79,7 @@ export function OverviewView() {
               </ul>
             )}
           </Panel>
-          <Panel title="Recent customer activity" className="lg:col-span-2" right={<Link to="/logs" className="text-[11px] mono text-soft hover:text-ink">ALL LOGS →</Link>}>
+          <Panel title="Recent customer activity" className="lg:col-span-2" right={<Link to="/logs" className="text-[10px] mono text-soft hover:text-accent">ALL LOGS →</Link>}>
             {(data?.recent_activity || []).length === 0 ? <Empty>No activity recorded.</Empty> : (
               <Table head={['Action', 'Organization', 'User', 'When']}>
                 {(data!.recent_activity as Row[]).map((r, i) => (
@@ -103,7 +112,7 @@ export function OrganizationsView() {
       </div>
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && data.items.length === 0 ? <Empty>No organizations match.</Empty> : (
-          <div className="panel p-5">
+          <Panel>
             <Table head={['Organization', 'Owner', 'Plan', 'Domains', 'Members', 'Last scan', 'Created']}>
               {(data?.items || []).map((o: Row) => (
                 <tr key={o.id}>
@@ -118,7 +127,7 @@ export function OrganizationsView() {
               ))}
             </Table>
             {data && <Pager offset={offset} limit={limit} total={data.total} count={data.items.length} onChange={o => set({ offset: o })} />}
-          </div>
+          </Panel>
         )}
       </ViewState>
     </>
@@ -133,10 +142,10 @@ export function OrganizationDetailView() {
   return (
     <>
       <PageHead title={org?.name || 'Organization'} subtitle={org ? <span className="mono text-xs">{org.slug} · {org.sector || 'no sector'} · created {fmtDate(org.created_at, false)}</span> : undefined}
-                actions={<Link to="/organizations" className="btn btn-ghost">← ALL ORGANIZATIONS</Link>} />
+                actions={<Link to="/organizations" className="btn-mini">← ALL ORGANIZATIONS</Link>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="Members">
               <Table head={['Person', 'Role', 'Last seen']}>
                 {(data.members as Row[]).map(m => (
@@ -238,7 +247,7 @@ export function UsersView() {
       </div>
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && data.items.length === 0 ? <Empty>No users match.</Empty> : (
-          <div className="panel p-5">
+          <Panel>
             <Table head={['Person', 'Organizations', 'Sign-in', 'Security', 'Last seen', 'Joined']}>
               {(data?.items || []).map((u: Row) => (
                 <tr key={u.id}>
@@ -255,13 +264,13 @@ export function UsersView() {
                       {u.platform_owner && <Pill tone="bad">platform owner</Pill>}
                     </span>
                   </Cell>
-                  <Cell label="Last seen">{fmtAgo(u.last_seen_at)}{u.active_sessions ? <span className="text-xs text-soft"> · {u.active_sessions} active</span> : null}</Cell>
+                  <Cell label="Last seen"><span>{fmtAgo(u.last_seen_at)}{u.active_sessions ? <span className="text-soft"> · {u.active_sessions} active</span> : null}</span></Cell>
                   <Cell label="Joined">{fmtDate(u.created_at, false)}</Cell>
                 </tr>
               ))}
             </Table>
             {data && <Pager offset={offset} limit={limit} total={data.total} count={data.items.length} onChange={o => set({ offset: o })} />}
-          </div>
+          </Panel>
         )}
       </ViewState>
     </>
@@ -275,10 +284,10 @@ export function UserDetailView() {
   return (
     <>
       <PageHead title={u?.full_name || u?.email || 'User'} subtitle={u ? <span className="mono text-xs">{u.email} · joined {fmtDate(u.created_at, false)}</span> : undefined}
-                actions={<Link to="/users" className="btn btn-ghost">← ALL USERS</Link>} />
+                actions={<Link to="/users" className="btn-mini">← ALL USERS</Link>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="Account">
               <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-soft">Sign-in</dt><dd className="mono text-xs">{u.provider}</dd>

@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useListParams } from './peopleViews';
 import {
-  Cell, Empty, PageHead, Pager, Panel, Pill, SearchBox, Table, ViewState,
+  Cell, Empty, FilterChip, PageHead, Pager, Panel, Pill, SearchBox, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
 } from './ui';
 
@@ -32,10 +32,7 @@ export function SubscriptionsView() {
       <PageHead title="Subscriptions" subtitle="Plans, renewal dates and invoices on record. Invoices are records, not proof of payment." />
       <div className="no-scrollbar flex gap-2 mb-4 overflow-x-auto sm:flex-wrap">
         {statuses.map(s => (
-          <button key={s || 'all'} type="button" onClick={() => set({ status: s })}
-                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded border text-xs mono ${status === s ? 'border-[var(--ink)] text-ink bg-inset' : 'border-line text-soft'}`}>
-            {s || 'all'}
-          </button>
+          <FilterChip key={s || 'all'} active={status === s} onClick={() => set({ status: s })}>{(s || 'all').replace('_', ' ')}</FilterChip>
         ))}
       </div>
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
@@ -94,15 +91,12 @@ export function ScansView() {
       </div>
       <div className="no-scrollbar flex gap-2 mb-4 overflow-x-auto sm:flex-wrap">
         {SCAN_STATES.map(([k, label]) => (
-          <button key={k || 'all'} type="button" onClick={() => set({ state: k, offset: 0 })}
-                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded border text-xs mono ${state === k ? 'border-[var(--ink)] text-ink bg-inset' : 'border-line text-soft'}`}>
-            {label}
-          </button>
+          <FilterChip key={k || 'all'} active={state === k} onClick={() => set({ state: k, offset: 0 })}>{label}</FilterChip>
         ))}
       </div>
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && data.items.length === 0 ? <Empty>No scans match.</Empty> : (
-          <div className="panel p-5">
+          <Panel>
             <Table head={['Domain', 'Organization', 'State', 'Coverage', 'Score', 'Duration', 'Created']}>
               {(data?.items || []).map((s: Row) => (
                 <tr key={s.id}>
@@ -120,7 +114,7 @@ export function ScansView() {
               ))}
             </Table>
             {data && <Pager offset={offset} limit={limit} count={data.items.length} onChange={o => set({ offset: o })} />}
-          </div>
+          </Panel>
         )}
       </ViewState>
     </>
@@ -135,10 +129,10 @@ export function ScanDetailView() {
   return (
     <>
       <PageHead title={s?.domain || 'Scan'} subtitle={s ? <span className="mono text-xs">{s.org_name} · {STATE_LABEL[s.state] || s.state} · created {fmtDate(s.created_at)}</span> : undefined}
-                actions={<Link to="/scans" className="btn btn-ghost">← ALL SCANS</Link>} />
+                actions={<Link to="/scans" className="btn-mini">← ALL SCANS</Link>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="Summary">
               <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-soft">State</dt><dd><Pill tone={statusTone(s.state)}>{STATE_LABEL[s.state] || s.state}</Pill></dd>
@@ -200,19 +194,18 @@ export function LogsView() {
     <>
       <PageHead title="Logs" subtitle={source === 'owner' ? 'Owner console sign-ins and views (this console).' : 'Customer-side events: sign-ins, scans, plan and security changes.'} />
       <div className="flex flex-wrap gap-3 mb-4 items-center">
-        <div className="flex rounded border border-line overflow-hidden">
+        <div className="flex gap-2">
           {(['customer', 'owner'] as const).map(s => (
-            <button key={s} type="button" onClick={() => set({ source: s === 'customer' ? '' : s, offset: 0 })}
-                    className={`px-3 py-2 text-xs mono ${source === s ? 'bg-inset text-ink' : 'text-soft'}`}>
-              {s === 'customer' ? 'CUSTOMER EVENTS' : 'OWNER CONSOLE'}
-            </button>
+            <FilterChip key={s} active={source === s} onClick={() => set({ source: s === 'customer' ? '' : s, offset: 0 })}>
+              {s === 'customer' ? 'Customer events' : 'Owner console'}
+            </FilterChip>
           ))}
         </div>
         <SearchBox value={q} onChange={v => set({ q: v, offset: 0 })} placeholder={source === 'owner' ? 'Search action, outcome or email' : 'Search action, email or organization'} />
       </div>
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && data.items.length === 0 ? <Empty>No log entries match.</Empty> : (
-          <div className="panel p-5">
+          <Panel>
             {source === 'owner' ? (
               <Table head={['When', 'Action', 'Outcome', 'Who', 'Target', 'Detail']}>
                 {(data?.items || []).map((r: Row, i: number) => (
@@ -240,7 +233,7 @@ export function LogsView() {
               </Table>
             )}
             {data && <Pager offset={offset} limit={limit} count={data.items.length} onChange={o => set({ offset: o })} />}
-          </div>
+          </Panel>
         )}
       </ViewState>
     </>
@@ -256,7 +249,7 @@ export function SystemView() {
       <PageHead title="System" subtitle="Live state of the API, database, background jobs and scanner." />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="API and database">
               <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-soft">Database</dt><dd><Pill tone={data.database.ok ? 'good' : 'bad'}>{data.database.ok ? 'connected' : 'down'}</Pill> <span className="text-xs text-soft">{data.database.latency_ms} ms</span></dd>
