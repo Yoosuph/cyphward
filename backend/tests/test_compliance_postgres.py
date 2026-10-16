@@ -232,8 +232,11 @@ def test_member_reads_evidence_and_scan_history_needs_every_domain(world, monkey
     assert [d["status"] for d in enc["domains"]] == ["present", "not_assessed"]
     assert enc["domains"][1]["source"] is None and enc["clause_label"].endswith("reference pending review")
     assert _req(body, PERIODIC)["status"] == "not_assessed"
-    assert body["readiness"] == {"with_evidence": 0, "present": 0, "gap": 0, "awaiting_input": 22,
-                                 "not_assessed": 7, "applicable": 29}
+    # C2a: privacy policy, cookie notice and trackers now have a check, so with no
+    # observation yet they read not assessed (not awaiting input); DPO contact can
+    # still be confirmed by the customer, so it awaits input.
+    assert body["readiness"] == {"with_evidence": 0, "present": 0, "gap": 0, "awaiting_input": 19,
+                                 "not_assessed": 10, "applicable": 29}
     assert _req(body, "gaid.dpo.designated")["status_label"] == "Awaiting your input"
     assert _req(body, "gaid.consent.banner_visible")["status_label"] == "Upcoming check"
 
@@ -242,8 +245,8 @@ def test_member_reads_evidence_and_scan_history_needs_every_domain(world, monkey
     assert _req(body, ENC)["status"] == "present" and _req(body, ENC)["source"] == "tool_observed"
     assert _req(body, PERIODIC)["status"] == "present"
     assert _req(body, CVE)["status"] == "not_assessed"
-    assert body["readiness"] == {"with_evidence": 6, "present": 6, "gap": 0, "awaiting_input": 22,
-                                 "not_assessed": 1, "applicable": 29}
+    assert body["readiness"] == {"with_evidence": 6, "present": 6, "gap": 0, "awaiting_input": 19,
+                                 "not_assessed": 4, "applicable": 29}
 
     detail = client.get(f"/api/v1/compliance/requirements/{ENC}", headers=headers).json()
     assert len(detail["history"]) == 2 and detail["disclaimer"] == DISCLAIMER

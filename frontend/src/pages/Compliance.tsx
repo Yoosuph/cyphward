@@ -133,6 +133,27 @@ function RequirementRow({ req }: { req: ComplianceRequirement }) {
                       Open ports: {Object.entries(d.details.open_ports).map(([h, ports]) => `${h} ${ports.join(', ')}`).join(' · ')}
                     </p>
                   )}
+                  {typeof d.details.url === 'string' && (
+                    <p className="text-xs mono text-ink mt-1.5 break-all">
+                      {d.details.off_domain ? 'Linked, hosted elsewhere (not fetched): ' : 'Page: '}{d.details.url}
+                      {d.details.changed_since_last_scan === true && <span className="text-warn"> · changed since last scan</span>}
+                    </p>
+                  )}
+                  {Array.isArray(d.details.observed) && d.details.observed.length > 0 && (
+                    <p className="text-xs mono text-accent mt-1.5 break-words">
+                      Observed: {(d.details.observed as { vendor: string; how: string; host: string }[])
+                        .map(o => `${String(o.vendor).replace(/_/g, ' ')} (${o.how.replace(/_/g, ' ')}, ${o.host})`).join(' · ')}
+                    </p>
+                  )}
+                  {Array.isArray(d.details.cookies) && d.details.cookies.length > 0 && (
+                    <p className="text-xs mono text-soft mt-1.5 break-words">
+                      First-visit cookies: {(d.details.cookies as { name: string; category: string }[])
+                        .map(c => `${c.name} (${c.category})`).join(', ')}
+                    </p>
+                  )}
+                  {Array.isArray(d.details.consent_managers) && d.details.consent_managers.length > 0 && (
+                    <p className="text-xs mono text-soft mt-1.5">Consent manager: {(d.details.consent_managers as string[]).join(', ')}</p>
+                  )}
                   {(d.details.missing || []).length > 0 && (
                     <p className="text-xs mono text-soft mt-1.5 break-words">
                       Not finished: {(d.details.missing || []).map(m => `${m.hostname} ${m.check} (${m.reason.replace(/_/g, ' ')})`).join(' · ')}
@@ -166,6 +187,12 @@ function RequirementRow({ req }: { req: ComplianceRequirement }) {
             </div>
           )}
 
+          {(req.policy_mentions || []).length > 0 && (
+            <p className="text-xs text-soft">
+              Your published privacy policy (heuristic, not a review):{' '}
+              {(req.policy_mentions || []).map(pm => `${pm.state === 'mentioned' ? 'mentions this' : 'does not mention this'} (${pm.domain})`).join(' · ')}
+            </p>
+          )}
           {req.informational_findings.length > 0 && (
             <p className="text-xs text-soft">
               Also observed (informational): {req.informational_findings.map(f => f.title).join(' · ')}

@@ -31,9 +31,10 @@ from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.naabu_runner import run_naabu_batch
 from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
+from backend.app.scanner.privacy_probe import run_privacy_batch
 from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.scanner.dns_coverage import collect_dns_results
-from shared.contracts import ScanJob
+from shared.contracts import PRIVACY_CAPABILITY, ScanJob
 from shared.scan_scope import select_targets
 from shared.scan_budget import ReconBudget, gather_with_deadline
 from backend.app.scanner.recon_policy import stage_plan, evaluate_stage, collect_http_results
@@ -48,6 +49,7 @@ OBSERVATION_KEY = {
     "discovery": "discovered_hosts",
     "dns": "dns_records",
     "http": "http_probes",
+    "privacy": "privacy_observations",
     "ports": "open_ports",
     "tls": "tls_profiles",
     "nuclei": "nuclei_findings",
@@ -266,6 +268,19 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     http_probes = await run_stage(client, cfg, job, "http", _http, plan=http_plan, budget=budget)
     assert http_probes is not None
     stats["http"] = len(http_probes)
+
+    # Optional static privacy checks, only when the API accepts the stage
+    # (an older API would reject it; it then records the stage as skipped).
+    supports = getattr(client, "supports", None)
+    if callable(supports) and supports(PRIVACY_CAPABILITY):
+        privacy_plan = stage_plan("privacy", discovered, job.scope, dns_records, http_probes,
+                                  cap=limits.privacy_max_hosts)
+        async def _privacy():
+            return await run_privacy_batch(privacy_plan["selected_hosts"], list(job.scope),
+                                           max_pages=limits.privacy_max_pages)
+        privacy = await run_stage(client, cfg, job, "privacy", _privacy, optional=True,
+                                  plan=privacy_plan, budget=budget)
+        stats["privacy"] = len(privacy or [])
 
     ports_plan = stage_plan("ports", discovered, job.scope, dns_records, available=_tool("naabu"))
     async def _ports():

@@ -119,3 +119,87 @@ Next: C1, as planned in `C1-plan.md`.
 - Production currently has no complete-coverage v2 scans (4 partial in 90 days), so the scan-history requirements and most security requirements will start as not assessed.
 - There are no immutable snapshots yet (C4/Packet 04).
 - `rls-probe` remains an unmapped stray finding in production.
+
+## C1 release record (16 October 2026)
+
+**State:** released and production-verified.
+
+- **Preflight** (read-only, founder-approved release step): no queued or running scans; application row counts recorded privately.
+- **Backup:** a full logical dump through the session pooler (746 KB, readable, 31 public tables of data), stored privately outside the repository. It is now **encrypted** (see the runbook backup note).
+- **Migration:**
+  - Only `20261017090000_compliance_evidence.sql` was applied, as `postgres`, in one transaction with `lock_timeout 5s` and `statement_timeout 60s`, and recorded in `supabase_migrations.schema_migrations`.
+  - Verified: RLS on; both indexes present; `cyphward_app` has SELECT and INSERT only (UPDATE and DELETE refused), no `BYPASSRLS`; every existing row count unchanged.
+  - The two owner-console migrations (`20261016120000`, `20261016150000`), which had been applied earlier without history rows, were recorded afterwards, insert-only, with the founder's OK.
+- **Merges:**
+  - #21 (C0) as `2b880a8`;
+  - #22 (C1) as `d470d1f`, after retargeting to `main`, a fresh CI run against `main`, and a re-check of active scans;
+  - both main refs synchronised. No scanner deploy (scanner paths unchanged).
+- **Verification:**
+  - API live at `d470d1f`, healthy;
+  - `GET /api/v1/compliance/overview` and `/requirements/{key}` return 401 without auth and appear in OpenAPI;
+  - `/comply` served, and the live bundle contains the Compliance chunk.
+- **First evidence:** scan `4dac094c` (cyphward.com, 17:29–17:55 UTC):
+  - complete coverage;
+  - evidence 1 present / 3 gaps / 1 not assessed.
+  - The gaps traced to false header findings on Brevo's click-tracking host, fixed by PR #23 (`0e770c6`). The DNS SPF/DMARC changes were applied by the founder.
+- **Rescan `c003bda0`** (18:26–18:52 UTC):
+  - complete coverage (19/19 on 6 hosts), both domains complete, grade **C**;
+  - evidence **4 present / 1 not assessed** (known-vulnerability testing, by design);
+  - the old `r.info.cyphward.com` header findings resolved at 18:52.
+
+## C2a — static privacy checks (16 October 2026)
+
+**State:** implemented and validated locally; review-ready on `codex/compliance-c2a`. **Not released.** No migration.
+
+### Changed behaviour
+
+- **New optional recon stage `privacy`**, after `http`; worker and local mode. The probe, `backend/app/scanner/privacy_probe.py`:
+  - fetches the homepage, a catch-all probe, policy/cookie links, the fixed paths and `security.txt`;
+  - pins every hop to a public IP and follows in-scope redirects only;
+  - caps bodies at 512 KB, requests at 4 s and fetches at **10 per host** (raised from the plan's 6: proving "not found" for D8 takes the homepage, the catch-all probe and 6 fixed paths). Running out of budget is never "not found";
+  - checks up to 5 hosts, apex and `www` first.
+- **What it records:**
+  - the page found (and how), or a link off-domain (not fetched);
+  - catch-all detection, and a content test (title/heading names the topic and the body differs from the homepage);
+  - heuristic policy signals (mentioned / not found; emails masked) and a **SHA-256 of the normalised policy text** (the text is never stored);
+  - first-response cookies, **names and attributes only**, classified tracker / infrastructure / necessary / unknown;
+  - tracker scripts (direct vs loader; consent-blocked); the consent manager; `security.txt`.
+- **Capability flag:**
+  - `GET /scanner/protocol` advertises `privacy_v1`;
+  - the worker runs the stage only when the API advertises it, and then sends `X-Scanner-Capabilities` on claim;
+  - the claim records `stage_progress.privacy` as `pending`, or as `skipped` with `worker_without_privacy_capability`;
+  - the new claim payload is verified against the deployed worker's contract (`c043223`, vendored under `tests/fixtures/deployed_contracts/`);
+  - the stage is optional: a crash or timeout records failed hosts and the scan completes.
+- **Evidence** (register `ndpa-gaid-v1.1`, a new `privacy` mapping type) is written as `externally_observed` rows in the completion savepoint:
+  - **Privacy policy / cookie notice:** present when found (or linked off-domain). **Gap (D8)** only on a non-catch-all apex where every fixed path returned 404/410. Otherwise not assessed: catch-all, inconclusive, apex not checked, or fetch failed.
+  - **Trackers before consent:** a gap only from a **known-tracker cookie** on the first response, or a direct tracker script with no consent manager. Infrastructure (`__cf_bm` …), necessary (session) and unknown cookies are listed, never a gap. Loaders alone or trackers behind a consent manager need the browser test. **Never present.**
+  - **DPO contact:** present when a fetched policy names one; otherwise awaiting input (the customer can confirm it).
+  - **Policy changed since last scan:** flagged when the fingerprint differs for the same URL; informational only.
+- **Read side:**
+  - a separate path for externally observed rows: the **newest row wins**, a gap stands until it expires, and expiry only marks staleness;
+  - a scan without the stage (older worker) writes no rows, so the previous result stands;
+  - policy mentions of lawful basis and data subject rights appear as heuristic notes on those attested requirements, without changing their status.
+- **Coverage, grade and score are unchanged:** privacy is not a declared check (verified by a PostgreSQL test).
+- **UI:**
+  - the scan page gains a "Privacy notices (static)" row (outside the "N of 7 checks" count and coverage), with "worker update pending" for older workers;
+  - the Compliance page shows the "Externally observed" source, the page found, "changed since last scan", the trackers observed and the cookie categories.
+
+### Validation (fresh owned loopback PostgreSQL 18.6, 127.0.0.1:55439, bootstrap only, 30 migrations, restricted `cyphward_app`)
+
+- **New tests, fixture websites only** (`httpx.MockTransport`; no network; no live third-party site):
+  - probe 17;
+  - capability and compatibility 7;
+  - privacy truth table 27;
+  - PostgreSQL privacy stage 8: claim capability ×3, the protocol advertising it, an old-worker scan with no rows, externally observed rows with coverage/score unchanged, a stale attempt can't store, newest wins / the previous result stands.
+- PostgreSQL modules: **72 passed**, twice in a row.
+- Full backend suite with the database: **758 passed, 16 skipped**. Without it: **687 passed, 87 skipped**.
+- Frontend build passed. Browser suites passed:
+  - `test:compliance-ui` (desktop/390/320, now with externally observed evidence);
+  - `test:scans-ui` (now asserting the privacy row, a long URL without overflow, and the unchanged "of 7 checks completed");
+  - `test:score-ui`, `test:onboarding-ui`.
+- `git diff --check` passed.
+- **Pre-existing flake:** `test_lost_local_dispatch_is_consumed_from_queue` failed 3 of 15 runs at its 5 s bound on clean `main` here (real DNS lookups for synthetic hosts). Its bound is now 20 s, and it passed 15 of 15.
+
+### Release
+
+**Worker change: follow `02-release-runbook.md` → "C2a privacy stage".** The founder pre-approved the claims pause/resume and the count-only all-organisation queue query; the merge waits for the founder's "merge".

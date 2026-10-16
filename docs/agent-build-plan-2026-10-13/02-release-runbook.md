@@ -94,3 +94,41 @@ git diff --check
 ```
 
 The PostgreSQL CI job creates an owned loopback cluster and runs the same bootstrap and acceptance modules. Tests use synthetic tenants, independent connections and the restricted role. Never use the private restore-rehearsal database holding customer records for these tests.
+
+## 8. Backup storage and retention
+
+- Release dumps live outside the repository under `~/cyphward-release-backups/<date>-<release>/` (folders `0700`, files `0600`).
+- **Encrypt every dump** right after taking it:
+  - use `gpg --symmetric --cipher-algo AES256` with the passphrase file `~/.cyphward/keys/backup.key` (`0600`, kept **outside** the backup folder, with an offline copy held by the founder);
+  - verify by decrypting and comparing SHA-256 before shredding the plaintext (`shred -u`);
+  - never leave a plaintext dump on disk.
+- **Retention:** delete a release's dumps **14 days after the next stable release**, meaning a later release that has been production-verified with no rollback. Keep the dump for the most recent stable release.
+
+## 9. C2a privacy stage (worker + API, no migration)
+
+Protocol stays v2. The new worker runs the optional `privacy` stage only when the API advertises `privacy_v1`, and the API records at claim whether the claiming worker has it. Either deploy order degrades to "privacy not assessed", never to failed scans.
+
+Founder pre-approved for this release: steps 2, 3 (count only) and 7. The merge (step 5) waits for the founder's "merge".
+
+1. **Prepare.** CI green on the PR head. Scanner image and API from the same revision. No migration.
+2. **Pause new claims.**
+   - Set `SCANNER_CLAIMS_ENABLED=false` on the Render Core service and redeploy.
+   - Wait until the deploy is live, and confirm the env value on the live deploy.
+   - Held jobs keep progress/observation/complete access; queued jobs wait safely.
+3. **Drain.** Run this count-only query across all organisations (no other fields):
+   `SELECT status, count(*) FROM scans WHERE status IN ('queued','running') GROUP BY status;`
+   Proceed when `running = 0`. Queued scans may remain.
+4. **Back up.** Encrypted dump (section 8). Not required without a migration, but cheap.
+5. **Merge** (founder's "merge"), then sync the fork's `main`. Render deploys the API; the primary repository's scanner CD rebuilds and restarts the VPS worker. Verify:
+   - the API is live at the merge commit and `/health` is healthy;
+   - `GET /api/v1/scanner/protocol` (authenticated, from the worker's perspective) lists `privacy_v1`;
+   - the scanner CD workflow succeeded, including its own polling check.
+6. **Still paused:** the worker negotiates successfully (claims return 204, no protocol errors).
+7. **Resume claims.** Set `SCANNER_CLAIMS_ENABLED=true` and redeploy; wait until live.
+8. **Controlled scan** (the founder launches it on `cyphward.com`; reads under the standing permission):
+   - `stage_progress.privacy` is `completed` (or `failed` with host reasons), not `skipped`;
+   - coverage, grade and score behave as before (privacy is not a declared check);
+   - `externally_observed` evidence rows exist for the four privacy requirements;
+   - the scan page shows the "Privacy notices (static)" row.
+9. **Rollback:** revert the worker first (the API accepts workers with and without the capability), then the API. Observations are additive JSON; nothing in the schema to undo. Existing externally observed rows stay as history and expire normally.
+

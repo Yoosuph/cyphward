@@ -13,9 +13,10 @@ from backend.app.core.database import execute_one, execute_query
 
 OPEN_GROUPS_ON_STARTER = {"security"}
 HISTORY_DAYS = 100  # longest scan-history window (90 days) plus margin
-C1_NOTE = ("Only the security measures group has an evidence source today. Notices, consent, DPO, registration "
-           "and the other groups wait for your answers or for checks that later releases add, so they show as "
-           "awaiting input or upcoming checks rather than not assessed.")
+C1_NOTE = ("Evidence comes from two sources today: Cyphward's security checks and a static check of your website's "
+           "privacy notices, cookies and trackers. Registration, breach response, DPIA, lawful basis, rights, transfers "
+           "and training wait for your answers, and the consent-banner checks need a browser test that a later release "
+           "adds, so they show as awaiting input or upcoming checks rather than not assessed.")
 
 STATUS_LABELS = {"present": "Evidence present", "gap": "Gap", "not_assessed": "Not assessed",
                  "not_applicable": "Not applicable", "awaiting_input": "Awaiting your input"}
@@ -39,6 +40,21 @@ REASON_TEXT = {
     "no_complete_scan_in_window": "No scan in the window finished every declared check.",
     "awaiting_customer_input": "Cyphward has no source for this yet. You will be able to answer it in a later release.",
     "check_not_available_yet": "The check that observes this arrives in a later release.",
+    "page_found": "Found by Cyphward's static check of your website.",
+    "linked_off_domain": "Your website links to a policy hosted elsewhere; Cyphward recorded the link but did not fetch it.",
+    "not_found_by_static_check": "Not found by Cyphward's static check: no link, and the common addresses returned "
+                                 "'not found'. Pages built by JavaScript may not be seen.",
+    "site_serves_every_path": "Your website answers every address with the same page, so the static check cannot "
+                              "tell whether a policy exists. Link it from your footer to be found.",
+    "apex_not_checked": "Your main website could not be checked statically this time.",
+    "not_found_inconclusive": "Not found, but the static check could not try every common address.",
+    "privacy_check_failed": "The static privacy check could not fetch your website this time.",
+    "no_privacy_observation": "No static privacy check has run for this domain yet.",
+    "tracker_before_consent": "A known tracker was observed before any consent: see the vendors listed.",
+    "needs_browser_test": "No tracker was observed in the first response, but only a browser test can show that "
+                          "nothing loads before consent.",
+    "dpo_contact_in_policy": "A DPO contact appears in your published privacy policy (heuristic).",
+    "dpo_contact_not_found_in_policy": "No DPO contact was found in your published privacy policy.",
 }
 
 
@@ -92,6 +108,7 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any
                 "source_label": SOURCE_LABELS.get(d["source"]) if d.get("source") else None}
                for d in result["domains"]]
     has_evidence = any(d.get("source") for d in domains) or bool(result["unlinked_finding_ids"])
+    source = next((d["source"] for d in domains if d.get("source")), mapping.TOOL_SOURCE)
     return {
         "key": req["key"], "group": req["group"], "title": req["title"], "summary": req["summary"],
         "clause": req["clause"], "clause_verified": req["clause_verified"],
@@ -104,8 +121,8 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any
         "status_label": (UPCOMING_CHECK_LABEL if result["reason"] == "check_not_available_yet"
                          else STATUS_LABELS[result["status"]]),
         "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
-        "source": mapping.TOOL_SOURCE if has_evidence else None,
-        "source_label": SOURCE_LABELS[mapping.TOOL_SOURCE] if has_evidence else None,
+        "source": source if has_evidence else None,
+        "source_label": SOURCE_LABELS[source] if has_evidence else None,
         "domains": domains, "unlinked_finding_ids": result["unlinked_finding_ids"],
     }
 
@@ -121,12 +138,35 @@ def _attach_findings(org_id: str, views: List[Dict[str, Any]]) -> None:
         view["informational_findings"] = [found[i] for i in dict.fromkeys(info_ids) if i in found]
 
 
+# Heuristic policy mentions shown on the attested requirements they relate to.
+# Informational only: they never change those requirements' status.
+POLICY_MENTIONS = {"lawful_basis": "ndpa.s25.lawful_basis_documented",
+                   "data_subject_rights": "ndpa.part6.rights_process"}
+
+
+def _attach_policy_mentions(views: List[Dict[str, Any]]) -> None:
+    policy = next((v for v in views if v["key"] == "gaid.notice.privacy_policy"), None)
+    if not policy:
+        return
+    for view in views:
+        view.setdefault("policy_mentions", [])
+    by_key = {v["key"]: v for v in views}
+    for domain in policy["domains"]:
+        signals = (domain.get("details") or {}).get("policy_signals") or {}
+        for signal, key in POLICY_MENTIONS.items():
+            state = (signals.get(signal) or {}).get("state")
+            if state and key in by_key:
+                by_key[key]["policy_mentions"].append({"domain": domain["domain"], "state": state,
+                                                       "url": domain["details"].get("url")})
+
+
 def overview(org: Dict[str, Any]) -> Dict[str, Any]:
     org_id = str(org["id"])
     plan = _plan(org)
     ctx = _context(org_id)
     views = [_requirement_view(req, ctx) for req in REGISTER["requirements"]]
     _attach_findings(org_id, views)
+    _attach_policy_mentions(views)
     groups = []
     for group in REGISTER["groups"]:
         items = [v for v in views if v["group"] == group["key"]]

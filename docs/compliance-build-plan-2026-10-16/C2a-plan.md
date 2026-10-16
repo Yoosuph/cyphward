@@ -191,3 +191,13 @@ The merge itself needs your "merge".
 - Running JavaScript, banner visibility, clicking accept/reject, cookies after interaction (C2b, after measuring memory).
 - Customer attestations (C3).
 - Judging policy quality.
+
+## 10. Implementation notes (deviations from the plan text, recorded at build)
+
+- **Fetch budget 10 per host** (plan: 6). D8 needs the homepage, the catch-all probe and all 6 fixed paths; with 6 a gap could never be proven. Running out of budget reads "not assessed", never "not found".
+- **Stage results without an observation:**
+  - a scan whose privacy stage did not run (older worker) writes **no** privacy rows, so the newest real observation stands;
+  - a stage that ran but could fetch no host writes `not_assessed` (`privacy_check_failed`), so an old "present" is not kept alive by a failed check.
+- **Policy mentions** of lawful basis and data subject rights appear on those attested requirements as informational notes ("your published policy mentions this", heuristic). They never change status.
+- **Catch-all hosts** still try the fixed paths, because a prerendered `/privacy` page passes the content test (title names privacy, body differs from the shell).
+

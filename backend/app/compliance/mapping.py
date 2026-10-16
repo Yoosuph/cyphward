@@ -25,6 +25,8 @@ PRESENT, GAP, NOT_ASSESSED, NOT_APPLICABLE = "present", "gap", "not_assessed", "
 # Distinct from NOT_ASSESSED, which means a check could have run but did not finish. Never stored.
 AWAITING_INPUT = "awaiting_input"
 TOOL_SOURCE = "tool_observed"
+EXTERNAL_SOURCE = "externally_observed"
+GONE_STATUSES = (404, 410)
 
 
 def _aware(value: Any) -> Optional[datetime]:
@@ -125,10 +127,10 @@ def domain_rows(tool_requirements: Iterable[Dict[str, Any]], coverage: Any, find
 
 # ── Read side ──────────────────────────────────────────────────────────────
 def _domain_result(status: str, reason: str, domain: Dict[str, Any], row: Optional[Dict[str, Any]] = None,
-                   finding_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+                   finding_ids: Optional[List[str]] = None, source: str = TOOL_SOURCE) -> Dict[str, Any]:
     return {
         "domain_id": str(domain["id"]), "domain": domain.get("domain"), "status": status, "reason": reason,
-        "source": TOOL_SOURCE if (row or finding_ids) else None,
+        "source": source if (row or finding_ids) else None,
         "observed_at": row.get("observed_at") if row else None,
         "expires_at": row.get("expires_at") if row else None,
         "scan_id": str(row["scan_id"]) if row and row.get("scan_id") else None,
@@ -202,6 +204,139 @@ def _history_status(requirement, domains, history, now) -> Dict[str, Any]:
     return {"status": status, "reason": reason, "domains": results, "unlinked_finding_ids": []}
 
 
+# ── Privacy (externally observed, packet C2a) ─────────────────────────────
+def _signal(requirement: Dict[str, Any]) -> Optional[str]:
+    return ((requirement.get("tool_mapping") or {}).get("privacy") or {}).get("signal")
+
+
+def _page(host: Dict[str, Any], kind: str) -> Dict[str, Any]:
+    return next((p for p in host.get("pages") or [] if p.get("kind") == kind), {})
+
+
+def _not_found_conclusively(host: Dict[str, Any], kind: str) -> bool:
+    """D8: a real not-found only on a non-catch-all host whose every fixed path returned 404/410."""
+    from backend.app.scanner.privacy_probe import FIXED_PATHS
+    page = _page(host, kind)
+    tried = page.get("fixed_paths") or {}
+    return (not host.get("catch_all") and not page.get("matched") and not page.get("off_domain")
+            and set(tried) == set(FIXED_PATHS[kind]) and all(v in GONE_STATUSES for v in tried.values()))
+
+
+def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
+                     previous: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """One domain's privacy result for one requirement, or None when the stage did not run."""
+    if not isinstance(observation, dict) or not isinstance(observation.get("privacy_observations"), list):
+        return None  # older worker / stage skipped: no new observation, the previous row stands
+    signal = _signal(requirement)
+    successful = set(observation.get("successful_hosts") or [])
+    hosts = [h for h in observation["privacy_observations"] if isinstance(h, dict) and h.get("hostname") in successful]
+    checked = sorted(h["hostname"] for h in hosts)
+    base = {"hosts_checked": checked, "heuristic": True,
+            "failed_hosts": sorted((observation.get("failed_hosts") or {}).keys())}
+    if not hosts:
+        return {"status": NOT_ASSESSED, "reason": "privacy_check_failed", "details": base}
+
+    if signal in ("privacy_policy", "cookie_notice"):
+        for host in hosts:
+            page = _page(host, signal)
+            if page.get("matched") or page.get("off_domain"):
+                details = {**base, "host": host["hostname"], "url": page.get("url"), "found_by": page.get("found_by"),
+                           "off_domain": bool(page.get("off_domain")), "fingerprint": page.get("fingerprint")}
+                prev = (previous or {}).get("details") or {}
+                if page.get("fingerprint") and prev.get("fingerprint") and prev.get("url") == page.get("url"):
+                    details["changed_since_last_scan"] = prev["fingerprint"] != page["fingerprint"]
+                if signal == "privacy_policy" and host.get("policy_signals"):
+                    details["policy_signals"] = host["policy_signals"]
+                return {"status": PRESENT, "reason": "linked_off_domain" if page.get("off_domain") else "page_found",
+                        "details": details}
+        apex_host = next((h for h in hosts if h["hostname"] == apex), None)
+        if apex_host and _not_found_conclusively(apex_host, signal):
+            return {"status": GAP, "reason": "not_found_by_static_check",
+                    "details": {**base, "host": apex, "fixed_paths": _page(apex_host, signal).get("fixed_paths")}}
+        reason = ("site_serves_every_path" if any(h.get("catch_all") for h in hosts)
+                  else "apex_not_checked" if apex_host is None else "not_found_inconclusive")
+        return {"status": NOT_ASSESSED, "reason": reason, "details": base}
+
+    if signal == "trackers_before_consent":
+        observed = []
+        for host in hosts:
+            for cookie in host.get("first_response_cookies") or []:
+                if cookie.get("category") == "tracker":  # infrastructure, necessary and unknown cookies never count
+                    observed.append({"host": host["hostname"], "how": "cookie_on_first_response",
+                                     "vendor": cookie.get("vendor"), "name": cookie.get("name")})
+            if not host.get("consent_manager"):
+                for tracker in host.get("trackers") or []:
+                    if tracker.get("strength") == "direct" and not tracker.get("consent_blocked"):
+                        observed.append({"host": host["hostname"], "how": f"tracker_{tracker.get('source')}",
+                                         "vendor": tracker.get("vendor")})
+        listed = [{"host": h["hostname"], "name": c.get("name"), "category": c.get("category")}
+                  for h in hosts for c in h.get("first_response_cookies") or []]
+        consent = sorted({h["consent_manager"] for h in hosts if h.get("consent_manager")})
+        if observed:
+            return {"status": GAP, "reason": "tracker_before_consent",
+                    "details": {**base, "observed": observed, "cookies": listed, "consent_managers": consent}}
+        return {"status": NOT_ASSESSED, "reason": "needs_browser_test",
+                "details": {**base, "cookies": listed, "consent_managers": consent,
+                            "loaders": sorted({t["vendor"] for h in hosts for t in h.get("trackers") or []
+                                               if t.get("strength") == "loader"})}}
+
+    if signal == "dpo_contact":
+        for host in hosts:
+            dpo = ((host.get("policy_signals") or {}).get("dpo_contact") or {})
+            if dpo.get("state") == "mentioned":
+                return {"status": PRESENT, "reason": "dpo_contact_in_policy",
+                        "details": {**base, "host": host["hostname"], "url": _page(host, "privacy_policy").get("url")}}
+        return {"status": NOT_ASSESSED, "reason": "dpo_contact_not_found_in_policy", "details": base}
+    return None
+
+
+def privacy_rows(requirements: Iterable[Dict[str, Any]], observation: Any, *, org_id: str, domain_id: str,
+                 scan_id: str, observed_at: datetime, register_version: str, apex: str,
+                 previous: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Externally observed rows for the scanned domain (none when the privacy stage did not run)."""
+    observed = _aware(observed_at) or datetime.now(timezone.utc)
+    rows = []
+    for requirement in requirements:
+        result = evaluate_privacy(requirement, observation, apex, (previous or {}).get(requirement["key"]))
+        if result is None:
+            continue
+        rows.append({
+            "org_id": org_id, "domain_id": domain_id, "scan_id": scan_id, "requirement_key": requirement["key"],
+            "register_version": register_version, "source": EXTERNAL_SOURCE, "status": result["status"],
+            "observed_at": observed, "expires_at": observed + timedelta(days=requirement["freshness_days"]),
+            "finding_ids": [], "details": {**result["details"], "reason": result["reason"]},
+        })
+    return rows
+
+
+def _privacy_status(requirement, domains, latest_rows, now) -> Dict[str, Any]:
+    """Newest row wins; expiry only marks staleness. A gap stands until it expires."""
+    attestable = "customer_attested" in requirement["evidence_types"]
+    results = []
+    for domain in domains:
+        row = latest_rows.get(str(domain["id"]))
+        if row is None:
+            results.append(_domain_result(NOT_ASSESSED, "no_privacy_observation", domain, source=EXTERNAL_SOURCE))
+            continue
+        expires = _aware(row.get("expires_at"))
+        reason = (row.get("details") or {}).get("reason") or row.get("status")
+        if expires is not None and expires <= now:
+            results.append(_domain_result(NOT_ASSESSED, "evidence_expired", domain, row, source=EXTERNAL_SOURCE))
+        else:
+            results.append(_domain_result(row["status"], reason, domain, row, source=EXTERNAL_SOURCE))
+    if attestable:
+        # A published DPO contact on any of the organisation's sites is enough; otherwise
+        # the customer can still confirm it themselves (C3), so it awaits input.
+        found = next((r for r in results if r["status"] == PRESENT), None)
+        if found:
+            return {"status": PRESENT, "reason": found["reason"], "domains": results, "unlinked_finding_ids": []}
+        return {"status": AWAITING_INPUT, "reason": "awaiting_customer_input", "domains": results,
+                "unlinked_finding_ids": []}
+    status = _combine(results)
+    reason = "no_verified_domain" if not domains else next((r["reason"] for r in results if r["status"] == status), status)
+    return {"status": status, "reason": reason, "domains": results, "unlinked_finding_ids": []}
+
+
 def requirement_status(requirement: Dict[str, Any], *, domains: List[Dict[str, Any]],
                        latest_rows: Dict[str, Dict[str, Any]], live_findings: List[Dict[str, Any]],
                        history: List[Dict[str, Any]], now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -213,6 +348,8 @@ def requirement_status(requirement: Dict[str, Any], *, domains: List[Dict[str, A
         return {"status": AWAITING_INPUT, "reason": reason, "domains": [], "unlinked_finding_ids": []}
     if "scan_history" in mapping:
         return _history_status(requirement, domains, history, now)
+    if "privacy" in mapping:
+        return _privacy_status(requirement, domains, latest_rows, now)
     return _tool_status(requirement, domains, latest_rows, live_findings, now)
 
 

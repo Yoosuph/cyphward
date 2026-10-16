@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 STAGE_DISCOVERY = "discovery"
 STAGE_DNS = "dns"
 STAGE_HTTP = "http"
+STAGE_PRIVACY = "privacy"
 STAGE_PORTS = "ports"
 STAGE_TLS = "tls"
 STAGE_NUCLEI = "nuclei"
@@ -27,6 +28,7 @@ RECON_STAGES = [
     STAGE_DISCOVERY,
     STAGE_DNS,
     STAGE_HTTP,
+    STAGE_PRIVACY,
     STAGE_PORTS,
     STAGE_TLS,
     STAGE_NUCLEI,
@@ -47,6 +49,13 @@ OBSERVATION_STAGES = set(RECON_STAGES)
 
 VALID_PROGRESS_STATUSES = {"queued", "pending", "running", "completed", "failed", "skipped"}
 
+# Optional worker capabilities, negotiated through GET /scanner/protocol. A
+# worker runs a capability's stage only when the API advertises it (an older
+# API rejects unknown stages); the API records at claim time whether the
+# claiming worker has it, so older workers keep working without the stage.
+PRIVACY_CAPABILITY = "privacy_v1"
+CAPABILITIES_HEADER = "X-Scanner-Capabilities"
+
 
 def empty_stage_progress() -> Dict[str, Dict[str, Any]]:
     """Initial stage_progress template (queued) for a new scan row."""
@@ -54,6 +63,7 @@ def empty_stage_progress() -> Dict[str, Dict[str, Any]]:
         STAGE_DISCOVERY: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_DNS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_HTTP: {"status": "queued", "items": 0, "duration_ms": 0},
+        STAGE_PRIVACY: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_PORTS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_TLS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_NUCLEI: {"status": "queued", "items": 0, "duration_ms": 0},
@@ -76,6 +86,8 @@ class ScanJobLimits(BaseModel):
     tls_max_hosts: int = Field(default=25, ge=0)
     nuclei_concurrency: int = Field(default=1, ge=1, le=4)
     nuclei_max_hosts: int = Field(default=50, ge=0)
+    privacy_max_hosts: int = Field(default=5, ge=0)
+    privacy_max_pages: int = Field(default=10, ge=1, le=20)
 
 
 # ---------------------------------------------------------------------------

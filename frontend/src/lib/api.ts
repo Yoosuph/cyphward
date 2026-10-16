@@ -1019,6 +1019,7 @@ export interface ComplianceRequirement {
   domains: ComplianceDomainEvidence[];
   findings: ComplianceFindingRef[];
   informational_findings: ComplianceFindingRef[];
+  policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
 }
 
 export interface ComplianceReadiness {
