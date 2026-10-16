@@ -153,7 +153,7 @@ Next: C1, as planned in `C1-plan.md`.
 
 ### Changed behaviour
 
-- **New optional recon stage `privacy`**, after `http`; worker and local mode. The probe, `backend/app/scanner/privacy_probe.py`:
+- **New optional recon stage `privacy`**, run **last** (after Nuclei) so it only uses leftover recon budget and can never starve the declared checks; worker and local mode. Hard wall-clock caps: 30 s per host, 120 s per stage. The probe, `backend/app/scanner/privacy_probe.py`:
   - fetches the homepage, a catch-all probe, policy/cookie links, the fixed paths and `security.txt`;
   - pins every hop to a public IP and follows in-scope redirects only;
   - caps bodies at 512 KB, requests at 4 s and fetches at **10 per host** (raised from the plan's 6: proving "not found" for D8 takes the homepage, the catch-all probe and 6 fixed paths). Running out of budget is never "not found";
@@ -181,16 +181,16 @@ Next: C1, as planned in `C1-plan.md`.
   - policy mentions of lawful basis and data subject rights appear as heuristic notes on those attested requirements, without changing their status.
 - **Coverage, grade and score are unchanged:** privacy is not a declared check (verified by a PostgreSQL test).
 - **UI:**
-  - the scan page gains a "Privacy notices (static)" row (outside the "N of 7 checks" count and coverage), with "worker update pending" for older workers;
+  - the scan page gains a "Privacy notices (static)" row after "Known vulnerabilities" (outside the "N of 7 checks" count and coverage), with "worker update pending" for older workers;
   - the Compliance page shows the "Externally observed" source, the page found, "changed since last scan", the trackers observed and the cookie categories.
 
 ### Validation (fresh owned loopback PostgreSQL 18.6, 127.0.0.1:55439, bootstrap only, 30 migrations, restricted `cyphward_app`)
 
 - **New tests, fixture websites only** (`httpx.MockTransport`; no network; no live third-party site):
-  - probe 17;
-  - capability and compatibility 7;
+  - probe 20, including host and stage deadlines, and the real probe output mapped through to evidence (present, D8 gap, catch-all);
+  - capability, compatibility and ordering 8, including "privacy runs only after ports/TLS/Nuclei";
   - privacy truth table 27;
-  - PostgreSQL privacy stage 8: claim capability ×3, the protocol advertising it, an old-worker scan with no rows, externally observed rows with coverage/score unchanged, a stale attempt can't store, newest wins / the previous result stands.
+  - PostgreSQL privacy stage 9: claim capability ×3, the protocol advertising it, an old-worker scan with no rows, externally observed rows with coverage/score unchanged, **a failed privacy stage leaves coverage complete, grade A and score 100**, a stale attempt can't store, newest wins / the previous result stands.
 - PostgreSQL modules: **72 passed**, twice in a row.
 - Full backend suite with the database: **758 passed, 16 skipped**. Without it: **687 passed, 87 skipped**.
 - Frontend build passed. Browser suites passed:

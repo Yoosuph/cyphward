@@ -544,7 +544,7 @@ function CheckList({
       <div className="scan-check-list">
         {CHECKS.flatMap((stage) => {
           const rows = [<CheckRow key={`${scan.id}-${stage.key}`} scan={scan} stage={stage} observations={observations} />];
-          if (stage.key === "http" && progress(scan, "privacy"))
+          if (stage.key === "nuclei" && progress(scan, "privacy"))
             rows.push(<CheckRow key={`${scan.id}-privacy`} scan={scan} stage={PRIVACY_STAGE} observations={observations} />);
           return rows;
         })}

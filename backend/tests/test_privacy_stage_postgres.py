@@ -78,7 +78,7 @@ def _privacy_observation(apex, *, policy=True):
         "attempted_hosts": [apex], "successful_hosts": [apex], "failed_hosts": {}}
 
 
-def _complete_scan(execution_db, monkeypatch, privacy=None, domain_index=0):
+def _complete_scan(execution_db, monkeypatch, privacy=None, domain_index=0, privacy_failed=False):
     """A clean declared-scope scan, optionally with a privacy observation from the same attempt."""
     async def clean_checks(hostname, dns_item, http_item, is_apex=True):
         return []
@@ -91,6 +91,9 @@ def _complete_scan(execution_db, monkeypatch, privacy=None, domain_index=0):
             apex = conn.execute("SELECT d.domain FROM scans s JOIN domains d ON d.id = s.domain_id WHERE s.id = %s",
                                 (worker.scan_id,)).fetchone()["domain"]
             ex.store_observation(worker, "privacy", privacy(apex))
+            if privacy_failed:
+                ex.report_progress(worker, "privacy", {"status": "failed", "items": 0, "duration_ms": 120000,
+                                                       "error": "1 of 1 targets could not be assessed."}, 120)
         return real_handoff(worker)
 
     monkeypatch.setattr(ex, "handoff_to_core", handoff_with_privacy)
@@ -161,3 +164,19 @@ def test_newest_privacy_result_wins_and_a_scan_without_it_leaves_it(world, monke
                                                                       "externally_observed")
     _complete_scan(db, monkeypatch, privacy=None)  # an older worker ran the next scan
     assert policy_status()["status"] == "gap", "no new observation: the newest result still stands"
+
+
+def test_a_failed_privacy_stage_changes_nothing_but_privacy(execution_db, monkeypatch):
+    no_external(monkeypatch)
+    conn = execution_db[0]
+    failed = lambda apex: {"privacy_observations": [], "attempted_hosts": [apex], "successful_hosts": [],
+                           "failed_hosts": {apex: "privacy stage deadline (120s) reached"}}
+    base_id, base = _complete_scan(execution_db, monkeypatch, privacy=None, domain_index=0)
+    fail_id, with_failure = _complete_scan(execution_db, monkeypatch, privacy=failed, domain_index=1, privacy_failed=True)
+    assert with_failure["stage_progress"]["privacy"]["status"] == "failed"
+    a, b = (r["stage_progress"]["scoring"] for r in (base, with_failure))
+    assert (a["coverage"]["state"], a["coverage"]["missing"]) == (b["coverage"]["state"], b["coverage"]["missing"]) \
+        == ("complete", [])
+    assert b["grade"] == "A" and b["score"] == 100.0, "both domains complete and clean: the privacy failure cost nothing"
+    rows = _privacy_rows(conn, fail_id)
+    assert rows[POLICY]["status"] == "not_assessed" and rows[POLICY]["details"]["reason"] == "privacy_check_failed"

@@ -269,18 +269,6 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     assert http_probes is not None
     stats["http"] = len(http_probes)
 
-    # Optional static privacy checks, only when the API accepts the stage
-    # (an older API would reject it; it then records the stage as skipped).
-    supports = getattr(client, "supports", None)
-    if callable(supports) and supports(PRIVACY_CAPABILITY):
-        privacy_plan = stage_plan("privacy", discovered, job.scope, dns_records, http_probes,
-                                  cap=limits.privacy_max_hosts)
-        async def _privacy():
-            return await run_privacy_batch(privacy_plan["selected_hosts"], list(job.scope),
-                                           max_pages=limits.privacy_max_pages)
-        privacy = await run_stage(client, cfg, job, "privacy", _privacy, optional=True,
-                                  plan=privacy_plan, budget=budget)
-        stats["privacy"] = len(privacy or [])
 
     ports_plan = stage_plan("ports", discovered, job.scope, dns_records, available=_tool("naabu"))
     async def _ports():
@@ -308,6 +296,19 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
         return findings
     nuclei = await run_stage(client, cfg, job, "nuclei", _nuclei, optional=True, plan=nuclei_plan, budget=budget)
     stats["nuclei"] = len(nuclei or [])
+
+    # Optional static privacy checks, last so they only use leftover budget, and
+    # only when the API accepts the stage (an older API would reject it).
+    supports = getattr(client, "supports", None)
+    if callable(supports) and supports(PRIVACY_CAPABILITY):
+        privacy_plan = stage_plan("privacy", discovered, job.scope, dns_records, http_probes,
+                                  cap=limits.privacy_max_hosts)
+        async def _privacy():
+            return await run_privacy_batch(privacy_plan["selected_hosts"], list(job.scope),
+                                           max_pages=limits.privacy_max_pages)
+        privacy = await run_stage(client, cfg, job, "privacy", _privacy, optional=True,
+                                  plan=privacy_plan, budget=budget)
+        stats["privacy"] = len(privacy or [])
 
     return stats
 

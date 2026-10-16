@@ -219,3 +219,58 @@ def test_timeout_or_unreachable_homepage_fails_the_host_instead_of_not_found():
             return await pp.run_privacy_batch([H], [H], client=client)
     batch = asyncio.run(run())
     assert batch.successful_hosts == [] and H in batch.failed_hosts and "ConnectTimeout" in batch.failed_hosts[H]
+
+
+# ── Wall-clock deadlines: a slow-drip server can't hold the stage ──────────
+def _slow_handler(delay):
+    async def handler(request):
+        await asyncio.sleep(delay)
+        return httpx.Response(200, text=HTML("plain_home.html"))
+    return handler
+
+
+def test_a_slow_host_fails_at_its_host_deadline():
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_slow_handler(5))) as client:
+            return await pp.run_privacy_batch([H], [H], client=client, host_deadline=0.2, stage_deadline=5)
+    batch = asyncio.run(run())
+    assert batch.successful_hosts == [] and "host deadline" in batch.failed_hosts[H]
+
+
+def test_unfinished_hosts_fail_at_the_stage_deadline():
+    hosts = [H, f"www.{H}"]
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_slow_handler(5))) as client:
+            return await pp.run_privacy_batch(hosts, [H], client=client, concurrency=1, host_deadline=10,
+                                              stage_deadline=0.3)
+    batch = asyncio.run(run())
+    assert batch.successful_hosts == [] and all("stage deadline" in batch.failed_hosts[h] for h in hosts)
+
+
+# ── From the real probe output to evidence (guards the output shape) ──────
+def _observation(sites):
+    async def run():
+        handler = lambda request: next(s for s in sites if (request.headers["host"], "/") in s.pages or s.catch_all).handler(request)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            batch = await pp.run_privacy_batch([H], [H], client=client)
+        return {"privacy_observations": list(batch), **batch.coverage()}
+    return asyncio.run(run())
+
+
+def test_real_probe_output_maps_to_evidence():
+    from backend.app.compliance import mapping
+    from backend.app.compliance.register import requirement
+    policy = requirement("gaid.notice.privacy_policy")
+
+    found = _observation([Site({(H, "/"): (200, {}, HTML("policy_footer.html")),
+                                (H, "/legal/privacy"): (200, {}, HTML("privacy_page.html"))})])
+    assert mapping.evaluate_privacy(policy, found, H)["status"] == "present"
+    trackers = mapping.evaluate_privacy(requirement("gaid.consent.no_trackers_before_consent"), found, H)
+    assert trackers["status"] == "gap" and {o["vendor"] for o in trackers["details"]["observed"]} == {"google_analytics"}
+    assert mapping.evaluate_privacy(requirement("gaid.dpo.contact_published"), found, H)["status"] == "present"
+
+    missing = _observation([Site({(H, "/"): (200, {}, HTML("plain_home.html"))})])
+    assert mapping.evaluate_privacy(policy, missing, H)["reason"] == "not_found_by_static_check"
+
+    spa = _observation([Site({(H, "/"): (200, {}, HTML("spa_shell.html"))}, catch_all=HTML("spa_shell.html"))])
+    assert mapping.evaluate_privacy(policy, spa, H)["reason"] == "site_serves_every_path"

@@ -36,7 +36,9 @@ REDIRECT_CODES = {301, 302, 303, 307, 308}
 MAX_REDIRECTS = 5
 DEFAULT_MAX_PAGES = 10  # home + catch-all probe + links + 6 fixed paths + security.txt
 DEFAULT_MAX_BYTES = 512 * 1024
-DEFAULT_TIMEOUT = 4.0
+DEFAULT_TIMEOUT = 4.0           # per request (connect/read)
+HOST_DEADLINE_SECONDS = 30.0    # wall clock per host, so a slow-drip server can't hold the stage
+STAGE_DEADLINE_SECONDS = 120.0  # wall clock for the whole stage
 
 KINDS = ("privacy_policy", "cookie_notice")
 LINK_PATTERNS = {
@@ -400,8 +402,11 @@ async def probe_privacy_host(host: str, scope: List[str], client: httpx.AsyncCli
 
 
 async def run_privacy_batch(hosts: List[str], scope: List[str], *, max_pages: int = DEFAULT_MAX_PAGES,
-                            concurrency: int = 2, client: Optional[httpx.AsyncClient] = None):
-    """Probe hosts (at most `concurrency` at a time). A host that can't be fetched is failed, not 'not found'."""
+                            concurrency: int = 2, client: Optional[httpx.AsyncClient] = None,
+                            host_deadline: float = HOST_DEADLINE_SECONDS,
+                            stage_deadline: float = STAGE_DEADLINE_SECONDS):
+    """Probe hosts (at most `concurrency` at a time), each under a wall-clock deadline and the
+    whole batch under another. A host that can't be fetched in time is failed, not 'not found'."""
     from backend.app.scanner.tool_results import collect_tool_results
     owns = client is None
     client = client or httpx.AsyncClient(verify=False, timeout=DEFAULT_TIMEOUT, follow_redirects=False)
@@ -409,9 +414,25 @@ async def run_privacy_batch(hosts: List[str], scope: List[str], *, max_pages: in
 
     async def one(host):
         async with sem:
-            return await probe_privacy_host(host, scope, client, max_pages=max_pages)
+            try:
+                return await asyncio.wait_for(probe_privacy_host(host, scope, client, max_pages=max_pages),
+                                              timeout=host_deadline)
+            except asyncio.TimeoutError:
+                raise RuntimeError(f"privacy host deadline ({host_deadline:.0f}s) reached")
+
+    tasks = [asyncio.create_task(one(h)) for h in hosts]
     try:
-        results = await asyncio.gather(*(one(h) for h in hosts), return_exceptions=True)
+        done, pending = await asyncio.wait(tasks, timeout=stage_deadline) if tasks else (set(), set())
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        results = []
+        for task in tasks:
+            if task in pending:
+                results.append(RuntimeError(f"privacy stage deadline ({stage_deadline:.0f}s) reached"))
+            else:
+                results.append(task.exception() or task.result())
     finally:
         if owns:
             await client.aclose()

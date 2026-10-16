@@ -199,5 +199,5 @@ The merge itself needs your "merge".
   - a scan whose privacy stage did not run (older worker) writes **no** privacy rows, so the newest real observation stands;
   - a stage that ran but could fetch no host writes `not_assessed` (`privacy_check_failed`), so an old "present" is not kept alive by a failed check.
 - **Policy mentions** of lawful basis and data subject rights appear on those attested requirements as informational notes ("your published policy mentions this", heuristic). They never change status.
+- **Privacy runs last, after Nuclei** (the plan said "after http"). An optional observation must never consume the recon budget that the declared checks (ports/TLS) need, or it could turn coverage partial and withhold a grade. Hard wall-clock caps: **30 s per host, 120 s for the stage**. A host or stage over its cap is failed (not "not found"); an exhausted recon budget reads not assessed.
 - **Catch-all hosts** still try the fixed paths, because a prerendered `/privacy` page passes the content test (title names privacy, body differs from the shell).
-

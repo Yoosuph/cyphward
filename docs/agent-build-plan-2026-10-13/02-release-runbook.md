@@ -119,11 +119,10 @@ Founder pre-approved for this release: steps 2, 3 (count only) and 7. The merge 
    `SELECT status, count(*) FROM scans WHERE status IN ('queued','running') GROUP BY status;`
    Proceed when `running = 0`. Queued scans may remain.
 4. **Back up.** Encrypted dump (section 8). Not required without a migration, but cheap.
-5. **Merge** (founder's "merge"), then sync the fork's `main`. Render deploys the API; the primary repository's scanner CD rebuilds and restarts the VPS worker. Verify:
+5. **Merge** (founder's "merge"), then sync the fork's `main`. Render deploys the API; the primary repository's scanner CD rebuilds and restarts the VPS worker. Verify, using only public or already-approved reads:
    - the API is live at the merge commit and `/health` is healthy;
-   - `GET /api/v1/scanner/protocol` (authenticated, from the worker's perspective) lists `privacy_v1`;
-   - the scanner CD workflow succeeded, including its own polling check.
-6. **Still paused:** the worker negotiates successfully (claims return 204, no protocol errors).
+   - the scanner CD workflow run for the merge commit succeeded, including its own worker polling check.
+6. **Still paused:** nothing to read. The worker's capability negotiation is proven end to end by step 8 (`stage_progress.privacy` becomes `pending`, then `completed`, only when the worker negotiated `privacy_v1`). Reading Render or VPS logs, or calling the authenticated protocol endpoint, needs a separate founder OK and is not required.
 7. **Resume claims.** Set `SCANNER_CLAIMS_ENABLED=true` and redeploy; wait until live.
 8. **Controlled scan** (the founder launches it on `cyphward.com`; reads under the standing permission):
    - `stage_progress.privacy` is `completed` (or `failed` with host reasons), not `skipped`;
@@ -131,4 +130,3 @@ Founder pre-approved for this release: steps 2, 3 (count only) and 7. The merge 
    - `externally_observed` evidence rows exist for the four privacy requirements;
    - the scan page shows the "Privacy notices (static)" row.
 9. **Rollback:** revert the worker first (the API accepts workers with and without the capability), then the API. Observations are additive JSON; nothing in the schema to undo. Existing externally observed rows stay as history and expire normally.
-

@@ -28,10 +28,12 @@ RECON_STAGES = [
     STAGE_DISCOVERY,
     STAGE_DNS,
     STAGE_HTTP,
-    STAGE_PRIVACY,
     STAGE_PORTS,
     STAGE_TLS,
     STAGE_NUCLEI,
+    # Last, so it only ever uses leftover recon budget: an optional observation
+    # must never starve the declared checks (ports/TLS) that decide coverage.
+    STAGE_PRIVACY,
 ]
 
 # Core stages: executed by FastAPI after observations arrive.
@@ -63,10 +65,10 @@ def empty_stage_progress() -> Dict[str, Dict[str, Any]]:
         STAGE_DISCOVERY: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_DNS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_HTTP: {"status": "queued", "items": 0, "duration_ms": 0},
-        STAGE_PRIVACY: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_PORTS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_TLS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_NUCLEI: {"status": "queued", "items": 0, "duration_ms": 0},
+        STAGE_PRIVACY: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_SECURITY_CHECKS: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_NORMALIZATION: {"status": "queued", "items": 0, "duration_ms": 0},
         STAGE_SCORING: {"status": "queued", "score": None, "duration_ms": 0},

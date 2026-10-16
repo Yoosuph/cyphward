@@ -40,8 +40,8 @@ def test_the_deployed_worker_accepts_the_new_claim_payload():
     assert job.limits.max_hosts == 500 and not hasattr(job.limits, "privacy_max_hosts")
 
 
-def test_privacy_is_a_recon_stage_after_http():
-    assert RECON_STAGES.index("privacy") == RECON_STAGES.index("http") + 1
+def test_privacy_is_the_last_recon_stage_so_it_only_uses_leftover_budget():
+    assert RECON_STAGES[-1] == "privacy" and RECON_STAGES.index("nuclei") < RECON_STAGES.index("privacy")
 
 
 def _client_against(protocol_body):
@@ -130,3 +130,10 @@ def test_a_privacy_crash_never_aborts_the_job(monkeypatch):
     assert ("privacy", "failed") in core.progress_calls
     assert core.stages["privacy"]["failed_hosts"] == {"acme.example.test": "probe exploded"}
     assert "nuclei" in stats, "later stages still ran"
+
+
+def test_privacy_runs_only_after_the_declared_check_stages(monkeypatch):
+    core = FakeCore([PRIVACY_CAPABILITY])
+    _run_job(monkeypatch, core)
+    order = [stage for stage, status in core.progress_calls if status == "running"]
+    assert order.index("privacy") > max(order.index(s) for s in ("ports", "tls", "nuclei"))
