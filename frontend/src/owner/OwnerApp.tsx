@@ -250,8 +250,8 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
     }
   };
 
-  const step = (n: string, label: string) => (
-    <p className="eyebrow text-[10px] mb-3 mt-1 flex items-center gap-2"><span className="text-accent">{n}</span> {label}</p>
+  const step = (n: string, label: string, gap = true) => (
+    <p className={`eyebrow text-[10px] mb-3 ${gap ? 'mt-6' : 'mt-1'} flex items-center gap-2`}><span className="text-accent">{n}</span> {label}</p>
   );
 
   return (
@@ -262,7 +262,7 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
           given stops working when you finish. This screen expires after 15 minutes.
         </p>
 
-        {step('01', 'NEW PASSWORD')}
+        {step('01', 'NEW PASSWORD', false)}
         <div className="field">
           <label htmlFor="setup-password">PASSWORD (12+ CHARACTERS)</label>
           <input id="setup-password" type="password" autoComplete="new-password" value={password}
@@ -279,7 +279,7 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
 
         {step('02', 'AUTHENTICATOR APP')}
         {auth ? (
-          <div className="flex flex-col sm:flex-row items-center gap-4 mb-5 p-3 rounded border border-line bg-inset/50">
+          <div className="flex flex-col sm:flex-row items-center gap-4 p-3 rounded border border-line bg-inset/50">
             <div className="bg-white p-2 rounded border border-line flex-none">
               <QRCodeSVG value={auth.otpauth_url} size={132} />
             </div>
@@ -289,7 +289,7 @@ function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void
             </div>
           </div>
         ) : (
-          <div className="skeleton mb-5" style={{ height: 150, borderRadius: 6 }} />
+          <div className="skeleton" style={{ height: 150, borderRadius: 6 }} />
         )}
 
         {step('03', 'CONFIRM')}
