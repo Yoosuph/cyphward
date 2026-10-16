@@ -45,6 +45,7 @@ from backend.app.workflows.inngest_workflow import (
     inngest_daily_scan_cron,
 )
 import inngest.fast_api
+from backend.app.core.security_headers import SecurityHeadersMiddleware
 
 app = FastAPI(
     title="Cyphward API",
@@ -63,6 +64,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers on every API response, including CORS preflights (added last = outermost).
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Inngest endpoint registration: /api/inngest
 inngest.fast_api.serve(

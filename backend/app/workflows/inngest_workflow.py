@@ -73,11 +73,23 @@ from backend.app.services.mailer import send_email_async
 from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress, ScanJobLimits
 from shared.scan_scope import select_targets
 from shared.scan_budget import ReconBudget, gather_with_deadline
-from backend.app.scanner.recon_policy import stage_plan, evaluate_stage, collect_http_results
+from backend.app.scanner.recon_policy import THIRD_PARTY_SERVICE, stage_plan, evaluate_stage, collect_http_results
 
 import os
 
 logger = logging.getLogger("cyphward.scan")
+
+
+def checker_view_for_third_party(probe: Any) -> Dict[str, Any]:
+    """What the security checker may read from a host handed off to a third party.
+
+    Only the certificate observed on the customer's own hostname stays; the
+    HTTP response (status, headers, banners) is the provider's, so the
+    response-derived checks see no response and raise nothing.
+    """
+    probe = probe if isinstance(probe, dict) else {}
+    return {"hostname": probe.get("hostname"), "http_status": None, "security_headers": {}, "raw_headers": {},
+            "server_header": None, "powered_by_header": None, "tls_info": probe.get("tls_info") or {}}
 
 is_prod = os.getenv("INNGEST_IS_PRODUCTION", "false").lower() in ("true", "1")
 signing_key = os.getenv("INNGEST_SIGNING_KEY")
@@ -424,6 +436,14 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         # ---------------------------------------------------------------------
         dns_by_host = {d["hostname"]: d for d in valid_dns}
         http_by_host = {h["hostname"]: h for h in valid_http}
+        # Hosts the HTTP stage handed off to a third party (e.g. a mail
+        # provider's click-tracking host redirecting to its own domain). Their
+        # response belongs to the provider, so response-derived checks
+        # (headers, banners, robots.txt) are not the customer's findings.
+        third_party_hosts = {
+            host for host, reason in ((observations.get("http") or {}).get("omitted_hosts") or {}).items()
+            if reason == THIRD_PARTY_SERVICE
+        }
 
         target_rows = []
         for hname in discovered_hosts:
@@ -531,6 +551,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         for dns_item in dns_list:
             hname = dns_item["hostname"]
             matched_http = http_by_host.get(hname, {})
+            if hname in third_party_hosts:
+                matched_http = checker_view_for_third_party(matched_http)
             is_apex = (hname == domain)
             check_tasks.append(run_security_checks(hname, dns_item, matched_http, is_apex=is_apex))
 
@@ -608,6 +630,10 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                 if category == "SSL/TLS":
                     tls = (http_by_host.get(hostname) or {}).get("tls_info") or {}
                     return bool(tls.get("valid_to") or tls.get("issuer"))
+                # A third-party host's response-derived checks do not apply:
+                # an old finding there was read from the provider's response.
+                if hostname in third_party_hosts:
+                    return True
                 # A function returning [] when HTTP is unreachable does not
                 # mean headers, certificate or disclosure checks were clean.
                 http = http_by_host.get(hostname) or {}
