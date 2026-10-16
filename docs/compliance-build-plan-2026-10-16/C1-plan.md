@@ -2,6 +2,16 @@
 
 **Branch:** `codex/compliance-c1`, stacked on `codex/compliance-c0`. One PR. API + frontend + one additive migration; **no worker or scanner change**.
 **Governing rule:** section 0 of `README.md`. No compliance verdicts; every piece of evidence is labelled by source; unassessed is never shown as satisfied. Decisions D1–D7 are in `PROGRESS.md`.
+**Approval:** reviewed and approved by the agent on 16 October 2026 under the founder's delegation, with the review changes in section 0 folded in. That approval covers this plan only. Applying the production migration and merging each wait for the founder's explicit OK.
+
+## 0. Review changes (folded into the sections below)
+
+1. **A compliance failure never fails a scan.** Rows are computed as pure code before the completion transaction, inside a try/except that re-raises `ClaimLost`. They are inserted under a SAVEPOINT inside `owned_transaction`. On any error the savepoint rolls back, no rows are written (they read as `not_assessed`) and the `scan.completed` audit metadata records `compliance_evidence: "error"`. The snapshot and completion still commit.
+2. **Gaps are live.** Production check (read-only, 16 Oct): every real open finding links to an asset with a `domain_id`, and apex DMARC/SPF findings sit on apex assets. Even so, on read **any currently open mapped issue finding** makes its domain (or, when unlinked, the organization) a `gap`, whatever the stored row says. "Open" means `status != 'resolved'`, exactly as the scorer reads it, so `acknowledged` and `in_progress` still count as gaps. No customer-set status can make a requirement present.
+3. **"Present" states its limits.** Every tool-backed register entry carries a fixed `checks_performed` line and a `not_checked` line, shown next to the status. The ports requirement records the observed open ports in `details` and the page lists them. Nuclei reuses "matches reported; clean results not proven". A source tag appears only when an evidence row exists; otherwise the page says "No evidence yet".
+4. Rows are written for the **scanned** domain only; other domains keep their latest rows. Scan history joins `scans.domain_id`, since snapshots store `domain_id` NULL. `scan_id` uses `ON DELETE SET NULL` so history survives. "Create task" is open to every member (the existing endpoint's rule); it shows an existing task for that finding instead of creating a duplicate. The README disclaimer is used word for word and asserted. The page explains that the C1 ceiling is 7 of 29.
+5. Checked: the scanner image copies `backend/` but the worker imports only scanner/shared modules; the register JSON is not git-ignored. Production has 4 partial and 0 complete v2 snapshots in 90 days, so both scan-history requirements will start as not assessed for every customer.
+
 
 ## 1. Files
 
@@ -55,7 +65,7 @@ CREATE TABLE compliance_evidence (
   status text NOT NULL CHECK (status IN ('present','gap','not_assessed','not_applicable')),
   observed_at timestamptz NOT NULL,
   expires_at timestamptz,
-  scan_id uuid REFERENCES scans(id) ON DELETE CASCADE,
+  scan_id uuid REFERENCES scans(id) ON DELETE SET NULL,
   finding_ids uuid[] NOT NULL DEFAULT '{}',
   details jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
@@ -71,7 +81,7 @@ Replay of the same finalisation inserts with `ON CONFLICT (scan_id, requirement_
 
 ## 4. Mapping truth table
 
-**Written per verified domain at finalisation.** One row per tool-backed requirement (not the two scan-history ones), source `tool_observed`, `observed_at` = completion time, `expires_at` = `observed_at + freshness_days`.
+**Written for the scanned domain at finalisation** (other domains keep their latest rows). One row per tool-backed requirement (not the two scan-history ones), source `tool_observed`, `observed_at` = completion time, `expires_at` = `observed_at + freshness_days`.
 
 Domain findings are open findings whose `assets.domain_id` is this domain, after this scan's reconciliation. Only mapped rules count; unmapped findings are ignored.
 
@@ -95,6 +105,8 @@ Positive findings never affect status. A gap is written even with legacy coverag
 | Latest row expired, status `present` | `not_assessed` (`evidence_expired`), last observation shown |
 | Latest row expired, status `gap`, a linked finding still open | `gap` |
 | Latest row expired, status `gap`, no linked finding open | `not_assessed` (`evidence_expired`) |
+| A currently open mapped issue finding on the domain (live, whatever the row says) | `gap` for that domain |
+| An open mapped issue finding with no domain link | requirement `gap` (reason `unlinked_finding`) |
 | Any domain `gap` | requirement `gap` |
 | Else any domain `not_assessed` | requirement `not_assessed` |
 | All domains `present` | requirement `present` |
@@ -130,7 +142,9 @@ Positive findings never affect status. A gap is written even with legacy coverag
   - overview/requirement responses are tenant-isolated: org B never sees A's rows, and A's requirement key in B's context shows B's state;
   - a member can read, a non-member can't;
   - Starter sees locked groups (D1);
-  - end to end, a synthetic complete scan → present, and a scan with an open HSTS finding → gap linked to that finding.
+  - end to end, a synthetic complete scan → present; an open HSTS finding → gap linked to it; an apex DMARC-missing finding → `email_anti_spoofing` gap;
+  - a forced mapping exception still completes the scan with its snapshot and zero evidence rows, and the audit records the error;
+  - a finding reopened after the row was written (status back to `open`) turns a stored `present` into `gap` on read.
 - `test_compliance_claims.py`, extended. The banned phrases are "compliant", "non-compliant", "certified", "satisfies", "satisfied", "passes audit", "compliance score", "fully meets". They are checked over:
   - the register file;
   - every string in the overview/requirement responses, across all statuses;
