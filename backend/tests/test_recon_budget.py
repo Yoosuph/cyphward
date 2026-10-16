@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from shared.scan_budget import ReconBudget, gather_with_deadline
-from backend.app.scanner.recon_policy import stage_plan, evaluate_stage, collect_http_results
+from backend.app.scanner.recon_policy import THIRD_PARTY_SERVICE, stage_plan, evaluate_stage, collect_http_results
 from backend.app.scanner.tool_results import collect_tool_results
 from backend.app.scanner import naabu_runner, sslyze_runner, nuclei_runner, discovery
 
@@ -136,6 +136,35 @@ def test_http_failure_keeps_observation_but_never_claims_success():
     assert len(batch) == 1
     assert batch.successful_hosts == []
     assert batch.failed_hosts == {HOSTS[0]: "blocked"}
+
+
+def test_third_party_handoff_is_omitted_not_failed_and_flows_downstream():
+    handoff = {"hostname": HOSTS[1], "http_status": 302, "error": "redirect blocked: img.mailin.fr out of scope",
+               "third_party_redirect": "img.mailin.fr"}
+    ok = {"hostname": HOSTS[0], "http_status": 200, "error": None}
+
+    async def work():
+        return collect_http_results(HOSTS[:2], [ok, handoff])
+
+    budget = ReconBudget(60, 30)
+    batch = asyncio.run(evaluate_stage(budget, stage_plan("http", HOSTS[:2], ["acme.test"],
+                                                          [{"hostname": h, "primary_ip": "203.0.113.5"} for h in HOSTS[:2]]), work))
+    assert batch.failed_hosts == {}
+    assert batch.successful_hosts == [HOSTS[0]]
+    assert batch.omitted_hosts == {HOSTS[1]: THIRD_PARTY_SERVICE}
+    assert batch.progress()["status"] == "completed"
+
+    nuclei = stage_plan("nuclei", HOSTS[:2], ["acme.test"], http_records=[ok, handoff])
+    assert nuclei["selected_hosts"] == [HOSTS[0]]
+    assert nuclei["omitted_hosts"] == {HOSTS[1]: THIRD_PARTY_SERVICE}
+
+
+def test_blocked_redirect_without_a_response_still_fails():
+    blocked = {"hostname": HOSTS[0], "http_status": None, "error": "redirect blocked: x out of scope",
+               "third_party_redirect": "x"}
+    batch = collect_http_results(HOSTS[:1], [blocked])
+    assert batch.failed_hosts == {HOSTS[0]: "redirect blocked: x out of scope"}
+    assert batch.omitted_hosts == {}
 
 
 def test_local_and_remote_persist_identical_stage_plans_and_omissions(store, monkeypatch):

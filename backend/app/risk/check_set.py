@@ -46,6 +46,10 @@ Web applicability (from conclusive port inventory only):
     tls.certificate omitted, reason no_web_service.
   * ports.inventory conclusive, 80 open and 443 not open -> tls.certificate
     omitted, reason no_https; http.headers still required.
+  * HTTP stage omitted the host as third_party_service (its response only
+    redirects off the verified domain, e.g. a mail provider's tracking link)
+    -> http.headers and tls.certificate omitted with that reason, unless the
+    certificate was observed directly on the host (then it is evaluated).
   * Otherwise both are required. A host with 80/443 open but no usable
     response stays missing.
   Naabu's -top-ports accepts 100, 1000 or full; all include 80 and 443, so a

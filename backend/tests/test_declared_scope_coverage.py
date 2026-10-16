@@ -359,3 +359,37 @@ def test_missing_certificate_reason_ignores_the_sslyze_stage():
     cov = coverage(observations)
     assert cov["state"] == "partial"
     assert missing_map(cov)[(WWW, "tls.certificate")] == "certificate_not_observed"
+
+
+def test_third_party_handoff_omits_web_checks_and_can_still_complete():
+    observations = clean_observations()
+    handoff = probe(WWW, status=302, error="redirect blocked: img.mailin.fr out of scope", cert=False)
+    handoff["third_party_redirect"] = "img.mailin.fr"
+    observations["http"]["http_probes"] = [probe(DOMAIN), handoff]
+    observations["http"]["omitted_hosts"] = {WWW: "third_party_service"}
+    cov = coverage(observations)
+    omitted = omitted_map(cov)
+    assert omitted[(WWW, "http.headers")] == "third_party_service"
+    assert omitted[(WWW, "tls.certificate")] == "third_party_service"
+    assert (WWW, "http.headers") not in missing_map(cov)
+    assert cov["state"] == "complete"
+
+
+def test_third_party_handoff_keeps_a_directly_observed_certificate():
+    observations = clean_observations()
+    handoff = probe(WWW, status=302, error="redirect blocked: img.mailin.fr out of scope", cert=True)
+    observations["http"]["http_probes"] = [probe(DOMAIN), handoff]
+    observations["http"]["omitted_hosts"] = {WWW: "third_party_service"}
+    cov = coverage(observations)
+    assert (WWW, "tls.certificate") in evaluated_set(cov)
+    assert omitted_map(cov)[(WWW, "http.headers")] == "third_party_service"
+
+
+def test_other_http_omissions_still_count_as_missing():
+    observations = clean_observations()
+    observations["http"]["http_probes"] = [probe(DOMAIN), failed_probe(WWW)]
+    observations["http"]["omitted_hosts"] = {WWW: "recon_stage_deadline"}
+    cov = coverage(observations)
+    assert missing_map(cov)[(WWW, "http.headers")] == "recon_stage_deadline"
+    assert cov["state"] == "partial"
+
