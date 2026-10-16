@@ -50,11 +50,21 @@ SCAN_A1 = "51111111-0000-4000-8000-000000000001"
 DOM_A1 = "d1111111-0000-4000-8000-000000000001"
 
 
+_ACTIVE_STORE: list = []  # the current test's FakeStore (set by the `store` fixture)
+
+
 def sign_token(user_id: str, email: str = "user@acme.test", sid: str | None = None) -> str:
-    """Mint a Cyphward access token exactly as the backend does in production."""
+    """Mint a Cyphward access token exactly as the backend does in production.
+
+    Production tokens are always bound to a live auth_sessions row; when no
+    sid is given, one is created in the active test store for this user.
+    """
     secret = config.AUTH_JWT_SECRET
     now = int(time.time())
+    if sid is None and _ACTIVE_STORE:
+        sid = _ACTIVE_STORE[0].create_session(user_id)
     claims = {
+        "typ": "access",
         "sub": user_id,
         "email": email,
         "full_name": email.split("@")[0].title(),
@@ -159,6 +169,17 @@ class FakeStore:
         self.subscriptions: list = []
         self.invoices: list = []
         self.monitored_hosts: list = []
+
+    def create_session(self, user_id: str) -> str:
+        """A live auth_sessions row, as a real sign-in creates (tests' sign_token)."""
+        sid = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        self.sessions.append({
+            "id": sid, "user_id": user_id, "refresh_token_hash": f"test-{sid}",
+            "otc_hash": None, "otc_expires_at": None, "created_at": now,
+            "expires_at": now + timedelta(days=30), "revoked_at": None, "last_used_at": None,
+        })
+        return sid
 
     # -- routing ----------------------------------------------------------
     def route(self, sql: str, params: tuple):
@@ -389,19 +410,16 @@ class FakeStore:
             return [prof]
 
         # --- own auth: sessions ------------------------------------------
-        # get_current_user: profile + session-revocation join (single query).
+        # get_current_user: profile JOIN its own session (single query).
         # Never creates rows — a deleted profile must stay deleted (P1).
-        if s.startswith("SELECT p.*, s.revoked_at AS session_revoked_at FROM profiles p"):
+        if s.startswith("SELECT p.*, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at FROM profiles p"):
             sid, uid = params
             prof = self.profiles.get(str(uid))
-            if prof is None:
+            sess = next((x for x in self.sessions if x["id"] == sid and str(x["user_id"]) == str(uid)), None)
+            if prof is None or sess is None:
                 return []
-            revoked = None
-            if sid:
-                sess = next((x for x in self.sessions if x["id"] == sid), None)
-                if sess is not None:
-                    revoked = sess.get("revoked_at")
-            return [{**prof, "session_revoked_at": revoked}]
+            return [{**prof, "session_revoked_at": sess.get("revoked_at"),
+                     "session_expires_at": sess.get("expires_at")}]
 
         if s.startswith("INSERT INTO auth_sessions"):
             if "otc_hash" in s:
@@ -1811,6 +1829,7 @@ class FakeStore:
 def store(monkeypatch):
     st = FakeStore()
     st.seed()
+    _ACTIVE_STORE[:] = [st]
 
     @contextmanager
     def fake_get_db():
