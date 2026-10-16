@@ -42,6 +42,7 @@ function omissionReason(reason: unknown) {
     outside_authorised_scope: "Outside the verified domain",
     recon_budget_exhausted: "Scan work budget exhausted",
     recon_stage_deadline: "Stage time limit reached; evaluation incomplete",
+    third_party_service: "Hands off to a third-party service; not assessed",
   };
   return reasons[String(reason)] || String(reason);
 }
@@ -83,6 +84,7 @@ const COVERAGE_REASONS: Record<string, string> = {
   ports_not_observed: "Port scan result not recorded",
   certificate_not_observed: "No certificate observed",
   outside_authorised_scope: "Outside the verified domain",
+  third_party_service: "Hands off to a third-party service; not assessed",
   invalid_hostname: "Invalid hostname",
   max_hosts: "Scan host limit reached",
   dns_max_hosts: "DNS host limit reached",

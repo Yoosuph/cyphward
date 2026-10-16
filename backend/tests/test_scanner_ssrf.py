@@ -225,6 +225,22 @@ def test_probe_blocks_redirect_to_out_of_scope_host(fake_http_env, monkeypatch):
     assert out["http_status"] == 301
     assert "out of scope" in out["error"]
     assert out["redirect_chain"] == ["http://169.254.169.254/latest/meta-data/"]
+    assert out["third_party_redirect"] == "169.254.169.254"
+
+
+def test_probe_records_third_party_handoff_only_for_out_of_scope_hops(fake_http_env, monkeypatch):
+    """An email-tracking host that bounces visitors to the mail provider is a
+    third-party hand-off; a clean in-scope chain records none."""
+    monkeypatch.setattr(ip_guard, "resolve_connect_ip", lambda h: "93.184.216.34")
+    fake_http_env.responses = [_FakeResp(302, {"location": "https://img.mailin.fr/p.gif"})]
+    out = asyncio.run(http_probe.probe_http_service("r.info.target.test", scope=["target.test"]))
+    assert out["third_party_redirect"] == "img.mailin.fr"
+    assert out["http_status"] == 302
+
+    fake_http_env.responses = [_FakeResp(200, {})]
+    clean = asyncio.run(http_probe.probe_http_service("www.target.test", scope=["target.test"]))
+    assert clean["third_party_redirect"] is None
+    assert clean["error"] is None
 
 
 def test_probe_blocks_in_scope_redirect_resolving_private(fake_http_env, monkeypatch):

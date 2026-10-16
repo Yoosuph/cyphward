@@ -3,6 +3,10 @@ from shared.scan_scope import canonical_host, in_scope
 from shared.scan_budget import BudgetExceeded
 from backend.app.scanner.tool_results import ToolBatchResult, ToolExecutionError, collect_tool_results
 
+# The host answered, but only to hand visitors to a domain outside the verified
+# scope (e.g. a mail provider's click-tracking link). Not assessed, not failed.
+THIRD_PARTY_SERVICE = "third_party_service"
+
 
 def stage_plan(stage, hosts, scope, dns_records=(), http_records=(), *, cap=None, available=True):
     if stage not in {"dns", "http", "ports", "tls", "nuclei"}:
@@ -20,6 +24,8 @@ def stage_plan(stage, hosts, scope, dns_records=(), http_records=(), *, cap=None
             reason = "outside_authorised_scope"
         elif stage in {"http", "ports"} and not (dns.get(host) or {}).get("primary_ip"):
             reason = "no_public_dns_address"
+        elif stage in {"tls", "nuclei"} and probe.get("third_party_redirect"):
+            reason = THIRD_PARTY_SERVICE
         elif stage in {"tls", "nuclei"} and (probe.get("http_status") is None or probe.get("error")):
             reason = "no_usable_http_response"
         elif stage == "tls" and not str(probe.get("url") or "").startswith("https://"):
@@ -53,7 +59,8 @@ async def evaluate_stage(budget, plan, factory):
     if not isinstance(result, ToolBatchResult):
         raise TypeError("recon stage must preserve per-target batch evidence")
     result.stage_plan = plan
-    result.omitted_hosts = omitted
+    # Plan omissions first; a batch may add its own (third-party hand-offs).
+    result.omitted_hosts = {**omitted, **result.omitted_hosts}
     result.execution_budget = budget.payload()
     return result
 
@@ -71,6 +78,8 @@ def collect_http_results(hosts, results):
             continue
         if data.get("http_status") is not None and not data.get("error"):
             batch.successful_hosts.append(host)
+        elif data.get("http_status") is not None and data.get("third_party_redirect"):
+            batch.omitted_hosts[host] = THIRD_PARTY_SERVICE
         else:
             batch.failed_hosts[host] = str(data.get("error") or "No HTTP response")[:300]
     return batch

@@ -182,6 +182,9 @@ async def probe_http_service(
         "technologies": [],
         "tls_info": {},
         "error": None,
+        # Host a redirect handed off to outside the authorised scope (e.g. an
+        # email-tracking link pointing at the mail provider). None otherwise.
+        "third_party_redirect": None,
     }
 
     res["tls_info"] = await asyncio.to_thread(inspect_tls_certificate, hostname)
@@ -202,12 +205,14 @@ async def probe_http_service(
             logical_url = f"{scheme}://{hostname}"
             redirect_chain: List[str] = []
             block_reason: Optional[str] = None
+            offsite_host: Optional[str] = None
             resp = None
             hops = 0
 
             while True:
                 if hops > 0 and not ip_guard.hostname_in_scope(current_host, hop_scope):
                     block_reason = f"redirect blocked: {current_host} out of scope"
+                    offsite_host = current_host
                     break
                 # Revalidate at connect time (defeats DNS rebinding between
                 # the discovery resolve and this request).
@@ -276,6 +281,7 @@ async def probe_http_service(
             res["technologies"] = detect_technologies(dict(resp.headers), resp.text[:10000])
             res["redirect_chain"] = redirect_chain
             res["error"] = block_reason  # None on a clean chain
+            res["third_party_redirect"] = offsite_host
             for sk in SECURITY_HEADER_KEYS:
                 if sk in resp.headers:
                     res["security_headers"][sk] = resp.headers[sk]

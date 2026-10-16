@@ -17,6 +17,7 @@ from backend.app.risk.check_set import (
     nuclei_summary,
 )
 from backend.app.scanner.dns_coverage import query_evaluated
+from backend.app.scanner.recon_policy import THIRD_PARTY_SERVICE
 from shared.scan_scope import canonical_host
 
 APEX_QUERIES = {"dns.spf": "TXT", "dns.dmarc": "DMARC"}
@@ -220,10 +221,13 @@ def assessment_coverage(domain, observations, checked_hosts, registered_hosts=()
             reason = ports_omitted.get(host) or ("port_scan_failed" if host in ports_failed else "ports_not_observed")
             outcomes[(host, "ports.inventory")] = ("missing", reason)
 
+        third_party = http_omitted.get(host) == THIRD_PARTY_SERVICE
         if http_direct:
             outcomes[(host, "http.headers")] = ("evaluated", None)
         elif ports_ok and not http_open and not https_open:
             outcomes[(host, "http.headers")] = ("omitted", "no_web_service")
+        elif third_party:
+            outcomes[(host, "http.headers")] = ("omitted", THIRD_PARTY_SERVICE)
         else:
             outcomes[(host, "http.headers")] = ("missing", _http_reason(host, checked, http_omitted, host_probes))
 
@@ -231,6 +235,8 @@ def assessment_coverage(domain, observations, checked_hosts, registered_hosts=()
             outcomes[(host, "tls.certificate")] = ("evaluated", None)
         elif ports_ok and not https_open:
             outcomes[(host, "tls.certificate")] = ("omitted", "no_web_service" if not http_open else "no_https")
+        elif third_party:
+            outcomes[(host, "tls.certificate")] = ("omitted", THIRD_PARTY_SERVICE)
         else:
             outcomes[(host, "tls.certificate")] = ("missing", _tls_reason(host, checked, http_omitted))
 
