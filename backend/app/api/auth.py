@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import jwt
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from backend.app.core.auth import execute_query_memberships, get_current_user, log_audit
@@ -36,6 +36,7 @@ from backend.app.core.database import execute_one, execute_query
 from backend.app.core.rate_limit import check_rate_limit, reset_bucket
 from backend.app.core.security import hash_password, new_opaque_token, hash_opaque_token, verify_password
 from backend.app.core import totp as totp_mod
+from backend.app.core import trusted_browsers
 from backend.app.core.sessions import (
     issue_session,
     public_user,
@@ -440,7 +441,7 @@ async def register(body: RegisterBody) -> Dict[str, Any]:
 
 
 @router.post("/login")
-async def login(body: LoginBody) -> Dict[str, Any]:
+async def login(body: LoginBody, request: Request) -> Dict[str, Any]:
     """Verify email + password. Owners/admins must also complete an email
     step-up code (MFA) before a session is issued; everyone else signs in
     directly. Throttling is fail-closed 401 (no existence oracle)."""
@@ -462,6 +463,12 @@ async def login(body: LoginBody) -> Dict[str, Any]:
     if (_user_is_admin(str(user["id"]))
             or user.get("mfa_enrolled_at") is not None
             or user.get("totp_enrolled_at") is not None):
+        # The password is proven; a browser remembered after an earlier
+        # correct code skips only the second factor.
+        if trusted_browsers.is_trusted(request, str(user["id"])):
+            log_audit(None, str(user["id"]), "auth.mfa_skipped_trusted_browser", "user",
+                      str(user["id"]), {"via": "password"})
+            return issue_session(user)
         check_rate_limit(f"mfa:{user['id']}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
         # Reuse a still-valid code instead of spamming the inbox: repeated
         # password logins (ours, the user's, or an attacker's) must not each
@@ -484,6 +491,35 @@ async def login(body: LoginBody) -> Dict[str, Any]:
 class MfaBody(BaseModel):
     mfa_token: str
     code: str = ""
+    remember: bool = False  # remember this browser for trusted_browsers.TRUST_DAYS
+
+
+@router.post("/mfa/start")
+async def start_mfa(body: MfaBody, request: Request) -> Dict[str, Any]:
+    """Second step after a Google sign-in (callback, popup or One Tap).
+
+    The first factor was proven when the mfa_token was issued. This runs on
+    the sign-in page's own origin, so a remembered-browser cookie is visible
+    here: a remembered browser gets its session; any other gets the emailed
+    code (reusing a still-valid one, within the usual send limits).
+    """
+    user_id = _verify_mfa_token(body.mfa_token)
+    user = execute_one("SELECT * FROM profiles WHERE id = %s", (user_id,))
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign-in step expired — start again.")
+    if trusted_browsers.is_trusted(request, user_id):
+        log_audit(None, user_id, "auth.mfa_skipped_trusted_browser", "user", user_id, {"via": "google"})
+        return issue_session(user)
+    check_rate_limit(f"mfa:{user_id}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
+    fresh = execute_one(
+        "SELECT id FROM email_otps WHERE user_id = %s AND purpose = 'mfa' "
+        "AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+        (user_id,),
+    )
+    if fresh is None:
+        await _send_mfa_code(user)
+    return {"mfa_required": True, "sent": True,
+            "email_hint": _mask_email((user.get("email") or "").strip().lower())}
 
 
 @router.post("/mfa/send")
@@ -514,7 +550,7 @@ async def resend_mfa_code(body: MfaBody) -> Dict[str, Any]:
 
 
 @router.post("/mfa/verify")
-async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
+async def verify_mfa_code(body: MfaBody, request: Request, response: Response) -> Dict[str, Any]:
     """Consume the login step-up code and issue the session.
 
     Authenticator-app (TOTP) codes are tried first when enrolled, then the
@@ -548,6 +584,9 @@ async def verify_mfa_code(body: MfaBody) -> Dict[str, Any]:
         reset_bucket(f"mfa-verify:{user_id}")
     log_audit(None, str(user["id"]), "auth.mfa_verified", "user", str(user["id"]),
               {"method": method})
+    if body.remember and trusted_browsers.remember(response, user_id, request.headers.get("user-agent")):
+        log_audit(None, user_id, "auth.trusted_browser_added", "user", user_id,
+                  {"days": trusted_browsers.TRUST_DAYS})
     return issue_session(user)
 
 
@@ -602,7 +641,19 @@ async def mfa_status(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[s
         and user.get("totp_enrolled_at") is not None,
         "totp_pending": user.get("totp_secret_enc") is not None
         and user.get("totp_enrolled_at") is None,
+        "remembered_browsers": trusted_browsers.count(str(user["id"])),
     }
+
+
+@router.post("/trusted-browsers/forget")
+async def forget_trusted_browsers(
+    response: Response, user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Forget every remembered browser: the next sign-in anywhere asks for the code."""
+    trusted_browsers.forget_all(str(user["id"]))
+    response.delete_cookie(trusted_browsers.COOKIE_NAME, path="/")
+    log_audit(None, str(user["id"]), "auth.trusted_browsers_forgotten", "user", str(user["id"]))
+    return {"forgotten": True}
 
 
 @router.post("/mfa/enroll")
@@ -618,6 +669,7 @@ async def enroll_mfa(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[s
         "UPDATE profiles SET mfa_enrolled_at = now(), updated_at = now() WHERE id = %s RETURNING id",
         (user["id"],),
     )
+    trusted_browsers.forget_all(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.mfa_enrolled", "user", str(user["id"]))
     return {"enrolled": True}
 
@@ -702,6 +754,7 @@ async def confirm_mfa_disable(
         "UPDATE profiles SET mfa_enrolled_at = NULL, updated_at = now() WHERE id = %s RETURNING id",
         (user["id"],),
     )
+    trusted_browsers.forget_all(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.mfa_disabled", "user", str(user["id"]))
     return {"disabled": True}
 
@@ -759,6 +812,7 @@ async def confirm_totp_enroll(
         "UPDATE profiles SET totp_enrolled_at = now(), updated_at = now() WHERE id = %s RETURNING id",
         (user["id"],),
     )
+    trusted_browsers.forget_all(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.totp_enrolled", "user", str(user["id"]))
     return {"enrolled": True}
 
@@ -791,6 +845,7 @@ async def disable_totp(
         "WHERE id = %s RETURNING id",
         (user["id"],),
     )
+    trusted_browsers.forget_all(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.totp_disabled", "user", str(user["id"]))
     return {"disabled": True}
 
@@ -895,6 +950,7 @@ async def reset_password(background_tasks: BackgroundTasks, body: ResetPasswordB
     )
     execute_query("DELETE FROM password_reset_tokens WHERE user_id = %s", (row["user_id"],))
     revoke_all_sessions(row["user_id"])
+    trusted_browsers.forget_all(str(row["user_id"]))
     log_audit(None, str(row["user_id"]), "auth.password_reset", "user", str(row["user_id"]))
     # Credential-recovery alert (review P2): the account owner is told the
     # password changed, even if the reset was legitimate.

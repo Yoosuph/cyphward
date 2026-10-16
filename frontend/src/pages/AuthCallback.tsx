@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { exchangeOtp, mfaVerify } from '../lib/api';
+import { exchangeOtp, mfaStart, mfaVerify } from '../lib/api';
 import StrataField from '../components/StrataField';
 
 /**
@@ -18,6 +18,7 @@ export default function AuthCallback() {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(true);
   const started = useRef(false);
 
   const finishWithTokens = async (tokens: Parameters<typeof completeExternalLogin>[0]) => {
@@ -37,8 +38,22 @@ export default function AuthCallback() {
 
     const mfa = (params.get('mfa') || '').trim();
     if (mfa) {
-      setMfaToken(mfa);
       window.history.replaceState({}, '', '/auth/callback');
+      // This page is on the sign-in origin, where a remembered-browser cookie
+      // lives: a remembered browser signs straight in, any other gets the code.
+      (async () => {
+        try {
+          const result = await mfaStart(mfa);
+          if ('access_token' in result) {
+            await finishWithTokens(result);
+            return;
+          }
+        } catch (e: any) {
+          setError(e?.message || 'Could not send the sign-in code. Please sign in again.');
+          return;
+        }
+        setMfaToken(mfa);
+      })();
       return;
     }
 
@@ -64,7 +79,7 @@ export default function AuthCallback() {
     setBusy(true);
     setError('');
     try {
-      await finishWithTokens(await mfaVerify(mfaToken, code.trim()));
+      await finishWithTokens(await mfaVerify(mfaToken, code.trim(), remember));
     } catch (e: any) {
       setError(e?.message || 'Invalid code. Please try again.');
     } finally {
@@ -116,6 +131,15 @@ export default function AuthCallback() {
                   {busy ? 'VERIFYING…' : 'VERIFY'}
                 </button>
               </form>
+              <label className="flex items-center justify-center gap-2 mt-4 text-xs mono text-soft cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={e => setRemember(e.target.checked)}
+                  className="accent-[var(--accent)] w-4 h-4"
+                />
+                Remember this browser for 30 days
+              </label>
             </>
           ) : (
             <>

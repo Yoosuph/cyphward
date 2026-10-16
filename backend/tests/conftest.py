@@ -147,6 +147,7 @@ class FakeStore:
         self.evidence: list = []
         self.audit: list = []
         self.email_otps: list = []
+        self.trusted_browsers: list = []
         self.sessions: list = []
         self.password_reset_tokens: list = []
         self.organization_invites: list = []
@@ -598,6 +599,38 @@ class FakeStore:
                 })
             return rows[:limit]
 
+        # --- remembered browsers (step-up code skip) ----------------------
+        if s.startswith("SELECT id FROM trusted_browsers WHERE token_hash = %s AND user_id = %s"):
+            token_hash, uid = params
+            now = datetime.now(timezone.utc)
+            return [{"id": r["id"]} for r in self.trusted_browsers
+                    if r["token_hash"] == token_hash and r["user_id"] == uid and r["expires_at"] > now][:1]
+
+        if s.startswith("UPDATE trusted_browsers SET last_used_at = now() WHERE id = %s"):
+            for r in self.trusted_browsers:
+                if r["id"] == params[0]:
+                    r["last_used_at"] = datetime.now(timezone.utc)
+            return []
+
+        if s.startswith("INSERT INTO trusted_browsers (user_id, token_hash, user_agent, expires_at)"):
+            uid, token_hash, user_agent, days = params
+            now = datetime.now(timezone.utc)
+            self.trusted_browsers.append({
+                "id": str(uuid.uuid4()), "user_id": uid, "token_hash": token_hash,
+                "user_agent": user_agent, "created_at": now, "last_used_at": None,
+                "expires_at": now + timedelta(days=int(days)),
+            })
+            return []
+
+        if s.startswith("DELETE FROM trusted_browsers WHERE user_id = %s"):
+            self.trusted_browsers = [r for r in self.trusted_browsers if r["user_id"] != params[0]]
+            return []
+
+        if s.startswith("SELECT count(*) AS n FROM trusted_browsers WHERE user_id = %s"):
+            now = datetime.now(timezone.utc)
+            return [{"n": sum(1 for r in self.trusted_browsers
+                              if r["user_id"] == params[0] and r["expires_at"] > now)}]
+
         # --- email OTP (Brevo verification + admin login step-up) --------
         if s.startswith("DELETE FROM email_otps"):
             uid = params[0]
@@ -924,6 +957,7 @@ class FakeStore:
             # mirror ON DELETE CASCADE / SET NULL
             self.sessions = [x for x in self.sessions if x["user_id"] != uid]
             self.email_otps = [x for x in self.email_otps if x["user_id"] != uid]
+            self.trusted_browsers = [x for x in self.trusted_browsers if x["user_id"] != uid]
             self.password_reset_tokens = [
                 x for x in self.password_reset_tokens if str(x["user_id"]) != uid]
             self.memberships = [x for x in self.memberships if x["user_id"] != uid]
@@ -1763,6 +1797,7 @@ class FakeStore:
         }
         self.audit = []
         self.email_otps = []
+        self.trusted_browsers = []
         self.sessions = []
         self.password_reset_tokens = []
         self.organization_invites = []

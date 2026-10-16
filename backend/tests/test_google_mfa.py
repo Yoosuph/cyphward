@@ -20,7 +20,6 @@ def _claims(email):
 def test_one_tap_owner_gets_mfa_challenge(client, store, monkeypatch):
     monkeypatch.setattr(google_mod, "_verify_one_tap_credential",
                         lambda _cred: _claims(f"{ALICE[:8]}@acme.test"))
-    monkeypatch.setattr(google_mod, "_send_mfa_code", _no_send)
     resp = client.post("/api/v1/auth/google/one-tap", json={"credential": "x"})
     assert resp.status_code == 200
     body = resp.json()
@@ -36,7 +35,6 @@ def test_one_tap_member_signs_in_directly(client, store, monkeypatch):
 
 
 def test_google_step_up_unit_respects_role_and_enrollment(store, monkeypatch):
-    monkeypatch.setattr(google_mod, "_send_mfa_code", _no_send)
     assert asyncio.run(google_mod._google_step_up({"id": BOB})) is None
     token = asyncio.run(google_mod._google_step_up({"id": ALICE, "email": f"{ALICE[:8]}@acme.test"}))
     assert isinstance(token, str) and token.count(".") == 2
