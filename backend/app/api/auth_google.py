@@ -29,17 +29,14 @@ from backend.app.core.config import (
     GOOGLE_REDIRECT_URI,
 )
 from backend.app.core.database import execute_one
-from backend.app.core.rate_limit import check_rate_limit
 from backend.app.core.security import new_opaque_token
 from backend.app.core.sessions import consume_otc, issue_session
 # Step-up reuse: Google logins face the same MFA gate as passwords —
-# admins and enrolled users always confirm a code (no bypass by provider).
+# admins and enrolled users confirm a code (sent by /auth/mfa/start) unless
+# the sign-in page's browser was remembered after an earlier correct code.
 from backend.app.api.auth import (
-    _MFA_SEND_BUDGET_SECONDS,
-    _MFA_SEND_MAX,
     _issue_mfa_token,
     _mask_email,
-    _send_mfa_code,
     _user_is_admin,
 )
 
@@ -154,13 +151,16 @@ def _verify_one_tap_credential(credential: str) -> Dict[str, Any]:
 
 
 async def _google_step_up(user: Dict[str, Any]) -> Optional[str]:
-    """mfa_token when this Google login must clear the step-up, else None."""
+    """mfa_token when this Google login must clear the step-up, else None.
+
+    No code is mailed here: this runs on the OAuth callback host, which cannot
+    see the sign-in page's remembered-browser cookie. The sign-in page calls
+    /auth/mfa/start next, which either recognises the browser or sends the code.
+    """
     uid = str(user["id"])
     if not (_user_is_admin(uid) or user.get("mfa_enrolled_at") is not None
             or user.get("totp_enrolled_at") is not None):
         return None
-    check_rate_limit(f"mfa:{uid}", _MFA_SEND_MAX, _MFA_SEND_BUDGET_SECONDS)
-    await _send_mfa_code(user)
     log_audit(None, uid, "auth.login", "user", uid, {"via": "google"})
     return _issue_mfa_token(uid)
 

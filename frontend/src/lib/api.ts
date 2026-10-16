@@ -724,8 +724,23 @@ export interface MfaChallenge {
   email_hint: string;
 }
 
-export async function mfaVerify(mfaToken: string, code: string): Promise<AuthTokens> {
-  return authPost<AuthTokens>('/auth/mfa/verify', { mfa_token: mfaToken, code });
+export async function mfaVerify(mfaToken: string, code: string, remember = false): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/mfa/verify', { mfa_token: mfaToken, code, remember });
+}
+
+export type MfaStartResult = AuthTokens | { mfa_required: true; sent: boolean; email_hint: string };
+
+/**
+ * Second step of a Google sign-in. Runs on the sign-in page's own origin, so
+ * the server can see a remembered-browser cookie: a remembered browser gets
+ * its session straight away, any other gets the emailed code.
+ */
+export async function mfaStart(mfaToken: string): Promise<MfaStartResult> {
+  return authPost<MfaStartResult>('/auth/mfa/start', { mfa_token: mfaToken, code: '' });
+}
+
+export async function forgetTrustedBrowsers(): Promise<{ forgotten: boolean } | null> {
+  return apiFetch<{ forgotten: boolean }>('/auth/trusted-browsers/forget', { method: 'POST' }, true);
 }
 
 export async function mfaResend(mfaToken: string): Promise<{ sent: boolean }> {
@@ -738,6 +753,7 @@ export interface MfaStatus {
   email_verified: boolean;
   totp_enrolled: boolean;
   totp_pending: boolean;
+  remembered_browsers?: number;
 }
 
 export async function mfaStatus(): Promise<MfaStatus | null> {

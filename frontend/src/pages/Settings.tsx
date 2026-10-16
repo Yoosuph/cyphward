@@ -10,7 +10,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, forgetTrustedBrowsers, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
@@ -83,7 +83,7 @@ export default function Settings() {
   const [billingBusy, setBillingBusy] = useState(false);
   const [newPlan, setNewPlan] = useState('growth');
   // MFA (step-up sign-in code): status + enroll/disable flows.
-  const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean; totp_enrolled: boolean; totp_pending: boolean } | null>(null);
+  const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean; totp_enrolled: boolean; totp_pending: boolean; remembered_browsers?: number } | null>(null);
   // Authenticator app (TOTP): enroll/confirm/disable flows.
   const [totpSecret, setTotpSecret] = useState<string | null>(null);
   const [totpUrl, setTotpUrl] = useState<string | null>(null);
@@ -221,6 +221,19 @@ export default function Settings() {
       }
     } catch (e: any) {
       toast(e?.message || 'Could not switch on step-up sign-in');
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleForgetBrowsers = async () => {
+    setMfaBusy(true);
+    try {
+      await forgetTrustedBrowsers();
+      setMfa(await mfaStatus());
+      toast('Remembered browsers forgotten — the next sign-in asks for a code');
+    } catch (e: any) {
+      toast(e?.message || 'Could not forget remembered browsers');
     } finally {
       setMfaBusy(false);
     }
@@ -802,7 +815,7 @@ export default function Settings() {
             </div>
             <p className="text-xs text-soft mono leading-relaxed">
               {mfa?.admin_required
-                ? 'Owner and admin accounts always confirm sign-in with a 6-digit code sent to their email.'
+                ? 'Owner and admin accounts confirm sign-in with a 6-digit code sent to their email. This can\'t be switched off, but you can tick “Remember this browser” when you enter a code to skip it on that browser for 30 days.'
                 : mfa?.enrolled
                   ? 'Your sign-ins ask for a 6-digit email code after your password.'
                   : 'Add a 6-digit email code after your password on every sign-in.'}
@@ -830,6 +843,21 @@ export default function Settings() {
               >
                 {mfaBusy ? 'SENDING…' : 'SWITCH OFF (SEND CONFIRMATION CODE)'}
               </button>
+            )}
+            {(mfa?.remembered_browsers ?? 0) > 0 && (
+              <div className="flex flex-wrap items-center gap-3 text-xs mono text-soft">
+                <span>
+                  {mfa?.remembered_browsers} remembered browser{mfa?.remembered_browsers === 1 ? '' : 's'} skip the code for now.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleForgetBrowsers}
+                  disabled={mfaBusy}
+                  className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
+                >
+                  FORGET REMEMBERED BROWSERS
+                </button>
+              </div>
             )}
             {!mfa?.admin_required && mfa?.enrolled && mfaCodeSent && (
               <form onSubmit={handleMfaDisableConfirm} className="flex items-center gap-2">

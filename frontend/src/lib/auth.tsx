@@ -85,7 +85,8 @@ interface Auth {
   ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue; mfa_required?: boolean; mfa_token?: string; email_hint?: string }>;
   completeMfaSignIn: (
     mfaToken: string,
-    code: string
+    code: string,
+    remember?: boolean
   ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }>;
   resendMfaCode: (mfaToken: string) => Promise<{ ok: boolean; error?: string }>;
   signUpWithCredentials: (
@@ -484,10 +485,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const completeMfaSignIn = async (
     mfaToken: string,
-    code: string
+    code: string,
+    remember = false
   ): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
     try {
-      const tokens = await mfaVerify(mfaToken, code.trim());
+      const tokens = await mfaVerify(mfaToken, code.trim(), remember);
       beginSession(tokens);
       localStorage.removeItem(SIGNOUT_KEY);
       localStorage.removeItem(IDLE_REASON_KEY);

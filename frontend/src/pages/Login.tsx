@@ -5,7 +5,7 @@ import { ArrowRight, KeyRound, Lock, Eye, EyeOff, Sun, Moon, Globe, AlertCircle 
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { signInWithGooglePopup } from '../lib/googlePopup';
-import { exchangeOtp } from '../lib/api';
+import { exchangeOtp, mfaStart } from '../lib/api';
 import type { MfaChallenge } from '../lib/api';
 import { takeMfaChallenge } from '../lib/session';
 import type { AuthTokens } from '../lib/session';
@@ -31,6 +31,7 @@ export default function Login() {
   const [mfaDigits, setMfaDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [mfaBusy, setMfaBusy] = useState(false);
   const [resendNote, setResendNote] = useState('');
+  const [rememberBrowser, setRememberBrowser] = useState(true);
   const digitRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
@@ -75,15 +76,39 @@ export default function Login() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A parked step-up challenge (One Tap on another page) lands in the MFA screen.
+  // After a Google sign-in that needs the step-up, ask the server (on this
+  // origin, where the remembered-browser cookie lives) to either sign this
+  // browser straight in or email the code; then show the code screen.
+  const enterGoogleStepUp = async (token: string, hint: string) => {
+    try {
+      const started = await mfaStart(token);
+      if ('access_token' in started) {
+        const step = await completeExternalLogin(started as AuthTokens);
+        if (step && step !== 'complete' && step !== 'none') {
+          nav(`/onboarding${inviteParam}`, { replace: true });
+        } else if (step === 'none') {
+          setError('Your session could not be restored. Please sign in again.');
+        } else {
+          nav(`/overview${inviteParam}`, { replace: true });
+        }
+        return;
+      }
+      setMfaHint(started.email_hint || hint);
+      toast('Extra check — enter the code we emailed you.');
+    } catch (e) {
+      setMfaHint(hint);
+      setError((e as Error).message || 'Could not send the sign-in code. Use RESEND CODE to try again.');
+    }
+    setMfaToken(token);
+    setMfaDigits(['', '', '', '', '', '']);
+    setResendNote('');
+  };
+
+  // A parked step-up challenge (Google on another page) continues here.
   useEffect(() => {
     const stashed = takeMfaChallenge();
-    if (stashed) {
-      setMfaToken(stashed.token);
-      setMfaHint(stashed.hint);
-      setMfaDigits(['', '', '', '', '', '']);
-      setResendNote('');
-    }
+    if (stashed) void enterGoogleStepUp(stashed.token, stashed.hint);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Google One Tap — the small side prompt, verified by our own backend.
@@ -97,11 +122,7 @@ export default function Login() {
           if ((tokens as MfaChallenge).mfa_required) {
             if (cancelled) return;
             const c = tokens as MfaChallenge;
-            setMfaToken(c.mfa_token);
-            setMfaHint(c.email_hint || '');
-            setMfaDigits(['', '', '', '', '', '']);
-            setResendNote('');
-            toast('Extra check — enter the code we emailed you.');
+            await enterGoogleStepUp(c.mfa_token, c.email_hint || '');
             return;
           }
           const step = await completeExternalLogin(tokens as AuthTokens);
@@ -185,7 +206,7 @@ export default function Login() {
     setMfaBusy(true);
     setError('');
 
-    const result = await completeMfaSignIn(mfaToken, code);
+    const result = await completeMfaSignIn(mfaToken, code, rememberBrowser);
     setMfaBusy(false);
     if (!result.ok) {
       setError(result.error || 'Invalid code. Please try again.');
@@ -262,11 +283,7 @@ export default function Login() {
         return;
       }
       if (result.mfa_token) {
-        setMfaToken(result.mfa_token);
-        setMfaHint(result.email_hint || '');
-        setMfaDigits(['', '', '', '', '', '']);
-        setResendNote('');
-        toast('Extra check — enter the code we emailed you.');
+        await enterGoogleStepUp(result.mfa_token, result.email_hint || '');
         return;
       }
       if (result.otc) {
@@ -374,6 +391,16 @@ export default function Login() {
                       ))}
                     </div>
                   </div>
+
+                  <label className="flex items-center gap-2 mb-4 text-xs mono text-soft cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberBrowser}
+                      onChange={e => setRememberBrowser(e.target.checked)}
+                      className="accent-[var(--accent)] w-4 h-4"
+                    />
+                    Remember this browser for 30 days
+                  </label>
 
                   {error && (
                     <div className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex items-start gap-2">
