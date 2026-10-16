@@ -4,6 +4,7 @@ Auth session storage for Cyphward Auth — refresh tokens and Google exchange co
 Opaque tokens are stored only as SHA-256 hashes; refresh tokens rotate on
 every use and can be revoked (logout, password reset).
 """
+from fastapi import HTTPException
 from typing import Any, Dict, Optional
 
 from backend.app.core.auth import issue_access_token
@@ -61,6 +62,10 @@ def _create_session_row(
 
 def issue_session(profile: Dict[str, Any], otc: Optional[str] = None) -> Dict[str, Any]:
     """Create a session row and return access + refresh tokens for the caller."""
+    # Dedicated owner-console logins never get a customer session.
+    from backend.app.core.owner import is_console_only
+    if is_console_only(str(profile["id"])):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     refresh_token = new_opaque_token()
     session_id = _create_session_row(str(profile["id"]), refresh_token, otc)
     return token_response(profile, refresh_token, session_id)

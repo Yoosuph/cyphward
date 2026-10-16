@@ -45,9 +45,19 @@ export type OwnerMe = { email: string; expires_at: string; idle_minutes: number 
 export const ownerMe = () => ownerFetch<OwnerMe>('/me');
 
 export const ownerSignIn = (email: string, password: string, code: string) =>
-  ownerFetch<{ ok: true; email: string; expires_at: string; idle_minutes: number }>('/session', {
+  ownerFetch<{ ok: true; email: string; setup_required?: boolean; expires_at?: string; idle_minutes?: number }>('/session', {
     method: 'POST',
     body: JSON.stringify({ email, password, code }),
+  });
+
+/** First sign-in of a new admin login: issue the authenticator secret (shown once). */
+export const ownerSetupAuthenticator = () =>
+  ownerFetch<{ secret: string; otpauth_url: string }>('/setup/authenticator', { method: 'POST' });
+
+export const ownerSetupComplete = (newPassword: string, code: string) =>
+  ownerFetch<{ ok: true; email: string }>('/setup/complete', {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword, code }),
   });
 
 export const ownerSignOut = () => ownerFetch<{ signed_out: boolean }>('/logout', { method: 'POST' });

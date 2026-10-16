@@ -12,6 +12,31 @@ An account can sign in when all of the following are true:
 
 Every sign-in needs email + password + the current authenticator code, and each code works only once. Sessions end after 30 minutes without activity, and after 8 hours at most. Resetting the password, or switching the authenticator off or on again, ends all owner sessions.
 
+## Dedicated admin login (recommended)
+
+A console-only login exists only for this console. It can't sign in to the customer app, Google sign-in doesn't work for it, and "Forgot password" never emails it, so a compromised mailbox can't take it over. The operator creates it with a **setup password** that opens a 24-hour, single-use setup. At first sign-in (leave the code empty), the owner chooses a new password (12+ characters) and scans the authenticator QR code. The setup password then stops working.
+
+```sql
+-- as postgres; replace the email and hash (bcrypt/argon2 as produced by backend hash_password)
+WITH p AS (
+  INSERT INTO profiles (email, full_name, role, password_hash, provider, email_verified_at)
+  VALUES ('admin@example.com', 'Cyphward Admin', 'Member', '<hash of the setup password>', 'email', now())
+  RETURNING id)
+INSERT INTO platform_owners (user_id, note, console_only) SELECT id, 'dedicated admin login', true FROM p;
+INSERT INTO owner_setups (user_id, expires_at)
+SELECT id, now() + interval '24 hours' FROM profiles WHERE email = 'admin@example.com';
+```
+
+**Recovery** (lost phone or forgotten password): set a new setup password hash, clear the authenticator, and open a new setup window:
+
+```sql
+UPDATE profiles SET password_hash = '<new setup hash>', totp_secret_enc = NULL, totp_enrolled_at = NULL
+WHERE email = 'admin@example.com';
+INSERT INTO owner_setups (user_id, expires_at)
+SELECT id, now() + interval '24 hours' FROM profiles WHERE email = 'admin@example.com'
+ON CONFLICT (user_id) DO UPDATE SET expires_at = EXCLUDED.expires_at, completed_at = NULL;
+```
+
 ## Add or remove the owner (operator SQL)
 
 Run these as the database owner (`postgres`), never through the application:

@@ -185,3 +185,46 @@ def test_unknown_and_malformed_ids_are_404(world):
     assert client.get("/api/v1/owner/organizations/not-a-uuid").status_code == 404
     assert client.get(f"/api/v1/owner/users/{uuid4()}").status_code == 404
     assert client.get(f"/api/v1/owner/scans/{uuid4()}").status_code == 404
+
+
+def test_dedicated_admin_setup_works_with_real_grants(urls, monkeypatch):
+    """Operator-created console-only login: setup session, authenticator, new password, console."""
+    app_url, admin_url = urls
+
+    @contextmanager
+    def get_db():
+        conn = psycopg.connect(app_url, row_factory=dict_row)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    monkeypatch.setattr(database, "get_db", get_db)
+    uid, email = str(uuid4()), f"admin-{uuid4().hex[:8]}@views.test"
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute("INSERT INTO profiles (id, email, full_name, role, password_hash, provider, email_verified_at) "
+                     "VALUES (%s,%s,'Admin','Member',%s,'email',now())", (uid, email, hash_password("setup-pass-123")))
+        conn.execute("INSERT INTO platform_owners (user_id, note, console_only) VALUES (%s,'test',true)", (uid,))
+        conn.execute("INSERT INTO owner_setups (user_id, expires_at) VALUES (%s, now() + interval '1 hour')", (uid,))
+    try:
+        client = TestClient(app)
+        first = client.post("/api/v1/owner/session", headers=ORIGIN,
+                            json={"email": email, "password": "setup-pass-123", "code": ""})
+        assert first.json()["setup_required"] is True
+        secret = client.post("/api/v1/owner/setup/authenticator", headers=ORIGIN).json()["secret"]
+        code = f"{totp._hotp(secret, int(time.time() // 30)):06d}"
+        done = client.post("/api/v1/owner/setup/complete", headers=ORIGIN,
+                           json={"new_password": "a-long-new-owner-passphrase", "code": code})
+        assert done.status_code == 200, done.text
+        assert client.get("/api/v1/owner/me").json()["email"] == email
+        assert client.post("/api/v1/auth/login",
+                           json={"email": email, "password": "a-long-new-owner-passphrase"}).status_code == 401
+        with psycopg.connect(admin_url, row_factory=dict_row) as conn:
+            row = conn.execute("SELECT completed_at IS NOT NULL AS done FROM owner_setups WHERE user_id = %s",
+                               (uid,)).fetchone()
+        assert row["done"] is True
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute("DELETE FROM owner_audit WHERE actor_user_id = %s OR actor_email = %s", (uid, email))
+            conn.execute("DELETE FROM rate_limits WHERE bucket_key LIKE %s", (f"%{email}%",))
+            conn.execute("DELETE FROM profiles WHERE id = %s", (uid,))
