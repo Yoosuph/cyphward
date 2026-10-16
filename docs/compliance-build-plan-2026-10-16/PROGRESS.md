@@ -78,7 +78,7 @@ Next: C1, as planned in `C1-plan.md`.
   - "reference pending review" on unverified clauses;
   - checked / not-checked lines, per-domain detail, open ports and complete-scan counts;
   - gap findings with "Create task", which uses the existing remediation API and shows an existing task instead of duplicating it.
-- **C1 ceiling** is 6 of 29 (21%), because Nuclei can never be present and 22 requirements have no evidence source until C2/C3. The page explains this.
+- **C1 ceiling** is 6 of 29 (20%, rounded down), because Nuclei can never be present and 22 requirements have no evidence source until C2/C3. The page explains this.
 
 ### Files and migration
 
