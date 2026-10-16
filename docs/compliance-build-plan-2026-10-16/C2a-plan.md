@@ -2,7 +2,14 @@
 
 **Branch:** `codex/compliance-c2a`. One PR. **Worker change**: the release follows the runbook (section 8).
 **Governing rule:** README section 0. Every privacy observation is `externally_observed` and heuristic where marked. The output is "found / mentioned / not found", never "adequate". Missing or unrun checks are never shown as present.
-**Status:** plan for founder review. No code yet.
+**Status:** **approved by the founder on 16 October 2026**, with D8–D10 as proposed plus the three additions below. The release OKs are also given: pause claims, a count-only all-organisation queued/running query, resume claims.
+
+**Founder additions (binding):**
+1. **Policy change tracking:** store a SHA-256 of the **normalised** policy text (never the text itself) and flag "policy changed since last scan" when it differs from the previous privacy observation for that URL.
+   - Normalisation: strip tags/scripts/styles, collapse whitespace, lowercase.
+   - Shown as informational; it never changes a status.
+2. **Cookies:** only **known-tracker** cookies can contribute to a gap. Necessary, infrastructure (for example `__cf_bm`, `__cfruid`, load-balancer cookies) and unknown cookies are listed, with their classification, and are **never** a gap. Tests include `__cf_bm` and typical session cookies (`sessionid`, `PHPSESSID`, `connect.sid`).
+3. **Newest observation wins:** for each privacy requirement the latest row replaces older privacy evidence (present → gap or gap → present at the next scan). `expires_at` only marks staleness; it never revives an older status.
 
 ## 1. What C2a observes
 
@@ -13,7 +20,8 @@ On the scanned domain's **apex homepage plus up to 4 other in-scope web hosts** 
 | Privacy policy | `<a>` links whose text or href matches `privacy`, `privacy-policy`, `data-protection`, `privacy-notice`; then the fixed paths `/privacy`, `/privacy-policy`, `/privacy-notice`, `/data-protection` | URL, how it was found (link / fixed path), HTTP status, final URL. An off-domain link (for example a hosted policy service) is recorded as **linked off-domain, not fetched**. |
 | Cookie notice | links matching `cookie`; fixed paths `/cookie-policy`, `/cookies` | as above |
 | Policy content signals (heuristic) | case-insensitive phrase sets on the fetched policy text: lawful basis; data subject rights; DPO/contact (an email near "data protection officer"/"DPO"); NDPA/NDPR/GAID/Nigeria Data Protection | `mentioned` / `not_found` per signal plus the matched phrase. **Labelled heuristic; never "adequate".** |
-| Cookies on first response | `Set-Cookie` on the homepage GET | Cookie **names and attributes only** (Secure, HttpOnly, SameSite, Domain, Max-Age). **Never values.** Each name is classified against a known tracker list (`_ga`, `_gid`, `_fbp`, `_hjSession*`, `_ttp`, `_clck`, …). |
+| Cookies on first response | `Set-Cookie` on the homepage GET | Cookie **names and attributes only** (Secure, HttpOnly, SameSite, Domain, Max-Age). **Never values.** Each name is classified `tracker` (known list: `_ga`, `_gid`, `_fbp`, `_hjSession*`, `_ttp`, `_clck`, …), `infrastructure` (`__cf_bm`, `__cfruid`, `AWSALB*`, …), `necessary` (session/CSRF names) or `unknown`. **Only `tracker` can contribute to a gap.** |
+| Policy fingerprint | the fetched policy page | SHA-256 of the normalised text (no text stored); "changed since last scan" when it differs for the same URL |
 | Tracker scripts in HTML | `<script src>` hosts and inline snippets against a known list: Google Analytics/GTM, Meta Pixel, Hotjar, TikTok, LinkedIn, Microsoft Clarity, Snap | the vendor, plus whether the tag is **blocked until consent** (`type="text/plain"` with a consent-manager attribute) |
 | Consent manager | a known consent-manager script or attribute: Cookiebot, OneTrust/CookieLaw, Osano, Termly, iubenda, CookieYes, Usercentrics, Complianz, Quantcast Choice | the vendor |
 | `security.txt` | `/.well-known/security.txt` | present / absent, and whether a `Contact:` line exists (stored for C4; no requirement in C1's register uses it) |
