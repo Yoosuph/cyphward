@@ -12,6 +12,8 @@ Flow:
 There is NO fallback organization. Requests without a valid membership fail closed.
 """
 import time
+import uuid
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional
 
@@ -20,6 +22,9 @@ from fastapi import Depends, Header, HTTPException, Query
 
 from backend.app.core.config import ACCESS_TOKEN_TTL_SECONDS, AUTH_JWT_SECRET
 from backend.app.core.database import execute_one
+
+
+ACCESS_TOKEN_TYPE = "access"
 
 
 def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None) -> str:
@@ -31,6 +36,7 @@ def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None
     """
     now = int(time.time())
     claims = {
+        "typ": ACCESS_TOKEN_TYPE,
         "sub": str(profile["id"]),
         "email": (profile.get("email") or "").strip().lower(),
         "full_name": (profile.get("full_name") or "").strip(),
@@ -43,11 +49,19 @@ def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None
 
 
 def _verify_token(token: str) -> Dict[str, Any]:
-    """Verify a Cyphward access token and return its claims."""
+    """Verify a Cyphward access token and return its claims.
+
+    Other artifacts are signed with the same secret (the sign-in step-up
+    challenge, the Google OAuth state). They carry a `purpose` claim and must
+    never authenticate an API call: a step-up challenge used as a bearer token
+    would skip the second factor. Access tokens carry typ=access; tokens minted
+    before that claim existed are accepted until they expire (they still need
+    a live session, checked in get_current_user).
+    """
     if not AUTH_JWT_SECRET:
         raise HTTPException(status_code=401, detail="Authentication is not configured on the server.")
     try:
-        return jwt.decode(
+        claims = jwt.decode(
             token,
             AUTH_JWT_SECRET,
             algorithms=["HS256"],
@@ -55,6 +69,9 @@ def _verify_token(token: str) -> Dict[str, Any]:
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail=f"Invalid token ({exc})")
+    if claims.get("purpose") is not None or claims.get("typ", ACCESS_TOKEN_TYPE) != ACCESS_TOKEN_TYPE:
+        raise HTTPException(status_code=401, detail="Invalid token (not an access token)")
+    return claims
 
 
 def get_current_user(
@@ -74,23 +91,41 @@ def get_current_user(
     user_id = claims.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing subject")
-    sid = claims.get("sid")  # absent on tokens issued before session binding
+    # Every access token is bound to a live auth_sessions row of the same user.
+    sid = claims.get("sid")
+    if not _is_uuid(sid):
+        raise HTTPException(status_code=401, detail="Session expired — sign in again.")
 
     profile = execute_one(
         """
-        SELECT p.*, s.revoked_at AS session_revoked_at
+        SELECT p.*, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at
         FROM profiles p
-        LEFT JOIN auth_sessions s ON s.id = NULLIF(%s, '')::uuid
+        JOIN auth_sessions s ON s.id = %s::uuid AND s.user_id = p.id
         WHERE p.id = %s
         """,
-        (sid or None, user_id),
+        (sid, user_id),
     )
     if not profile:
-        # Profile deleted (or orphaned token) — do NOT resurrect it from claims.
+        # Profile deleted, unknown session, or a session of another user —
+        # never resurrect anything from claims.
         raise HTTPException(status_code=401, detail="Session no longer valid — sign in again.")
     if profile.get("session_revoked_at") is not None:
         raise HTTPException(status_code=401, detail="Session expired — sign in again.")
+    expires_at = profile.get("session_expires_at")
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="Session expired — sign in again.")
     return profile
+
+
+def _is_uuid(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return bool(value)
+    except (TypeError, ValueError):
+        return False
 
 
 def get_current_org(
