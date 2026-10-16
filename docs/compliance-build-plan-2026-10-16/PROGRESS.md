@@ -32,7 +32,7 @@ Three further defaults surfaced while planning C1. They follow section 0 of the 
 |---|---|---|
 | D5 | Readiness numerator | Only requirements with current **present** evidence count. A gap is evidence of a problem, not readiness, so it never raises the percentage. Gaps and not-assessed counts are shown beside the percentage. |
 | D6 | Tool evidence and applicability | Tool evidence never produces `not_applicable`. A check omitted for a known reason (for example, no web service) yields `not_assessed` with that reason. Only an answered applicability question (C3) can remove a requirement from the denominator. |
-| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. The C1 maximum is therefore 7 of 29. |
+| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. The C1 maximum is therefore 6 of 29 (Nuclei can show gaps only, never present). |
 
 ### Rule keys
 
