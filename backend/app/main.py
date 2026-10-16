@@ -33,6 +33,7 @@ from backend.app.api import (
     auth_google,
     platform,
     owner,
+    owner_views,
     billing,
     contact,
 )
@@ -136,6 +137,7 @@ app.include_router(health.router)
 app.include_router(scanner_jobs.router)
 app.include_router(platform.router)
 app.include_router(owner.router)
+app.include_router(owner_views.router)
 app.include_router(billing.router)
 app.include_router(contact.router)
 
