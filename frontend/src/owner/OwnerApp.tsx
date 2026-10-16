@@ -2,7 +2,8 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Building2, CreditCard, KeyRound, LayoutDashboard, LogOut, Radar, ScrollText, Server, Users } from 'lucide-react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import CyphwardLogo from '../components/CyphwardLogo';
-import { OwnerApiError, ownerMe, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
+import { QRCodeSVG } from 'qrcode.react';
+import { OwnerApiError, ownerMe, ownerSetupAuthenticator, ownerSetupComplete, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
 import { SessionEndedContext } from './ui';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
 import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
@@ -20,6 +21,7 @@ type State =
   | { kind: 'loading' }
   | { kind: 'signed-out'; notice?: string }
   | { kind: 'signed-in'; me: OwnerMe }
+  | { kind: 'setup'; email: string }
   | { kind: 'unavailable'; message: string };
 
 export default function OwnerApp() {
@@ -70,7 +72,12 @@ export default function OwnerApp() {
     );
   }
   if (state.kind === 'signed-out') {
-    return <SignIn notice={state.notice} onSignedIn={() => void load()} />;
+    return <SignIn notice={state.notice} onSignedIn={() => void load()}
+                   onSetup={email => setState({ kind: 'setup', email })} />;
+  }
+  if (state.kind === 'setup') {
+    return <Setup email={state.email} onDone={() => void load()}
+                  onExpired={() => setState({ kind: 'signed-out', notice: 'Setup timed out — sign in again with the same password.' })} />;
   }
   return (
     <Console
@@ -95,7 +102,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => void }) {
+function SignIn({ notice, onSignedIn, onSetup }: { notice?: string; onSignedIn: () => void; onSetup: (email: string) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -108,10 +115,11 @@ function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => voi
     setBusy(true);
     setError('');
     try {
-      await ownerSignIn(email.trim(), password, code.trim());
+      const result = await ownerSignIn(email.trim(), password, code.trim());
       setPassword('');
       setCode('');
-      onSignedIn();
+      if (result.setup_required) onSetup(result.email);
+      else onSignedIn();
     } catch (err) {
       const e2 = err as OwnerApiError;
       setError(e2.status === 401 ? 'Sign-in failed. Check your email, password and authenticator code.' : e2.message);
@@ -129,8 +137,8 @@ function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => voi
           <h1 className="font-display text-2xl">Owner sign-in</h1>
         </div>
         <p className="text-xs text-soft mb-5">
-          Your Cyphward password plus the 6-digit code from your authenticator app. Google sign-in and emailed codes
-          don't open this console.
+          Your admin password plus the 6-digit code from your authenticator app. Google sign-in and emailed codes
+          don't open this console. First sign-in with a new admin login? Leave the code empty.
         </p>
         {notice && <p className="text-xs mono text-soft mb-4">{notice}</p>}
         <div className="field">
@@ -145,7 +153,7 @@ function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => voi
         </div>
         <div className="field">
           <label htmlFor="owner-code">AUTHENTICATOR CODE</label>
-          <input id="owner-code" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}"
+          <input id="owner-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
                  maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
         </div>
         {error && (
@@ -154,8 +162,102 @@ function SignIn({ notice, onSignedIn }: { notice?: string; onSignedIn: () => voi
             <span>{error}</span>
           </div>
         )}
-        <button type="submit" className="btn btn-solid justify-center w-full" disabled={busy || code.length !== 6}>
+        <button type="submit" className="btn btn-solid justify-center w-full" disabled={busy || (code.length > 0 && code.length !== 6)}>
           {busy ? 'SIGNING IN…' : 'SIGN IN'}
+        </button>
+      </form>
+    </Frame>
+  );
+}
+
+function Setup({ email, onDone, onExpired }: { email: string; onDone: () => void; onExpired: () => void }) {
+  const [auth, setAuth] = useState<{ secret: string; otpauth_url: string } | null>(null);
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    ownerSetupAuthenticator().then(setAuth).catch((e: OwnerApiError) => (e.status === 401 ? onExpired() : setError(e.message)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const tooShort = password.length > 0 && password.length < 12;
+  const mismatch = confirm.length > 0 && confirm !== password;
+  const ready = !!auth && password.length >= 12 && confirm === password && code.length === 6;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!ready || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await ownerSetupComplete(password, code);
+      onDone();
+    } catch (err) {
+      const e2 = err as OwnerApiError;
+      if (e2.status === 401 && /expired/i.test(e2.message)) onExpired();
+      else setError(e2.message);
+      setCode('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Frame>
+      <form className="auth-card" onSubmit={submit}>
+        <h1 className="font-display text-2xl mb-1">Set up your admin login</h1>
+        <p className="text-xs text-soft mb-5">
+          {email} · one time only. Choose your own password and connect an authenticator app. The password you were
+          given stops working when you finish. This screen expires after 15 minutes.
+        </p>
+
+        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2">1 · NEW PASSWORD</p>
+        <div className="field">
+          <label htmlFor="setup-password">PASSWORD (12+ CHARACTERS)</label>
+          <input id="setup-password" type="password" autoComplete="new-password" value={password}
+                 onChange={e => setPassword(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="setup-confirm">CONFIRM PASSWORD</label>
+          <input id="setup-confirm" type="password" autoComplete="new-password" value={confirm}
+                 onChange={e => setConfirm(e.target.value)} />
+        </div>
+        {(tooShort || mismatch) && (
+          <p className="text-xs mono text-amber-600 -mt-2 mb-4">{tooShort ? 'Use at least 12 characters.' : 'The passwords don\'t match.'}</p>
+        )}
+
+        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2 mt-2">2 · AUTHENTICATOR APP</p>
+        {auth ? (
+          <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
+            <div className="bg-white p-2 rounded border border-line">
+              <QRCodeSVG value={auth.otpauth_url} size={148} />
+            </div>
+            <div className="text-xs text-soft">
+              Scan with Google Authenticator, Microsoft Authenticator or 1Password. Can't scan? Enter this key:
+              <code className="block mono text-ink break-all mt-1 select-all">{auth.secret}</code>
+            </div>
+          </div>
+        ) : (
+          <div className="skeleton mb-4" style={{ height: 150, borderRadius: 6 }} />
+        )}
+
+        <p className="mono text-[10px] tracking-[.18em] text-soft mb-2">3 · CONFIRM</p>
+        <div className="field">
+          <label htmlFor="setup-code">6-DIGIT CODE FROM THE APP</label>
+          <input id="setup-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
+                 onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+        </div>
+        {error && (
+          <div role="alert" className="p-3 mb-4 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex gap-2">
+            <AlertCircle size={14} className="flex-none mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+        <button type="submit" className="btn btn-solid justify-center w-full" disabled={!ready || busy}>
+          {busy ? 'FINISHING…' : 'FINISH SETUP'}
         </button>
       </form>
     </Frame>

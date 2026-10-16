@@ -162,6 +162,7 @@ class FakeStore:
         self.owner_sessions: list = []
         self.owner_audit: list = []
         self.owner_audit_fails = False
+        self.owner_setups: dict = {}
         self.sessions: list = []
         self.password_reset_tokens: list = []
         self.organization_invites: list = []
@@ -633,6 +634,34 @@ class FakeStore:
             self.owner_audit.append(row)
             return []
 
+        if s.startswith("SELECT console_only FROM platform_owners WHERE user_id = %s"):
+            row = self.platform_owners.get(params[0])
+            return [{"console_only": bool(row.get("console_only"))}] if row else []
+
+        if s.startswith("SELECT user_id FROM owner_setups WHERE user_id = %s AND completed_at IS NULL"):
+            row = self.owner_setups.get(params[0])
+            ok = row and row.get("completed_at") is None and row["expires_at"] > datetime.now(timezone.utc)
+            return [{"user_id": params[0]}] if ok else []
+
+        if s.startswith("UPDATE owner_setups SET completed_at = now() WHERE user_id = %s"):
+            row = self.owner_setups.get(params[0])
+            if row and row.get("completed_at") is None:
+                row["completed_at"] = datetime.now(timezone.utc)
+                return [{"user_id": params[0]}]
+            return []
+
+        if s.startswith("SELECT password_hash, totp_secret_enc FROM profiles WHERE id = %s"):
+            prof = self.profiles.get(params[0])
+            return [{"password_hash": prof.get("password_hash"), "totp_secret_enc": prof.get("totp_secret_enc")}] if prof else []
+
+        if s.startswith("UPDATE profiles SET password_hash = %s, totp_enrolled_at = now(), updated_at = now() WHERE id = %s"):
+            prof = self.profiles.get(params[1])
+            if prof is None:
+                return []
+            prof["password_hash"] = params[0]
+            prof["totp_enrolled_at"] = datetime.now(timezone.utc)
+            return [{"id": params[1]}]
+
         if s.startswith("SELECT user_id FROM platform_owners WHERE user_id = %s"):
             return [{"user_id": params[0]}] if params[0] in self.platform_owners else []
 
@@ -644,18 +673,19 @@ class FakeStore:
             row["last_totp_step"] = step
             return [{"user_id": uid}]
 
-        if s.startswith("INSERT INTO owner_sessions (user_id, token_hash, expires_at, user_agent, ip)"):
-            uid, token_hash, expires_at, ua, ip = params
+        if s.startswith("INSERT INTO owner_sessions (user_id, token_hash, expires_at, user_agent, ip, purpose)"):
+            uid, token_hash, expires_at, ua, ip, purpose = params
             now = datetime.now(timezone.utc)
             row = {"id": str(uuid.uuid4()), "user_id": uid, "token_hash": token_hash, "created_at": now,
                    "last_seen_at": now, "expires_at": expires_at, "revoked_at": None,
-                   "user_agent": ua, "ip": ip}
+                   "user_agent": ua, "ip": ip, "purpose": purpose}
             self.owner_sessions.append(row)
             return [{"id": row["id"]}]
 
         if s.startswith("SELECT s.id, s.user_id, s.expires_at, s.last_seen_at, p.email FROM owner_sessions s"):
+            token_hash, purpose = params
             for r in self.owner_sessions:
-                if r["token_hash"] == params[0] and r["revoked_at"] is None \
+                if r["token_hash"] == token_hash and r["revoked_at"] is None and r.get("purpose") == purpose \
                         and r["user_id"] in self.platform_owners and r["user_id"] in self.profiles:
                     return [{**r, "email": self.profiles[r["user_id"]].get("email")}]
             return []

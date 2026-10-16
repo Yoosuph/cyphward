@@ -459,6 +459,8 @@ async def login(body: LoginBody, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     reset_bucket(f"login:{email}")
+    if owner_mod.is_console_only(str(user["id"])):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     log_audit(None, str(user["id"]), "auth.login", "user", str(user["id"]))
 
     if (_user_is_admin(str(user["id"]))
@@ -890,7 +892,8 @@ async def forgot_password(
             return {"ok": True}
 
     user = execute_one("SELECT * FROM profiles WHERE email = %s", (email,)) if email else None
-    if user is None:
+    if user is None or owner_mod.is_console_only(str(user["id"])):
+        # Console-only admin logins never reset by email: recovery is operator-only.
         return {"ok": True}
 
     token = new_opaque_token()

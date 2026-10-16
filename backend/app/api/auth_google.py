@@ -30,6 +30,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one
 from backend.app.core.security import new_opaque_token
+from backend.app.core.owner import is_console_only
 from backend.app.core.sessions import consume_otc, issue_session
 # Step-up reuse: Google logins face the same MFA gate as passwords —
 # admins and enrolled users confirm a code (sent by /auth/mfa/start) unless
@@ -168,6 +169,8 @@ async def _google_step_up(user: Dict[str, Any]) -> Optional[str]:
 def _upsert_google_profile(email: str, name: str) -> Optional[Dict[str, Any]]:
     """Load-or-create the local profile for a verified Google account."""
     existing = execute_one("SELECT * FROM profiles WHERE email = %s", (email,))
+    if existing and is_console_only(str(existing["id"])):
+        return None  # owner-console logins never sign in with Google
     if existing:
         return execute_one(
             """
