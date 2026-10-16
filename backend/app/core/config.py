@@ -57,6 +57,17 @@ CORS_ORIGINS = [
     "https://auth.cyphward.com",
 ]
 
+# Owner console (admin.cyphward.com). Mutations must come from one of these
+# exact origins; dev origins are only accepted outside production.
+OWNER_CONSOLE_ORIGINS = [
+    o.strip().rstrip("/")
+    for o in os.getenv("OWNER_CONSOLE_ORIGINS", "https://admin.cyphward.com").split(",")
+    if o.strip()
+]
+if CYPHWARD_ENV != "production":
+    OWNER_CONSOLE_ORIGINS += ["http://127.0.0.1:5181", "http://localhost:5181",
+                              "http://127.0.0.1:5173", "http://localhost:5173", "http://testserver"]
+
 # AI Intelligence Layer Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")

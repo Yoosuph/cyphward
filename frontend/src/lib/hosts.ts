@@ -4,6 +4,7 @@
  *   cyphward.com      → marketing (/, /privacy, /terms, /pricing, /about, /teams, /contact) only
  *   auth.cyphward.com → login / signup / password flows
  *   app.cyphward.com  → authenticated product
+ *   admin.cyphward.com → platform owner console (separate app, see main.tsx)
  *
  * Cold loads are redirected by vercel.json before any HTML is served; this
  * module backs the React-side guard that catches client-side <Link>
@@ -63,6 +64,12 @@ function isMarketingPath(pathname: string): boolean {
 export function hostTarget(pathname: string): string | null {
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') return null;
+
+  // The platform owner console lives on its own host, never inside a
+  // customer host (it is a separate app with its own sign-in).
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return 'https://admin.cyphward.com/console';
+  }
 
   const onApex = host === 'cyphward.com' || host === 'www.cyphward.com';
   const onAuth = host === 'auth.cyphward.com';

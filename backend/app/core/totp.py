@@ -60,6 +60,22 @@ def _hotp(secret: str, counter: int) -> int:
     return code % (10 ** _DIGITS)
 
 
+def matching_step(secret: str, code: str, for_time: float | None = None) -> int | None:
+    """The time step a code matches within the window, or None.
+
+    Callers that must refuse replays (owner console sign-in) store the last
+    accepted step and only accept a strictly later one.
+    """
+    code = (code or "").strip()
+    if len(code) != _DIGITS or not code.isdigit():
+        return None
+    step = int((for_time if for_time is not None else time.time()) // _PERIOD)
+    for delta in range(-_WINDOW, _WINDOW + 1):
+        if hmac.compare_digest(f"{_hotp(secret, step + delta):06d}", code):
+            return step + delta
+    return None
+
+
 def verify_code(secret: str, code: str, for_time: float | None = None) -> bool:
     """Constant-time compare across the acceptance window."""
     code = (code or "").strip()

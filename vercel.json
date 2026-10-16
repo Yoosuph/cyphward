@@ -12,6 +12,105 @@
       "permanent": true
     },
     {
+      "source": "/robots.txt",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.cyphward.com"
+        }
+      ],
+      "destination": "/robots-noindex.txt",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.cyphward.com"
+        }
+      ],
+      "destination": "/console",
+      "permanent": false
+    },
+    {
+      "source": "/(terms|privacy|landing|pricing|about|teams|contact|health)",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.cyphward.com"
+        }
+      ],
+      "destination": "https://cyphward.com/$1",
+      "permanent": false
+    },
+    {
+      "source": "/admin/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
+      "source": "/admin/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
+      "source": "/admin/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
+      "source": "/admin",
+      "has": [
+        {
+          "type": "host",
+          "value": "cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
+      "source": "/admin",
+      "has": [
+        {
+          "type": "host",
+          "value": "auth.cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
+      "source": "/admin",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.cyphward.com"
+        }
+      ],
+      "destination": "https://admin.cyphward.com/console",
+      "permanent": false
+    },
+    {
       "source": "/landing",
       "destination": "/",
       "permanent": true
@@ -234,6 +333,25 @@
         {
           "key": "X-Robots-Tag",
           "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.cyphward.com"
+        }
+      ],
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
         }
       ]
     }
