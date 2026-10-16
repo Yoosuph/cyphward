@@ -14,11 +14,12 @@ from backend.app.core.database import execute_one, execute_query
 OPEN_GROUPS_ON_STARTER = {"security"}
 HISTORY_DAYS = 100  # longest scan-history window (90 days) plus margin
 C1_NOTE = ("Only the security measures group has an evidence source today. Notices, consent, DPO, registration "
-           "and the other groups need evidence that later releases collect, so they show as not assessed and "
-           "the readiness figure stays low until then.")
+           "and the other groups wait for your answers or for checks that later releases add, so they show as "
+           "awaiting input or upcoming checks rather than not assessed.")
 
 STATUS_LABELS = {"present": "Evidence present", "gap": "Gap", "not_assessed": "Not assessed",
-                 "not_applicable": "Not applicable"}
+                 "not_applicable": "Not applicable", "awaiting_input": "Awaiting your input"}
+UPCOMING_CHECK_LABEL = "Upcoming check"
 SOURCE_LABELS = {"tool_observed": "Tool observed", "externally_observed": "Externally observed",
                  "customer_attested": "Customer attested", "practitioner_reviewed": "Practitioner reviewed"}
 REASON_TEXT = {
@@ -36,7 +37,8 @@ REASON_TEXT = {
     "clean_result_not_provable": "Template runs report matches only; a clean result is never shown as evidence.",
     "complete_scans_in_window": "Complete scans within the window.",
     "no_complete_scan_in_window": "No scan in the window finished every declared check.",
-    "collection_not_available": "Evidence collection for this requirement is not available yet.",
+    "awaiting_customer_input": "Cyphward has no source for this yet. You will be able to answer it in a later release.",
+    "check_not_available_yet": "The check that observes this arrives in a later release.",
 }
 
 
@@ -98,7 +100,9 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any
         "evidence_type_labels": [SOURCE_LABELS[e] for e in req["evidence_types"]],
         "checks_performed": req.get("checks_performed"), "not_checked": req.get("not_checked"),
         "freshness_days": req["freshness_days"], "remediation_hint": req["remediation_hint"],
-        "status": result["status"], "status_label": STATUS_LABELS[result["status"]],
+        "status": result["status"],
+        "status_label": (UPCOMING_CHECK_LABEL if result["reason"] == "check_not_available_yet"
+                         else STATUS_LABELS[result["status"]]),
         "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
         "source": mapping.TOOL_SOURCE if has_evidence else None,
         "source_label": SOURCE_LABELS[mapping.TOOL_SOURCE] if has_evidence else None,

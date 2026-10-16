@@ -52,18 +52,20 @@ function overview(plan) {
     req("ndpa.s39.known_vulnerability_testing", "security", "Testing for known vulnerabilities", "not_assessed",
       { domains: [evidence("not_assessed")] }),
   ];
-  const dpo = [req("gaid.dpo.designated", "dpo", "Data protection officer designated", "not_assessed")];
+  const dpo = [req("gaid.dpo.designated", "dpo", "Data protection officer designated", "awaiting_input",
+    { status_label: "Awaiting your input" })];
   const counts = (items) => ({
-    percent: 0, present: items.filter((r) => r.status === "present").length,
+    with_evidence: 0, present: items.filter((r) => r.status === "present").length,
     gap: items.filter((r) => r.status === "gap").length,
-    not_assessed: items.filter((r) => r.status === "not_assessed").length, applicable: items.length,
+    not_assessed: items.filter((r) => r.status === "not_assessed").length,
+    awaiting_input: items.filter((r) => r.status === "awaiting_input").length, applicable: items.length,
   });
   return {
     disclaimer: DISCLAIMER,
     note: "Only the security measures group has an evidence source today.",
     register: { version: "ndpa-gaid-v1", title: "NDPA 2023 / GAID 2025 readiness register", references_pending_review: 11 },
     plan,
-    readiness: { percent: 18, present: 2, gap: 1, not_assessed: 8, applicable: 11 },
+    readiness: { with_evidence: 3, present: 2, gap: 1, awaiting_input: 7, not_assessed: 1, applicable: 11 },
     domains: [{ id: "d1", domain: "acme.ng" }],
     groups: [
       { key: "security", title: "Security measures", locked: false, counts: counts(security), requirement_count: 7, requirements: security },
@@ -127,14 +129,15 @@ try {
 
     const view = await page.evaluate(() => ({
       disclaimer: document.querySelector('[data-testid="compliance-disclaimer"]').textContent.trim(),
-      percent: document.querySelector('[data-testid="readiness-percent"]').textContent.trim(),
+      line: document.querySelector('[data-testid="readiness-line"]').textContent.replace(/\s+/g, " ").trim(),
       text: document.body.innerText,
       overflow: document.documentElement.scrollWidth - window.innerWidth,
       nav: !!document.querySelector('a[href="/comply"]'),
     }));
     assert.equal(view.disclaimer, DISCLAIMER, `${name}: disclaimer`);
-    assert.equal(view.percent, "18%", `${name}: readiness`);
-    for (const label of ["2 PRESENT", "1 GAPS", "8 NOT ASSESSED", "reference pending review", "No evidence yet"]) {
+    assert.equal(view.line, "3 of 11 have evidence · 7 awaiting input or upcoming checks", `${name}: readiness line`);
+    assert.ok(!/\d%/.test(view.text), `${name}: no bare percentage`);
+    for (const label of ["2 PRESENT", "1 GAPS", "1 NOT ASSESSED", "7 AWAITING INPUT", "Awaiting your input", "reference pending review", "No evidence yet"]) {
       assert.ok(view.text.includes(label) || view.text.toUpperCase().includes(label.toUpperCase()), `${name}: ${label}`);
     }
     assert.ok(view.text.toUpperCase().includes("TOOL OBSERVED"), `${name}: source label`);

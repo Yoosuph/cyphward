@@ -964,7 +964,7 @@ export async function oneTapLogin(credential: string): Promise<AuthTokens | MfaC
 // ============================================================================
 // Compliance readiness (evidence only — never a legal verdict)
 // ============================================================================
-export type ComplianceStatus = 'present' | 'gap' | 'not_assessed' | 'not_applicable';
+export type ComplianceStatus = 'present' | 'gap' | 'not_assessed' | 'not_applicable' | 'awaiting_input';
 
 export interface ComplianceFindingRef {
   id: string;
@@ -1022,9 +1022,10 @@ export interface ComplianceRequirement {
 }
 
 export interface ComplianceReadiness {
-  percent: number;
+  with_evidence: number;
   present: number;
   gap: number;
+  awaiting_input: number;
   not_assessed: number;
   applicable: number;
 }

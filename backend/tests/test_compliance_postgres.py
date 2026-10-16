@@ -194,6 +194,24 @@ def test_evidence_is_append_only_for_the_app_role(world, monkeypatch):
         conn.rollback()
 
 
+def test_deleting_an_organisation_removes_its_evidence(world, monkeypatch):
+    """Append-only for the app role, yet an organisation's removal still takes its evidence with it
+    (the foreign-key cascade runs with the table owner's rights, not the app role's grants)."""
+    conn, org = world["conn"], world["org"]
+    scan_id = _finalize(world, monkeypatch)
+    other = world["other_org"]()
+    conn.execute("INSERT INTO compliance_evidence (org_id, requirement_key, register_version, source, status, "
+                 "observed_at) VALUES (%s, %s, %s, 'tool_observed', 'not_assessed', now())",
+                 (other, ENC, REGISTER["version"]))
+    conn.commit()
+    assert len(_rows(conn, scan_id)) == 5
+    conn.execute("DELETE FROM organizations WHERE id = %s", (org,))  # as cyphward_app
+    conn.commit()
+    assert conn.execute("SELECT count(*) AS n FROM compliance_evidence WHERE org_id = %s", (org,)).fetchone()["n"] == 0
+    assert conn.execute("SELECT count(*) AS n FROM compliance_evidence WHERE org_id = %s", (other,)).fetchone()["n"] == 1, \
+        "another organisation's evidence is untouched"
+
+
 # ── Read side / API ────────────────────────────────────────────────────────
 def _req(payload, key):
     return next(r for g in payload["groups"] for r in g["requirements"] if r["key"] == key)
@@ -214,14 +232,18 @@ def test_member_reads_evidence_and_scan_history_needs_every_domain(world, monkey
     assert [d["status"] for d in enc["domains"]] == ["present", "not_assessed"]
     assert enc["domains"][1]["source"] is None and enc["clause_label"].endswith("reference pending review")
     assert _req(body, PERIODIC)["status"] == "not_assessed"
-    assert body["readiness"]["present"] == 0 and body["readiness"]["applicable"] == 29
+    assert body["readiness"] == {"with_evidence": 0, "present": 0, "gap": 0, "awaiting_input": 22,
+                                 "not_assessed": 7, "applicable": 29}
+    assert _req(body, "gaid.dpo.designated")["status_label"] == "Awaiting your input"
+    assert _req(body, "gaid.consent.banner_visible")["status_label"] == "Upcoming check"
 
     _finalize(world, monkeypatch, domain_index=1)
     body = client.get("/api/v1/compliance/overview", headers=headers).json()
     assert _req(body, ENC)["status"] == "present" and _req(body, ENC)["source"] == "tool_observed"
     assert _req(body, PERIODIC)["status"] == "present"
     assert _req(body, CVE)["status"] == "not_assessed"
-    assert body["readiness"] == {"percent": 20, "present": 6, "gap": 0, "not_assessed": 23, "applicable": 29}
+    assert body["readiness"] == {"with_evidence": 6, "present": 6, "gap": 0, "awaiting_input": 22,
+                                 "not_assessed": 1, "applicable": 29}
 
     detail = client.get(f"/api/v1/compliance/requirements/{ENC}", headers=headers).json()
     assert len(detail["history"]) == 2 and detail["disclaimer"] == DISCLAIMER

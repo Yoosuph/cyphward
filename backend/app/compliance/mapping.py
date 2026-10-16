@@ -21,6 +21,9 @@ from backend.app.compliance.register import rule_matches
 from backend.app.compliance.rule_keys import rule_for, rule_key_for
 
 PRESENT, GAP, NOT_ASSESSED, NOT_APPLICABLE = "present", "gap", "not_assessed", "not_applicable"
+# Read-only status: no evidence source exists yet (a customer answer or a check a later release adds).
+# Distinct from NOT_ASSESSED, which means a check could have run but did not finish. Never stored.
+AWAITING_INPUT = "awaiting_input"
 TOOL_SOURCE = "tool_observed"
 
 
@@ -206,21 +209,28 @@ def requirement_status(requirement: Dict[str, Any], *, domains: List[Dict[str, A
     now = now or datetime.now(timezone.utc)
     mapping = requirement.get("tool_mapping")
     if not isinstance(mapping, dict):
-        return {"status": NOT_ASSESSED, "reason": "collection_not_available", "domains": [], "unlinked_finding_ids": []}
+        reason = "awaiting_customer_input" if "customer_attested" in requirement["evidence_types"] else "check_not_available_yet"
+        return {"status": AWAITING_INPUT, "reason": reason, "domains": [], "unlinked_finding_ids": []}
     if "scan_history" in mapping:
         return _history_status(requirement, domains, history, now)
     return _tool_status(requirement, domains, latest_rows, live_findings, now)
 
 
 def readiness(statuses: Iterable[str]) -> Dict[str, Any]:
-    """Readiness coverage: present ÷ applicable (decision D5). Never a score of compliance."""
+    """Readiness as counts, never a bare percentage or a score (decision D5, revised).
+
+    "With evidence" = present + gap: Cyphward holds current evidence either way.
+    Awaiting input = no evidence source exists yet. Not assessed = a check could
+    have run but did not finish.
+    """
     statuses = list(statuses)
     applicable = [s for s in statuses if s != NOT_APPLICABLE]
-    present = sum(1 for s in applicable if s == PRESENT)
+    count = lambda status: sum(1 for s in applicable if s == status)
     return {
-        "percent": (present * 100) // len(applicable) if applicable else 0,
-        "present": present,
-        "gap": sum(1 for s in applicable if s == GAP),
-        "not_assessed": sum(1 for s in applicable if s == NOT_ASSESSED),
+        "with_evidence": count(PRESENT) + count(GAP),
+        "present": count(PRESENT),
+        "gap": count(GAP),
+        "awaiting_input": count(AWAITING_INPUT),
+        "not_assessed": count(NOT_ASSESSED),
         "applicable": len(applicable),
     }

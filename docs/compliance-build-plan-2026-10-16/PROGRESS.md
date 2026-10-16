@@ -30,9 +30,9 @@ Three further defaults surfaced while planning C1. They follow section 0 of the 
 
 | # | Decision | Default adopted |
 |---|---|---|
-| D5 | Readiness numerator | Only requirements with current **present** evidence count. A gap is evidence of a problem, not readiness, so it never raises the percentage. Gaps and not-assessed counts are shown beside the percentage. |
+| D5 | Readiness figure (revised by the founder, 16 Oct) | No bare percentage. Shown as **"N of 29 have evidence · M awaiting input or upcoming checks"**, where N = present + gap (current evidence either way) and present, gaps, not assessed and awaiting input are each counted. |
 | D6 | Tool evidence and applicability | Tool evidence never produces `not_applicable`. A check omitted for a known reason (for example, no web service) yields `not_assessed` with that reason. Only an answered applicability question (C3) can remove a requirement from the denominator. |
-| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. The C1 maximum is therefore 6 of 29 (Nuclei can show gaps only, never present). |
+| D7 | Requirements without an evidence source yet | Notices, consent, DPO, registration, breach, DPIA, lawful basis, rights, transfers and training stay in the denominator as `not_assessed` ("evidence collection not available yet") until C2/C3 builds their source. They read **"Awaiting your input"** (customer answer) or **"Upcoming check"** (C2 check), never "Not assessed", which is reserved for a check that could have run but did not finish (founder, 16 Oct). |
 
 ### Rule keys
 
@@ -78,7 +78,7 @@ Next: C1, as planned in `C1-plan.md`.
   - "reference pending review" on unverified clauses;
   - checked / not-checked lines, per-domain detail, open ports and complete-scan counts;
   - gap findings with "Create task", which uses the existing remediation API and shows an existing task instead of duplicating it.
-- **C1 ceiling** is 6 of 29 (20%, rounded down), because Nuclei can never be present and 22 requirements have no evidence source until C2/C3. The page explains this.
+- **Readiness** reads "N of 29 have evidence · M awaiting input or upcoming checks" with present / gap / not assessed / awaiting counts; no percentage. 22 requirements await input or upcoming checks; Nuclei can never be present, so at most 6 can be present in C1.
 
 ### Files and migration
 

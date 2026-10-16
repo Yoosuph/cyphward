@@ -20,7 +20,7 @@ import {
  * missing evidence reads "Not assessed", never as met.
  */
 
-const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', not_assessed: 'idle', not_applicable: 'idle' };
+const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', not_assessed: 'warn', not_applicable: 'idle', awaiting_input: 'idle' };
 
 const CARD = 'rounded-lg border border-line bg-raised';
 
@@ -237,23 +237,25 @@ export default function Compliance() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className={`lg:col-span-4 p-6 ${CARD}`}>
-          <p className="text-[11px] mono uppercase text-soft">Readiness coverage</p>
-          <p className="text-5xl font-bold mono text-ink mt-3" data-testid="readiness-percent">{r.percent}%</p>
-          <p className="text-xs text-soft mt-2">
-            {r.present} of {r.applicable} requirements have current evidence present.
+          <p className="text-[11px] mono uppercase text-soft">Readiness evidence</p>
+          <p className="text-base text-ink mt-3 leading-snug" data-testid="readiness-line">
+            <span className="text-3xl font-bold mono">{r.with_evidence}</span> of {r.applicable} have evidence
+            <span className="text-soft"> · {r.awaiting_input} awaiting input or upcoming checks</span>
           </p>
           <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4">
             <StatusChip level="ok">{r.present} PRESENT</StatusChip>
             <StatusChip level="bad">{r.gap} GAPS</StatusChip>
-            <StatusChip level="idle">{r.not_assessed} NOT ASSESSED</StatusChip>
+            <StatusChip level="warn">{r.not_assessed} NOT ASSESSED</StatusChip>
+            <StatusChip level="idle">{r.awaiting_input} AWAITING INPUT</StatusChip>
           </div>
         </div>
         <div className={`lg:col-span-8 p-6 ${CARD} space-y-3 text-sm`}>
           <p className="text-[11px] mono uppercase text-soft">How to read this</p>
           <p className="text-soft leading-relaxed">{data.note}</p>
           <p className="text-soft leading-relaxed">
-            A gap means an open finding is linked to the requirement. Not assessed means there is no current evidence
-            either way. Clause references marked “pending review” have not yet been checked against the official texts
+            Evidence present means the checks finished with nothing linked open; a gap means an open finding is
+            linked. Not assessed means a check could have run but did not finish. Awaiting input means Cyphward has
+            no source for it yet. Clause references marked “pending review” have not yet been checked against the official texts
             ({data.register.references_pending_review} of {total} in register {data.register.version}).
           </p>
           {data.domains.length === 0 && (
@@ -271,7 +273,7 @@ export default function Compliance() {
                 <span className="tag uppercase flex items-center gap-1.5"><Lock size={10} /> Growth plan</span>
               ) : (
                 <span className="text-[10.5px] mono text-soft">
-                  {group.counts.present} present · {group.counts.gap} gaps · {group.counts.not_assessed} not assessed
+                  {group.counts.present} present · {group.counts.gap} gaps · {group.counts.not_assessed} not assessed · {group.counts.awaiting_input} awaiting
                 </span>
               )}
             </div>

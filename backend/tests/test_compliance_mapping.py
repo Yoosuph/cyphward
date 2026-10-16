@@ -173,9 +173,16 @@ def test_finding_on_another_domain_only_affects_that_domain():
     assert [d["status"] for d in r["domains"]] == ["present", "gap"] and r["status"] == "gap"
 
 
-def test_requirement_without_an_evidence_source_is_not_assessed():
+def test_requirement_without_an_evidence_source_awaits_input_and_is_not_not_assessed():
     r = status(DPO, latest={})
-    assert (r["status"], r["reason"]) == ("not_assessed", "collection_not_available")
+    assert (r["status"], r["reason"]) == ("awaiting_input", "awaiting_customer_input")
+    banner = status(requirement("gaid.consent.banner_visible"))
+    assert (banner["status"], banner["reason"]) == ("awaiting_input", "check_not_available_yet")
+
+
+def test_a_check_that_could_have_run_is_never_awaiting_input():
+    for req in (ENC, EMAIL, PORTS, CVE, PERIODIC):
+        assert status(req, latest={})["status"] in ("not_assessed", "gap", "present")
 
 
 def hist(domain, days_ago, state):
@@ -195,8 +202,8 @@ def test_scan_history_is_never_a_gap():
     assert status(PERIODIC, history=[])["status"] == "not_assessed"
 
 
-def test_readiness_counts_present_only():
-    r = m.readiness(["present", "gap", "gap", "not_assessed", "present", "not_applicable"])
-    assert r == {"percent": 40, "present": 2, "gap": 2, "not_assessed": 1, "applicable": 5}
-    assert m.readiness([])["percent"] == 0
-    assert m.readiness(["present", "not_assessed", "not_assessed"])["percent"] == 33  # rounded down
+def test_readiness_is_counts_never_a_percentage():
+    r = m.readiness(["present", "gap", "gap", "not_assessed", "present", "awaiting_input", "not_applicable"])
+    assert r == {"with_evidence": 4, "present": 2, "gap": 2, "awaiting_input": 1, "not_assessed": 1, "applicable": 6}
+    assert "percent" not in r
+    assert m.readiness([])["applicable"] == 0
