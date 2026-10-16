@@ -1988,3 +1988,20 @@ def prepare_execution_claim(store, scan_id, phase='core', owner=None):
     row.update(claimed_by=owner,claim_generation=1,claim_token='test-claim-token-0000000000000000000000',
         observation_generation=1,execution_phase=phase,lease_expires_at=datetime.now(timezone.utc)+timedelta(hours=1))
     return ExecutionClaim(scan_id,owner,1,row['claim_token'],1,phase)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_privacy_fetches(request, monkeypatch):
+    """Recon tests never fetch real websites. The privacy probe is tested against
+    fixture sites in test_privacy_probe.py; elsewhere its batch is a no-op
+    stand-in (hosts recorded as checked with no observations)."""
+    if request.node.get_closest_marker("live_privacy_probe"):
+        return
+    from backend.app.scanner.tool_results import ToolBatchResult
+
+    async def stand_in(hosts, scope, **kwargs):
+        return ToolBatchResult([], hosts, hosts, {})
+
+    for target in ("backend.app.workflows.inngest_workflow.run_privacy_batch",
+                   "scanner.runner.run_privacy_batch"):
+        monkeypatch.setattr(target, stand_in, raising=False)

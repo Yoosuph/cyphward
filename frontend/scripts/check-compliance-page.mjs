@@ -52,6 +52,16 @@ function overview(plan) {
     req("ndpa.s39.known_vulnerability_testing", "security", "Testing for known vulnerabilities", "not_assessed",
       { domains: [evidence("not_assessed")] }),
   ];
+  const external = (status, extra) => evidence(status, { source: "externally_observed", source_label: "Externally observed", ...extra });
+  const notices = [
+    req("gaid.notice.privacy_policy", "notices", "Privacy policy published", "present", {
+      source: "externally_observed", source_label: "Externally observed",
+      domains: [external("present", { details: { url: "https://acme.ng/privacy", changed_since_last_scan: true } })] }),
+    req("gaid.consent.no_trackers_before_consent", "notices", "No non-essential cookies before consent", "gap", {
+      source: "externally_observed", source_label: "Externally observed",
+      domains: [external("gap", { details: { observed: [{ vendor: "google_analytics", how: "cookie_on_first_response", host: "acme.ng" }],
+        cookies: [{ name: "_ga", category: "tracker" }, { name: "__cf_bm", category: "infrastructure" }] } })] }),
+  ];
   const dpo = [req("gaid.dpo.designated", "dpo", "Data protection officer designated", "awaiting_input",
     { status_label: "Awaiting your input" })];
   const counts = (items) => ({
@@ -69,6 +79,8 @@ function overview(plan) {
     domains: [{ id: "d1", domain: "acme.ng" }],
     groups: [
       { key: "security", title: "Security measures", locked: false, counts: counts(security), requirement_count: 7, requirements: security },
+      { key: "notices", title: "Notices", locked: plan === "starter", counts: counts(notices), requirement_count: 2,
+        requirements: plan === "starter" ? [] : notices },
       { key: "dpo", title: "Data protection officer", locked: plan === "starter", counts: counts(dpo), requirement_count: 4,
         requirements: plan === "starter" ? [] : dpo },
     ],
@@ -156,6 +168,14 @@ try {
     await page.waitForFunction(() => document.body.innerText.includes("TASK CREATED"), { timeout: 5000 });
     assert.equal(posts.length, 1, `${name}: one task created`);
     assert.equal(posts[0].finding_id, "f-dmarc");
+
+    // Externally observed evidence: source label, page found and change flag, tracker gap and cookie categories.
+    assert.ok(view.text.toUpperCase().includes("EXTERNALLY OBSERVED"), `${name}: external source label`);
+    assert.ok(await clickText("Privacy policy published"));
+    await page.waitForFunction(() => document.body.innerText.includes("changed since last scan"), { timeout: 5000 });
+    assert.ok(await clickText("No non-essential cookies before consent"));
+    await page.waitForFunction(() => document.body.innerText.includes("Observed: google analytics"), { timeout: 5000 });
+    assert.ok((await page.evaluate(() => document.body.innerText)).includes("__cf_bm (infrastructure)"), `${name}: cookie categories`);
 
     const lowered = (await page.evaluate(() => document.body.innerText)).toLowerCase();
     for (const phrase of BANNED) assert.ok(!lowered.includes(phrase), `${name}: verdict language "${phrase}"`);

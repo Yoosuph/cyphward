@@ -9,11 +9,15 @@ THIRD_PARTY_SERVICE = "third_party_service"
 
 
 def stage_plan(stage, hosts, scope, dns_records=(), http_records=(), *, cap=None, available=True):
-    if stage not in {"dns", "http", "ports", "tls", "nuclei"}:
+    if stage not in {"dns", "http", "privacy", "ports", "tls", "nuclei"}:
         raise ValueError("unknown recon stage")
     if cap is not None and cap < 0:
         raise ValueError("stage cap cannot be negative")
     ordered = list(dict.fromkeys(hosts))
+    if stage == "privacy" and scope:
+        # The apex homepage and www carry the site's notices; check them first.
+        apex = canonical_host(scope[0])
+        ordered.sort(key=lambda h: (h != apex, h != f"www.{apex}"))
     dns = {item["hostname"]: item for item in dns_records if item.get("hostname")}
     http = {item["hostname"]: item for item in http_records if item.get("hostname")}
     scope = [host for value in scope if (host := canonical_host(value))]
@@ -24,9 +28,9 @@ def stage_plan(stage, hosts, scope, dns_records=(), http_records=(), *, cap=None
             reason = "outside_authorised_scope"
         elif stage in {"http", "ports"} and not (dns.get(host) or {}).get("primary_ip"):
             reason = "no_public_dns_address"
-        elif stage in {"tls", "nuclei"} and probe.get("third_party_redirect"):
+        elif stage in {"tls", "nuclei", "privacy"} and probe.get("third_party_redirect"):
             reason = THIRD_PARTY_SERVICE
-        elif stage in {"tls", "nuclei"} and (probe.get("http_status") is None or probe.get("error")):
+        elif stage in {"tls", "nuclei", "privacy"} and (probe.get("http_status") is None or probe.get("error")):
             reason = "no_usable_http_response"
         elif stage == "tls" and not str(probe.get("url") or "").startswith("https://"):
             reason = "no_https_response"

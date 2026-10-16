@@ -11,10 +11,13 @@ from backend.app.risk.check_set import DECLARED_CHECKS
 RAW = json.loads(reg.REGISTER_FILE.read_text())
 
 
-def test_register_v1_loads_with_29_requirements_in_11_groups():
-    assert reg.REGISTER["version"] == "ndpa-gaid-v1"
+def test_register_v1_1_loads_with_29_requirements_in_11_groups():
+    assert reg.REGISTER["version"] == "ndpa-gaid-v1.1"
     assert len(reg.requirements()) == 29 and len(reg.REGISTER["groups"]) == 11
     assert len(reg.tool_requirements()) == 5
+    assert [r["key"] for r in reg.privacy_requirements()] == [
+        "gaid.notice.privacy_policy", "gaid.notice.cookie_notice", "gaid.consent.no_trackers_before_consent",
+        "gaid.dpo.contact_published"]
 
 
 def test_every_clause_ships_pending_review():
@@ -25,6 +28,9 @@ def test_every_tool_mapping_names_real_checks_and_rule_keys():
     for r in reg.requirements():
         mapping = r.get("tool_mapping")
         if not mapping or "scan_history" in mapping:
+            continue
+        if "privacy" in mapping:
+            assert mapping["privacy"]["signal"] in reg.PRIVACY_SIGNALS and "externally_observed" in r["evidence_types"]
             continue
         assert set(mapping["checks"]) <= set(DECLARED_CHECKS), r["key"]
         for rule in mapping["rules"]:
@@ -62,6 +68,10 @@ def _first(data, key):
     lambda d: _first(d, "gaid.training.in_place").update(evidence_types=["tool_observed"]),
     lambda d: d["requirements"][0].update(freshness_days=0),
     lambda d: d.update(version=""),
+    lambda d: _first(d, "gaid.notice.privacy_policy")["tool_mapping"]["privacy"].update(signal="vibes"),
+    lambda d: _first(d, "gaid.notice.privacy_policy").update(evidence_types=["tool_observed"]),
+    lambda d: _first(d, "gaid.notice.privacy_policy").pop("checks_performed"),
+    lambda d: _first(d, "gaid.notice.privacy_policy")["tool_mapping"].update(checks=["http.headers"]),
 ])
 def test_invalid_registers_are_rejected(change):
     _broken(change)

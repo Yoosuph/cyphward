@@ -443,7 +443,9 @@ def test_lost_local_dispatch_is_consumed_from_queue(execution_db, monkeypatch):
             return result
 
         monkeypatch.setattr(wf, "finalize_scan", finalized)
-        await asyncio.wait_for(scan_recovery.recover_scan_queue(stop), timeout=5)
+        # Bounded, not a speed test: the local pipeline still resolves synthetic hosts,
+        # which can take seconds on a busy machine (flaked 3/15 at 5 s on main).
+        await asyncio.wait_for(scan_recovery.recover_scan_queue(stop), timeout=20)
 
     asyncio.run(run())
     assert row(conn, sid)["status"] == "completed"

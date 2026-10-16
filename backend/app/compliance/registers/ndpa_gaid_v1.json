@@ -1,19 +1,52 @@
 {
-  "version": "ndpa-gaid-v1",
+  "version": "ndpa-gaid-v1.1",
   "title": "NDPA 2023 / GAID 2025 readiness register",
   "note": "Clause references come from secondary legal summaries and are pending review against the official NDPA and GAID texts. Correct an entry here and bump the version.",
   "groups": [
-    {"key": "security", "title": "Security measures"},
-    {"key": "notices", "title": "Notices"},
-    {"key": "consent", "title": "Cookie consent"},
-    {"key": "dpo", "title": "Data protection officer"},
-    {"key": "registration", "title": "Registration and audit returns"},
-    {"key": "breach", "title": "Breach response"},
-    {"key": "dpia", "title": "Impact assessment"},
-    {"key": "lawful_basis", "title": "Lawful basis and consent records"},
-    {"key": "rights", "title": "Data subject rights"},
-    {"key": "transfers", "title": "Cross-border transfers"},
-    {"key": "training", "title": "Training"}
+    {
+      "key": "security",
+      "title": "Security measures"
+    },
+    {
+      "key": "notices",
+      "title": "Notices"
+    },
+    {
+      "key": "consent",
+      "title": "Cookie consent"
+    },
+    {
+      "key": "dpo",
+      "title": "Data protection officer"
+    },
+    {
+      "key": "registration",
+      "title": "Registration and audit returns"
+    },
+    {
+      "key": "breach",
+      "title": "Breach response"
+    },
+    {
+      "key": "dpia",
+      "title": "Impact assessment"
+    },
+    {
+      "key": "lawful_basis",
+      "title": "Lawful basis and consent records"
+    },
+    {
+      "key": "rights",
+      "title": "Data subject rights"
+    },
+    {
+      "key": "transfers",
+      "title": "Cross-border transfers"
+    },
+    {
+      "key": "training",
+      "title": "Training"
+    }
   ],
   "requirements": [
     {
@@ -24,9 +57,21 @@
       "clause_verified": false,
       "summary": "Websites that may carry personal data use a valid TLS certificate and tell browsers to use HTTPS only (HSTS).",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"checks": ["tls.certificate", "http.headers"],
-                       "rules": ["tls.certificate.invalid", "tls.certificate.expiring", "http.hsts.missing", "http.hsts.no_subdomains"]},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "checks": [
+          "tls.certificate",
+          "http.headers"
+        ],
+        "rules": [
+          "tls.certificate.invalid",
+          "tls.certificate.expiring",
+          "http.hsts.missing",
+          "http.hsts.no_subdomains"
+        ]
+      },
       "checks_performed": "Certificate validity and expiry, and the HSTS header, on each in-scope web host.",
       "not_checked": "HTTP-to-HTTPS redirects, cipher strength, older protocol versions, internal systems and email transport.",
       "freshness_days": 30,
@@ -40,10 +85,22 @@
       "clause_verified": false,
       "summary": "Web responses send standard protective headers and do not advertise software versions.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"checks": ["http.headers"],
-                       "rules": ["http.csp.missing", "http.frame_options.missing", "http.content_type_options.missing",
-                                 "http.server_version_disclosed", "http.powered_by_disclosed", "http.robots_paths_disclosed"]},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "checks": [
+          "http.headers"
+        ],
+        "rules": [
+          "http.csp.missing",
+          "http.frame_options.missing",
+          "http.content_type_options.missing",
+          "http.server_version_disclosed",
+          "http.powered_by_disclosed",
+          "http.robots_paths_disclosed"
+        ]
+      },
       "checks_performed": "Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Server and X-Powered-By headers on each in-scope web host's first response.",
       "not_checked": "Application logic, authentication, pages other than the first response, and APIs.",
       "freshness_days": 30,
@@ -57,8 +114,15 @@
       "clause_verified": false,
       "summary": "The services each in-scope host exposes to the internet have been listed, so unexpected ones can be found.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"checks": ["ports.inventory"], "rules": []},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "checks": [
+          "ports.inventory"
+        ],
+        "rules": []
+      },
       "checks_performed": "A port inventory of each in-scope host. The open ports found are listed with the evidence.",
       "not_checked": "Whether each open service should be exposed, and how it is secured. Review the listed ports.",
       "freshness_days": 30,
@@ -72,8 +136,15 @@
       "clause_verified": false,
       "summary": "Exposed systems are tested against known-vulnerability (CVE) templates and matches are followed up.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"checks": [], "rules": ["nuclei:*"]},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "checks": [],
+        "rules": [
+          "nuclei:*"
+        ]
+      },
       "checks_performed": "Known-CVE templates: matches reported; clean results not proven.",
       "not_checked": "A clean result. Template runs report matches only, so the absence of a match is never shown as evidence.",
       "freshness_days": 30,
@@ -87,9 +158,21 @@
       "clause_verified": false,
       "summary": "The domain publishes SPF and an enforcing DMARC policy, which makes forged email harder to deliver.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"checks": ["dns.spf", "dns.dmarc"],
-                       "rules": ["dns.spf.missing", "dns.spf.softfail", "dns.dmarc.missing", "dns.dmarc.policy_none"]},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "checks": [
+          "dns.spf",
+          "dns.dmarc"
+        ],
+        "rules": [
+          "dns.spf.missing",
+          "dns.spf.softfail",
+          "dns.dmarc.missing",
+          "dns.dmarc.policy_none"
+        ]
+      },
       "checks_performed": "The SPF record and DMARC policy published for the scanned domain.",
       "not_checked": "DKIM, every SPF mechanism and DMARC reporting, and subdomains other than the scanned domain.",
       "freshness_days": 30,
@@ -103,8 +186,14 @@
       "clause_verified": false,
       "summary": "Each verified domain has a recent assessment in which every declared check finished.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"scan_history": {"min_complete_scans": 1}},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "scan_history": {
+          "min_complete_scans": 1
+        }
+      },
       "checks_performed": "Completed scans with complete declared-check coverage, per verified domain, within the window.",
       "not_checked": "Risk assessments of systems Cyphward does not scan, and organisational risks.",
       "freshness_days": 90,
@@ -118,136 +207,359 @@
       "clause_verified": false,
       "summary": "Each verified domain was tested in the last 30 days, with every declared check finished.",
       "applies_to": "all",
-      "evidence_types": ["tool_observed"],
-      "tool_mapping": {"scan_history": {"min_complete_scans": 1}},
+      "evidence_types": [
+        "tool_observed"
+      ],
+      "tool_mapping": {
+        "scan_history": {
+          "min_complete_scans": 1
+        }
+      },
       "checks_performed": "Completed scans with complete declared-check coverage, per verified domain, within the window.",
       "not_checked": "Testing of internal systems, staff procedures and suppliers.",
       "freshness_days": 30,
       "remediation_hint": "Keep daily scans on and fix whatever stops a scan from finishing every declared check."
     },
-
-    {"key": "gaid.notice.privacy_policy", "group": "notices", "title": "Privacy policy published",
-     "clause": "GAID 2025 Art. 7", "clause_verified": false,
-     "summary": "A privacy policy is reachable from the website.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 90,
-     "remediation_hint": "Publish a privacy policy and link it from every page footer."},
-    {"key": "gaid.notice.cookie_notice", "group": "notices", "title": "Cookie notice published",
-     "clause": "GAID 2025 Art. 7", "clause_verified": false,
-     "summary": "A cookie notice explains which cookies the website sets and why.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 90,
-     "remediation_hint": "Publish a cookie notice listing each cookie and its purpose."},
-
-    {"key": "gaid.consent.banner_visible", "group": "consent", "title": "Consent banner visible without scrolling",
-     "clause": "GAID 2025 Art. 19", "clause_verified": false,
-     "summary": "Visitors see the cookie consent banner on arrival.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 30,
-     "remediation_hint": "Show the consent banner in the first screen a visitor sees."},
-    {"key": "gaid.consent.accept_and_reject", "group": "consent", "title": "Accept and reject options",
-     "clause": "GAID 2025 Art. 19", "clause_verified": false,
-     "summary": "The banner offers a reject option as well as accept.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 30,
-     "remediation_hint": "Give equal prominence to Accept and Reject."},
-    {"key": "gaid.consent.no_trackers_before_consent", "group": "consent", "title": "No non-essential cookies before consent",
-     "clause": "GAID 2025 Art. 19", "clause_verified": false,
-     "summary": "Analytics and advertising cookies or trackers load only after the visitor agrees.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 30,
-     "remediation_hint": "Load analytics and advertising tags only after consent."},
-    {"key": "gaid.consent.purpose_and_withdrawal", "group": "consent", "title": "Purpose and withdrawal explained",
-     "clause": "GAID 2025 Art. 19", "clause_verified": false,
-     "summary": "The banner or notice explains each purpose and how to withdraw consent later.",
-     "applies_to": "all", "evidence_types": ["externally_observed"], "freshness_days": 90,
-     "remediation_hint": "Explain each cookie purpose and add a way to change consent later."},
-
-    {"key": "gaid.dpo.designated", "group": "dpo", "title": "Data protection officer designated",
-     "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32", "clause_verified": false,
-     "summary": "The organisation has named a data protection officer.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Name a DPO and record the appointment."},
-    {"key": "gaid.dpo.contact_published", "group": "dpo", "title": "DPO contact published",
-     "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32", "clause_verified": false,
-     "summary": "The DPO's contact details are published, for example in the privacy policy.",
-     "applies_to": "all", "evidence_types": ["externally_observed", "customer_attested"], "freshness_days": 90,
-     "remediation_hint": "Publish a DPO contact address in the privacy policy."},
-    {"key": "gaid.dpo.reports_to_management", "group": "dpo", "title": "DPO reports to management",
-     "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32", "clause_verified": false,
-     "summary": "The DPO reports directly to senior management.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Record the DPO's reporting line to senior management."},
-    {"key": "gaid.dpo.six_monthly_report", "group": "dpo", "title": "Six-monthly DPO report",
-     "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32", "clause_verified": false,
-     "summary": "The DPO prepares a data protection report every six months.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 183,
-     "remediation_hint": "Schedule the DPO's six-monthly report."},
-
-    {"key": "gaid.registration.major_importance_status", "group": "registration", "title": "Major-importance status recorded",
-     "clause": "GAID 2025 Arts. 8–10", "clause_verified": false,
-     "summary": "The organisation has recorded whether it is a data controller or processor of major importance, and its tier (UHL, EHL or OHL).",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Record your major-importance status and tier."},
-    {"key": "gaid.registration.registered", "group": "registration", "title": "Registration with the Commission",
-     "clause": "GAID 2025 Arts. 8–10", "clause_verified": false,
-     "summary": "A data controller or processor of major importance has registered with the Nigeria Data Protection Commission.",
-     "applies_to": "dcpmi", "applicability_question": "registration.major_importance",
-     "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Register with the Commission and keep the confirmation."},
-    {"key": "gaid.registration.annual_car", "group": "registration", "title": "Annual Compliance Audit Return filed through a DPCO",
-     "clause": "GAID 2025 Arts. 8–10", "clause_verified": false,
-     "summary": "A UHL or EHL organisation files its annual audit return through a licensed DPCO by 31 March.",
-     "applies_to": "uhl_ehl", "applicability_question": "registration.tier",
-     "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Engage a licensed DPCO before 31 March."},
-
-    {"key": "ndpa.s40.breach_response_plan", "group": "breach", "title": "Breach response plan",
-     "clause": "NDPA 2023 s.40", "clause_verified": false,
-     "summary": "A written plan says who does what when personal data is breached.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Write and circulate a breach response plan."},
-    {"key": "ndpa.s40.notification_72h", "group": "breach", "title": "72-hour notification process",
-     "clause": "NDPA 2023 s.40", "clause_verified": false,
-     "summary": "There is a process to notify the Commission within 72 hours of becoming aware of a breach.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Document who notifies the Commission and how, within 72 hours."},
-    {"key": "ndpa.s40.incident_log", "group": "breach", "title": "Incident log",
-     "clause": "NDPA 2023 s.40", "clause_verified": false,
-     "summary": "Breaches and suspected breaches are logged with their dates and actions.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Keep an incident log, even when there are no incidents."},
-
-    {"key": "gaid.dpia.high_risk_processing", "group": "dpia", "title": "Impact assessment for high-risk processing",
-     "clause": "GAID 2025 Art. 28", "clause_verified": false,
-     "summary": "Processing likely to pose a high risk to people has a data protection impact assessment.",
-     "applies_to": "conditional", "applicability_question": "dpia.high_risk_processing",
-     "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Carry out a DPIA before starting high-risk processing."},
-
-    {"key": "ndpa.s25.lawful_basis_documented", "group": "lawful_basis", "title": "Lawful basis documented per purpose",
-     "clause": "NDPA 2023 ss.24–25; GAID 2025 Arts. 17–18", "clause_verified": false,
-     "summary": "Each processing purpose has its lawful basis written down.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "List each processing purpose with its lawful basis."},
-    {"key": "gaid.consent.records_kept", "group": "lawful_basis", "title": "Consent records kept",
-     "clause": "NDPA 2023 ss.24–25; GAID 2025 Arts. 17–18", "clause_verified": false,
-     "summary": "Where consent is the basis, records show who agreed, to what and when.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Store consent records with the date, wording and person."},
-
-    {"key": "ndpa.part6.rights_process", "group": "rights", "title": "Data subject request process",
-     "clause": "NDPA 2023 Part VI; GAID 2025 Arts. 7, 38", "clause_verified": false,
-     "summary": "There is a process to handle access, correction, portability and erasure requests.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Publish how people can make requests and track each one to completion."},
-
-    {"key": "ndpa.part8.transfers_identified", "group": "transfers", "title": "Cross-border transfers identified",
-     "clause": "NDPA 2023 Part VIII; GAID 2025 Art. 45", "clause_verified": false,
-     "summary": "Transfers of personal data outside Nigeria are listed with the basis relied on.",
-     "applies_to": "conditional", "applicability_question": "transfers.outside_nigeria",
-     "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "List each foreign recipient or hosting location and its transfer basis."},
-
-    {"key": "gaid.training.in_place", "group": "training", "title": "Privacy and security training",
-     "clause": "GAID 2025 Art. 7", "clause_verified": false,
-     "summary": "Staff who handle personal data receive privacy and security training.",
-     "applies_to": "all", "evidence_types": ["customer_attested"], "freshness_days": 365,
-     "remediation_hint": "Run training at least yearly and keep attendance records."}
+    {
+      "key": "gaid.notice.privacy_policy",
+      "group": "notices",
+      "title": "Privacy policy published",
+      "clause": "GAID 2025 Art. 7",
+      "clause_verified": false,
+      "summary": "A privacy policy is reachable from the website.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 90,
+      "remediation_hint": "Publish a privacy policy and link it from every page footer.",
+      "tool_mapping": {
+        "privacy": {
+          "signal": "privacy_policy"
+        }
+      },
+      "checks_performed": "A static fetch of each checked website's homepage, links to a privacy policy, and common addresses such as /privacy. A page counts only when its title names privacy and it differs from the homepage.",
+      "not_checked": "Pages built by JavaScript, the policy's quality or completeness, and websites Cyphward does not scan."
+    },
+    {
+      "key": "gaid.notice.cookie_notice",
+      "group": "notices",
+      "title": "Cookie notice published",
+      "clause": "GAID 2025 Art. 7",
+      "clause_verified": false,
+      "summary": "A cookie notice explains which cookies the website sets and why.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 90,
+      "remediation_hint": "Publish a cookie notice listing each cookie and its purpose.",
+      "tool_mapping": {
+        "privacy": {
+          "signal": "cookie_notice"
+        }
+      },
+      "checks_performed": "A static fetch of each checked website's homepage, links to a cookie notice, and common addresses such as /cookies.",
+      "not_checked": "Pages built by JavaScript and whether the notice lists every cookie."
+    },
+    {
+      "key": "gaid.consent.banner_visible",
+      "group": "consent",
+      "title": "Consent banner visible without scrolling",
+      "clause": "GAID 2025 Art. 19",
+      "clause_verified": false,
+      "summary": "Visitors see the cookie consent banner on arrival.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 30,
+      "remediation_hint": "Show the consent banner in the first screen a visitor sees."
+    },
+    {
+      "key": "gaid.consent.accept_and_reject",
+      "group": "consent",
+      "title": "Accept and reject options",
+      "clause": "GAID 2025 Art. 19",
+      "clause_verified": false,
+      "summary": "The banner offers a reject option as well as accept.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 30,
+      "remediation_hint": "Give equal prominence to Accept and Reject."
+    },
+    {
+      "key": "gaid.consent.no_trackers_before_consent",
+      "group": "consent",
+      "title": "No non-essential cookies before consent",
+      "clause": "GAID 2025 Art. 19",
+      "clause_verified": false,
+      "summary": "Analytics and advertising cookies or trackers load only after the visitor agrees.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 30,
+      "remediation_hint": "Load analytics and advertising tags only after consent.",
+      "tool_mapping": {
+        "privacy": {
+          "signal": "trackers_before_consent"
+        }
+      },
+      "checks_performed": "Cookies set on the first response and tracker scripts in the homepage HTML, including whether a consent manager blocks them.",
+      "not_checked": "Trackers loaded later by scripts or tag managers. Only a browser test can show that nothing loads before consent, so this check can show gaps but never evidence present."
+    },
+    {
+      "key": "gaid.consent.purpose_and_withdrawal",
+      "group": "consent",
+      "title": "Purpose and withdrawal explained",
+      "clause": "GAID 2025 Art. 19",
+      "clause_verified": false,
+      "summary": "The banner or notice explains each purpose and how to withdraw consent later.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed"
+      ],
+      "freshness_days": 90,
+      "remediation_hint": "Explain each cookie purpose and add a way to change consent later."
+    },
+    {
+      "key": "gaid.dpo.designated",
+      "group": "dpo",
+      "title": "Data protection officer designated",
+      "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32",
+      "clause_verified": false,
+      "summary": "The organisation has named a data protection officer.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Name a DPO and record the appointment."
+    },
+    {
+      "key": "gaid.dpo.contact_published",
+      "group": "dpo",
+      "title": "DPO contact published",
+      "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32",
+      "clause_verified": false,
+      "summary": "The DPO's contact details are published, for example in the privacy policy.",
+      "applies_to": "all",
+      "evidence_types": [
+        "externally_observed",
+        "customer_attested"
+      ],
+      "freshness_days": 90,
+      "remediation_hint": "Publish a DPO contact address in the privacy policy.",
+      "tool_mapping": {
+        "privacy": {
+          "signal": "dpo_contact"
+        }
+      },
+      "checks_performed": "Whether a DPO contact (an email address near 'data protection officer' or 'DPO') appears in a fetched privacy policy. Heuristic.",
+      "not_checked": "Whether the contact works, and policies Cyphward could not fetch. You can also confirm this yourself in a later release."
+    },
+    {
+      "key": "gaid.dpo.reports_to_management",
+      "group": "dpo",
+      "title": "DPO reports to management",
+      "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32",
+      "clause_verified": false,
+      "summary": "The DPO reports directly to senior management.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Record the DPO's reporting line to senior management."
+    },
+    {
+      "key": "gaid.dpo.six_monthly_report",
+      "group": "dpo",
+      "title": "Six-monthly DPO report",
+      "clause": "GAID 2025 Arts. 11–13; NDPA 2023 s.32",
+      "clause_verified": false,
+      "summary": "The DPO prepares a data protection report every six months.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 183,
+      "remediation_hint": "Schedule the DPO's six-monthly report."
+    },
+    {
+      "key": "gaid.registration.major_importance_status",
+      "group": "registration",
+      "title": "Major-importance status recorded",
+      "clause": "GAID 2025 Arts. 8–10",
+      "clause_verified": false,
+      "summary": "The organisation has recorded whether it is a data controller or processor of major importance, and its tier (UHL, EHL or OHL).",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Record your major-importance status and tier."
+    },
+    {
+      "key": "gaid.registration.registered",
+      "group": "registration",
+      "title": "Registration with the Commission",
+      "clause": "GAID 2025 Arts. 8–10",
+      "clause_verified": false,
+      "summary": "A data controller or processor of major importance has registered with the Nigeria Data Protection Commission.",
+      "applies_to": "dcpmi",
+      "applicability_question": "registration.major_importance",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Register with the Commission and keep the confirmation."
+    },
+    {
+      "key": "gaid.registration.annual_car",
+      "group": "registration",
+      "title": "Annual Compliance Audit Return filed through a DPCO",
+      "clause": "GAID 2025 Arts. 8–10",
+      "clause_verified": false,
+      "summary": "A UHL or EHL organisation files its annual audit return through a licensed DPCO by 31 March.",
+      "applies_to": "uhl_ehl",
+      "applicability_question": "registration.tier",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Engage a licensed DPCO before 31 March."
+    },
+    {
+      "key": "ndpa.s40.breach_response_plan",
+      "group": "breach",
+      "title": "Breach response plan",
+      "clause": "NDPA 2023 s.40",
+      "clause_verified": false,
+      "summary": "A written plan says who does what when personal data is breached.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Write and circulate a breach response plan."
+    },
+    {
+      "key": "ndpa.s40.notification_72h",
+      "group": "breach",
+      "title": "72-hour notification process",
+      "clause": "NDPA 2023 s.40",
+      "clause_verified": false,
+      "summary": "There is a process to notify the Commission within 72 hours of becoming aware of a breach.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Document who notifies the Commission and how, within 72 hours."
+    },
+    {
+      "key": "ndpa.s40.incident_log",
+      "group": "breach",
+      "title": "Incident log",
+      "clause": "NDPA 2023 s.40",
+      "clause_verified": false,
+      "summary": "Breaches and suspected breaches are logged with their dates and actions.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Keep an incident log, even when there are no incidents."
+    },
+    {
+      "key": "gaid.dpia.high_risk_processing",
+      "group": "dpia",
+      "title": "Impact assessment for high-risk processing",
+      "clause": "GAID 2025 Art. 28",
+      "clause_verified": false,
+      "summary": "Processing likely to pose a high risk to people has a data protection impact assessment.",
+      "applies_to": "conditional",
+      "applicability_question": "dpia.high_risk_processing",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Carry out a DPIA before starting high-risk processing."
+    },
+    {
+      "key": "ndpa.s25.lawful_basis_documented",
+      "group": "lawful_basis",
+      "title": "Lawful basis documented per purpose",
+      "clause": "NDPA 2023 ss.24–25; GAID 2025 Arts. 17–18",
+      "clause_verified": false,
+      "summary": "Each processing purpose has its lawful basis written down.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "List each processing purpose with its lawful basis."
+    },
+    {
+      "key": "gaid.consent.records_kept",
+      "group": "lawful_basis",
+      "title": "Consent records kept",
+      "clause": "NDPA 2023 ss.24–25; GAID 2025 Arts. 17–18",
+      "clause_verified": false,
+      "summary": "Where consent is the basis, records show who agreed, to what and when.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Store consent records with the date, wording and person."
+    },
+    {
+      "key": "ndpa.part6.rights_process",
+      "group": "rights",
+      "title": "Data subject request process",
+      "clause": "NDPA 2023 Part VI; GAID 2025 Arts. 7, 38",
+      "clause_verified": false,
+      "summary": "There is a process to handle access, correction, portability and erasure requests.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Publish how people can make requests and track each one to completion."
+    },
+    {
+      "key": "ndpa.part8.transfers_identified",
+      "group": "transfers",
+      "title": "Cross-border transfers identified",
+      "clause": "NDPA 2023 Part VIII; GAID 2025 Art. 45",
+      "clause_verified": false,
+      "summary": "Transfers of personal data outside Nigeria are listed with the basis relied on.",
+      "applies_to": "conditional",
+      "applicability_question": "transfers.outside_nigeria",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "List each foreign recipient or hosting location and its transfer basis."
+    },
+    {
+      "key": "gaid.training.in_place",
+      "group": "training",
+      "title": "Privacy and security training",
+      "clause": "GAID 2025 Art. 7",
+      "clause_verified": false,
+      "summary": "Staff who handle personal data receive privacy and security training.",
+      "applies_to": "all",
+      "evidence_types": [
+        "customer_attested"
+      ],
+      "freshness_days": 365,
+      "remediation_hint": "Run training at least yearly and keep attendance records."
+    }
   ]
 }

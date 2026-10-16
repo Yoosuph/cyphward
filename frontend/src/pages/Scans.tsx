@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import { getScans, getScanDetail, launchScan, getDomains } from "../lib/api";
 import type { Scan, Domain, StageInfo, ScanCoverage } from "../types";
@@ -116,6 +117,52 @@ function StageScope({ raw }: { raw: any }) {
   );
 }
 
+const PAGE_KIND: Record<string, string> = { privacy_policy: "Privacy policy", cookie_notice: "Cookie notice" };
+const COOKIE_KIND: Record<string, string> = {
+  tracker: "tracker", infrastructure: "infrastructure", necessary: "necessary", unknown: "unclassified",
+};
+
+function PrivacyDetails({ raw }: { raw: any }) {
+  const hosts: any[] = Array.isArray(raw?.privacy_observations) ? raw.privacy_observations : [];
+  if (!hosts.length) return null;
+  return (
+    <div className="scan-target-scope" aria-label="Static privacy observations">
+      <p>Heuristic, from each page's HTML only: pages built by JavaScript and anything loaded later are not seen.</p>
+      {hosts.map((host) => (
+        <details key={host.hostname}>
+          <summary>{host.hostname}{host.catch_all ? " · answers every address" : ""}</summary>
+          <ul>
+            {(host.pages || []).map((page: any) => (
+              <li key={page.kind}>
+                <strong>{PAGE_KIND[page.kind] || page.kind}</strong>:{" "}
+                {page.matched
+                  ? <>found ({page.found_by === "link" ? "linked" : "common address"}) <span className="scan-url">{page.url}</span></>
+                  : page.off_domain
+                    ? <>linked to <span className="scan-url">{page.url}</span> (hosted elsewhere, not fetched)</>
+                    : "not found by the static check"}
+              </li>
+            ))}
+            <li>
+              <strong>First-visit cookies</strong>:{" "}
+              {(host.first_response_cookies || []).length
+                ? (host.first_response_cookies as any[]).map((c) => `${c.name} (${COOKIE_KIND[c.category] || c.category})`).join(", ")
+                : "none"}
+            </li>
+            <li>
+              <strong>Trackers in the page</strong>:{" "}
+              {(host.trackers || []).length
+                ? (host.trackers as any[]).map((t) => `${t.vendor.replace(/_/g, " ")}${t.strength === "loader" ? " (loader)" : ""}${t.consent_blocked ? " (blocked until consent)" : ""}`).join(", ")
+                : "none seen"}
+            </li>
+            <li><strong>Consent manager</strong>: {host.consent_manager || "none seen"}</li>
+            {host.security_txt && <li><strong>security.txt</strong>: {host.security_txt.present ? (host.security_txt.has_contact ? "present, with contact" : "present, no contact") : "not found"}</li>}
+          </ul>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 function TargetScope({ raw }: { raw: any }) {
   const selection = raw?.target_selection;
   if (
@@ -197,6 +244,14 @@ const CHECKS = [
     icon: ShieldCheck,
   },
 ] as const;
+// Optional and outside the declared check set: it never changes coverage or the
+// "checks completed" count, and older workers skip it.
+const PRIVACY_STAGE = {
+  key: "privacy",
+  label: "Privacy notices (static)",
+  desc: "Privacy policy, cookie notice, first-visit cookies and trackers, from the page HTML only",
+  icon: FileText,
+} as const;
 const PROCESSING = [
   {
     key: "normalization",
@@ -217,7 +272,7 @@ const PROCESSING = [
     icon: Sparkles,
   },
 ] as const;
-type Stage = (typeof CHECKS)[number] | (typeof PROCESSING)[number];
+type Stage = (typeof CHECKS)[number] | (typeof PROCESSING)[number] | typeof PRIVACY_STAGE;
 const progress = (scan: Scan, key: string): StageInfo | undefined =>
   (scan.stage_progress as unknown as Record<string, StageInfo>)?.[key];
 const finished = (scan: Scan) =>
@@ -339,8 +394,11 @@ function CheckRow({
 }) {
   const info = progress(scan, stage.key);
   const state = info?.status;
+  const workerPending = stage.key === "privacy" && (info as { reason?: string } | undefined)?.reason === "worker_without_privacy_capability";
   const label =
-    state === "completed"
+    workerPending
+      ? "Not run"
+      : state === "completed"
       ? "Done"
       : state === "failed"
         ? "Failed"
@@ -384,6 +442,8 @@ function CheckRow({
         <p>{stage.desc}</p>
         {stage.key === "discovery" && <TargetScope raw={raw} />}
         {stage.key !== "discovery" && <StageScope raw={raw} />}
+        {workerPending && <p>Not run: the scanner worker that ran this scan predates the privacy check (worker update pending).</p>}
+        {stage.key === "privacy" && <PrivacyDetails raw={raw} />}
         {stage.key === "nuclei" && (raw || finished(scan)) && (
           <>
             <p>Tool completion does not confirm every template ran. An empty result cannot certify a fix.</p>
@@ -482,14 +542,12 @@ function CheckList({
     <>
       {declared && <DeclaredCoverageDetails coverage={declared} />}
       <div className="scan-check-list">
-        {CHECKS.map((stage) => (
-          <CheckRow
-            key={`${scan.id}-${stage.key}`}
-            scan={scan}
-            stage={stage}
-            observations={observations}
-          />
-        ))}
+        {CHECKS.flatMap((stage) => {
+          const rows = [<CheckRow key={`${scan.id}-${stage.key}`} scan={scan} stage={stage} observations={observations} />];
+          if (stage.key === "nuclei" && progress(scan, "privacy"))
+            rows.push(<CheckRow key={`${scan.id}-privacy`} scan={scan} stage={PRIVACY_STAGE} observations={observations} />);
+          return rows;
+        })}
       </div>
       <details className="scan-processing" key={`${scan.id}-processing`}>
         <summary>

@@ -3,7 +3,7 @@
 import logging
 import secrets
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response
@@ -31,6 +31,8 @@ from shared.contracts import (
     ScanJob,
     ScanJobLimits,
     RECON_STAGES,
+    CAPABILITIES_HEADER,
+    PRIVACY_CAPABILITY,
 )
 
 logger = logging.getLogger("cyphward.scanner")
@@ -112,7 +114,8 @@ def _write(fn, *args):
 @router.get("/protocol")
 def scanner_protocol(scanner_id: Scanner) -> dict:
     """Workers negotiate before allocating a job during a coordinated rollout."""
-    return {"version": 2, "claim_authority": "required", "observation_attempts": True}
+    return {"version": 2, "claim_authority": "required", "observation_attempts": True,
+            "capabilities": [PRIVACY_CAPABILITY]}
 
 
 @router.post(
@@ -120,10 +123,15 @@ def scanner_protocol(scanner_id: Scanner) -> dict:
     response_model=ScanJob,
     responses={204: {"description": "Queue empty or claims paused"}},
 )
-def claim_job(scanner_id: Scanner) -> Any:
+def claim_job(
+    scanner_id: Scanner,
+    x_scanner_capabilities: Annotated[Optional[str], Header(alias=CAPABILITIES_HEADER)] = None,
+) -> Any:
     if not SCANNER_CLAIMS_ENABLED:
         return Response(status_code=204)
-    row = execution.claim_recon(scanner_id, "worker", SCANNER_LEASE_SECONDS)
+    capabilities = {c.strip() for c in (x_scanner_capabilities or "").split(",") if c.strip()}
+    row = execution.claim_recon(scanner_id, "worker", SCANNER_LEASE_SECONDS,
+                                privacy_capable=PRIVACY_CAPABILITY in capabilities)
     if row is None:
         return Response(status_code=204)
     return ScanJob(

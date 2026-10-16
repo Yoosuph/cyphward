@@ -18,6 +18,7 @@ APPLIES_TO = ("all", "dcpmi", "uhl_ehl", "conditional")
 REQUIRED = ("key", "group", "title", "clause", "clause_verified", "summary", "applies_to",
             "evidence_types", "freshness_days", "remediation_hint")
 TOOL_TEXT = ("checks_performed", "not_checked")
+PRIVACY_SIGNALS = ("privacy_policy", "cookie_notice", "trackers_before_consent", "dpo_contact")
 
 DISCLAIMER = ("Readiness evidence, not legal advice or a compliance determination. Filing of Compliance "
               "Audit Returns for UHL/EHL organisations must go through a licensed DPCO.")
@@ -78,13 +79,21 @@ def validate(data: Dict[str, Any]) -> Dict[str, Any]:
             if "tool_observed" in item["evidence_types"]:
                 _fail(where, "tool_observed evidence needs a tool_mapping")
             continue
-        if "tool_observed" not in item["evidence_types"]:
-            _fail(where, "a tool_mapping needs tool_observed evidence")
+        if not isinstance(mapping, dict):
+            _fail(where, "tool_mapping must be an object")
         for field in TOOL_TEXT:
             if not isinstance(item.get(field), str) or not item[field].strip():
                 _fail(where, f"tool-backed requirements need {field}")
-        if not isinstance(mapping, dict):
-            _fail(where, "tool_mapping must be an object")
+        if "privacy" in mapping:
+            privacy = mapping["privacy"]
+            if set(mapping) != {"privacy"} or not isinstance(privacy, dict) or set(privacy) != {"signal"} \
+                    or privacy["signal"] not in PRIVACY_SIGNALS:
+                _fail(where, f"privacy mapping needs exactly one signal from {list(PRIVACY_SIGNALS)}")
+            if "externally_observed" not in item["evidence_types"] or "tool_observed" in item["evidence_types"]:
+                _fail(where, "a privacy mapping needs externally_observed evidence (not tool_observed)")
+            continue
+        if "tool_observed" not in item["evidence_types"]:
+            _fail(where, "a tool_mapping needs tool_observed evidence")
         if "scan_history" in mapping:
             history = mapping["scan_history"]
             if set(mapping) != {"scan_history"} or not isinstance(history, dict) or \
@@ -125,6 +134,12 @@ def tool_requirements() -> List[Dict[str, Any]]:
     """Requirements whose evidence rows are written at scan finalisation."""
     return [r for r in REGISTER["requirements"]
             if isinstance(r.get("tool_mapping"), dict) and "checks" in r["tool_mapping"]]
+
+
+def privacy_requirements() -> List[Dict[str, Any]]:
+    """Requirements whose externally observed rows come from the privacy stage."""
+    return [r for r in REGISTER["requirements"]
+            if isinstance(r.get("tool_mapping"), dict) and "privacy" in r["tool_mapping"]]
 
 
 def rule_matches(pattern: str, rule_key: str) -> bool:

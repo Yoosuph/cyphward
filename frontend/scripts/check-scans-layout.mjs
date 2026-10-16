@@ -74,6 +74,8 @@ try {
     error:
       "Two targets timed out; their vulnerability checks were not completed.",
   };
+  // Optional privacy stage: shown as its own row, never counted in checks or coverage.
+  progress.privacy = { status: "completed", items: 1, duration_ms: 4200 };
   const scans = [
     {
       id: "demo-scan-001",
@@ -127,6 +129,22 @@ try {
   let refreshRequests = 0;
   let slowResponses = false;
   const raw_results = [
+    {
+      stage: "privacy",
+      raw_data: {
+        privacy_observations: [{
+          hostname: "example.ng", catch_all: true,
+          pages: [
+            { kind: "privacy_policy", matched: true, found_by: "link", url: "https://example.ng/privacy-policy-for-our-customers-in-nigeria-and-abroad" },
+            { kind: "cookie_notice", matched: false, off_domain: false },
+          ],
+          first_response_cookies: [{ name: "__cf_bm", category: "infrastructure" }, { name: "_ga", category: "tracker" }],
+          trackers: [{ vendor: "google_tag_manager", strength: "loader", consent_blocked: false }],
+          consent_manager: null, security_txt: { present: true, has_contact: true },
+        }],
+        attempted_hosts: ["example.ng"], successful_hosts: ["example.ng"], failed_hosts: {},
+      },
+    },
     {
       stage: "discovery",
       raw_data: {
@@ -324,7 +342,17 @@ try {
         document.querySelector(".scan-target-scope details").open = true;
         document.querySelector('.scan-check[data-stage="nuclei"]').open = true;
         document.querySelectorAll('.scan-check[data-stage="nuclei"] .scan-target-scope details').forEach(element => { element.open = true; });
+        const privacy = document.querySelector('.scan-check[data-stage="privacy"]');
+        privacy.open = true;
+        privacy.querySelectorAll("details").forEach(element => { element.open = true; });
       });
+      const privacyText = await page.$eval('.scan-check[data-stage="privacy"]', (element) => element.innerText);
+      for (const expected of ["Privacy notices (static)", "answers every address", "__cf_bm (infrastructure)",
+                              "_ga (tracker)", "google tag manager (loader)", "present, with contact", "Heuristic"]) {
+        assert.ok(privacyText.includes(expected), `Privacy row shows ${expected}`);
+      }
+      assert.ok((await page.$eval(".scan-checks-panel summary", (element) => element.innerText)).includes("of 7 checks completed"),
+        "Privacy is not counted among the declared checks");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width,
         "Expanded target exclusions fit desktop and mobile");
     }

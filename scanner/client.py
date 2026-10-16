@@ -18,7 +18,10 @@ from typing import Any, Dict, Optional
 import httpx
 
 from scanner.config import WorkerConfig
-from shared.contracts import ScanJob
+from shared.contracts import CAPABILITIES_HEADER, PRIVACY_CAPABILITY, ScanJob
+
+# Optional stages this worker can run when the API advertises them.
+WORKER_CAPABILITIES = frozenset({PRIVACY_CAPABILITY})
 
 logger = logging.getLogger("cyphward.scanner.client")
 
@@ -34,8 +37,13 @@ class JobLost(Exception):
 
 
 class CoreClient:
+    def supports(self, capability: str) -> bool:
+        return capability in self.capabilities
+
     def __init__(self, cfg: WorkerConfig):
         self._cfg = cfg
+        # Capabilities both sides support, from the latest protocol negotiation.
+        self.capabilities: frozenset = frozenset()
         self._http = httpx.AsyncClient(
             base_url=cfg.core_url,
             timeout=cfg.http_timeout_seconds,
@@ -52,6 +60,8 @@ class CoreClient:
             "X-Timestamp": str(int(time.time())),
             "X-Scanner-Protocol": "2",
         }
+        if self.capabilities:
+            headers[CAPABILITIES_HEADER] = ",".join(sorted(self.capabilities))
         if job is not None:
             headers['X-Claim-Generation'] = str(job.claim_generation)
             headers['X-Claim-Token'] = job.claim_token
@@ -123,6 +133,10 @@ class CoreClient:
             compatible = False
         if not compatible:
             raise CoreError("Scanner API protocol v2 is not ready")
+        advertised = metadata.get("capabilities")
+        # An older API advertises none: optional stages it can't accept are skipped.
+        self.capabilities = WORKER_CAPABILITIES & frozenset(
+            c for c in (advertised if isinstance(advertised, list) else []) if isinstance(c, str))
         resp = await self._post(CLAIM_URL, retry=False)
         if resp.status_code == 204:
             return None

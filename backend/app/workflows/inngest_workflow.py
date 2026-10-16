@@ -59,6 +59,7 @@ from backend.app.scanner.naabu_runner import run_naabu_batch
 from backend.app.scanner.sslyze_runner import run_sslyze_batch
 from backend.app.scanner.security_checks import run_security_checks
 from backend.app.scanner.nuclei_runner import run_nuclei_batch
+from backend.app.scanner.privacy_probe import run_privacy_batch
 from backend.app.scanner.normalizer import normalize_findings
 from backend.app.scanner.detectors import classify_detector, detector_key
 from backend.app.scanner.dns_coverage import dns_finding_evaluated, collect_dns_results
@@ -307,8 +308,8 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
                 batch.execution_budget = budget.payload()
             progress[stage] = {**batch.progress(), "items": len(batch),
                                "duration_ms": int((time.monotonic() - started) * 1000)}
-            keys = {"dns": "dns_records", "http": "http_probes", "ports": "open_ports",
-                    "tls": "tls_profiles", "nuclei": "nuclei_findings"}
+            keys = {"dns": "dns_records", "http": "http_probes", "privacy": "privacy_observations",
+                    "ports": "open_ports", "tls": "tls_profiles", "nuclei": "nuclei_findings"}
             _store_observation(scan_id, stage, {keys[stage]: batch, **batch.coverage()})
             _save_progress(scan_id, progress, stage)
             return batch
@@ -353,6 +354,13 @@ async def _execute_recon_local_owned(scan_id: str) -> Dict[str, Any]:
                     finding["_hostname"] = finding.get("evidence", {}).get("host") or domain
             return findings
         await local_stage("nuclei", nuclei_plan, nuclei_work, optional=True)
+
+        # Optional static privacy checks, last so they only use leftover budget.
+        privacy_plan = stage_plan("privacy", hosts, [domain], valid_dns, valid_http, cap=limits.privacy_max_hosts)
+        async def privacy_work():
+            return await run_privacy_batch(privacy_plan["selected_hosts"], [domain],
+                                           max_pages=limits.privacy_max_pages)
+        await local_stage("privacy", privacy_plan, privacy_work, optional=True)
         return {"scan_id": scan_id, "discovered": len(hosts), "dns": len(valid_dns), "http": len(valid_http),
                 **{stage: progress[stage].get("items", 0) for stage in ("ports", "tls", "nuclei")}}
 

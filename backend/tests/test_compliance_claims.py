@@ -134,3 +134,12 @@ def test_compliance_page_copy_has_no_verdict_language():
     flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
     _assert_clean(flat, "Compliance.tsx")
     assert "data.disclaimer" in source, "the page renders the API disclaimer"
+
+
+def test_scan_page_privacy_copy_has_no_verdict_language():
+    source = (ROOT / "frontend" / "src" / "pages" / "Scans.tsx").read_text()
+    section = source[source.index("function PrivacyDetails"):source.index("function TargetScope")]
+    section += source[source.index("const PRIVACY_STAGE"):source.index("const PROCESSING")]
+    texts = re.findall(r">([^<>{}]+)<", section) + re.findall(r"\"([^\"\n]{3,})\"", section)
+    _assert_clean(texts, "Scans.tsx privacy")
+    assert "Heuristic" in section

@@ -42,8 +42,17 @@ def owned_transaction(claim: ExecutionClaim):
                 yield cur, row
 
 
+def _claim_progress(privacy_capable: bool) -> dict:
+    progress = empty_stage_progress()
+    progress["privacy"] = ({"status": "pending", "items": 0, "duration_ms": 0} if privacy_capable else
+                           {"status": "skipped", "items": 0, "duration_ms": 0,
+                            "reason": "worker_without_privacy_capability"})
+    return progress
+
+
 def claim_recon(
-    owner: str, phase: str, lease_seconds: int, scan_id: str | None = None
+    owner: str, phase: str, lease_seconds: int, scan_id: str | None = None,
+    privacy_capable: bool = True,
 ) -> dict | None:
     if phase not in {"worker", "local"} or lease_seconds < 1:
         raise ValueError("Invalid recon claim")
@@ -86,7 +95,7 @@ def claim_recon(
                     WHERE id=%s RETURNING *
                 """,
                     (
-                        json.dumps(empty_stage_progress()),
+                        json.dumps(_claim_progress(privacy_capable)),
                         owner,
                         phase,
                         secrets.token_urlsafe(32),

@@ -233,7 +233,8 @@ def test_claim_token_format_and_scan_id_are_validated(scanner_client):
 
 def test_protocol_negotiation_advertises_required_authority(scanner_client):
     response=scanner_client.get('/api/v1/scanner/protocol',headers=scanner_headers())
-    assert response.status_code==200 and response.json()=={'version':2,'claim_authority':'required','observation_attempts':True}
+    assert response.status_code==200 and response.json()=={'version':2,'claim_authority':'required','observation_attempts':True,
+                                                            'capabilities':['privacy_v1']}
 
 
 def test_claim_pause_keeps_held_job_mutations_available(scanner_client,store,monkeypatch):
