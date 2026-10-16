@@ -8,6 +8,9 @@ import { OwnerApiError, ownerGet } from './ownerApi';
 /* ── Session expiry plumbing: any 401 sends the console back to sign-in ── */
 export const SessionEndedContext = createContext<() => void>(() => {});
 
+/** The signed-in owner (to hide actions that would target their own account). */
+export const OwnerMeContext = createContext<{ email: string } | null>(null);
+
 /** Load one console view; stale responses (filters changed) are ignored. */
 export function useOwnerView<T>(path: string, params?: Record<string, string | number | undefined>) {
   const onSessionEnded = useContext(SessionEndedContext);

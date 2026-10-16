@@ -58,7 +58,7 @@ DELETE FROM platform_owners WHERE user_id = (SELECT id FROM profiles WHERE email
 
 `vercel.json` keeps the console out of search engines: `X-Robots-Tag: noindex` and a noindex `robots.txt`. It also sends `/admin` on the customer hosts to the console. On localhost the console runs at `http://127.0.0.1:5181/admin`.
 
-## What the console shows (read-only)
+## What the console shows
 
 - Overview: users, organizations, domains, 24-hour scans, the queue, expired claims, subscriptions, sign-ups, recorded invoices and recent activity.
 - Organizations and Users: searchable lists, plus details (members, domains, plan and billing, scans, open findings, sessions, activity).
@@ -69,6 +69,19 @@ DELETE FROM platform_owners WHERE user_id = (SELECT id FROM profiles WHERE email
 
 Secrets are never selected: password hashes, authenticator secrets, token hashes, claim tokens and DNS verification tokens.
 
+## Actions
+
+A few safe changes, each behind a confirmation dialog that says what will change and asks for a written reason (at least 5 characters, kept only in the owner log):
+
+| Action | Where | What it changes |
+| --- | --- | --- |
+| Change plan | Organization → Plan and billing | `organizations.plan` and, if one exists, `subscriptions.plan`. Status, period and invoices are untouched; nothing is charged. |
+| Extend trial | Organization → Plan and billing (trialing only) | Adds 1–60 days to `trial_ends_at` and `current_period_end` (from today if the trial has lapsed). A trial can't end more than 90 days ahead. |
+| Cancel scan | Scan detail (queued, delayed, running or worker stopped) | The same fenced transition as the customer's Cancel: the scan becomes `cancelled`, its claim is cleared and any worker still holding it is stopped. |
+| Sign out everywhere | User detail (not your own account) | Revokes every customer-app session (access tokens stop working at once) and forgets remembered browsers. Owner console sessions are not touched. |
+
+Every action needs the console session **and** the exact console Origin. It runs in one transaction with its `owner_audit` row (reason, before and after), so a change can't commit without its record. Refusals (unknown target, wrong state, already done) are recorded as `rejected`. The customer's own activity log gets a matching entry attributed to `cyphward`, without the reason.
+
 ## Audit
 
-`owner_audit` records every sign-in attempt (success, denied with a reason, throttled), every sign-out and every console view, including what was opened. The app role can only insert and read it. It has no foreign keys, so deleting a customer leaves it intact. If an audit write fails, the request fails and returns no data.
+`owner_audit` records every sign-in attempt (success, denied with a reason, throttled), every sign-out, every console view (including what was opened) and every action with its reason. The app role can only insert and read it. It has no foreign keys, so deleting a customer leaves it intact. If an audit write fails, the request fails and returns no data.

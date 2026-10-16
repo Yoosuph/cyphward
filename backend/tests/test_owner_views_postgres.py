@@ -66,6 +66,8 @@ def world(urls, monkeypatch):
     owner_email = f"owner-{ids['tag']}@views.test"
     customer_email = f"cust-{ids['tag']}@views.test"
     with psycopg.connect(admin_url, autocommit=True) as conn:
+        # Every TestClient sign-in shares one per-IP bucket; start each test below its limit.
+        conn.execute("DELETE FROM rate_limits WHERE bucket_key = 'owner-login-ip:testclient'")
         conn.execute(
             "INSERT INTO profiles (id, email, full_name, role, password_hash, provider, email_verified_at, "
             "totp_secret_enc, totp_enrolled_at) VALUES (%s,%s,'Owner','Member',%s,'email',now(),%s,now())",
@@ -202,6 +204,7 @@ def test_dedicated_admin_setup_works_with_real_grants(urls, monkeypatch):
     monkeypatch.setattr(database, "get_db", get_db)
     uid, email = str(uuid4()), f"admin-{uuid4().hex[:8]}@views.test"
     with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute("DELETE FROM rate_limits WHERE bucket_key = 'owner-login-ip:testclient'")
         conn.execute("INSERT INTO profiles (id, email, full_name, role, password_hash, provider, email_verified_at) "
                      "VALUES (%s,%s,'Admin','Member',%s,'email',now())", (uid, email, hash_password("setup-pass-123")))
         conn.execute("INSERT INTO platform_owners (user_id, note, console_only) VALUES (%s,'test',true)", (uid,))

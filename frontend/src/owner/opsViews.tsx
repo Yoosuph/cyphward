@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useListParams } from './peopleViews';
+import { CancelScanAction } from './actions';
 import {
   Cell, Empty, FilterChip, PageHead, Pager, Panel, Pill, SearchBox, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
@@ -20,6 +21,7 @@ const SCAN_STATES: [string, string][] = [
 ];
 
 const STATE_LABEL: Record<string, string> = Object.fromEntries(SCAN_STATES.filter(([k]) => k));
+const ACTIVE_STATES = ['queued', 'queued_delayed', 'running', 'running_lease_expired'];
 
 /* ── Subscriptions ─────────────────────────────────────────────────────── */
 export function SubscriptionsView() {
@@ -129,7 +131,10 @@ export function ScanDetailView() {
   return (
     <>
       <PageHead title={s?.domain || 'Scan'} subtitle={s ? <span className="mono text-xs">{s.org_name} · {STATE_LABEL[s.state] || s.state} · created {fmtDate(s.created_at)}</span> : undefined}
-                actions={<Link to="/scans" className="btn-mini">← ALL SCANS</Link>} />
+                actions={<div className="flex flex-wrap gap-2">
+                  {s && ACTIVE_STATES.includes(s.state) && <CancelScanAction scanId={s.id} domain={s.domain || 'this domain'} state={s.state} onDone={reload} />}
+                  <Link to="/scans" className="btn-mini">← ALL SCANS</Link>
+                </div>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">

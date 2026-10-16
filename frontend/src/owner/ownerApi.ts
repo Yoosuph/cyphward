@@ -40,6 +40,11 @@ export function ownerGet<T>(path: string, params?: Record<string, string | numbe
   return ownerFetch<T>(query ? `${path}?${query}` : path);
 }
 
+/** POST a console action (reason required server-side); needs the console Origin, which same-origin fetch sends. */
+export function ownerPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  return ownerFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
 export type OwnerMe = { email: string; expires_at: string; idle_minutes: number };
 
 export const ownerMe = () => ownerFetch<OwnerMe>('/me');

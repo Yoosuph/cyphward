@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.app.core import owner as owner_mod
 from backend.app.core.config import BREVO_API_KEY
 from backend.app.core.database import execute_one, execute_query
+from backend.app.core.plans import PLANS
 from backend.app.core.runtime_guard import background_status
 
 router = APIRouter(prefix="/api/v1/owner", tags=["Owner console"])
@@ -190,7 +191,8 @@ def organization_detail(org_id: str, request: Request,
         (org_id,),
     )
     return {"organization": org, "members": members, "domains": domains, "subscriptions": subscriptions,
-            "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity}
+            "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity,
+            "plans": [{"slug": slug, "label": spec["label"]} for slug, spec in PLANS.items()]}
 
 
 # ── Users ──────────────────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ from backend.app.api import (
     platform,
     owner,
     owner_views,
+    owner_actions,
     billing,
     contact,
 )
@@ -138,6 +139,7 @@ app.include_router(scanner_jobs.router)
 app.include_router(platform.router)
 app.include_router(owner.router)
 app.include_router(owner_views.router)
+app.include_router(owner_actions.router)
 app.include_router(billing.router)
 app.include_router(contact.router)
 

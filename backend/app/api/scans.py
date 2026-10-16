@@ -14,6 +14,7 @@ from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
 from backend.app.core.auth import get_current_org, require_admin, log_audit
 from backend.app.core.scan_admission import admit_scan, AdmissionConflict
+from backend.app.core.scan_cancel import CANCEL_ACTIVE_SCAN_SQL
 import inngest
 
 router = APIRouter(prefix="/api/v1/scans", tags=["Scans"])
@@ -195,18 +196,8 @@ def cancel_scan(
     if scan["status"] in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Scan is already {scan['status']}.")
 
-    # Conditional cancel: only an active scan may transition to cancelled,
-    # so a completion racing this request can never be overwritten.
-    # Clearing the lease also fences any worker that already holds the job
-    # (its next progress/complete/fail call gets 409 and aborts).
-    cancelled = execute_one("""
-        UPDATE scans
-        SET status = 'cancelled', completed_at = now(),
-            claimed_by = NULL, lease_expires_at = NULL, claim_token = NULL,
-            execution_phase = NULL, claim_generation = claim_generation + 1
-        WHERE id = %s AND org_id = %s AND status IN ('queued', 'running')
-        RETURNING id
-    """, (scan_id, org["id"]))
+    # Conditional, fencing transition (see core/scan_cancel.py).
+    cancelled = execute_one(CANCEL_ACTIVE_SCAN_SQL, (scan_id, org["id"]))
     if not cancelled:
         fresh = execute_one(
             "SELECT status FROM scans WHERE id = %s AND org_id = %s",
