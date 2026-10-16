@@ -37,6 +37,7 @@ from backend.app.core.rate_limit import check_rate_limit, reset_bucket
 from backend.app.core.security import hash_password, new_opaque_token, hash_opaque_token, verify_password
 from backend.app.core import totp as totp_mod
 from backend.app.core import trusted_browsers
+from backend.app.core import owner as owner_mod
 from backend.app.core.sessions import (
     issue_session,
     public_user,
@@ -773,6 +774,14 @@ async def start_totp_enroll(user: Dict[str, Any] = Depends(get_current_user)) ->
             status_code=403,
             detail="Verify your email address first — recovery codes go there.",
         )
+    # Re-enrolling would replace a working authenticator (and switch it off)
+    # without proof of the current one: a stolen session could swap in its
+    # own app. Switching off needs a current code; then enrol again.
+    if user.get("totp_enrolled_at") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An authenticator app is already set up — switch it off with a current code first.",
+        )
     secret = totp_mod.generate_secret()
     execute_one(
         "UPDATE profiles SET totp_secret_enc = %s, totp_enrolled_at = NULL, updated_at = now() "
@@ -813,6 +822,7 @@ async def confirm_totp_enroll(
         (user["id"],),
     )
     trusted_browsers.forget_all(str(user["id"]))
+    owner_mod.revoke_all_sessions(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.totp_enrolled", "user", str(user["id"]))
     return {"enrolled": True}
 
@@ -846,6 +856,7 @@ async def disable_totp(
         (user["id"],),
     )
     trusted_browsers.forget_all(str(user["id"]))
+    owner_mod.revoke_all_sessions(str(user["id"]))
     log_audit(None, str(user["id"]), "auth.totp_disabled", "user", str(user["id"]))
     return {"disabled": True}
 
@@ -951,6 +962,7 @@ async def reset_password(background_tasks: BackgroundTasks, body: ResetPasswordB
     execute_query("DELETE FROM password_reset_tokens WHERE user_id = %s", (row["user_id"],))
     revoke_all_sessions(row["user_id"])
     trusted_browsers.forget_all(str(row["user_id"]))
+    owner_mod.revoke_all_sessions(str(row["user_id"]))
     log_audit(None, str(row["user_id"]), "auth.password_reset", "user", str(row["user_id"]))
     # Credential-recovery alert (review P2): the account owner is told the
     # password changed, even if the reset was legitimate.

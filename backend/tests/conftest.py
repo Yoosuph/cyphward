@@ -158,6 +158,10 @@ class FakeStore:
         self.audit: list = []
         self.email_otps: list = []
         self.trusted_browsers: list = []
+        self.platform_owners: dict = {}
+        self.owner_sessions: list = []
+        self.owner_audit: list = []
+        self.owner_audit_fails = False
         self.sessions: list = []
         self.password_reset_tokens: list = []
         self.organization_invites: list = []
@@ -616,6 +620,71 @@ class FakeStore:
                     ),
                 })
             return rows[:limit]
+
+        # --- owner console (platform owner access) ------------------------
+        if s.startswith("INSERT INTO owner_audit"):
+            if self.owner_audit_fails:
+                raise RuntimeError("owner_audit unavailable")
+            keys = ("actor_user_id", "actor_email", "session_id", "action", "outcome",
+                    "target_type", "target_id", "ip", "user_agent", "metadata")
+            row = dict(zip(keys, params))
+            row["metadata"] = json.loads(row["metadata"] or "{}")
+            row["created_at"] = datetime.now(timezone.utc)
+            self.owner_audit.append(row)
+            return []
+
+        if s.startswith("SELECT user_id FROM platform_owners WHERE user_id = %s"):
+            return [{"user_id": params[0]}] if params[0] in self.platform_owners else []
+
+        if s.startswith("UPDATE platform_owners SET last_totp_step = %s WHERE user_id = %s"):
+            step, uid, _ = params
+            row = self.platform_owners.get(uid)
+            if row is None or (row.get("last_totp_step") is not None and row["last_totp_step"] >= step):
+                return []
+            row["last_totp_step"] = step
+            return [{"user_id": uid}]
+
+        if s.startswith("INSERT INTO owner_sessions (user_id, token_hash, expires_at, user_agent, ip)"):
+            uid, token_hash, expires_at, ua, ip = params
+            now = datetime.now(timezone.utc)
+            row = {"id": str(uuid.uuid4()), "user_id": uid, "token_hash": token_hash, "created_at": now,
+                   "last_seen_at": now, "expires_at": expires_at, "revoked_at": None,
+                   "user_agent": ua, "ip": ip}
+            self.owner_sessions.append(row)
+            return [{"id": row["id"]}]
+
+        if s.startswith("SELECT s.id, s.user_id, s.expires_at, s.last_seen_at, p.email FROM owner_sessions s"):
+            for r in self.owner_sessions:
+                if r["token_hash"] == params[0] and r["revoked_at"] is None \
+                        and r["user_id"] in self.platform_owners and r["user_id"] in self.profiles:
+                    return [{**r, "email": self.profiles[r["user_id"]].get("email")}]
+            return []
+
+        if s.startswith("UPDATE owner_sessions SET revoked_at = now() WHERE token_hash = %s"):
+            for r in self.owner_sessions:
+                if r["token_hash"] == params[0] and r["revoked_at"] is None:
+                    r["revoked_at"] = datetime.now(timezone.utc)
+                    return [{"id": r["id"], "user_id": r["user_id"]}]
+            return []
+
+        if s.startswith("UPDATE owner_sessions SET revoked_at = now() WHERE user_id = %s"):
+            for r in self.owner_sessions:
+                if r["user_id"] == params[0] and r["revoked_at"] is None:
+                    r["revoked_at"] = datetime.now(timezone.utc)
+            return []
+
+        if s.startswith("UPDATE owner_sessions SET revoked_at = now() WHERE id = %s"):
+            for r in self.owner_sessions:
+                if r["id"] == params[0] and r["revoked_at"] is None:
+                    r["revoked_at"] = datetime.now(timezone.utc)
+                    return [{"id": r["id"]}]
+            return []
+
+        if s.startswith("UPDATE owner_sessions SET last_seen_at = now() WHERE id = %s"):
+            for r in self.owner_sessions:
+                if r["id"] == params[0]:
+                    r["last_seen_at"] = datetime.now(timezone.utc)
+            return []
 
         # --- remembered browsers (step-up code skip) ----------------------
         if s.startswith("SELECT id FROM trusted_browsers WHERE token_hash = %s AND user_id = %s"):
