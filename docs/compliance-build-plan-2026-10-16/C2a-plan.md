@@ -18,6 +18,15 @@ On the scanned domain's **apex homepage plus up to 4 other in-scope web hosts** 
 | Consent manager | a known consent-manager script or attribute: Cookiebot, OneTrust/CookieLaw, Osano, Termly, iubenda, CookieYes, Usercentrics, Complianz, Quantcast Choice | the vendor |
 | `security.txt` | `/.well-known/security.txt` | present / absent, and whether a `Contact:` line exists (stored for C4; no requirement in C1's register uses it) |
 
+**Catch-all sites (single-page apps on Vercel, Netlify and similar):**
+- Before trusting fixed paths, each host gets one request for a random path that cannot exist (`/cyphward-<random>`).
+- If that returns 200, or the same title and body hash as the homepage, the host is **catch-all**. On a catch-all host a fixed-path 200 proves nothing.
+- On any host, a fetched page only counts as a policy or notice when its title or first heading names privacy/data protection (or cookies) **and** its body differs from the homepage.
+
+**Tracker strength:**
+- A tag-manager loader on its own (GTM, Google Consent Mode) is recorded but does not prove anything loads before consent.
+- Only a **direct** tracker script, or a tracker **cookie** on the first response, can support a gap (section 4).
+
 **Limits** (job limits, configurable):
 - 5 hosts;
 - 6 fetches per host;
@@ -44,6 +53,10 @@ On the scanned domain's **apex homepage plus up to 4 other in-scope web hosts** 
   - otherwise `skipped` with reason `worker_without_privacy_capability`.
 - An old worker never reports the stage, so evidence and UI read "not assessed: worker update pending". It is never present.
 - Local mode (`_execute_recon_local_owned`) runs the same stage function.
+- **The stage is optional**, like ports/TLS/Nuclei: a crash or timeout records failed hosts, reports the stage `failed`, and the scan continues and completes.
+- **Checked against the deployed worker (`c043223`)**:
+  - its `ScanJob`/`ScanJobLimits` ignore unknown fields, so the new limit fields can't break its claims (verified by validating the new payload against that revision's contract);
+  - the Packet 02 stage-order guard only moves forward and never reopens a finished stage, so `skipped` privacy is never regressed and an old worker's http → ports jump is accepted.
 
 ## 3. Observation contract `privacy_observations` v1
 
@@ -68,14 +81,19 @@ Rows go in the same savepoint-protected insert as C1, with source `externally_ob
 
 | Requirement | Present | Gap | Not assessed | Otherwise |
 |---|---|---|---|---|
-| `gaid.notice.privacy_policy` | A policy page returned 200 on an in-scope host, or is linked off-domain (recorded as such) | Homepage fetched fine **and** no link **and** every fixed path 404/410 (D8) | Stage not run / failed / old worker / homepage not usable | — |
-| `gaid.notice.cookie_notice` | Same rule for the cookie notice | Same as above (D8) | Same | — |
-| `gaid.consent.no_trackers_before_consent` | **Never in C2a.** Static fetching can't prove no tracker loads later; the browser test (C2b) may. | A known tracker cookie set on the first response, **or** a known tracker script not blocked for consent while no consent manager is present | Everything else, including trackers present behind a consent manager (reason: needs the browser test) | — |
-| `gaid.dpo.contact_published` | A DPO contact is mentioned in a fetched policy | — | — | `awaiting_input` (the customer can attest in C3), with "not found in the published policy" in the detail |
+| `gaid.notice.privacy_policy` | A page that **passes the content test** (title/heading names privacy; body differs from the homepage), reached by a link or fixed path on an in-scope host; or a link to an off-domain policy (recorded "linked off-domain, not fetched") | Host is **not catch-all**, homepage fetched fine, no matching link, **and** every fixed path returned a real 404/410 (D8). The reason names exactly what was checked. | Stage not run / failed / old worker / homepage unusable / **catch-all host with no linked policy** (reason: "site serves every path") | — |
+| `gaid.notice.cookie_notice` | Same rule for the cookie notice | Same (D8) | Same | — |
+| `gaid.consent.no_trackers_before_consent` | **Never in C2a.** Static fetching can't prove that no tracker loads later; the browser test (C2b) may. | A **direct** known tracker script not blocked for consent while **no** consent manager is present, **or** a known tracker cookie set on the first response. The reason names the vendor and how it was seen. | Everything else: tag-manager loaders only, trackers behind a consent manager, nothing found (reason: "needs the browser test") | — |
+| `gaid.dpo.contact_published` | A DPO contact is mentioned in a fetched policy (a present row exists) | — | — | `awaiting_input` **only when there is no present row**; the detail says "not found in the published policy" |
 | `gaid.consent.banner_visible`, `accept_and_reject`, `purpose_and_withdrawal` | — | — | — | Stay **Upcoming check** (C2b). The detail shows any consent manager detected. |
 | Lawful basis, rights, DPO and others (attested) | — | — | — | Status unchanged (`awaiting_input`). The policy signals appear as **informational** "mentioned in your published policy (heuristic)". |
 
-**Read side:** the same live rules as C1. Evidence expires after the requirement's `freshness_days`; an old worker or a missing stage reads not assessed with its reason.
+**Read side — a separate path for `externally_observed` rows.** C1's tool path turns a stored gap without open findings into "not assessed (findings resolved)", which would hide every privacy gap, because privacy gaps have no findings. So:
+- **gap:** stands until the row expires, then reads `not_assessed` (`evidence_expired`);
+- **present:** stands until the row expires, then reads `not_assessed` (`evidence_expired`);
+- **no row:** `not_assessed`, with the stage reason (old worker / failed / not yet scanned). For requirements that a customer can also attest, it reads `awaiting_input`.
+
+The register validator gains rules for the `privacy` mapping type: it must name a known signal, requires `externally_observed`, and is allowed alongside `customer_attested`. The truth-table tests cover each case, including "DPO present row is not overridden by awaiting input".
 
 ## 5. Files
 
@@ -109,7 +127,10 @@ Rows go in the same savepoint-protected insert as C1, with source `externally_ob
   - body cap;
   - page cap;
   - timeout → host failed, not "not found".
+- **Catch-all fixtures:** catch-all with no policy → not assessed; catch-all with a footer-linked policy → present; a 200 page whose title isn't a policy → not counted.
+- **Optional stage:** a privacy crash or timeout → the scan completes, with coverage, grade and score unchanged.
 - **Contract and compatibility:**
+  - the new claim payload validates against the deployed worker's contract (`c043223`);
   - new worker + old API (no capability) → stage skipped, no 422;
   - old worker + new API → claim marks `skipped`, finalisation succeeds, requirements not assessed;
   - unknown capabilities are ignored.
@@ -129,11 +150,17 @@ Rows go in the same savepoint-protected insert as C1, with source `externally_ob
 | D9 | Hosts checked | Apex + up to 4 in-scope web hosts with a usable response. |
 | D10 | Store the policy text? | **No.** Store URLs, statuses and matched phrases only; the text stays on the customer's site. |
 
+**Release approvals I will ask for at release time** (beyond your standing read permission):
+1. the Render env change pausing claims;
+2. the all-organisation count of queued/running scans (count only);
+3. the Render env change resuming claims.
+The merge itself needs your "merge".
+
 ## 8. Release (worker change; runbook `02-release-runbook.md`)
 
 1. **Prepare:** CI green; scanner image and API built from the same revision; no migration in this packet.
-2. **Pause new claims:** set `SCANNER_CLAIMS_ENABLED=false` on Render and redeploy. Verify the worker gets 204 on claim. *(Production write: needs your OK at release.)*
-3. **Drain:** wait until no scan is `running` (read-only check on your domains' scans; for other organisations' scans I'd ask first). Queued scans wait safely.
+2. **Pause new claims:** set `SCANNER_CLAIMS_ENABLED=false` on Render and redeploy. Verify the worker gets 204 on claim. **OK needed (Render write).**
+3. **Drain:** the worker is shared, so the check is a **count of queued/running scans across all organisations, with no other fields**. **OK needed** (it goes beyond your domains). Wait until running = 0; queued scans wait safely.
 4. **Back up:** encrypted dump. Not strictly needed (no schema change), but cheap.
 5. **Merge:** API deploys on Render; scanner CD rebuilds and restarts the VPS worker. Verify:
    - the API is live at the merge commit;
@@ -141,7 +168,7 @@ Rows go in the same savepoint-protected insert as C1, with source `externally_ob
    - the scanner CD job succeeded;
    - the container's revision matches;
    - the worker's negotiation succeeds while claims are paused (204, no errors).
-6. **Resume claims:** set `SCANNER_CLAIMS_ENABLED=true` and redeploy.
+6. **Resume claims:** set `SCANNER_CLAIMS_ENABLED=true` and redeploy. **OK needed (Render write).**
 7. **Controlled scan:** one scan of `cyphward.com`. Verify:
    - a privacy observation is stored under the current attempt;
    - coverage, grade and score behave as before;
