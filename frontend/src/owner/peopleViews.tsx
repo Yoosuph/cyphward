@@ -1,10 +1,11 @@
-import { useCallback } from 'react';
+import { useCallback, useContext } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Activity, AlertTriangle, Building2, Clock, CreditCard, Globe, Radar, Users } from 'lucide-react';
 import {
-  Cell, Empty, PageHead, Pager, Panel, Pill, SearchBox, Stat, Table, ViewState,
+  Cell, Empty, OwnerMeContext, PageHead, Pager, Panel, Pill, SearchBox, Stat, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
 } from './ui';
+import { ChangePlanAction, ExtendTrialAction, SignOutEverywhereAction } from './actions';
 
 type Row = Record<string, any>;
 
@@ -170,7 +171,16 @@ export function OrganizationDetailView() {
                 </Table>
               )}
             </Panel>
-            <Panel title="Plan and billing">
+            <Panel title="Plan and billing" right={
+              <div className="flex flex-wrap justify-end gap-2">
+                <ChangePlanAction orgId={org.id} orgName={org.name} current={(data.subscriptions as Row[])[0]?.plan || org.plan}
+                                  plans={data.plans || []} onDone={reload} />
+                {(data.subscriptions as Row[])[0]?.status === 'trialing' && (
+                  <ExtendTrialAction orgId={org.id} orgName={org.name} trialEndsAt={(data.subscriptions as Row[])[0]?.trial_ends_at}
+                                     onDone={reload} />
+                )}
+              </div>
+            }>
               <p className="text-sm mb-3">Plan on record: <span className="mono">{org.plan || '—'}</span></p>
               {(data.subscriptions as Row[]).map((s, i) => (
                 <div key={i} className="text-sm flex flex-wrap gap-2 items-center mb-2">
@@ -281,10 +291,14 @@ export function UserDetailView() {
   const { id = '' } = useParams();
   const { data, error, loading, reload } = useOwnerView<Row>(`/users/${id}`);
   const u = data?.user;
+  const me = useContext(OwnerMeContext);
   return (
     <>
       <PageHead title={u?.full_name || u?.email || 'User'} subtitle={u ? <span className="mono text-xs">{u.email} · joined {fmtDate(u.created_at, false)}</span> : undefined}
-                actions={<Link to="/users" className="btn-mini">← ALL USERS</Link>} />
+                actions={<div className="flex flex-wrap gap-2">
+                  {u && u.email !== me?.email && <SignOutEverywhereAction userId={u.id} email={u.email} onDone={reload} />}
+                  <Link to="/users" className="btn-mini">← ALL USERS</Link>
+                </div>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">

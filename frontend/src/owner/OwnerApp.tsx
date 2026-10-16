@@ -6,7 +6,8 @@ import StrataField from '../components/StrataField';
 import { QRCodeSVG } from 'qrcode.react';
 import { OwnerShell, ThemeButton } from './shell';
 import { OwnerApiError, ownerMe, ownerSetupAuthenticator, ownerSetupComplete, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
-import { SessionEndedContext } from './ui';
+import { OwnerMeContext, SessionEndedContext } from './ui';
+import { ToastProvider } from '../components/Toast';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
 import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
 
@@ -323,6 +324,8 @@ function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut
 
   return (
     <SessionEndedContext.Provider value={onSessionEnded}>
+    <OwnerMeContext.Provider value={me}>
+    <ToastProvider>
       <BrowserRouter basename={basename}>
         <OwnerShell me={me} signingOut={busy} onSignOut={() => void signOut()}>
           <Routes>
@@ -340,6 +343,8 @@ function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut
           </Routes>
         </OwnerShell>
       </BrowserRouter>
+    </ToastProvider>
+    </OwnerMeContext.Provider>
     </SessionEndedContext.Provider>
   );
 }
