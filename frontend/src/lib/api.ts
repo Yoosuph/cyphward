@@ -960,3 +960,92 @@ export async function getGoogleClientId(): Promise<{ client_id: string | null }>
 export async function oneTapLogin(credential: string): Promise<AuthTokens | MfaChallenge> {
   return authPost<AuthTokens | MfaChallenge>('/auth/google/one-tap', { credential });
 }
+
+// ============================================================================
+// Compliance readiness (evidence only — never a legal verdict)
+// ============================================================================
+export type ComplianceStatus = 'present' | 'gap' | 'not_assessed' | 'not_applicable';
+
+export interface ComplianceFindingRef {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+}
+
+export interface ComplianceDomainEvidence {
+  domain_id: string;
+  domain: string;
+  status: ComplianceStatus;
+  status_label: string;
+  reason: string;
+  reason_text: string;
+  source: string | null;
+  source_label: string | null;
+  observed_at: string | null;
+  expires_at: string | null;
+  scan_id: string | null;
+  finding_ids: string[];
+  details: {
+    open_ports?: Record<string, number[]>;
+    missing?: { hostname: string; check: string; reason: string }[];
+    omitted?: { hostname: string; check: string; reason: string }[];
+    complete_scans?: { scan_id: string; completed_at: string }[];
+    not_counted?: { scan_id: string; completed_at: string; state: string }[];
+    window_days?: number;
+    [key: string]: unknown;
+  };
+}
+
+export interface ComplianceRequirement {
+  key: string;
+  group: string;
+  title: string;
+  summary: string;
+  clause: string;
+  clause_verified: boolean;
+  clause_label: string;
+  evidence_type_labels: string[];
+  checks_performed: string | null;
+  not_checked: string | null;
+  freshness_days: number;
+  remediation_hint: string;
+  status: ComplianceStatus;
+  status_label: string;
+  reason: string;
+  reason_text: string;
+  source: string | null;
+  source_label: string | null;
+  domains: ComplianceDomainEvidence[];
+  findings: ComplianceFindingRef[];
+  informational_findings: ComplianceFindingRef[];
+}
+
+export interface ComplianceReadiness {
+  percent: number;
+  present: number;
+  gap: number;
+  not_assessed: number;
+  applicable: number;
+}
+
+export interface ComplianceOverview {
+  disclaimer: string;
+  note: string;
+  register: { version: string; title: string; references_pending_review: number };
+  plan: string;
+  readiness: ComplianceReadiness;
+  domains: { id: string; domain: string }[];
+  groups: {
+    key: string;
+    title: string;
+    locked: boolean;
+    counts: ComplianceReadiness;
+    requirement_count: number;
+    requirements: ComplianceRequirement[];
+  }[];
+}
+
+export async function getComplianceOverview(): Promise<ComplianceOverview> {
+  return (await apiFetch<ComplianceOverview>('/compliance/overview', undefined, true)) as ComplianceOverview;
+}

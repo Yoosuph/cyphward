@@ -66,6 +66,7 @@ from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.risk.engine import compute_risk_score, SCORE_MODEL, SCORE_SCOPE
 from backend.app.risk.coverage import assessment_coverage
 from backend.app.risk.domain_coverage import org_domain_coverage
+from backend.app.compliance.scan_evidence import evidence_for_scan
 from backend.app.ai.factory import get_ai_provider
 from backend.app.services.notifications import notify
 from backend.app.services.mailer import send_email_async
@@ -854,6 +855,18 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         final_score = score_result["score"]
         score_dur = int((time.time() - t0) * 1000)
 
+        # Compliance readiness evidence for this domain. Optional: a failure
+        # here is recorded in the completion audit and never fails the scan.
+        try:
+            compliance_rows = evidence_for_scan(
+                org_id=str(org_id), domain_id=str(domain_id), scan_id=str(scan_id), coverage=coverage,
+                observations=observations, completed_at=scan_completed_at)
+        except ClaimLost:
+            raise
+        except Exception:
+            logger.warning("scan=%s compliance evidence could not be computed", scan_id, exc_info=True)
+            compliance_rows = "error"
+
         progress["scoring"] = {
             "status": "completed", "score": final_score, "duration_ms": score_dur,
             "model": SCORE_MODEL, "scope": SCORE_SCOPE,
@@ -924,7 +937,7 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             'title': f'Scan completed for {domain}',
             'body': f"{score_msg} · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
             'severity': 'medium' if final_score is not None and final_score < 70 else 'info',
-        })
+        }, compliance_evidence=compliance_rows)
 
         return {
             "scan_id": scan_id,
