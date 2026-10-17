@@ -1,4 +1,4 @@
-"""Compliance readiness API (packets C1, C3a and C3b).
+"""Compliance readiness API (packets C1, C3a, C3b and C5).
 
 Reads are open to any member of the organization. Recording a customer answer
 is owner/admin only, and so is the breach incident log. Evidence only, never a legal verdict: every response
@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.app.compliance import attestation_store, incidents, questionnaire, status
+from backend.app.compliance import attestation_store, document_store, documents, incidents, questionnaire, status
 from backend.app.compliance.attestations import AnswerError
 from backend.app.core.auth import get_current_org, require_admin
 
@@ -141,3 +141,43 @@ def update_incident(incident_id: UUID, body: IncidentPatch,
     if updated is None:
         raise HTTPException(status_code=404, detail="Incident not found.")
     return updated
+
+
+@router.get("/documents")
+def list_documents(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+    _require_growth(org)
+    return document_store.listing(org)
+
+
+@router.get("/documents/{document_id}")
+def get_document(document_id: UUID, org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+    _require_growth(org)
+    found = document_store.get(str(org["id"]), str(document_id))
+    if found is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return found
+
+
+@router.post("/documents/{kind}/generate", status_code=201)
+async def generate_document(kind: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+    _require_growth(org)
+    if kind not in documents.KINDS:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    try:
+        return await document_store.generate(org, org["current_user_id"], kind)
+    except document_store.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except document_store.DocumentError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/documents/{document_id}/approve", status_code=201)
+def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+    _require_growth(org)
+    try:
+        approved = document_store.approve(str(org["id"]), org["current_user_id"], str(document_id))
+    except document_store.DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if approved is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return approved

@@ -174,6 +174,38 @@ function freshIncidents(now) {
   ];
 }
 
+
+// ---- C5 mocks: four AI-drafted documents, stateful ----
+const DOC_TITLES = { privacy_policy: "Privacy policy", cookie_notice: "Cookie notice", breach_response_plan: "Breach response plan", retention_schedule: "Retention schedule" };
+const DOC_LABEL = "Draft — not legal advice";
+const draftText = (kind, version) => [
+  DOC_LABEL, "", `Version ${version} · Generated 2026-10-18 (UTC) · ${DOC_TITLES[kind]}`, "", `# ${DOC_TITLES[kind]} of Acme Traders`, "",
+  "Data protection officer: [MISSING: name of your data protection officer].", "", "We keep records only as long as we need them. [MISSING: how long you keep each kind of personal data].", "",
+  "---", "", DOC_LABEL + ". Have a qualified Nigerian data protection practitioner review it before you publish or rely on it.", "",
+].join("\n");
+const docVersion = (kind, version, extra = {}) => ({
+  id: `doc-${kind}-${version}`, kind, version, generated_at: "2026-10-18T09:00:00Z", generated_by: "Ada Obi", generator: "template", fallback_reason: null,
+  placeholders: [{ key: "dpo_name", text: "[MISSING: name of your data protection officer]" }, { key: "retention", text: "[MISSING: how long you keep each kind of personal data]" }],
+  open_placeholders: 2, approval: null, ...extra,
+});
+const approved = (by, at) => ({ approved_by: by, approved_at: at, source: "customer_attested", open_placeholders: 2 });
+function freshDocuments() {
+  return [
+    docVersion("privacy_policy", 1, { approval: approved("Ada Obi", "2026-10-17T11:30:00Z") }),
+    docVersion("privacy_policy", 2),
+    docVersion("breach_response_plan", 1, { approval: approved("Compliance Review", "2026-10-18T10:00:00Z") }),
+    docVersion("retention_schedule", 1),
+  ];
+}
+const docsListing = (all, usedToday) => ({
+  label: DOC_LABEL, daily_cap: 10, generated_today: usedToday,
+  documents: Object.keys(DOC_TITLES).map((kind) => {
+    const history = all.filter((d) => d.kind === kind).sort((a, b) => b.version - a.version);
+    const latest = history[0] ? { ...history[0], stale: kind === "privacy_policy" } : null;
+    return { kind, title: DOC_TITLES[kind], status: !latest ? "not_generated" : latest.approval ? "approved" : "draft", latest, history };
+  }),
+});
+
 const server = await createServer({ root: frontend, server: { host: "127.0.0.1", port: 0 } });
 let browser;
 try {
@@ -190,7 +222,8 @@ try {
   const writes = [];
   let questions = freshQuestions();
   let incidents = freshIncidents(Date.now());
-  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); writes.length = 0; posts.length = 0; };
+  let documents = freshDocuments();
+  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); documents = freshDocuments(); writes.length = 0; posts.length = 0; };
   const json = (request, status, body) => void request.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -222,6 +255,32 @@ try {
       const major = questions.find((x) => x.key === "registration.major_importance");
       tier.shown = major.current?.value === "yes";
       return json(request, 201, q.current);
+    }
+    if (path.includes("/compliance/documents")) {
+      if (!growth) return json(request, 403, { detail: "This part of the compliance pages is part of the Growth plan." });
+      const generatedToday = 3 + writes.filter((w) => w.path.endsWith("/generate")).length;
+      const generate = path.match(/\/documents\/([a-z_]+)\/generate$/);
+      const approve = path.match(/\/documents\/([^/]+)\/approve$/);
+      if (generate && method === "POST") {
+        writes.push({ method, path });
+        const version = documents.filter((d) => d.kind === generate[1]).length + 1;
+        const made = docVersion(generate[1], version, { generated_at: new Date().toISOString() });
+        documents.push(made);
+        return json(request, 201, { id: made.id, version });
+      }
+      if (approve && method === "POST") {
+        writes.push({ method, path });
+        const target = documents.find((d) => d.id === approve[1]);
+        target.approval = approved("Compliance Review", new Date().toISOString());
+        return json(request, 201, { id: "ap-1", approved_at: target.approval.approved_at });
+      }
+      const one = path.match(/\/documents\/([^/]+)$/);
+      if (one) {
+        const d = documents.find((x) => x.id === one[1]);
+        const latestVersion = Math.max(...documents.filter((x) => x.kind === d.kind).map((x) => x.version));
+        return json(request, 200, { ...d, title: DOC_TITLES[d.kind], label: DOC_LABEL, text: draftText(d.kind, d.version), is_latest: d.version === latestVersion });
+      }
+      return json(request, 200, docsListing(documents, generatedToday));
     }
     if (path.includes("/compliance/incidents")) {
       if (!growth) return json(request, 403, { detail: "This part of the compliance pages is part of the Growth plan." });
@@ -582,6 +641,118 @@ try {
     await noVerdicts(`${name} member`);
   }
 
+
+  // ---------------- C5: documents (owners/admins, then members, then Starter) ----------------
+  const docKinds = ["privacy_policy", "cookie_notice", "breach_response_plan", "retention_schedule"];
+  const docCard = (kind) => `[data-testid="doc-${kind}"]`;
+  const statusOf = (kind) => page.evaluate((k) => document.querySelector(`[data-testid="doc-status-${k}"]`)?.textContent.trim().toUpperCase(), kind);
+  const stubClipboard = () => page.evaluate(() => {
+    window.__copied = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } });
+  });
+  role = "admin";
+  plan = "growth";
+  for (const [name, width] of [["desktop", 1440], ["mobile", 390], ["small-mobile", 320]]) {
+    reset();
+    await page.setViewport({ width, height: 900 });
+    await gotoComply();
+    await openTab("Documents");
+    await page.waitForSelector('[data-testid="documents"]');
+    const d = await page.evaluate(() => ({
+      disclaimer: document.querySelector('[data-testid="documents-disclaimer"]').textContent,
+      quota: document.querySelector('[data-testid="doc-quota"]').textContent,
+      cards: document.querySelectorAll('section[aria-label="Documents"] > ul > li').length,
+    }));
+    assert.ok(d.disclaimer.startsWith(DOC_LABEL), `${name}: documents disclaimer leads with the label`);
+    assert.ok(d.disclaimer.includes("does not change your readiness page"), `${name}: approval does not touch readiness`);
+    assert.equal(d.quota, "3 of 10 drafts used today", `${name}: quota line`);
+    assert.equal(d.cards, 4, `${name}: four documents`);
+    assert.deepEqual(await Promise.all(docKinds.map(statusOf)), ["DRAFT", "NOT GENERATED", "APPROVED", "DRAFT"], `${name}: statuses`);
+    assert.ok((await bodyText()).includes("Your answers have changed since this version"), `${name}: stale note`);
+    assert.ok(await overflowOf() <= 0, `${name}: documents overflow`);
+
+    // View: banner, highlighted placeholders, label as the first line, copy and download.
+    assert.ok(await clickExact("VIEW", docCard("privacy_policy")));
+    await page.waitForSelector('[data-testid="doc-viewer"]');
+    const v = await page.evaluate(() => ({
+      banner: document.querySelector('[data-testid="doc-banner"]').textContent,
+      text: document.querySelector('[data-testid="doc-text"]').textContent,
+      marks: [...document.querySelectorAll('[data-testid="placeholder"]')].map((m) => m.textContent),
+      buttons: [...document.querySelectorAll('[data-testid="doc-viewer"] button')].map((b) => b.textContent.trim()),
+    }));
+    assert.ok(v.banner.startsWith(DOC_LABEL), `${name}: banner`);
+    assert.ok(v.text.startsWith(DOC_LABEL), `${name}: label is the first line of the text`);
+    assert.deepEqual(v.marks, ["[MISSING: name of your data protection officer]", "[MISSING: how long you keep each kind of personal data]"], `${name}: placeholders highlighted`);
+    for (const b of ["COPY TEXT", "COPY MARKDOWN", "DOWNLOAD TEXT", "DOWNLOAD MARKDOWN", "APPROVE THIS VERSION"]) assert.ok(v.buttons.includes(b), `${name}: ${b}`);
+    await stubClipboard();
+    await clickExact("COPY TEXT", '[data-testid="doc-viewer"]');
+    await clickExact("COPY MARKDOWN", '[data-testid="doc-viewer"]');
+    const copied = await page.evaluate(() => window.__copied);
+    assert.ok(copied[0].startsWith(DOC_LABEL) && !copied[0].includes("# "), `${name}: text copy keeps the label, drops heading marks`);
+    assert.ok(copied[1].startsWith(DOC_LABEL) && copied[1].includes("# Privacy policy of Acme Traders"), `${name}: markdown copy`);
+    assert.ok(await overflowOf() <= 0, `${name}: viewer overflow`);
+    await noVerdicts(`${name} documents`);
+
+    // Approve: confirmation says what it does not mean, then the approver and date show.
+    assert.ok(await clickExact("APPROVE THIS VERSION", '[data-testid="doc-viewer"]'));
+    await page.waitForSelector('[data-testid="approve-confirm"]');
+    assert.ok((await bodyText()).includes("does not mean the document is published or in force"), `${name}: approval wording`);
+    assert.ok(await clickExact("CONFIRM APPROVAL"));
+    await page.waitForSelector('[data-testid="doc-approval"]', { timeout: 5000 });
+    assert.match(await page.evaluate(() => document.querySelector('[data-testid="doc-approval"]').textContent), /^Approved by Compliance Review on \d/, `${name}: approver shown`);
+    assert.equal(writes.filter((w) => w.path.endsWith("/approve")).length, 1, `${name}: one approval sent`);
+    assert.equal(await statusOf("privacy_policy"), "APPROVED", `${name}: status moves to approved`);
+
+    // Version history keeps the older approved version, which has no approve button.
+    await page.evaluate(() => document.querySelector('[data-testid="doc-history-privacy_policy"]').setAttribute("open", ""));
+    const history = await page.evaluate(() => document.querySelector('[data-testid="doc-history-privacy_policy"]').innerText);
+    assert.ok(history.includes("Version 2") && history.includes("Version 1") && history.includes("approved by Ada Obi"), `${name}: history`);
+    assert.ok(await clickExact("VIEW", '[data-testid="doc-history-privacy_policy"] li:last-child'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="doc-viewer"]')?.innerText.includes("an older version"), { timeout: 5000 });
+    assert.ok(!(await page.evaluate(() => [...document.querySelectorAll('[data-testid="doc-viewer"] button')].some((b) => /APPROVE/.test(b.textContent)))), `${name}: no approve on an older version`);
+
+    // Generate a new document: it appears as a draft and opens.
+    assert.ok(await clickExact("GENERATE", docCard("cookie_notice")));
+    await page.waitForFunction(() => document.querySelector('[data-testid="doc-status-cookie_notice"]')?.textContent.trim().toUpperCase() === "DRAFT", { timeout: 5000 });
+    assert.equal(writes.filter((w) => w.path.endsWith("/generate")).length, 1, `${name}: one generate sent`);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-testid="doc-quota"]').textContent), "4 of 10 drafts used today", `${name}: quota moves`);
+    assert.ok(await overflowOf() <= 0, `${name}: overflow after generating`);
+    await noVerdicts(`${name} documents after actions`);
+  }
+
+  role = "member";
+  for (const [name, width] of [["desktop", 1440], ["mobile", 390], ["small-mobile", 320]]) {
+    reset();
+    await page.setViewport({ width, height: 900 });
+    await gotoComply();
+    await openTab("Documents");
+    await page.waitForSelector('[data-testid="documents"]');
+    assert.ok(await clickExact("VIEW", docCard("privacy_policy")));
+    await page.waitForSelector('[data-testid="doc-viewer"]');
+    const m = await page.evaluate(() => ({
+      buttons: [...document.querySelectorAll("button")].map((b) => b.textContent.trim()),
+      note: !!document.querySelector('[data-testid="read-only-note"]'),
+      banner: !!document.querySelector('[data-testid="doc-banner"]'),
+    }));
+    assert.ok(m.note && m.banner, `${name}: members see the banner and the read-only note`);
+    assert.ok(!m.buttons.some((b) => /^(GENERATE|GENERATE NEW VERSION|APPROVE THIS VERSION|CONFIRM APPROVAL)$/.test(b)), `${name}: no generate or approve buttons for a member`);
+    assert.ok(m.buttons.includes("COPY TEXT") && m.buttons.includes("DOWNLOAD MARKDOWN"), `${name}: members can copy and download`);
+    assert.equal(writes.length, 0, `${name}: members send no writes`);
+    assert.ok(await overflowOf() <= 0, `${name}: member documents overflow`);
+    await noVerdicts(`${name} member documents`);
+  }
+
+  role = "owner";
+  plan = "starter";
+  reset();
+  await page.setViewport({ width: 390, height: 900 });
+  await gotoComply();
+  await openTab("Documents");
+  await page.waitForSelector('[data-testid="growth-gate"]', { timeout: 5000 });
+  assert.ok((await bodyText()).toUpperCase().includes("GROWTH PLAN"), "starter documents: upgrade prompt");
+  assert.equal(writes.length, 0);
+  plan = "growth";
+
   // ---------------- C3: Starter organisations get the upgrade treatment, not an error ----------------
   role = "owner";
   plan = "starter";
@@ -599,7 +770,7 @@ try {
   assert.equal(writes.length, 0);
 
   assert.deepEqual(errors, [], "no page errors");
-  console.log("compliance page, questionnaire, incidents, read-only members and the Starter gate: desktop/390/320 passed");
+  console.log("compliance page, questionnaire, incidents, documents, read-only members and the Starter gate: desktop/390/320 passed");
 } finally {
   await browser?.close();
   await server.close();

@@ -1185,3 +1185,42 @@ export const createIncident = (body: IncidentCreate) =>
 
 export const updateIncident = (id: string, changes: IncidentChanges) =>
   apiFetch<Incident>(`/compliance/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }, true) as Promise<Incident>;
+
+// ---- AI-drafted documents (C5) ----
+export type DocumentKind = 'privacy_policy' | 'cookie_notice' | 'breach_response_plan' | 'retention_schedule';
+export type DocumentStatus = 'not_generated' | 'draft' | 'approved';
+
+export interface DocumentPlaceholder { key: string; text: string }
+export interface DocumentApproval { approved_by: string | null; approved_at: string; source: 'customer_attested'; open_placeholders: number }
+
+export interface DocumentVersion {
+  id: string;
+  version: number;
+  generated_at: string;
+  generated_by: string | null;
+  generator: string;
+  fallback_reason: string | null;
+  placeholders: DocumentPlaceholder[];
+  open_placeholders: number;
+  approval: DocumentApproval | null;
+  stale?: boolean;
+}
+
+export interface DocumentSummary {
+  kind: DocumentKind;
+  title: string;
+  status: DocumentStatus;
+  latest: DocumentVersion | null;
+  history: DocumentVersion[];
+}
+
+export interface DocumentList { label: string; daily_cap: number; generated_today: number; documents: DocumentSummary[] }
+export interface DocumentFull extends DocumentVersion { kind: DocumentKind; title: string; label: string; text: string; is_latest: boolean }
+
+export const listDocuments = () => apiFetch<DocumentList>('/compliance/documents', undefined, true) as Promise<DocumentList>;
+export const getDocument = (id: string) =>
+  apiFetch<DocumentFull>(`/compliance/documents/${encodeURIComponent(id)}`, undefined, true) as Promise<DocumentFull>;
+export const generateDocument = (kind: DocumentKind) =>
+  apiFetch<{ id: string; version: number }>(`/compliance/documents/${kind}/generate`, { method: 'POST' }, true) as Promise<{ id: string; version: number }>;
+export const approveDocument = (id: string) =>
+  apiFetch<{ id: string; approved_at: string }>(`/compliance/documents/${encodeURIComponent(id)}/approve`, { method: 'POST' }, true) as Promise<{ id: string; approved_at: string }>;
