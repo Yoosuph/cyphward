@@ -26,12 +26,12 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from shared.scanner_identity import SCANNER_USER_AGENT
 
 from backend.app.scanner import ip_guard
 from shared.scan_budget import ensure_stage_budget
 
 OBSERVATION_VERSION = 1
-USER_AGENT = "Cyphward-Security-Scanner/1.0"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 MAX_REDIRECTS = 5
 DEFAULT_MAX_PAGES = 10  # home + catch-all probe + links + 6 fixed paths + security.txt
@@ -291,7 +291,7 @@ async def fetch_in_scope(client: httpx.AsyncClient, url: str, scope: List[str], 
         ensure_stage_budget()
         try:
             async with client.stream("GET", ip_guard.pinned_url(scheme, target_ip, path),
-                                     headers={"User-Agent": USER_AGENT, "Host": host},
+                                     headers={"User-Agent": SCANNER_USER_AGENT, "Host": host},
                                      extensions={"sni_hostname": host}) as resp:
                 if resp.status_code in REDIRECT_CODES and resp.headers.get("location"):
                     nxt = urljoin(f"{scheme}://{host}{path}", resp.headers["location"])

@@ -24,6 +24,7 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
+import Scanner from './pages/Scanner';
 import Teams from './pages/Teams';
 import Contact from './pages/Contact';
 import Health from './pages/Health';
@@ -367,6 +368,7 @@ export default function App() {
             <Route path="/health" element={<Health />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/about" element={<About />} />
+            <Route path="/scanner" element={<Scanner />} />
             <Route path="/teams" element={<Teams />} />
             <Route path="/contact" element={<Contact />} />
 

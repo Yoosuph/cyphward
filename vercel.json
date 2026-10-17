@@ -34,7 +34,7 @@
       "permanent": false
     },
     {
-      "source": "/(terms|privacy|landing|pricing|about|teams|contact|health)",
+      "source": "/(terms|privacy|landing|pricing|about|scanner|teams|contact|health)",
       "has": [
         {
           "type": "host",
@@ -209,7 +209,7 @@
       "permanent": false
     },
     {
-      "source": "/(terms|privacy|landing|pricing|about|teams|contact)",
+      "source": "/(terms|privacy|landing|pricing|about|scanner|teams|contact)",
       "has": [
         {
           "type": "host",
@@ -242,7 +242,7 @@
       "permanent": false
     },
     {
-      "source": "/(terms|privacy|landing|pricing|about|teams|contact)",
+      "source": "/(terms|privacy|landing|pricing|about|scanner|teams|contact)",
       "has": [
         {
           "type": "host",
@@ -319,7 +319,7 @@
       ]
     },
     {
-      "source": "/(index.html|app.html|privacy/index.html|terms/index.html|pricing/index.html|about/index.html|teams/index.html|contact/index.html)",
+      "source": "/(index.html|app.html|privacy/index.html|terms/index.html|pricing/index.html|about/index.html|scanner/index.html|teams/index.html|contact/index.html)",
       "headers": [
         {
           "key": "Cache-Control",

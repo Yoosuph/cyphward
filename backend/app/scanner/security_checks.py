@@ -4,6 +4,7 @@ Implements deterministic, non-destructive security checks inspired by Nuclei saf
 """
 from typing import List, Dict, Any
 import httpx
+from shared.scanner_identity import SCANNER_USER_AGENT
 
 from backend.app.scanner import ip_guard
 from backend.app.scanner.dns_coverage import query_evaluated
@@ -244,7 +245,7 @@ async def run_security_checks(
                 async with httpx.AsyncClient(verify=False, timeout=1.5) as client:
                     r_resp = await client.get(
                         ip_guard.pinned_url("https", target_ip, "/robots.txt"),
-                        headers={"Host": hostname},
+                        headers={"Host": hostname, "User-Agent": SCANNER_USER_AGENT},
                         extensions={"sni_hostname": hostname},
                     )
                     if r_resp.status_code == 200 and ("disallow:" in r_resp.text.lower()):

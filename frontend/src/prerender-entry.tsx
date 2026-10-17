@@ -11,6 +11,7 @@ import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 import Pricing from './pages/Pricing';
 import About from './pages/About';
+import Scanner from './pages/Scanner';
 import Teams from './pages/Teams';
 import Contact from './pages/Contact';
 import Health from './pages/Health';
@@ -24,6 +25,7 @@ export function render(url: string): string {
         <Route path="/terms" element={<Terms />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/about" element={<About />} />
+        <Route path="/scanner" element={<Scanner />} />
         <Route path="/teams" element={<Teams />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/health" element={<Health />} />

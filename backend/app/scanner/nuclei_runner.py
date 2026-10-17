@@ -5,6 +5,7 @@ Falls back gracefully if Nuclei binary is not installed.
 """
 import asyncio
 from shared.scan_budget import gather_with_deadline, ensure_stage_budget
+from shared.scanner_identity import SCANNER_USER_AGENT
 import json
 import os
 import shutil
@@ -194,6 +195,7 @@ async def run_nuclei_template(
         "-rate-limit", "50",
         "-no-color",
         "-disable-update-check",
+        "-H", f"User-Agent: {SCANNER_USER_AGENT}",
         *_nuclei_resource_args(),
     ]
 
@@ -284,6 +286,7 @@ async def run_nuclei(
         "-rate-limit", str(rate_limit),
         "-no-color",
         "-disable-update-check",
+        "-H", f"User-Agent: {SCANNER_USER_AGENT}",
         *_nuclei_resource_args(),
     ]
 

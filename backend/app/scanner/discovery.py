@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import asyncio
 from shared.scan_budget import gather_with_deadline
+from shared.scanner_identity import SCANNER_USER_AGENT
 import re
 from typing import List, Set
 import httpx
@@ -59,7 +60,7 @@ async def query_crt_sh(domain: str) -> Set[str]:
     try:
         url = f"https://crt.sh/?q=%.{domain}&output=json"
         async with httpx.AsyncClient(timeout=6.0) as client:
-            resp = await client.get(url, headers={"User-Agent": "Cyphward-Security-Scanner/1.0"})
+            resp = await client.get(url, headers={"User-Agent": SCANNER_USER_AGENT})
             if resp.status_code == 200:
                 data = resp.json()
                 for entry in data:
@@ -82,7 +83,7 @@ async def query_hackertarget(domain: str) -> Set[str]:
     try:
         url = f"https://api.hackertarget.com/hostsearch/?q={domain}"
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url, headers={"User-Agent": "Cyphward-Security-Scanner/1.0"})
+            resp = await client.get(url, headers={"User-Agent": SCANNER_USER_AGENT})
             if resp.status_code == 200 and not resp.text.startswith("error"):
                 for line in resp.text.splitlines():
                     parts = line.split(",")
@@ -113,7 +114,7 @@ async def query_certspotter(domain: str) -> Set[str]:
             f"?domain={domain}&include_subdomains=true&expand=dns_names"
         )
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers={"User-Agent": "Cyphward-Security-Scanner/1.0"})
+            resp = await client.get(url, headers={"User-Agent": SCANNER_USER_AGENT})
             if resp.status_code == 200:
                 for issuance in resp.json():
                     for name in issuance.get("dns_names", []):
