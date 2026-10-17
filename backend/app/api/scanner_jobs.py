@@ -23,7 +23,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.execution_fence import ClaimLost, ExecutionClaim
 from backend.app.core import scan_execution as execution
-from backend.app.core.nuclei_tier import choose_tier, timeouts_for
+from backend.app.core.nuclei_tier import choose_tier, timeouts_for, verification_targets
 from shared.contracts import (
     JobComplete,
     JobFail,
@@ -153,6 +153,7 @@ def claim_job(
             "verified_at_claim_time": True,
         },
         nuclei_tier=tier,
+        nuclei_verify=verification_targets(str(row["org_id"]), str(row["domain_id"])),
         limits=ScanJobLimits(
             max_hosts=SCANNER_MAX_HOSTS,
             dns_max_hosts=SCANNER_DNS_MAX_HOSTS,

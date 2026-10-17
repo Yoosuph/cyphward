@@ -205,6 +205,78 @@ def _parse_nuclei_stdout(stdout: bytes, hostname: str, strict: bool = False) -> 
     return findings
 
 
+# ── Exact-template receipts ────────────────────────────────────────────────
+# With -matcher-status Nuclei prints one record when a template ran and did not match. The record describes
+# the template's LAST request (measured with Nuclei 3.11.1: a two-request template prints one record, for the
+# second request). So the record is complete proof only for a template that sends a single request. A
+# multi-request template, or one whose request count cannot be read from the file (payloads, fuzzing, flows,
+# races, non-HTTP protocols), can never be proven clean this way and its finding stays open.
+PROVABLE_REQUESTS = 1
+TEMPLATES_DIR = pathlib.Path(os.getenv("SCANNER_NUCLEI_TEMPLATES_DIR", str(pathlib.Path.home() / "nuclei-templates")))
+_ID_LINE = re.compile(r"^id:\s*['\"]?([A-Za-z0-9._-]+)['\"]?\s*$", re.MULTILINE)
+UNCOUNTABLE_KEYS = {"payloads", "fuzzing", "attack", "race", "race_count", "pipeline", "iterate-all", "stop-at-first-match-off"}
+UNCOUNTABLE_TEMPLATE_KEYS = {"flow", "workflows", "code", "javascript", "dns", "ssl", "tcp", "file", "headless",
+                             "network", "websocket", "whois", "http2", "multiprotocol"}
+
+
+def count_receipts(stdout: bytes, hostname: str, template_id: str) -> int:
+    """Number of non-match receipts Nuclei printed for this exact template on this host."""
+    count = 0
+    for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(data, dict) and data.get("matcher-status") is False
+                and data.get("template-id") == template_id
+                and str(data.get("host", "")).lower().rstrip(".") == hostname.lower().rstrip(".")):
+            count += 1
+    return count
+
+
+@functools.lru_cache(maxsize=1)
+def _template_index() -> Dict[str, pathlib.Path]:
+    index: Dict[str, pathlib.Path] = {}
+    root = TEMPLATES_DIR / "http"
+    if not root.is_dir():
+        return index
+    for path in root.rglob("*.yaml"):
+        try:
+            head = path.read_text(encoding="utf-8", errors="replace")[:1500]
+        except OSError:
+            continue
+        match = _ID_LINE.search(head)
+        if match:
+            index.setdefault(match.group(1), path)
+    return index
+
+
+def template_request_count(template_id: str) -> Optional[int]:
+    """Requests an HTTP template declares, or None when that cannot be known from the file."""
+    path = _template_index().get(template_id)
+    if path is None:
+        return None
+    try:
+        import yaml
+        template = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(template, dict) or UNCOUNTABLE_TEMPLATE_KEYS & set(template):
+        return None
+    blocks = template.get("http") or template.get("requests")
+    if not isinstance(blocks, list) or not blocks:
+        return None
+    total = 0
+    for block in blocks:
+        if not isinstance(block, dict) or UNCOUNTABLE_KEYS & set(block):
+            return None
+        total += len(block.get("path") or []) + len(block.get("raw") or [])
+    return total or None
+
+
 async def run_nuclei_template(
     hostname: str,
     template_id: str,
@@ -237,6 +309,7 @@ async def run_nuclei_template(
         "-id", template_id,
         "-severity", "info,low,medium,high,critical",
         "-jsonl",
+        "-matcher-status",  # emit a record for every request that ran and did not match: a receipt
         "-silent",
         "-timeout", "10",
         "-retries", "1",
@@ -282,6 +355,7 @@ async def run_nuclei_template(
                 pass
 
     rc = proc.returncode if proc.returncode is not None else -1
+    receipts = count_receipts(stdout, hostname, template_id)
     # A non-zero process exit is not proof that a finding is fixed.
     if rc != 0:
         return {"ok": False, "findings": [], "error": _nuclei_exit_error(rc)}
@@ -290,10 +364,44 @@ async def run_nuclei_template(
         findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
     except ToolExecutionError as error:
         return {"ok": False, "findings": [], "error": str(error)}
+    expected = await asyncio.to_thread(template_request_count, template_id)
     if not any((finding.get("evidence") or {}).get("template_id") == template_id for finding in findings):
         return {"ok": False, "findings": findings,
-                "error": "No matching finding was returned, but per-template completion was not proven."}
-    return {"ok": True, "findings": findings, "error": None}
+                "error": "No matching finding was returned, but per-template completion was not proven.",
+                "receipts": receipts, "expected_receipts": expected,
+                "proven_clean": expected == PROVABLE_REQUESTS and receipts >= 1}
+    return {"ok": True, "findings": findings, "error": None, "receipts": receipts,
+            "expected_receipts": expected, "proven_clean": False}
+
+
+VERIFY_MIN_SECONDS = 30  # do not start a rerun with less stage time than this
+
+
+async def verify_open_findings(items: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Try to prove open Nuclei findings fixed by rerunning each exact template on its host.
+
+    A finding is reported clean only when the rerun ended normally, returned no match for that template,
+    and left a receipt for a template that sends a single request. Everything else is reported with the
+    reason it could not be proven, and stays open in Core.
+    """
+    clean: List[Dict[str, str]] = []
+    unverified: List[Dict[str, str]] = []
+    for item in items:
+        host, template_id = item["host"], item["template_id"]
+        left = stage_remaining()
+        if left is not None and left < VERIFY_MIN_SECONDS:
+            unverified.append({"host": host, "template_id": template_id, "reason": "no_time_left"})
+            continue
+        rerun = await run_nuclei_template(host, template_id, timeout=60)
+        if rerun.get("proven_clean"):
+            clean.append({"host": host, "template_id": template_id})
+        elif rerun.get("ok"):
+            unverified.append({"host": host, "template_id": template_id, "reason": "still_reproduces"})
+        elif rerun.get("expected_receipts") != PROVABLE_REQUESTS and "expected_receipts" in rerun:
+            unverified.append({"host": host, "template_id": template_id, "reason": "template_not_provable"})
+        else:
+            unverified.append({"host": host, "template_id": template_id, "reason": "no_receipt_or_rerun_failed"})
+    return {"version": 1, "clean": clean, "unverified": unverified}
 
 
 async def run_nuclei(

@@ -229,3 +229,20 @@ Next: C1, as planned in `C1-plan.md`.
 2. **"Attempted", not "completed", counts as a weekly run.** This stops a host set that cannot fit the budget from making every scan a one-hour weekly scan. The cost is that a partial weekly run is not retried until the next week; its coverage is recorded in the evidence.
 3. **Release order:** deploy the API first (older workers ignore the new field), then the worker. Until the new worker runs, scans stay on the old behaviour.
 4. **Estimates:** daily about 19 min for five hosts at 20 req/s; weekly about 50 min at 25 req/s. Confirm with one real scan after release.
+
+## Nuclei verified resolution (branch `codex/nuclei-verified-resolution`, stacked on tiered Nuclei)
+
+- **Before:** a Nuclei finding could never resolve by itself. The scan-time rule kept absence "unknown", and the on-demand "verify fix" returned "exact-template completion was not proven", so a fixed CVE stayed open until someone resolved it by hand.
+- **Rule now:** a Nuclei finding resolves in a scan only when the worker reran its **exact template on that host in that scan** and Nuclei left a **non-match receipt**, for a template that sends **a single request**.
+  - At claim, Core lists up to 20 open Nuclei findings of the domain (`nuclei_verify`). The worker reruns each exact template (rate-limited, same safety exclusions) and posts `verification.clean` / `verification.unverified` with the Nuclei observation. `finalize_scan` resolves only the `(host, template)` pairs in `clean`. Older workers ignore the field, so nothing resolves until the new worker runs.
+  - The rerun now passes `-matcher-status`. The receipt is Nuclei's own record that the template ran against the host and did not match.
+- **Measured, and why only single-request templates:** with Nuclei 3.11.1 a two-request template printed **one** non-match record, for its last request. A receipt therefore proves a single-request template completely and a multi-request one only partly. Multi-request templates, and templates whose request count cannot be read (payloads, fuzzing, flows, non-HTTP), are never proven and stay open.
+- **Coverage of the safe set (pinned v10.4.9, after the safety exclusions):** provable templates are critical 645 of 981 (66%), high 1,220 of 1,666 (73%), medium 1,115 of 1,585 (70%), low 271 of 437 (62%).
+- **Tests:** `test_nuclei_verification.py`, 20 tests (receipt parsing, request counting, the rerun verdict, the worker's reasons, and finalize resolving only proven pairs; the mutation checks "always resolve" and "never resolve" both fail them). `test_nuclei_tier_postgres.py` gains 5 tests on the migrated database: which findings are targets (open, Nuclei, template present, this domain and organisation, capped at 20) and the claim payload.
+- **Validation:** owned loopback PostgreSQL. Full backend suite **828 passed, 16 skipped**; CI PostgreSQL list **86 passed**.
+
+### Decisions for Yusuf (verified resolution)
+
+1. **About 30% of templates are not provable** (multi-request or uncountable). Their findings stay open until resolved by hand. A later option is a per-template rule for multi-request templates; it needs a different kind of proof, so it is not guessed at here.
+2. **Verification runs on every scan, daily and weekly.** It is cheap (at most 20 reruns, each one template). Raise or lower `VERIFY_LIMIT` if needed.
+3. **A resolved finding that comes back** is reopened by the existing rules when a scan matches it again.
