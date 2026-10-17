@@ -92,6 +92,12 @@ class ScanJobLimits(BaseModel):
     privacy_max_pages: int = Field(default=10, ge=1, le=20)
 
 
+class NucleiVerifyItem(BaseModel):
+    """An open Nuclei finding the worker should try to prove fixed by rerunning its exact template."""
+    host: str = Field(min_length=1, max_length=253, pattern=r"^[A-Za-z0-9.-]+$")
+    template_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._-]+$")
+
+
 # ---------------------------------------------------------------------------
 # Job payload — what the worker receives when it claims a scan (§15, §21).
 # ---------------------------------------------------------------------------
@@ -112,6 +118,8 @@ class ScanJob(BaseModel):
     limits: ScanJobLimits = Field(default_factory=ScanJobLimits)
     # Which Nuclei tier this scan runs. Older workers ignore the field and keep their own default.
     nuclei_tier: Literal["daily", "weekly"] = "daily"
+    # Open Nuclei findings for this domain to re-verify. Older workers ignore the field.
+    nuclei_verify: List[NucleiVerifyItem] = Field(default_factory=list, max_length=20)
     lease_expires_at: str
     claim_generation: int = Field(ge=1)
     claim_token: str = Field(min_length=32, max_length=128, pattern=r'^[A-Za-z0-9_-]+$', repr=False)

@@ -24,14 +24,14 @@ from typing import Any, Dict, List, Optional
 
 from scanner.client import CoreClient, CoreError, JobLost
 from scanner.config import load_config
-from scanner.scope import ScopeError, assert_job_in_scope
+from scanner.scope import ScopeError, assert_job_in_scope, host_in_scope
 
 from backend.app.scanner.discovery import discover_subdomains_with_health
 from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.naabu_runner import run_naabu_batch
 from backend.app.scanner.sslyze_runner import run_sslyze_batch
-from backend.app.scanner.nuclei_runner import run_nuclei_batch
+from backend.app.scanner.nuclei_runner import run_nuclei_batch, verify_open_findings
 from backend.app.scanner.privacy_probe import run_privacy_batch
 from backend.app.scanner.tool_results import ToolBatchResult
 from backend.app.scanner.dns_coverage import collect_dns_results
@@ -295,6 +295,11 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
         for finding in findings:
             if not finding.get("_hostname"):
                 finding["_hostname"] = finding.get("evidence", {}).get("host") or job.target
+        # Try to prove open Nuclei findings fixed by rerunning their exact templates (in scope only).
+        pending = [{"host": v.host, "template_id": v.template_id} for v in getattr(job, "nuclei_verify", [])
+                   if host_in_scope(v.host, job.scope)]
+        if pending and _tool("nuclei"):
+            findings.verification = await verify_open_findings(pending)
         return findings
     nuclei = await run_stage(client, cfg, job, "nuclei", _nuclei, optional=True, plan=nuclei_plan, budget=budget)
     stats["nuclei"] = len(nuclei or [])

@@ -7,9 +7,9 @@ reported partial coverage is not retried until the next week.
 
 A weekly run needs more time than a daily one, so its job carries larger stage and recon timeouts.
 """
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from backend.app.core.database import execute_one
+from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.nuclei_runner import NUCLEI_TIERS
 
 WEEKLY_INTERVAL_DAYS = 7
@@ -34,3 +34,19 @@ def timeouts_for(tier: str, stage_seconds: int, recon_seconds: int) -> Tuple[int
         return stage_seconds, recon_seconds
     budget = NUCLEI_TIERS["weekly"]["budget_seconds"]
     return max(stage_seconds, budget), max(recon_seconds, budget + RECON_ALLOWANCE_SECONDS)
+
+
+VERIFY_LIMIT = 20
+
+
+def verification_targets(org_id: str, domain_id: str) -> List[Dict[str, str]]:
+    """Open Nuclei findings of one domain, as (host, template) pairs the worker should try to prove fixed."""
+    rows = execute_query(
+        "SELECT DISTINCT a.hostname AS host, f.evidence->>'template_id' AS template_id "
+        "FROM findings f JOIN assets a ON a.id = f.asset_id AND a.org_id = f.org_id "
+        "WHERE f.org_id = %s AND a.domain_id = %s AND f.status <> 'resolved' "
+        "AND f.category = 'Nuclei Scan' AND f.evidence->>'template_id' IS NOT NULL "
+        "ORDER BY host, template_id LIMIT %s",
+        (org_id, domain_id, VERIFY_LIMIT),
+    ) or []
+    return [{"host": r["host"], "template_id": r["template_id"]} for r in rows]

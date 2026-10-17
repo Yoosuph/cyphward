@@ -99,3 +99,68 @@ def test_the_claim_after_a_weekly_run_is_daily_with_the_configured_timeouts(exec
     assert job["nuclei_tier"] == "daily"
     assert job["limits"]["stage_timeout_seconds"] == sj.SCANNER_STAGE_TIMEOUT_SECONDS
     assert job["limits"]["recon_timeout_seconds"] == sj.SCANNER_RECON_TIMEOUT_SECONDS
+
+
+# ── Which open findings the worker is asked to re-verify ───────────────────
+
+from backend.app.core.nuclei_tier import VERIFY_LIMIT, verification_targets  # noqa: E402
+
+
+def _asset(db, domain_index, hostname):
+    conn, org, domains = db
+    row = conn.execute("INSERT INTO assets (org_id, domain_id, hostname, status, last_seen) "
+                       "VALUES (%s, %s, %s, 'active', now()) RETURNING id", (org, domains[domain_index], hostname)).fetchone()
+    conn.commit()
+    return row["id"]
+
+
+def _finding(db, asset_id, template_id, *, status="open", category="Nuclei Scan", title=None):
+    conn, org, _ = db
+    evidence = {"template_id": template_id} if template_id else {}
+    conn.execute("INSERT INTO findings (org_id, asset_id, title, description, severity, category, evidence, "
+                 "remediation, status) VALUES (%s, %s, %s, 'x', 'high', %s, %s, 'x', %s)",
+                 (org, asset_id, title or f"Finding {template_id}", category, psycopg.types.json.Jsonb(evidence), status))
+    conn.commit()
+
+
+def test_open_nuclei_findings_of_the_domain_are_the_verification_targets(execution_db):
+    _, org, domains = execution_db
+    www = _asset(execution_db, 0, "www.acme.test")
+    _finding(execution_db, www, "exposed-panel")
+    _finding(execution_db, www, "git-config")
+    assert verification_targets(org, domains[0]) == [
+        {"host": "www.acme.test", "template_id": "exposed-panel"},
+        {"host": "www.acme.test", "template_id": "git-config"},
+    ]
+
+
+def test_resolved_non_nuclei_and_template_less_findings_are_not_targets(execution_db):
+    _, org, domains = execution_db
+    www = _asset(execution_db, 0, "www.acme.test")
+    _finding(execution_db, www, "fixed-already", status="resolved")
+    _finding(execution_db, www, "x-frame", category="HTTP Headers")
+    _finding(execution_db, www, None)
+    assert verification_targets(org, domains[0]) == []
+
+
+def test_targets_are_scoped_to_the_domain_and_the_organisation(execution_db):
+    _, org, domains = execution_db
+    _finding(execution_db, _asset(execution_db, 1, "www.other.test"), "exposed-panel")
+    assert verification_targets(org, domains[0]) == []
+    assert verification_targets(str(uuid4()), domains[1]) == []
+    assert verification_targets(org, domains[1]) == [{"host": "www.other.test", "template_id": "exposed-panel"}]
+
+
+def test_the_target_list_is_capped(execution_db):
+    _, org, domains = execution_db
+    www = _asset(execution_db, 0, "www.acme.test")
+    for i in range(VERIFY_LIMIT + 5):
+        _finding(execution_db, www, f"template-{i:03d}")
+    assert len(verification_targets(org, domains[0])) == VERIFY_LIMIT
+
+
+def test_the_claim_carries_the_open_findings_to_verify(execution_db, scanner_api):
+    _finding(execution_db, _asset(execution_db, 0, "www.acme.test"), "exposed-panel")
+    _scan(execution_db, 0)
+    job = scanner_api.post("/api/v1/scanner/claim", headers=_claim_headers()).json()
+    assert job["nuclei_verify"] == [{"host": "www.acme.test", "template_id": "exposed-panel"}]
