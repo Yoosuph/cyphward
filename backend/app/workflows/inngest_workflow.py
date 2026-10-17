@@ -419,6 +419,9 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
     valid_dns = (observations.get("dns") or {}).get("dns_records") or []
     valid_http = (observations.get("http") or {}).get("http_probes") or []
     nuclei_findings = (observations.get("nuclei") or {}).get("nuclei_findings") or []
+    verified_clean = {(str(v.get("host", "")).lower(), str(v.get("template_id", "")))
+                      for v in ((observations.get("nuclei") or {}).get("verification") or {}).get("clean") or []
+                      if isinstance(v, dict)}
 
     progress[STAGE_SECURITY_CHECKS]["status"] = "running"
     claimed = execute_one("""
@@ -626,9 +629,11 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             hostname = hostname_by_asset.get(asset_id) or hostname_by_asset.get(str(asset_id))
             name = classify_detector(category, evidence)["name"]
             if name == "nuclei":
-                # Current CLI output proves matches/process completion only,
-                # not exact-template negative coverage. Keep absence unknown.
-                return False
+                # A scan run proves matches and process completion only, never that one template was clear.
+                # A finding resolves only when the worker reran that exact template on this host this scan
+                # and Nuclei left a receipt that it ran and did not match (single-request templates).
+                template_id = (evidence or {}).get("template_id") if isinstance(evidence, dict) else None
+                return (str(hostname or "").lower(), str(template_id or "")) in verified_clean
             if name == "security_checks":
                 if hostname not in check_success_hosts:
                     return False

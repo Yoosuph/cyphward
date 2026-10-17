@@ -139,7 +139,7 @@ def test_nuclei_runs_severities_in_order_and_records_each_pass(monkeypatch):
 
     async def version(): return "3.11.1"
 
-    async def scan(host, templates, severity, timeout, strict=False):
+    async def scan(host, templates, severity, timeout, strict=False, rate_limit=None):
         calls.append(severity)
         return []  # no matches
 
@@ -156,7 +156,7 @@ def test_critical_runs_even_on_a_tiny_budget_and_lower_severities_are_skipped(mo
 
     async def version(): return "3.11.1"
 
-    async def scan(host, templates, severity, timeout, strict=False):
+    async def scan(host, templates, severity, timeout, strict=False, rate_limit=None):
         calls.append(severity)
         return []
 

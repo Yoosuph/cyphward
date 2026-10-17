@@ -190,6 +190,9 @@ class FakeStore:
     def route(self, sql: str, params: tuple):
         s = " ".join(sql.split())
 
+        if s.startswith("SELECT DISTINCT a.hostname AS host, f.evidence"):
+            return []  # nuclei re-verification targets; the real query runs in the PostgreSQL tests
+
         if s == 'SELECT clock_timestamp() AS claim_now':
             return [{'claim_now': datetime.now(timezone.utc)}]
         if s.startswith('SELECT id, org_id, status, claimed_by, claim_generation'):

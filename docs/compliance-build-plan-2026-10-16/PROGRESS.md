@@ -376,3 +376,41 @@ Next: C1, as planned in `C1-plan.md`.
 - `npm run build` (tsc + vite + prerender): passed.
 - `npm run test:compliance-ui`: passed at 1440/390/320. It now covers the questionnaire flow (applicability first, hidden follow-up appears after saving, owner picker, https-only link, 24-month expiry inside 730 days, date answers without expiry, digit refusal), told-us lines and the Excluded section, incidents (overdue, notified late, countdown, live tick to Overdue, create with naive times, PATCH with only changes and null), the checklist and disclaimer, members read-only (no form controls, no writes), the Starter gate, and no horizontal overflow including with forms open. The browser runs in Asia/Tokyo and the mock organisation in America/New_York, so a viewer-zone bug would fail.
 - `test:scans-ui`, `test:score-ui`, `test:onboarding-ui`: passed. `test_compliance_claims.py`: 8 passed.
+
+## Tiered Nuclei (branch `codex/tiered-nuclei`)
+
+- **Daily tier:** critical + high, 20 requests/s, 1,500 s budget.
+- **Weekly tier:** full safe set (critical, high, medium, low), 25 requests/s, 3,600 s budget.
+- **Core chooses the tier at claim time** (`backend/app/core/nuclei_tier.py`). A domain gets a weekly run when no weekly run has been *attempted* for it in the last 7 days (a weekly Nuclei observation recorded by the worker); every other scan is daily. The claim carries `nuclei_tier`, and a weekly job also carries longer stage and recon timeouts (stage at least 3,600 s; recon at least 3,600 + 900 s). Older workers ignore the new field and keep their own default.
+- **Operator override:** `SCANNER_NUCLEI_TIER` on the worker pins a tier and wins over the job.
+- **Fair share:** the budget is split equally between hosts, cut from the *smaller* of the tier budget and the stage time really left. A host that never starts is recorded as `omitted` (`budget_exhausted`, process status `not_reached`), not failed. A host the stage deadline interrupts mid-run stays failed (`recon_stage_deadline`), as before.
+- **Rate:** the tier rate now reaches the Nuclei command (it was ignored by `run_nuclei`). Legacy callers without a tier keep the old behaviour.
+- **Tests:**
+  - `test_nuclei_tiers.py`, 10 tests (tier defaults, unknown tier, daily and weekly severities and rates, equal shares, unreached hosts not assessed, rate flag once, weekly timeouts, job field default, share cut from stage time left);
+  - `test_nuclei_tier_postgres.py`, 8 tests on the migrated database (weekly when none in 7 days, daily after one, weekly again after 8 days, daily runs don't count, other domain and other organisation don't count, and the claim itself returns the tier and timeouts).
+- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run). Full backend suite **803 passed, 16 skipped**. CI PostgreSQL list **81 passed**.
+
+## Decisions for Yusuf (tiered Nuclei)
+
+1. **Daily scans no longer run medium and low templates.** Weekly covers them: the first scan of a domain after release is weekly, then one per 7 days.
+2. **"Attempted", not "completed", counts as a weekly run.** This stops a host set that cannot fit the budget from making every scan a one-hour weekly scan. The cost is that a partial weekly run is not retried until the next week; its coverage is recorded in the evidence.
+3. **Release order:** deploy the API first (older workers ignore the new field), then the worker. Until the new worker runs, scans stay on the old behaviour.
+4. **Estimates:** daily about 19 min for five hosts at 20 req/s; weekly about 50 min at 25 req/s. Confirm with one real scan after release.
+
+## Nuclei verified resolution (branch `codex/nuclei-verified-resolution`, stacked on tiered Nuclei)
+
+- **Before:** a Nuclei finding could never resolve by itself. The scan-time rule kept absence "unknown", and the on-demand "verify fix" returned "exact-template completion was not proven", so a fixed CVE stayed open until someone resolved it by hand.
+- **Rule now:** a Nuclei finding resolves in a scan only when the worker reran its **exact template on that host in that scan** and Nuclei left a **non-match receipt**, for a template that sends **a single request**.
+  - At claim, Core lists up to 20 open Nuclei findings of the domain (`nuclei_verify`). The worker reruns each exact template (rate-limited, same safety exclusions) and posts `verification.clean` / `verification.unverified` with the Nuclei observation. `finalize_scan` resolves only the `(host, template)` pairs in `clean`. Older workers ignore the field, so nothing resolves until the new worker runs.
+  - The rerun now passes `-matcher-status`. The receipt is Nuclei's own record that the template ran against the host and did not match.
+- **Measured, and why only single-request templates:** with Nuclei 3.11.1 a two-request template printed **one** non-match record, for its last request. A receipt therefore proves a single-request template completely and a multi-request one only partly. Multi-request templates, and templates whose request count cannot be read (payloads, fuzzing, flows, non-HTTP), are never proven and stay open.
+- **A receipt only counts if the answer came from the target.** A non-match record is proof only when it has no `error` field, a real HTTP response, a status that is not 401/403/429/5xx, and is not a WAF or bot-protection challenge (the same detection the privacy probe uses: Cloudflare and Vercel headers and challenge pages, including a challenge served with a 200). Otherwise the finding is reported as `not_assessed` with the detail (`bad_status`, `blocked`, `no_response`) and stays open. A mix of good and bad receipts for one template does not count.
+- **Coverage of the safe set (pinned v10.4.9, after the safety exclusions):** provable templates are critical 645 of 981 (66%), high 1,220 of 1,666 (73%), medium 1,115 of 1,585 (70%), low 271 of 437 (62%).
+- **Tests:** `test_nuclei_verification.py`, 31 tests (receipt parsing, request counting, the rerun verdict, the worker's reasons, finalize resolving only proven pairs, and fixture tests: a 200 non-match receipt resolves a single-request finding; a 403 Cloudflare challenge, a Vercel 200 checkpoint, 401/403/429/5xx and a missing response leave it open as `not_assessed`; the mutation checks "always resolve", "never resolve" and "every receipt counts" all fail them). `test_nuclei_tier_postgres.py` gains 5 tests on the migrated database: which findings are targets (open, Nuclei, template present, this domain and organisation, capped at 20) and the claim payload.
+- **Validation:** owned loopback PostgreSQL. Full backend suite **839 passed, 16 skipped**; CI PostgreSQL list **86 passed**.
+
+### Decisions for Yusuf (verified resolution)
+
+1. **About 30% of templates are not provable** (multi-request or uncountable). Their findings stay open until resolved by hand. A later option is a per-template rule for multi-request templates; it needs a different kind of proof, so it is not guessed at here.
+2. **Verification runs on every scan, daily and weekly.** It is cheap (at most 20 reruns, each one template). Raise or lower `VERIFY_LIMIT` if needed.
+3. **A resolved finding that comes back** is reopened by the existing rules when a scan matches it again.

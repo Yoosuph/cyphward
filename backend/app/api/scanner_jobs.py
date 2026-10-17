@@ -23,6 +23,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.execution_fence import ClaimLost, ExecutionClaim
 from backend.app.core import scan_execution as execution
+from backend.app.core.nuclei_tier import choose_tier, timeouts_for, verification_targets
 from shared.contracts import (
     JobComplete,
     JobFail,
@@ -134,6 +135,8 @@ def claim_job(
                                 privacy_capable=PRIVACY_CAPABILITY in capabilities)
     if row is None:
         return Response(status_code=204)
+    tier = choose_tier(str(row["org_id"]), str(row["domain_id"]))
+    stage_seconds, recon_seconds = timeouts_for(tier, SCANNER_STAGE_TIMEOUT_SECONDS, SCANNER_RECON_TIMEOUT_SECONDS)
     return ScanJob(
         scan_id=str(row["id"]),
         organization_id=str(row["org_id"]),
@@ -149,12 +152,14 @@ def claim_job(
             "verification_status": "verified",
             "verified_at_claim_time": True,
         },
+        nuclei_tier=tier,
+        nuclei_verify=verification_targets(str(row["org_id"]), str(row["domain_id"])),
         limits=ScanJobLimits(
             max_hosts=SCANNER_MAX_HOSTS,
             dns_max_hosts=SCANNER_DNS_MAX_HOSTS,
             max_ports=SCANNER_MAX_PORTS,
-            stage_timeout_seconds=SCANNER_STAGE_TIMEOUT_SECONDS,
-            recon_timeout_seconds=SCANNER_RECON_TIMEOUT_SECONDS,
+            stage_timeout_seconds=stage_seconds,
+            recon_timeout_seconds=recon_seconds,
             tls_max_hosts=SCANNER_TLS_MAX_HOSTS,
             nuclei_concurrency=SCANNER_NUCLEI_CONCURRENCY,
             nuclei_max_hosts=SCANNER_NUCLEI_MAX_HOSTS,

@@ -4,7 +4,8 @@ Executes ProjectDiscovery Nuclei templates against discovered hosts for deep vul
 Falls back gracefully if Nuclei binary is not installed.
 """
 import asyncio
-from shared.scan_budget import gather_with_deadline, ensure_stage_budget
+from backend.app.scanner.privacy_probe import looks_blocked
+from shared.scan_budget import BudgetExceeded, gather_with_deadline, ensure_stage_budget, stage_remaining
 from shared.scanner_identity import SCANNER_USER_AGENT
 import json
 import os
@@ -15,7 +16,7 @@ import pathlib
 import shutil
 import re
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from backend.app.scanner import ip_guard
 from backend.app.scanner.tool_results import ToolExecutionError, collect_tool_results
@@ -27,6 +28,12 @@ NUCLEI_EXCLUDE_TAGS = "default-login,brute-force,bruteforce,intrusive,fuzz,fuzzi
 NUCLEI_RATE_LIMIT = int(os.getenv("SCANNER_NUCLEI_RATE_LIMIT", "10"))
 # Most important first, so the time budget always covers critical before low.
 NUCLEI_SEVERITY_ORDER = ["critical", "high", "medium", "low"]
+# Tiers: a daily run covers the serious findings at a higher rate; a weekly run covers the full
+# safe set with its own longer budget. Hosts share a tier's budget equally.
+NUCLEI_TIERS = {
+    "daily": {"severities": ["critical", "high"], "rate_limit": 20, "budget_seconds": 1500},
+    "weekly": {"severities": ["critical", "high", "medium", "low"], "rate_limit": 25, "budget_seconds": 3600},
+}
 
 
 @functools.lru_cache(maxsize=1)
@@ -44,8 +51,15 @@ def nuclei_policy():
     return meta
 
 
-def _nuclei_safety_args():
-    args = ["-exclude-tags", NUCLEI_EXCLUDE_TAGS, "-rate-limit", str(NUCLEI_RATE_LIMIT)]
+def nuclei_tier_settings(tier: str) -> Dict[str, Any]:
+    if tier not in NUCLEI_TIERS:
+        raise ValueError(f"unknown Nuclei tier: {tier!r}")
+    return NUCLEI_TIERS[tier]
+
+
+def _nuclei_safety_args(rate_limit: Optional[int] = None):
+    rate = NUCLEI_RATE_LIMIT if rate_limit is None else rate_limit
+    args = ["-exclude-tags", NUCLEI_EXCLUDE_TAGS, "-rate-limit", str(rate)]
     policy = nuclei_policy()
     if policy.get("available"):
         args += ["-exclude-id", policy["exclude_ids_path"]]
@@ -192,6 +206,114 @@ def _parse_nuclei_stdout(stdout: bytes, hostname: str, strict: bool = False) -> 
     return findings
 
 
+# ── Exact-template receipts ────────────────────────────────────────────────
+# With -matcher-status Nuclei prints one record when a template ran and did not match. The record describes
+# the template's LAST request (measured with Nuclei 3.11.1: a two-request template prints one record, for the
+# second request). So the record is complete proof only for a template that sends a single request. A
+# multi-request template, or one whose request count cannot be read from the file (payloads, fuzzing, flows,
+# races, non-HTTP protocols), can never be proven clean this way and its finding stays open.
+PROVABLE_REQUESTS = 1
+TEMPLATES_DIR = pathlib.Path(os.getenv("SCANNER_NUCLEI_TEMPLATES_DIR", str(pathlib.Path.home() / "nuclei-templates")))
+_ID_LINE = re.compile(r"^id:\s*['\"]?([A-Za-z0-9._-]+)['\"]?\s*$", re.MULTILINE)
+UNCOUNTABLE_KEYS = {"payloads", "fuzzing", "attack", "race", "race_count", "pipeline", "iterate-all", "stop-at-first-match-off"}
+UNCOUNTABLE_TEMPLATE_KEYS = {"flow", "workflows", "code", "javascript", "dns", "ssl", "tcp", "file", "headless",
+                             "network", "websocket", "whois", "http2", "multiprotocol"}
+
+
+_STATUS_LINE = re.compile(r"^HTTP/[\d.]+\s+(\d{3})")
+UNUSABLE_STATUSES = {401, 403, 429}  # plus every 5xx
+
+
+def receipt_verdict(data: Dict[str, Any]) -> str:
+    """Does this non-match record show a real answer from the target?
+
+    "ok" only for a response without an error field, whose status is not 401/403/429/5xx and which is not
+    a WAF or bot-protection challenge. A non-match against a block page proves nothing about the target,
+    so anything else is "error", "no_response", "bad_status" or "blocked" and the finding is not assessed.
+    """
+    if data.get("error"):
+        return "error"
+    response = data.get("response")
+    if not isinstance(response, str) or not response.strip():
+        return "no_response"
+    head, _, body = response.replace("\r\n", "\n").partition("\n\n")
+    lines = head.split("\n")
+    match = _STATUS_LINE.match(lines[0].strip())
+    if not match:
+        return "no_response"
+    status = int(match.group(1))
+    headers = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:]) if k.strip()}
+    if status in UNUSABLE_STATUSES or status >= 500:
+        return "bad_status"
+    if looks_blocked(status, headers, body):
+        return "blocked"
+    return "ok"
+
+
+def receipt_summary(stdout: bytes, hostname: str, template_id: str) -> Dict[str, int]:
+    """Non-match records Nuclei printed for this exact template on this host, by verdict."""
+    summary: Dict[str, int] = {}
+    for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(data, dict) and data.get("matcher-status") is False
+                and data.get("template-id") == template_id
+                and str(data.get("host", "")).lower().rstrip(".") == hostname.lower().rstrip(".")):
+            verdict = receipt_verdict(data)
+            summary[verdict] = summary.get(verdict, 0) + 1
+    return summary
+
+
+def count_receipts(stdout: bytes, hostname: str, template_id: str) -> int:
+    """Receipts that count as proof: real answers from the target only."""
+    return receipt_summary(stdout, hostname, template_id).get("ok", 0)
+
+
+@functools.lru_cache(maxsize=1)
+def _template_index() -> Dict[str, pathlib.Path]:
+    index: Dict[str, pathlib.Path] = {}
+    root = TEMPLATES_DIR / "http"
+    if not root.is_dir():
+        return index
+    for path in root.rglob("*.yaml"):
+        try:
+            head = path.read_text(encoding="utf-8", errors="replace")[:1500]
+        except OSError:
+            continue
+        match = _ID_LINE.search(head)
+        if match:
+            index.setdefault(match.group(1), path)
+    return index
+
+
+def template_request_count(template_id: str) -> Optional[int]:
+    """Requests an HTTP template declares, or None when that cannot be known from the file."""
+    path = _template_index().get(template_id)
+    if path is None:
+        return None
+    try:
+        import yaml
+        template = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(template, dict) or UNCOUNTABLE_TEMPLATE_KEYS & set(template):
+        return None
+    blocks = template.get("http") or template.get("requests")
+    if not isinstance(blocks, list) or not blocks:
+        return None
+    total = 0
+    for block in blocks:
+        if not isinstance(block, dict) or UNCOUNTABLE_KEYS & set(block):
+            return None
+        total += len(block.get("path") or []) + len(block.get("raw") or [])
+    return total or None
+
+
 async def run_nuclei_template(
     hostname: str,
     template_id: str,
@@ -224,6 +346,7 @@ async def run_nuclei_template(
         "-id", template_id,
         "-severity", "info,low,medium,high,critical",
         "-jsonl",
+        "-matcher-status",  # emit a record for every request that ran and did not match: a receipt
         "-silent",
         "-timeout", "10",
         "-retries", "1",
@@ -269,6 +392,9 @@ async def run_nuclei_template(
                 pass
 
     rc = proc.returncode if proc.returncode is not None else -1
+    summary = receipt_summary(stdout, hostname, template_id)
+    receipts = summary.get("ok", 0)
+    unusable = {k: v for k, v in summary.items() if k != "ok"}
     # A non-zero process exit is not proof that a finding is fixed.
     if rc != 0:
         return {"ok": False, "findings": [], "error": _nuclei_exit_error(rc)}
@@ -277,10 +403,48 @@ async def run_nuclei_template(
         findings = _parse_nuclei_stdout(stdout, hostname, strict=True)
     except ToolExecutionError as error:
         return {"ok": False, "findings": [], "error": str(error)}
+    expected = await asyncio.to_thread(template_request_count, template_id)
     if not any((finding.get("evidence") or {}).get("template_id") == template_id for finding in findings):
         return {"ok": False, "findings": findings,
-                "error": "No matching finding was returned, but per-template completion was not proven."}
-    return {"ok": True, "findings": findings, "error": None}
+                "error": "No matching finding was returned, but per-template completion was not proven.",
+                "receipts": receipts, "expected_receipts": expected, "unusable_receipts": unusable,
+                "proven_clean": expected == PROVABLE_REQUESTS and receipts >= 1 and not unusable}
+    return {"ok": True, "findings": findings, "error": None, "receipts": receipts,
+            "expected_receipts": expected, "unusable_receipts": unusable, "proven_clean": False}
+
+
+VERIFY_MIN_SECONDS = 30  # do not start a rerun with less stage time than this
+
+
+async def verify_open_findings(items: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Try to prove open Nuclei findings fixed by rerunning each exact template on its host.
+
+    A finding is reported clean only when the rerun ended normally, returned no match for that template,
+    and left a receipt for a template that sends a single request. Everything else is reported with the
+    reason it could not be proven, and stays open in Core.
+    """
+    clean: List[Dict[str, str]] = []
+    unverified: List[Dict[str, str]] = []
+    for item in items:
+        host, template_id = item["host"], item["template_id"]
+        left = stage_remaining()
+        if left is not None and left < VERIFY_MIN_SECONDS:
+            unverified.append({"host": host, "template_id": template_id, "reason": "no_time_left"})
+            continue
+        rerun = await run_nuclei_template(host, template_id, timeout=60)
+        if rerun.get("proven_clean"):
+            clean.append({"host": host, "template_id": template_id})
+        elif rerun.get("ok"):
+            unverified.append({"host": host, "template_id": template_id, "reason": "still_reproduces"})
+        elif rerun.get("unusable_receipts"):
+            # The target did not give a real answer (challenge page, 401/403/429/5xx, error): not assessed.
+            unverified.append({"host": host, "template_id": template_id, "reason": "not_assessed",
+                               "detail": sorted(rerun["unusable_receipts"])[0]})
+        elif rerun.get("expected_receipts") != PROVABLE_REQUESTS and "expected_receipts" in rerun:
+            unverified.append({"host": host, "template_id": template_id, "reason": "template_not_provable"})
+        else:
+            unverified.append({"host": host, "template_id": template_id, "reason": "no_receipt_or_rerun_failed"})
+    return {"version": 1, "clean": clean, "unverified": unverified}
 
 
 async def run_nuclei(
@@ -288,7 +452,7 @@ async def run_nuclei(
     templates: str = "http/",
     severity: str = "low,medium,high,critical",
     timeout: int = 300,
-    rate_limit: int = NUCLEI_RATE_LIMIT,
+    rate_limit: Optional[int] = None,
     strict: bool = False,
 ) -> List[Dict[str, Any]]:
     """
@@ -321,7 +485,7 @@ async def run_nuclei(
         "-no-color",
         "-disable-update-check",
         "-H", f"User-Agent: {SCANNER_USER_AGENT}",
-        *_nuclei_safety_args(),
+        *_nuclei_safety_args(rate_limit),
         *_nuclei_resource_args(),
     ]
 
@@ -368,34 +532,62 @@ async def run_nuclei(
     return findings
 
 
+_NOT_REACHED = object()
+
+
 async def run_nuclei_batch(
     hostnames: List[str],
     templates: str = "http/",
     severity: str = "low,medium,high,critical",
     concurrency: int = 1,
     timeout: int = 300,
+    tier: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Run Nuclei across multiple hosts concurrently."""
+    """Run Nuclei across hosts.
+
+    With a tier, that tier's severities and rate apply, and its budget is shared equally between
+    the hosts. A host that never starts inside the budget is omitted (not assessed), not failed.
+    Without a tier, the previous behaviour is kept.
+    """
     hostnames = list(dict.fromkeys(hostnames))
+    settings = nuclei_tier_settings(tier) if tier else None
+    levels = settings["severities"] if settings else NUCLEI_SEVERITY_ORDER
+    rate_limit = settings["rate_limit"] if settings else None
+    budget = settings["budget_seconds"] if settings else timeout
+    left = stage_remaining()
+    if left:
+        # Shares are cut from the time that is really left. A sliver of time still starts the host, which
+        # the stage deadline then reaps as incomplete; no time at all leaves it unstarted (omitted).
+        budget = min(budget, max(1, int(left)))
     started_at = datetime.now(timezone.utc).isoformat()
     version = await _nuclei_version() if hostnames else None
     max_processes = max(1, min(4, int(os.getenv("SCANNER_NUCLEI_MAX_PROCESSES", "1"))))
     semaphore = asyncio.Semaphore(max(1, min(concurrency, max_processes)))
+    host_share = max(1, budget // max(1, len(hostnames)))
+    overall_deadline = time.monotonic() + budget
 
     severity_passes: Dict[str, Dict[str, Any]] = {}
+    omitted: Dict[str, str] = {}
+    started: set = set()
 
-    async def _run_with_semaphore(host: str) -> List[Dict[str, Any]]:
+    async def _run_with_semaphore(host: str) -> Any:
         async with semaphore:
-            deadline = time.monotonic() + timeout
+            now = time.monotonic()
+            if now >= overall_deadline:
+                return _NOT_REACHED
+            started.add(host)
+            # Each host gets an equal share, capped by what is left of the tier budget.
+            deadline = min(overall_deadline, now + host_share)
             findings: List[Dict[str, Any]] = []
             passes: Dict[str, Any] = {}
-            for index, level in enumerate(NUCLEI_SEVERITY_ORDER):
+            for index, level in enumerate(levels):
                 remaining = int(deadline - time.monotonic())
-                if index > 0 and remaining < 10:  # keep the budget for critical/high; skip the rest
+                if index > 0 and remaining < 10:  # keep the budget for the most serious level
                     passes[level] = {"status": "skipped_budget", "matches": 0}
                     continue
                 try:
-                    level_findings = await run_nuclei(host, templates, level, max(remaining, 5), strict=True)
+                    level_findings = await run_nuclei(host, templates, level, max(remaining, 5),
+                                                      strict=True, rate_limit=rate_limit)
                 except ToolExecutionError as exc:
                     if index == 0:
                         raise  # unreachable host / nuclei missing: the host failed, as before
@@ -409,23 +601,37 @@ async def run_nuclei_batch(
     tasks = [_run_with_semaphore(h) for h in hostnames]
     results = await gather_with_deadline(tasks)
 
-    batch = collect_tool_results(hostnames, results)
+    ran_hosts, ran_results = [], []
+    for host, result in zip(hostnames, results):
+        if result is _NOT_REACHED or (isinstance(result, BudgetExceeded) and host not in started):
+            # Never started inside the budget: not assessed, not failed.
+            omitted[host] = "budget_exhausted"
+            continue
+        # A host the stage deadline interrupted mid-run stays a failed (incomplete) assessment.
+        ran_hosts.append(host)
+        ran_results.append(result)
+    batch = collect_tool_results(ran_hosts, ran_results)
+    batch.attempted_hosts = list(ran_hosts)
+    batch.omitted_hosts = dict(omitted)
     # CLI exit success and match JSONL do not attest that every selected
     # template ran for a host. Preserve that gap explicitly, including legacy
     # installations whose engine/template version cannot be observed.
     batch.tool_coverage = {
         "version": 1, "tool": "nuclei", "tool_version": version,
-        "requested_selector": templates, "severity_filter": severity,
-        "severity_order": NUCLEI_SEVERITY_ORDER,
+        "requested_selector": templates, "severity_filter": ",".join(levels),
+        "severity_order": levels, "tier": tier,
         "template_set_version": nuclei_policy().get("templates_version"), "evaluated_templates": None,
         "negative_verification": "unknown",
-        "safety_policy": {"rate_limit_per_second": NUCLEI_RATE_LIMIT, "exclude_tags": NUCLEI_EXCLUDE_TAGS,
+        "safety_policy": {"rate_limit_per_second": rate_limit or NUCLEI_RATE_LIMIT,
+                          "exclude_tags": NUCLEI_EXCLUDE_TAGS,
                           "excluded_templates": nuclei_policy().get("excluded"),
                           "exclude_ids_sha256": nuclei_policy().get("exclude_ids_sha256")},
         "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(),
-        "per_host_timeout_seconds": timeout,
+        "budget_seconds": budget, "host_budget_seconds": host_share,
+        "per_host_timeout_seconds": budget,
         "targets": {host: {
             "process_status": "completed" if host in batch.successful_hosts else
+                              "not_reached" if host in omitted else
                               "incomplete" if batch.failed_hosts.get(host) == "recon_stage_deadline" else "failed",
             "matched_templates": sorted({str((finding.get("evidence") or {}).get("template_id"))
                                           for finding in batch if finding.get("_hostname") == host

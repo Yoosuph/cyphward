@@ -72,6 +72,14 @@ class ReconBudget:
             _thread_deadline.reset(thread_token)
 
 
+def stage_remaining():
+    """Seconds left in the current stage, or None outside a budgeted stage."""
+    deadline = _stage_deadline.get()
+    if deadline is None:
+        return None
+    return max(0.0, deadline - asyncio.get_running_loop().time())
+
+
 async def gather_with_deadline(awaitables):
     """Preserve completed results in input order and reap cancelled tasks."""
     awaitables = list(awaitables)
