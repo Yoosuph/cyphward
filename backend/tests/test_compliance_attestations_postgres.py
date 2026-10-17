@@ -416,3 +416,65 @@ def test_starter_is_gated_from_the_questionnaire_and_history(world):
     headers = world.headers(member, org_id)
     assert world.client.get("/api/v1/compliance/questionnaire", headers=headers).status_code == 403
     assert world.client.get("/api/v1/compliance/attestations/breach.response_plan", headers=headers).status_code == 403
+
+
+def test_queued_writers_are_stamped_in_supersede_order(world):
+    import time
+
+    org_id = world.make_org()
+    owner = world.make_person(org_id, "owner")
+    _record(world, org_id, owner, value="yes")  # an existing current answer to supersede
+    key = f"compliance:{org_id}:breach.response_plan"
+    holder = psycopg.connect(world.url, row_factory=dict_row)
+    try:
+        # A third session holds the per-question lock, so both writers queue behind it.
+        holder.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key,))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(_record, world, org_id, owner, value=v) for v in ("no", "yes")]
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                waiting = world.rows("SELECT count(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+                                     "AND datname = current_database()")[0]["n"]
+                if waiting >= 2:
+                    break
+                time.sleep(0.05)
+            assert waiting >= 2, "both writers should be queued behind the lock"
+            holder.commit()
+            for future in futures:
+                future.result(timeout=30)
+    finally:
+        holder.close()
+    current = _current(world, org_id)
+    assert len(current) == 1
+    attested = world.rows("SELECT id, attested_at FROM compliance_attestations WHERE org_id = %s "
+                          "AND question_key = 'breach.response_plan' ORDER BY attested_at", (org_id,))
+    assert len(attested) == 3 and str(attested[-1]["id"]) == str(current[0]["id"])
+    history = store.history(org_id, "breach.response_plan")
+    assert history[0]["superseded"] is False and history[0]["id"] == str(current[0]["id"])
+    assert all(h["superseded"] for h in history[1:])
+
+
+def test_a_current_answer_cannot_point_at_another_question_at_commit(world):
+    org_id = world.make_org()
+    owner = world.make_person(org_id, "owner")
+    current_a = _record(world, org_id, owner, key="breach.response_plan", value="yes")
+    other = _record(world, org_id, owner, key="breach.notification_process", value="yes")
+    with pytest.raises(psycopg.errors.RaiseException, match="newer answer to the same question"):
+        with psycopg.connect(world.url) as conn:
+            with conn.transaction():
+                conn.execute("UPDATE compliance_attestations SET superseded_by = %s WHERE id = %s",
+                             (other["id"], current_a["id"]))
+    assert str(_current(world, org_id)[0]["id"]) == current_a["id"]
+
+
+def test_a_superseding_pointer_cannot_name_an_older_answer(world):
+    org_id = world.make_org()
+    owner = world.make_person(org_id, "owner")
+    older = _record(world, org_id, owner, value="yes")
+    newer = _record(world, org_id, owner, value="no")
+    with pytest.raises(psycopg.errors.RaiseException, match="newer answer to the same question"):
+        with psycopg.connect(world.url) as conn:
+            with conn.transaction():
+                conn.execute("UPDATE compliance_attestations SET superseded_by = %s WHERE id = %s",
+                             (older["id"], newer["id"]))
+    assert str(_current(world, org_id)[0]["id"]) == newer["id"]

@@ -75,6 +75,28 @@ DROP TRIGGER IF EXISTS compliance_attestations_guard ON compliance_attestations;
 CREATE TRIGGER compliance_attestations_guard BEFORE UPDATE ON compliance_attestations
   FOR EACH ROW EXECUTE FUNCTION compliance_attestations_guard();
 
+-- Supersession must point at the newer answer to the same question, in the same
+-- organization. Checked at commit, when the new row exists. A strictly newer
+-- attested_at rules out cycles and pointers to older rows.
+CREATE OR REPLACE FUNCTION compliance_attestations_supersede_check() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  target compliance_attestations%ROWTYPE;
+BEGIN
+  SELECT * INTO target FROM compliance_attestations WHERE org_id = NEW.org_id AND id = NEW.superseded_by;
+  IF NOT FOUND OR target.question_key <> NEW.question_key OR target.attested_at <= NEW.attested_at THEN
+    RAISE EXCEPTION 'compliance_attestations: a superseded answer must point at a newer answer to the same question';
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS compliance_attestations_supersede_check ON compliance_attestations;
+CREATE CONSTRAINT TRIGGER compliance_attestations_supersede_check
+  AFTER UPDATE OF superseded_by ON compliance_attestations
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW.superseded_by IS NOT NULL)
+  EXECUTE FUNCTION compliance_attestations_supersede_check();
+
 ALTER TABLE compliance_attestations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS cyphward_app_all ON compliance_attestations;
 CREATE POLICY cyphward_app_all ON compliance_attestations FOR ALL TO cyphward_app USING (true) WITH CHECK (true);

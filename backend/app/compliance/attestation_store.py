@@ -153,12 +153,10 @@ def record(org: Dict[str, Any], actor_id: str, *, question_key: str, answer: Any
            expires_at: Optional[datetime] = None, evidence_link: Optional[str] = None,
            notes: Optional[str] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Record an answer, superseding the current one in the same transaction, and audit it."""
-    now = now or datetime.now(timezone.utc)
     question = qn.question(question_key)
     if question is None:
         raise truth.AnswerError("That question is not in the questionnaire.")
-    normalized = truth.normalize_answer(question, answer, today=now.date())
-    expiry = truth.expiry_for(question, normalized, expires_at, now)
+    normalized = truth.normalize_answer(question, answer, today=(now or datetime.now(timezone.utc)).date())
     link, memo = _evidence_link(evidence_link), _notes(notes)
     org_id, actor, owner = str(org["id"]), str(actor_id), str(owner_user_id)
     new_id = str(uuid.uuid4())
@@ -167,6 +165,10 @@ def record(org: Dict[str, Any], actor_id: str, *, question_key: str, answer: Any
         with conn.transaction():
             # One writer per (organization, question): the supersede below depends on it.
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"compliance:{org_id}:{question_key}",))
+            # Read the time after the lock: attested_at must order the supersede chain, so a writer that
+            # waited for another must be stamped later. clock_timestamp(), not now(), which is the tx start.
+            at = now or conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"]
+            expiry = truth.expiry_for(question, normalized, expires_at, at)
             # FOR SHARE blocks a concurrent membership removal until this write commits.
             member = conn.execute(
                 "SELECT 1 FROM organization_members WHERE org_id = %s AND user_id = %s FOR SHARE",
@@ -190,7 +192,7 @@ def record(org: Dict[str, Any], actor_id: str, *, question_key: str, answer: Any
                 "owner_user_id, attested_by, attested_at, expires_at, evidence_link, notes) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (new_id, org_id, question_key, qn.QUESTIONNAIRE["version"], Jsonb(normalized), owner, actor,
-                 now, expiry, link, memo))
+                 at, expiry, link, memo))
             # Answer text and notes stay out of the audit trail: they can be personal data.
             conn.execute(
                 "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
