@@ -225,3 +225,55 @@ Next: C1, as planned in `C1-plan.md`.
 - **D13 — "Not sure" answers:** treated as unanswered (`awaiting_input`), never as a gap.
 - **D14 — who may own an answer:** any member of the organisation; owners and admins assign.
 - **D15 — incident retention:** the app never deletes incidents. Closed incidents stay as history; removal is operator SQL only and audited.
+
+## C3a — questionnaire, attestations, read side (branch `codex/compliance-c3a`)
+
+**State:** implemented and validated locally; review-ready. Stacked on `codex/compliance-c3-rebased` (PR 32, the C3 plan), so the PR diff is C3a only. Retarget to `main` once PR 32 merges. **Not released.** Migration `20261017130000_compliance_attestations.sql` (additive; 31 migrations in total). No frontend, reminders or incidents (C3b and C3c).
+
+### Changed behaviour
+
+- **Questionnaire** `backend/app/compliance/questionnaires/ndpa_gaid_v1.json`: the 20 questions in plan section 2. Validated at import (`compliance/questionnaire.py`), so an invalid file stops the API. The validator checks, in both directions:
+  - each `evidences` key is a register requirement that takes customer answers, in the question's group;
+  - each applicability target is a conditional requirement whose `applicability_question` is that question;
+  - every customer-answered requirement has a question, and every conditional requirement has a deciding question;
+  - `show_if` names an earlier question; `evidence_on` only maps answers the question can take.
+- **Truth table** `compliance/attestations.py` (pure): yes/no/date answers map to present/gap through each question's `evidence_on`; not sure, unanswered and hidden follow-ups are awaiting input; an expired answer is awaiting input (`answer_expired`) and never present; a not-applicable answer leaves the requirement out of the denominator with its reason. Several questions can evidence one requirement (training, DPIA, registration), and any gap beats awaiting input, which beats present.
+- **DPO contact** (mixed sources): present if the answer or C2a's observation is present; the other source's gap is still listed beside it. Every requirement returns a `sources` list, so no label is shared. Customer-only requirements carry `customer_attested` only (tested).
+- **Store** `compliance/attestation_store.py`: one write transaction per answer. It takes a per-(organization, question) advisory lock, checks the owner is a member (`FOR SHARE`), supersedes the current answer, inserts the new one and writes `audit_log` in the same transaction. Answer text and notes stay out of the audit metadata.
+- **API** (all tenant-scoped through `get_current_org`):
+  - `GET /api/v1/compliance/questionnaire`: any member; Growth only (D1).
+  - `POST /api/v1/compliance/attestations`: owner or admin only; 422 for an owner outside the organization, a bad answer or link; 409 if the current answer changed mid-write.
+  - `GET /api/v1/compliance/attestations/{question_key}`: history, newest first, marking superseded rows; any member; Growth only.
+- **Status read path** (`status.py`): the answers join the context, and requirement views gain `answers`, `sources` and `headline_source`. The reason text for unanswered customer requirements changed from the C1 "later release" wording.
+- **D11:** `organizations.display_timezone`, default `Africa/Lagos`, in this migration. Read-only in C3a; the owner-editable setting belongs to C3c.
+- **D12–D15:** expiry is 12 months by default, capped at 24, and date questions expire from their date (Q6 +183 days, Q16 +365 days). Any member may own an answer. Not sure is awaiting input. Nothing is deleted: the app role has no DELETE, and a trigger allows a current answer to be superseded once and nothing else to change except the profile-deletion `SET NULL`.
+
+### Decisions taken for Yusuf (defaults applied; please confirm or override)
+
+| # | Decision | Default applied | Why |
+|---|---|---|---|
+| C3a-1 | Migration scope | D11's `display_timezone` column is in the attestations migration, so there's still one migration in C3a. Incidents and reminders get their own migration in C3b. | §4 says one migration, which C3a keeps. The column is additive and D11 wants the default on the org. |
+| C3a-2 | Starter gating | The questionnaire and history reads are Growth only (403 on Starter). Writes are not gated. | Every question sits in a Growth-locked group, so reads are gated like the requirement detail. Writes follow the D1 rule that gating applies to reads. |
+| C3a-3 | A1 = No and `annual_car` | Not changed: only `registered` is excluded by A1 = No. `annual_car` is excluded only by OHL, as the plan table says. | A non-major-importance org would still see `annual_car` as awaiting input. Literal plan; please confirm. |
+| C3a-4 | A1 "major importance" evidence | Yes and no both count as present for `major_importance_status`. | "No" is a determined answer, not a gap, and it also excludes `registered`. |
+| C3a-5 | Hidden follow-ups | A question whose `show_if` is not met is not shown, its old answer is ignored, and a POST to it returns 422. | Keeps stale answers from counting after the prerequisite changes. |
+| C3a-6 | Owner name visibility | Members see the owner's name (profile full name) on answers. | Owners need to be identifiable; no email or ID is returned. |
+| C3a-7 | Superseding guarantee | The database enforces one current answer per question and supersede-once. A row's `superseded_by` can still be set by the app role, since the deferred FK cannot verify a row that is not yet inserted. | Only the store writes it, under the advisory lock. A stronger guarantee needs a different constraint design; flagged for review. |
+
+### Validation (fresh owned loopback PostgreSQL 18.6 on `127.0.0.1:55439`, socket in `/tmp`, bootstrap script only: 31 migrations, restricted `cyphward_app`)
+
+- **New tests:**
+  - `test_compliance_questionnaire.py`: **51**. Validator rejections, answer normalisation, expiry, the truth table cases, merge rules and labels, and an overview check against a fake store.
+  - `test_compliance_attestations_postgres.py`: **23**. Atomic superseding; a failed audit write rolls the supersede back; two concurrent writers serialise to one current answer; append-only grants; supersede-once trigger; cross-tenant FK; the HTTPS and length checks; a cross-tenant or non-member owner is refused with nothing written; every write is audited without answer text; members get 403 and nothing is written; expiry is renewal due, never present; profile deletion clears the owner without changing the answer; tenant scope; Starter gating.
+  - `test_compliance_claims.py`: **+1** (questionnaire file has no verdict language).
+- **Full backend suite on the owned loopback DB: 859 passed, 16 skipped.**
+- **Full backend suite without a database (the CI backend job): 765 passed, 111 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_attestations_postgres.py`): **96 passed**.
+- `git diff --check`: passed.
+- Frontend: not changed; `npm run build` not re-run. No browser suite in this PR.
+
+### Limitations
+
+- No UI yet (C3c). The API returns the statuses and sources; the Compliance page is unchanged apart from the reason wording.
+- No reminders (C3b), so an expired answer is not notified yet.
+- The display timezone is stored and returned, but the owner setting that changes it is not built (C3c).

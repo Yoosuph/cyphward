@@ -1,0 +1,185 @@
+{
+  "version": "ndpa-gaid-questionnaire-v1",
+  "register_version": "ndpa-gaid-v1.1",
+  "questions": [
+    {
+      "key": "registration.major_importance",
+      "group": "registration",
+      "prompt": "Are you a data controller or processor of major importance?",
+      "type": "yes_no",
+      "evidences": ["gaid.registration.major_importance_status"],
+      "evidence_on": {"yes": "present", "no": "present"},
+      "applicability": [{"target": "gaid.registration.registered", "when": "no"}]
+    },
+    {
+      "key": "registration.tier",
+      "group": "registration",
+      "prompt": "Which tier applies to you: UHL, EHL or OHL?",
+      "type": "choice",
+      "options": ["uhl", "ehl", "ohl"],
+      "show_if": {"question": "registration.major_importance", "value": "yes"},
+      "evidences": [],
+      "applicability": [{"target": "gaid.registration.annual_car", "when": "ohl"}]
+    },
+    {
+      "key": "dpia.high_risk_processing",
+      "group": "dpia",
+      "prompt": "Do you carry out processing likely to pose a high risk to people, such as large-scale sensitive data, profiling or monitoring?",
+      "type": "yes_no",
+      "evidences": [],
+      "applicability": [{"target": "gaid.dpia.high_risk_processing", "when": "no"}]
+    },
+    {
+      "key": "transfers.outside_nigeria",
+      "group": "transfers",
+      "prompt": "Is personal data stored or sent outside Nigeria, including cloud hosting?",
+      "type": "yes_no",
+      "evidences": [],
+      "applicability": [{"target": "ndpa.part8.transfers_identified", "when": "no"}]
+    },
+    {
+      "key": "registration.registered",
+      "group": "registration",
+      "prompt": "Have you registered with the Commission?",
+      "type": "yes_no",
+      "allows_date": true,
+      "date_label": "Registration date",
+      "evidences": ["gaid.registration.registered"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "registration.car_filed",
+      "group": "registration",
+      "prompt": "Was this year's audit return filed through a licensed DPCO?",
+      "type": "yes_no",
+      "allows_date": true,
+      "date_label": "Filing date",
+      "evidences": ["gaid.registration.annual_car"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "dpo.designated",
+      "group": "dpo",
+      "prompt": "Have you named a data protection officer?",
+      "type": "yes_no",
+      "allows_text": true,
+      "text_label": "Name or role of the DPO (no personal ID numbers)",
+      "text_max": 120,
+      "evidences": ["gaid.dpo.designated"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "dpo.contact_published",
+      "group": "dpo",
+      "prompt": "Is the DPO's contact published, for example in your privacy policy?",
+      "type": "yes_no",
+      "evidences": ["gaid.dpo.contact_published"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "dpo.reports_to_management",
+      "group": "dpo",
+      "prompt": "Does the DPO report directly to senior management?",
+      "type": "yes_no",
+      "evidences": ["gaid.dpo.reports_to_management"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "dpo.six_monthly_report",
+      "group": "dpo",
+      "prompt": "What is the date of the DPO's latest six-monthly report?",
+      "type": "date",
+      "date_label": "Date of latest six-monthly report",
+      "evidences": ["gaid.dpo.six_monthly_report"],
+      "evidence_on": {"date": "present"},
+      "expiry_days_from_date": 183
+    },
+    {
+      "key": "breach.response_plan",
+      "group": "breach",
+      "prompt": "Do you have a written breach response plan?",
+      "type": "yes_no",
+      "evidences": ["ndpa.s40.breach_response_plan"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "breach.notification_process",
+      "group": "breach",
+      "prompt": "Is there a process to notify the Commission within 72 hours?",
+      "type": "yes_no",
+      "evidences": ["ndpa.s40.notification_72h"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "breach.incident_log",
+      "group": "breach",
+      "prompt": "Do you keep an incident log? Cyphward's incident log counts if you use it.",
+      "type": "yes_no",
+      "evidences": ["ndpa.s40.incident_log"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "dpia.done",
+      "group": "dpia",
+      "prompt": "Have you completed a data protection impact assessment for that processing?",
+      "type": "yes_no",
+      "allows_date": true,
+      "date_label": "Date completed",
+      "show_if": {"question": "dpia.high_risk_processing", "value": "yes"},
+      "evidences": ["gaid.dpia.high_risk_processing"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "lawful_basis.documented",
+      "group": "lawful_basis",
+      "prompt": "Is the lawful basis written down for each processing purpose?",
+      "type": "yes_no",
+      "evidences": ["ndpa.s25.lawful_basis_documented"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "consent.records_kept",
+      "group": "lawful_basis",
+      "prompt": "Where you rely on consent, do you keep records of who agreed, to what and when?",
+      "type": "yes_no",
+      "allow_not_applicable": true,
+      "evidences": ["gaid.consent.records_kept"],
+      "evidence_on": {"yes": "present", "no": "gap", "not_applicable": "not_applicable"}
+    },
+    {
+      "key": "rights.process",
+      "group": "rights",
+      "prompt": "Is there a process for access, correction, portability and erasure requests?",
+      "type": "yes_no",
+      "evidences": ["ndpa.part6.rights_process"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "transfers.identified",
+      "group": "transfers",
+      "prompt": "Are your transfers outside Nigeria listed, with the basis you rely on?",
+      "type": "yes_no",
+      "show_if": {"question": "transfers.outside_nigeria", "value": "yes"},
+      "evidences": ["ndpa.part8.transfers_identified"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "training.in_place",
+      "group": "training",
+      "prompt": "Do staff who handle personal data get privacy and security training at least yearly?",
+      "type": "yes_no",
+      "evidences": ["gaid.training.in_place"],
+      "evidence_on": {"yes": "present", "no": "gap"}
+    },
+    {
+      "key": "training.last_session",
+      "group": "training",
+      "prompt": "What is the date of the latest training session?",
+      "type": "date",
+      "date_label": "Date of latest training session",
+      "evidences": ["gaid.training.in_place"],
+      "evidence_on": {"date": "present"},
+      "expiry_days_from_date": 365
+    }
+  ]
+}
