@@ -57,9 +57,12 @@ def test_batch_retains_requested_selector_version_and_explicit_unknown_evaluatio
     assert coverage["version"] == 1
     assert coverage["tool_version"] == "3.4.10"
     assert coverage["requested_selector"] == "http/"
-    assert coverage["template_set_version"] is None
+    assert coverage["template_set_version"] == "v10.4.9"  # pinned, from the exclusion policy
     assert coverage["evaluated_templates"] is None
     assert coverage["negative_verification"] == "unknown"
+    assert coverage["safety_policy"]["rate_limit_per_second"] == 10
+    assert coverage["safety_policy"]["excluded_templates"] == 2516
+    assert "default-login" in coverage["safety_policy"]["exclude_tags"]
     assert coverage["targets"][HOST] == {"process_status": "completed", "matched_templates": ["exposed-panel"], "evaluation_status": "unknown"}
     assert coverage["targets"]["failed.acme.test"]["process_status"] == "failed"
     assert coverage["per_host_timeout_seconds"] == 30

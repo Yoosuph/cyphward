@@ -8,7 +8,14 @@ const CHECKS = [
   "Requests public web pages: each host's homepage and robots.txt, and for the privacy check up to ten public pages such as /privacy, /cookies and /.well-known/security.txt.",
   'Checks which of the 100 most common TCP ports accept a connection.',
   'Reads TLS certificates and connection settings.',
-  'Runs known-vulnerability templates from the open-source Nuclei project, with a request rate limit.',
+  'Runs read-only known-vulnerability checks (open-source Nuclei templates), rate-limited.',
+];
+
+const NEVER = [
+  'No login attempts and no password guessing.',
+  'No form submissions and no submitting credentials.',
+  'No denial-of-service, stress or load testing.',
+  'No fuzzing.',
 ];
 
 export default function Scanner() {
@@ -31,6 +38,19 @@ export default function Scanner() {
             Scans run when the owner starts one, and once a day at about 06:00 UTC.
           </p>
           <p>Results go only to that verified owner, in their private Cyphward workspace.</p>
+        </section>
+
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">· WHAT IT NEVER DOES</p>
+          <h2 className="font-display text-2xl font-medium text-ink">Read-only, and gentle</h2>
+          <ul className="list-disc pl-5 space-y-2">
+            {NEVER.map(item => <li key={item}>{item}</li>)}
+          </ul>
+          <p>
+            The known-vulnerability checks are limited to about 10 requests a second per host, run one
+            at a time, and templates that would log in, submit a form, fuzz or stress a service are
+            excluded from the set.
+          </p>
         </section>
 
         <section className="space-y-3 about-section" data-reveal>

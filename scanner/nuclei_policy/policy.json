@@ -1,0 +1,22 @@
+{
+  "templates_version": "v10.4.9",
+  "exclude_tags": [
+    "default-login",
+    "brute-force",
+    "bruteforce",
+    "intrusive",
+    "fuzz",
+    "fuzzing",
+    "dos"
+  ],
+  "total_http_templates": 11364,
+  "excluded": 2516,
+  "excluded_by_reason": {
+    "tag": 959,
+    "submits_credentials_or_form": 1299,
+    "directory": 258
+  },
+  "kept": 8848,
+  "remaining_that_submit_credentials_or_forms": 0,
+  "exclude_ids_sha256": "ee81831f25d6a9de7398cb90222001577ad24e3c652376e58a293ddc690a8dd1"
+}

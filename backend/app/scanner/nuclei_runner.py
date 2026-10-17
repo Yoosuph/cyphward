@@ -8,6 +8,9 @@ from shared.scan_budget import gather_with_deadline, ensure_stage_budget
 from shared.scanner_identity import SCANNER_USER_AGENT
 import json
 import os
+import functools
+import hashlib
+import pathlib
 import shutil
 import re
 from datetime import datetime, timezone
@@ -15,6 +18,35 @@ from typing import List, Dict, Any
 
 from backend.app.scanner import ip_guard
 from backend.app.scanner.tool_results import ToolExecutionError, collect_tool_results
+
+
+NUCLEI_POLICY_DIR = pathlib.Path(__file__).resolve().parents[3] / "scanner" / "nuclei_policy"
+NUCLEI_EXCLUDE_TAGS = "default-login,brute-force,bruteforce,intrusive,fuzz,fuzzing,dos"
+# ~10 requests/second per host and one template at a time keeps scans gentle.
+NUCLEI_RATE_LIMIT = int(os.getenv("SCANNER_NUCLEI_RATE_LIMIT", "10"))
+
+
+@functools.lru_cache(maxsize=1)
+def nuclei_policy():
+    """The committed exclusion policy (ids file, version, hash), loaded once. Fails closed on tamper."""
+    ids_file = NUCLEI_POLICY_DIR / "exclude_ids.txt"
+    policy_file = NUCLEI_POLICY_DIR / "policy.json"
+    if not ids_file.exists() or not policy_file.exists():
+        return {"available": False}
+    meta = json.loads(policy_file.read_text())
+    observed = hashlib.sha256(ids_file.read_text().encode()).hexdigest()
+    if observed != meta.get("exclude_ids_sha256"):
+        raise ToolExecutionError("Nuclei exclusion list hash mismatch; refusing to scan")
+    meta.update(available=True, exclude_ids_path=str(ids_file))
+    return meta
+
+
+def _nuclei_safety_args():
+    args = ["-exclude-tags", NUCLEI_EXCLUDE_TAGS, "-rate-limit", str(NUCLEI_RATE_LIMIT)]
+    policy = nuclei_policy()
+    if policy.get("available"):
+        args += ["-exclude-id", policy["exclude_ids_path"]]
+    return args
 
 
 SEVERITY_MAP = {
@@ -192,10 +224,10 @@ async def run_nuclei_template(
         "-silent",
         "-timeout", "10",
         "-retries", "1",
-        "-rate-limit", "50",
         "-no-color",
         "-disable-update-check",
         "-H", f"User-Agent: {SCANNER_USER_AGENT}",
+        *_nuclei_safety_args(),
         *_nuclei_resource_args(),
     ]
 
@@ -253,7 +285,7 @@ async def run_nuclei(
     templates: str = "http/",
     severity: str = "low,medium,high,critical",
     timeout: int = 300,
-    rate_limit: int = 50,
+    rate_limit: int = NUCLEI_RATE_LIMIT,
     strict: bool = False,
 ) -> List[Dict[str, Any]]:
     """
@@ -283,10 +315,10 @@ async def run_nuclei(
         "-silent",
         "-timeout", "10",
         "-retries", "1",
-        "-rate-limit", str(rate_limit),
         "-no-color",
         "-disable-update-check",
         "-H", f"User-Agent: {SCANNER_USER_AGENT}",
+        *_nuclei_safety_args(),
         *_nuclei_resource_args(),
     ]
 
@@ -361,8 +393,11 @@ async def run_nuclei_batch(
     batch.tool_coverage = {
         "version": 1, "tool": "nuclei", "tool_version": version,
         "requested_selector": templates, "severity_filter": severity,
-        "template_set_version": None, "evaluated_templates": None,
+        "template_set_version": nuclei_policy().get("templates_version"), "evaluated_templates": None,
         "negative_verification": "unknown",
+        "safety_policy": {"rate_limit_per_second": NUCLEI_RATE_LIMIT, "exclude_tags": NUCLEI_EXCLUDE_TAGS,
+                          "excluded_templates": nuclei_policy().get("excluded"),
+                          "exclude_ids_sha256": nuclei_policy().get("exclude_ids_sha256")},
         "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(),
         "per_host_timeout_seconds": timeout,
         "targets": {host: {
