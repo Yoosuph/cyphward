@@ -348,6 +348,16 @@ def test_emails_go_to_the_owner_and_org_owners_and_admins_only_with_no_answer_co
         assert (now + timedelta(days=6)).astimezone(reminders.zone_for("Africa/Lagos")).strftime("%B %Y") in m["text"]
 
 
+def test_a_former_member_who_owns_an_answer_is_not_emailed(world, team, mail, run_day):
+    """The owner was a member when answering; if they have since left, the reminder must not reach them."""
+    org_id, owner, admin, member = team
+    _expiring(world, org_id, owner, 6, owner=member)
+    world.setup.execute("DELETE FROM organization_members WHERE org_id = %s AND user_id = %s", (org_id, member))
+    world.setup.commit()
+    _run(run_day)
+    assert {m["to"] for m in mail} == {f"c3a-{uid[:8]}@attestation.test" for uid in (owner, admin)}
+
+
 def test_a_retry_cannot_double_send(world, team, mail, run_day):
     org_id, owner, *_ = team
     answer = _expiring(world, org_id, owner, 5)

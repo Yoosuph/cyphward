@@ -317,9 +317,10 @@ Next: C1, as planned in `C1-plan.md`.
 - **New tests:**
   - `test_compliance_incidents.py`: **19** (no database). 72-hour edges (exactly 72 h, one minute either side, notified before, at and after the deadline), clock-change arithmetic, Lagos near midnight, skipped and repeated local times, validation, banned-phrase checks over the checklist, disclaimer, reminder and email copy, and the reminders wake time.
   - `test_compliance_incidents_postgres.py`: **24**. No DELETE and column-limited UPDATE grants; reminders insert-only; schema checks; members cannot write; Starter gate; cross-tenant list and PATCH; immutable fields refused; every write audited without notes or title; a failed audit write rolls the incident back; deadline over the API; Lagos and New York storage and display; thresholds 30/7; recipients and no answer content; retry cannot double-send; mail failure loses but never doubles; superseded and expired answers; stale claim cannot write or send; claim lost between the reminder and the email sends nothing; a held claim makes a second runner do nothing. Emails are stubbed.
-- **Full backend suite on the owned loopback DB: 906 passed, 16 skipped.**
-- **Full backend suite without a database: 784 passed, 138 skipped.**
-- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_incidents_postgres.py`): **123 passed.**
+- **Full backend suite on the owned loopback DB: 907 passed, 16 skipped.**
+- **Full backend suite without a database: 784 passed, 139 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_incidents_postgres.py`): **124 passed** (2 of 3 runs; the third hit the second known flaky test, below).
+- **Review fix (reminder recipients):** the recipient query emailed the answer's owner without checking they are still a member, so a person who had left the organisation would still get its reminders. It now selects current members only (the owner if still a member, plus the owners and admins). New test `test_a_former_member_who_owns_an_answer_is_not_emailed` failed before the fix.
 - `git diff --check`: passed. Frontend not changed.
 
 ### Limitations
@@ -329,3 +330,8 @@ Next: C1, as planned in `C1-plan.md`.
 - Release order: apply the migration before the API; the job fails (and is retried) if the tables are missing.
 - Nothing deployed; the day-after `cron_runs` check in the C3 plan §10 still needs the founder's OK.
 - An answer to a follow-up question that is now hidden (C3a-5) still gets reminders, because it was never superseded. Not filtered here.
+
+## Second known flaky test (to fix properly later)
+
+- **`backend/tests/test_scan_execution_postgres.py::test_unverified_queued_jobs_do_not_starve_local_recovery`.** It failed in 1 of 3 runs of the CI PostgreSQL list on this machine (and in two earlier full-suite runs), and passed 12 of 12 when run alone. Same cause as the first flaky test: it wraps the local pipeline in a **5 s** `asyncio.wait_for`, and `no_external` stubs discovery but not DNS or the HTTP probes, so the pipeline does real lookups for synthetic hosts and its time depends on the resolver and the machine's load.
+- **Proper fix:** stub `resolve_host_dns` and the HTTP probe in `no_external` (check the other tests that use it first), then keep a tight bound.

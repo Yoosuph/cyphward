@@ -61,8 +61,9 @@ ORDER BY a.expires_at, a.id
 RECIPIENTS_SQL = """
 SELECT DISTINCT ON (lower(p.email)) p.email, p.full_name
 FROM profiles p
-WHERE p.email IS NOT NULL AND p.email <> '' AND (
-  p.id = %s OR p.id IN (SELECT user_id FROM organization_members WHERE org_id = %s AND role IN ('owner', 'admin')))
+WHERE p.email IS NOT NULL AND p.email <> '' AND p.id IN (
+  -- Current members only: the answer's owner, if they are still a member, plus the organisation's owners and admins.
+  SELECT user_id FROM organization_members WHERE org_id = %s AND (user_id = %s OR role IN ('owner', 'admin')))
 ORDER BY lower(p.email)
 """
 
@@ -143,7 +144,7 @@ def _record_reminder(claim: Dict[str, Any], item: Dict[str, Any], subject_text: 
                     "VALUES (%s, 'compliance_renewal', %s, %s, %s, %s)",
                     (item["org_id"], copy["title"], copy["body"],
                      "medium" if item["threshold_days"] <= 7 else "info", LINK_PATH))
-                cur.execute(RECIPIENTS_SQL, (item["owner_user_id"], item["org_id"]))
+                cur.execute(RECIPIENTS_SQL, (item["org_id"], item["owner_user_id"]))
                 return cur.fetchall()
 
 
