@@ -101,7 +101,7 @@ def email_copy(org_name: str, subject_text: str, expiry_text: str, threshold: in
             f"({threshold} days or fewer from now).\n\n"
             f"Item: {subject_text}\n\n"
             "Review it and record a fresh answer to keep your records current. "
-            "Until you do, this item shows as awaiting your input.\n\n"
+            "After it expires, this item shows as awaiting your input until a fresh answer is recorded.\n\n"
             f"Open the questionnaire: {url}\n\n"
             "This reminder is sent once for each threshold. It does not include your answer.\n\n"
             "— Cyphward")
@@ -112,7 +112,7 @@ def email_copy(org_name: str, subject_text: str, expiry_text: str, threshold: in
             f'<strong>{safe["date"]}</strong> ({threshold} days or fewer from now).</p>'
             f'<p>Item: <strong>{safe["item"]}</strong></p>'
             f'<p>Review it and record a fresh answer to keep your records current. '
-            f'Until you do, this item shows as awaiting your input.</p>'
+            f'After it expires, this item shows as awaiting your input until a fresh answer is recorded.</p>'
             f'<p><a href="{html.escape(url)}" style="display:inline-block;background:#E5532B;color:#fff;'
             f'text-decoration:none;border-radius:8px;padding:12px 22px;font-weight:700">Open the questionnaire</a></p>'
             f'<p style="font-size:12px;color:#8A8377">This reminder is sent once for each threshold. '

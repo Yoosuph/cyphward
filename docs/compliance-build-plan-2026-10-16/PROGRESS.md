@@ -328,3 +328,4 @@ Next: C1, as planned in `C1-plan.md`.
 - The Inngest platform is not wired in production (see `scheduler.py`), so the in-process loop is what runs the job.
 - Release order: apply the migration before the API; the job fails (and is retried) if the tables are missing.
 - Nothing deployed; the day-after `cron_runs` check in the C3 plan §10 still needs the founder's OK.
+- An answer to a follow-up question that is now hidden (C3a-5) still gets reminders, because it was never superseded. Not filtered here.
