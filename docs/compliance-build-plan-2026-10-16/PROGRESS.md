@@ -209,3 +209,18 @@ Next: C1, as planned in `C1-plan.md`.
 - **`backend/tests/test_scan_execution_postgres.py::test_lost_local_dispatch_is_consumed_from_queue`.** It failed 3 of 15 runs at its original 5 s bound on clean `main` (measured 16 Oct 2026). Its local pipeline still does **real DNS lookups** for synthetic `*.example.test` hosts, because `no_external` doesn't stub `resolve_host_dns`, so its run time depends on the resolver.
 - **Workaround in C2a:** the bound was raised to 20 s (15 of 15 passed). That is a timing allowance, not a fix.
 - **Proper fix:** stub the DNS resolver (and any other network call) in that test's pipeline, and restore a tight bound, so the test measures recovery behaviour only.
+
+## Tiered Nuclei (branch `codex/tiered-nuclei`)
+
+- **Daily tier (default):** critical + high, 20 requests/s, 1,500 s stage budget.
+- **Weekly tier:** full safe set (critical, high, medium, low), 25 requests/s, 3,600 s budget. Selectable with `SCANNER_NUCLEI_TIER=weekly`; **Core does not yet send a per-job tier**, so weekly runs happen only when the worker is configured for it.
+- **Fair share:** the tier budget is split equally between hosts. A host that starts inside the budget keeps its share; a host that never starts is recorded as `omitted` (`budget_exhausted`, process status `not_reached`), not failed. A host the stage deadline interrupts mid-run stays failed (`recon_stage_deadline`), as before.
+- **Rate:** the tier rate now reaches the Nuclei command (it was previously ignored by `run_nuclei`). Legacy callers without a tier keep the old behaviour.
+- **Tests:** `backend/tests/test_nuclei_tiers.py`, 7 tests (tier defaults, unknown tier, daily severities and rate, weekly severities/rate/budget, equal host shares, unreached hosts not assessed, rate flag once in the command). Two existing fakes now accept `rate_limit`. A missing `os` import in `scanner/runner.py` was caught by the full suite and fixed.
+- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run, 30 migrations). Full backend suite **792 passed, 16 skipped**. CI PostgreSQL list **73 passed** (run above).
+
+## Decisions for Yusuf (tiered Nuclei)
+
+1. **Daily scans no longer run medium and low templates.** That is the agreed trade-off for the budget. Weekly covers them once Core sends the tier.
+2. **Core must send `nuclei_tier` per job** before weekly runs are real. This is a protocol change and needs its own review.
+3. **Estimates:** daily about 19 min for five hosts at 20 req/s; weekly about 50 min at 25 req/s. Confirm with one real scan before relying on them.

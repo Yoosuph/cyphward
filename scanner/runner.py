@@ -14,6 +14,7 @@ Usage:
 import argparse
 import asyncio
 import contextlib
+import os
 import dataclasses
 import logging
 import random
@@ -285,11 +286,12 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     tls = await run_stage(client, cfg, job, "tls", _tls, optional=True, plan=tls_plan, budget=budget)
     stats["tls"] = len(tls or [])
 
+    nuclei_tier = os.getenv("SCANNER_NUCLEI_TIER", "daily")
     nuclei_plan = stage_plan("nuclei", discovered, job.scope, dns_records, http_probes,
                              cap=limits.nuclei_max_hosts, available=_tool("nuclei"))
     async def _nuclei():
         findings = await run_nuclei_batch(nuclei_plan["selected_hosts"], concurrency=limits.nuclei_concurrency,
-                                         timeout=limits.stage_timeout_seconds)
+                                         timeout=limits.stage_timeout_seconds, tier=nuclei_tier)
         for finding in findings:
             if not finding.get("_hostname"):
                 finding["_hostname"] = finding.get("evidence", {}).get("host") or job.target
