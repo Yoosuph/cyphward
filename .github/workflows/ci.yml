@@ -87,3 +87,15 @@ jobs:
           if [ -n "$CYPHWARD_TEST_PG_BIN" ] && [ -f "$RUNNER_TEMP/cyphward-postgres/postmaster.pid" ]; then
             "$CYPHWARD_TEST_PG_BIN/pg_ctl" -D "$RUNNER_TEMP/cyphward-postgres" -m fast -w stop
           fi
+
+  scanner-image:
+    name: Scanner worker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the worker image exactly as the VPS deploy does
+        run: docker build -f Dockerfile.scanner -t cyphward-scanner:ci .
+      - name: Smoke-check the safe-scan policy and tools inside the image
+        run: |
+          docker run --rm cyphward-scanner:ci python -c "from backend.app.scanner.nuclei_runner import nuclei_policy; p = nuclei_policy(); assert p['available'] and p['remaining_that_submit_credentials_or_forms'] == 0, p; print('policy', p['templates_version'], p['excluded'])"
+          docker run --rm cyphward-scanner:ci sh -c "nuclei -version && naabu -version && subfinder -version && httpx -version" 2>&1 | grep -iE "version" | head -8

@@ -28,6 +28,7 @@ RUN pip install \
         "dnspython>=2.6,<3" \
         "pydantic>=2.8,<3" \
         "python-dotenv>=1.0,<2" \
+        "PyYAML>=6,<7" \
         "sslyze>=6,<7"
 
 # --- ProjectDiscovery tools (pinned releases) -----------------------------
