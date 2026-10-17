@@ -18,7 +18,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.compliance import attestations as truth
@@ -48,7 +48,7 @@ SLOT = re.compile(r"\{\{[A-Z_]+\}\}")
 PLACEHOLDER = re.compile(r"\[MISSING: [^\[\]\n]{1,200}\]")
 URLISH = re.compile(r"https?://|www\.|@|\b[\w-]+\.(?:com|ng|org|net|io|gov|co|edu)\b", re.I)
 WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
-SENTENCE_START = re.compile(r"(?:^|[.!?:|]\s+|\n\s*(?:[-*#>|]+\s*|\d+[.)]\s*)?)$")
+SENTENCE_START = re.compile(r"(?:^|[.!?]\s+|\n\s*(?:[-*#>|]+\s*|\d+[.)]\s*)?)$")
 
 # Where each fact comes from, for the reviewer notes at the end of a draft.
 SOURCE_LABELS = {"customer_attested": "your answer", "externally_observed": "observed by a Cyphward scan",
@@ -82,8 +82,24 @@ def clean_slot(value: Any) -> Optional[str]:
     return text
 
 
-def _digits(text: str) -> set:
-    return set(re.findall(r"\d+", text))
+def _digits(text: str) -> Counter:
+    return Counter(re.findall(r"\d+", text))
+
+
+# Number, month and weekday words carry facts without a digit ("seven years", "every March").
+FACT_WORDS = frozenset("""
+    one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen
+    eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million dozen
+    january february march april may june july august september october november december
+    jan feb mar apr jun jul aug sep sept oct nov dec monday tuesday wednesday thursday friday saturday sunday
+    daily weekly monthly quarterly annually yearly annual
+""".split())
+# Words that may open a sentence without being a name.
+FUNCTION_WORDS = frozenset("""
+    the this that these those we you your our us it its if when where while whether any all each every some
+    please for from with without in on at by to of and or but not no do does did is are was were be been has have
+    after before during once then also only more most such as how what who whom why a an
+""".split())
 
 
 def _vocabulary(text: str) -> set:
@@ -108,16 +124,22 @@ def validate_model_text(output: Any, template: str) -> Optional[str]:
     if "[" in bare or "]" in bare or "{{" in bare or "}}" in bare or "<" in bare or "```" in bare:
         return "markup_added"
     fixed = _strip_tokens(template)
-    if not _digits(bare) <= _digits(fixed):
+    if _digits(bare) - _digits(fixed):
+        return "number_added"
+    known = _vocabulary(fixed)
+    if (_vocabulary(bare) & FACT_WORDS) - known:
         return "number_added"
     if URLISH.search(bare) and not URLISH.search(fixed):
         return "address_added"
     if banned_hits(output):
         return "banned_phrase"
-    known = _vocabulary(fixed)
     for match in WORD.finditer(bare):
-        word = match.group(0)
-        if word[0].isupper() and not SENTENCE_START.search(bare[:match.start()]) and word.lower() not in known:
+        word, low = match.group(0), match.group(0).lower()
+        if not word[0].isupper() or low in known:
+            continue
+        # A capitalised word that is new to the draft is a possible name. Only an ordinary function word at
+        # the start of a sentence or line is let through.
+        if not (SENTENCE_START.search(bare[:match.start()]) and low in FUNCTION_WORDS):
             return "name_added"
     return None
 

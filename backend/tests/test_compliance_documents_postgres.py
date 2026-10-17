@@ -202,6 +202,46 @@ def test_a_failed_audit_write_leaves_no_document(world, team, stub):
     assert world.rows("SELECT count(*) AS n FROM compliance_documents WHERE org_id = %s", (org_id,))[0]["n"] == 0
 
 
+def _consent_row(world, org_id, domain_id, key, status="present"):
+    world.setup.execute(
+        "INSERT INTO compliance_evidence (org_id, domain_id, requirement_key, register_version, source, status, "
+        "observed_at, expires_at, details) VALUES (%s, %s, %s, 'ndpa-gaid-v1', 'externally_observed', %s, now(), "
+        "now() + interval '30 days', '{}'::jsonb)", (org_id, domain_id, key, status))
+    world.setup.commit()
+
+
+def test_cookie_notice_ignores_observations_of_revoked_unverified_and_deleted_domains(world, team, stub):
+    org_id, owner, *_ = team
+    keys = ("gaid.consent.accept_and_reject", "gaid.consent.purpose_and_withdrawal")
+    ids = {}
+    for name, verified, revoked in (("ok.example", "verified", False), ("old.example", "verified", True),
+                                    ("new.example", "pending", False)):
+        ids[name] = str(uuid4())
+        world.setup.execute(
+            "INSERT INTO domains (id, org_id, domain, verification_status, verification_token, revoked_at) "
+            "VALUES (%s, %s, %s, %s, 'tok', %s)",
+            (ids[name], org_id, name, verified, "2026-10-01T00:00:00Z" if revoked else None))
+    world.setup.commit()
+    for key in keys:
+        for name in ("old.example", "new.example"):
+            _consent_row(world, org_id, ids[name], key)
+    text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (_generate(world, org_id, owner, "cookie_notice").json()["id"],))[0]["text"]
+    assert "a banner lets you accept or reject" not in text and "change or withdraw your choice" not in text
+    assert "[MISSING: whether your banner offers both accept and reject]" in text
+    # An observation of the verified site does count.
+    for key in keys:
+        _consent_row(world, org_id, ids["ok.example"], key)
+    doc = _generate(world, org_id, owner, "cookie_notice").json()
+    text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (doc["id"],))[0]["text"]
+    assert "a banner lets you accept or reject" in text and "change or withdraw your choice" in text
+    # Deleting the verified site removes its observations (or leaves them with no domain): neither counts.
+    world.setup.execute("DELETE FROM domains WHERE id = %s", (ids["ok.example"],))
+    world.setup.commit()
+    doc = _generate(world, org_id, owner, "cookie_notice").json()
+    text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (doc["id"],))[0]["text"]
+    assert "a banner lets you accept or reject" not in text
+
+
 # ── Roles, plan and tenants ──────────────────────────────────────────────────
 
 

@@ -52,14 +52,18 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
 def gather(org: Dict[str, Any]) -> Dict[str, Any]:
     """The organisation's own data that can feed a draft. Statuses only: no evidence details are read."""
     org_id = str(org["id"])
+    # Verified, non-revoked domains only, like the readiness page. Evidence of a revoked, unverified or
+    # deleted site (domain_id NULL) must not appear as a fact about the organisation today.
     domains = execute_query(
-        "SELECT domain FROM domains WHERE org_id = %s AND verification_status = 'verified' "
+        "SELECT id, domain FROM domains WHERE org_id = %s AND verification_status = 'verified' "
         "AND revoked_at IS NULL ORDER BY domain", (org_id,)) or []
-    rows = execute_query(
-        "SELECT DISTINCT ON (requirement_key, domain_id) requirement_key, domain_id, status, expires_at "
-        "FROM compliance_evidence WHERE org_id = %s AND requirement_key = ANY(%s) "
-        "ORDER BY requirement_key, domain_id, observed_at DESC, created_at DESC",
-        (org_id, list(docs.OBSERVED_KEYS))) or []
+    rows = []
+    if domains:
+        rows = execute_query(
+            "SELECT DISTINCT ON (requirement_key, domain_id) requirement_key, domain_id, status, expires_at "
+            "FROM compliance_evidence WHERE org_id = %s AND domain_id = ANY(%s::uuid[]) AND requirement_key = ANY(%s) "
+            "ORDER BY requirement_key, domain_id, observed_at DESC, created_at DESC",
+            (org_id, [str(d["id"]) for d in domains], list(docs.OBSERVED_KEYS))) or []
     observed: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for row in rows:
         observed.setdefault(row["requirement_key"], {})[str(row["domain_id"])] = row

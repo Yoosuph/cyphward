@@ -192,10 +192,29 @@ def test_a_faithful_rewording_passes():
     (lambda t: t + "\n\nThis is legally sufficient.", "banned_phrase"),
     (lambda t: "", "empty_output"),
     (lambda t: "```\n" + t + "\n```", "markup_added"),
+    (lambda t: t + "\n\nWe keep records for seven years.", "number_added"),
+    (lambda t: t + "\n\nThe policy is reviewed every March.", "number_added"),
+    (lambda t: t + "\n\nWe review it twice a year, usually on a Monday.", "number_added"),
+    (lambda t: t + "\n\nLogs are kept for 6 months.", "number_added"),  # 6 occurs once in a list elsewhere
+    (lambda t: t + "\n\nContact: Globex.", "name_added"),
+    (lambda t: t + "\n\nGlobex hosts our website.", "name_added"),
+    (lambda t: t + "\n\nSee the Sandbox page.", "name_added"),
 ])
 def test_invented_or_unsafe_model_output_is_rejected(mutate, reason):
     template = _template()
     assert docs.validate_model_text(mutate(template), template) == reason
+
+
+def test_a_digit_may_not_be_reused_more_often_than_the_template_uses_it():
+    inputs = inputs_for("breach_response_plan", FULL)
+    template = docs.build_template(inputs)
+    assert docs.validate_model_text(template + "\n\nWe act within 72 hours.", template) == "number_added"
+    assert docs.validate_model_text(template, template) is None
+
+
+def test_ordinary_sentence_openers_are_not_mistaken_for_names():
+    template = _template()
+    assert docs.validate_model_text(template + "\n\nIf you have a question, please ask us.", template) is None
 
 
 def test_non_string_output_is_rejected():

@@ -13,6 +13,8 @@ process.chdir(frontend);
 const DISCLAIMER =
   "Readiness evidence, not legal advice or a compliance determination. Filing of Compliance Audit Returns for UHL/EHL organisations must go through a licensed DPCO.";
 const BANNED = ["compliant", "certified", "satisfies", "satisfied", "passes audit", "pass the audit", "compliance score", "fully meets", "meets the requirement", "is met"];
+// Added for the Documents tab (C5): claims a drafting assistant is most tempted to make.
+const DOC_BANNED = [...BANNED, "guarantee", "adequa", "legally sufficient", "certif", "complies", "in compliance"];
 const ORG_ZONE = "America/New_York"; // deliberately not Lagos, and not the browser's zone
 const BROWSER_ZONE = "Asia/Tokyo";
 const HOUR = 3600000;
@@ -353,7 +355,7 @@ try {
   };
   const noVerdicts = async (where) => {
     const lowered = (await bodyText()).toLowerCase();
-    for (const phrase of BANNED) assert.ok(!lowered.includes(phrase), `${where}: verdict language "${phrase}"`);
+    for (const phrase of where.includes("documents") ? DOC_BANNED : BANNED) assert.ok(!lowered.includes(phrase), `${where}: verdict language "${phrase}"`);
   };
   const qsel = (key) => `[data-testid="question-${key}"]`;
   const gotoComply = async () => {
