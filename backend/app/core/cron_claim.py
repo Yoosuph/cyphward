@@ -7,6 +7,7 @@ from backend.app.core.database import execute_one
 from backend.app.core.execution_fence import ClaimLost
 
 DAILY_SCAN_CRON_NAME = "daily-scans"
+COMPLIANCE_REMINDERS_CRON_NAME = "compliance_reminders"
 STALE_CLAIM_MINUTES = 30
 
 
