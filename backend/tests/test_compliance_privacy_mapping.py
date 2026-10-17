@@ -203,3 +203,27 @@ def test_dpo_present_on_any_site_wins_and_otherwise_awaits_input():
     assert present_elsewhere["status"] == "present", "a present row is never overridden by awaiting input"
     assert status(DPO, {D1["id"]: row("not_assessed", "dpo_contact_not_found_in_policy")})["status"] == "awaiting_input"
     assert status(DPO, {})["status"] == "awaiting_input"
+
+
+# ── Blocked hosts: not_assessed, never a gap, never "no trackers" ──────────
+def blocked_host(name=APEX, reason="bot_protection:cloudflare"):
+    return {**host(name), "blocked": True, "block_reason": reason}
+
+
+def test_a_blocked_apex_is_not_assessed_for_every_privacy_signal():
+    o = obs(blocked_host())
+    for req in (POLICY, COOKIE, TRACKERS, DPO):
+        r = ev(req, o)
+        assert (r["status"], r["reason"]) == ("not_assessed", "blocked_by_bot_protection"), req["key"]
+        assert r["details"]["block_reason"] == "bot_protection:cloudflare"
+
+
+def test_a_blocked_apex_never_produces_a_tracker_gap():
+    # Even if the probe somehow listed a tracker, a blocked host must not gap.
+    o = obs({**blocked_host(), "first_response_cookies": [cookie("_ga", "tracker", "google_analytics")]})
+    assert ev(TRACKERS, o)["status"] == "not_assessed"
+
+
+def test_present_evidence_on_another_host_still_wins_over_a_blocked_apex():
+    o = obs(blocked_host(), host("www.acme.test", pages=[page("privacy_policy", matched=True, url="https://www.acme.test/privacy")]))
+    assert ev(POLICY, o)["status"] == "present"

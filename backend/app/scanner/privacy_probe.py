@@ -246,6 +246,34 @@ def detect_consent_manager(html: str) -> Optional[str]:
     return None
 
 
+# Statuses and body markers of a bot-protection / challenge wall. Such a
+# response is not page content: the host is recorded as blocked, not assessed.
+BLOCK_STATUSES = {401, 403, 406, 429, 503}
+CHALLENGE_MARKERS = (
+    "just a moment", "checking your browser", "cf-browser-verification", "cf-challenge",
+    "attention required! | cloudflare", "cf-mitigated", "vercel security checkpoint",
+    "_vercel/security", "please enable javascript and cookies to continue",
+    "/_incapsula_resource", "incident id", "access denied", "request unsuccessful. incapsula",
+    "ddos-guard", "are you a robot", "bot detection", "px-captcha", "perimeterx",
+)
+
+
+def looks_blocked(status: Optional[int], headers: Dict[str, str], body: str) -> Optional[str]:
+    """Reason string when a response is a bot-protection / challenge wall, else None."""
+    lowered = {k.lower(): str(v).lower() for k, v in (headers or {}).items()}
+    if "cf-mitigated" in lowered and "challenge" in lowered["cf-mitigated"]:
+        return "bot_protection:cloudflare"
+    if "x-vercel-mitigated" in lowered or "x-vercel-challenge" in "".join(lowered):
+        return "bot_protection:vercel"
+    snippet = (body or "")[:4000].lower()
+    for marker in CHALLENGE_MARKERS:
+        if marker in snippet:
+            return "bot_protection:challenge_page"
+    if status in BLOCK_STATUSES:
+        return f"blocked_http_{status}"
+    return None
+
+
 def parse_security_txt(text: str) -> Dict[str, bool]:
     return {"present": True, "has_contact": bool(re.search(r"^\s*Contact\s*:", text or "", re.I | re.M))}
 
@@ -275,7 +303,7 @@ async def fetch_in_scope(client: httpx.AsyncClient, url: str, scope: List[str], 
                          max_bytes: int = DEFAULT_MAX_BYTES) -> Dict[str, Any]:
     """GET url following redirects only inside scope; each hop pinned to a public IP."""
     result = {"url": url, "final_url": None, "status": None, "error": None, "off_scope_host": None,
-              "set_cookie": [], "body": ""}
+              "set_cookie": [], "body": "", "headers": {}}
     parsed = urlparse(url)
     scheme, host = parsed.scheme, (parsed.hostname or "").lower()
     path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
@@ -312,6 +340,7 @@ async def fetch_in_scope(client: httpx.AsyncClient, url: str, scope: List[str], 
                         break
                     chunks.append(chunk)
                 result.update(status=resp.status_code, final_url=f"{scheme}://{host}{path}",
+                              headers={k: v for k, v in resp.headers.items()},
                               body=b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace"))
                 if not result["set_cookie"]:
                     result["set_cookie"] = resp.headers.get_list("set-cookie")
@@ -340,7 +369,8 @@ async def probe_privacy_host(host: str, scope: List[str], client: httpx.AsyncCli
     # A non-2xx homepage (e.g. bot protection returning 403) is not a host
     # failure: the host answered. Its body can't be read for links, but the
     # fixed policy/cookie paths and security.txt are still worth trying.
-    home_ok = home["status"] < 400
+    block_reason = looks_blocked(home["status"], home.get("headers") or {}, home["body"])
+    home_ok = home["status"] < 400 and block_reason is None
     home_page = parse_page(home["body"]) if home_ok else parse_page("")
     home_hash = fingerprint(normalise_text(home_page)) if home_ok else None
 
@@ -350,13 +380,15 @@ async def probe_privacy_host(host: str, scope: List[str], client: httpx.AsyncCli
 
     out: Dict[str, Any] = {
         "hostname": host,
-        "homepage": {"url": home["url"], "status": home["status"], "final_url": home["final_url"],
-                     "blocked": not home_ok},
+        "homepage": {"url": home["url"], "status": home["status"], "final_url": home["final_url"]},
+        "blocked": block_reason is not None,
+        "block_reason": block_reason,
         "catch_all": catch_all,
         "pages": [],
-        "first_response_cookies": first_response_cookies(home["set_cookie"]),
-        "trackers": detect_trackers(home_page),
-        "consent_manager": detect_consent_manager(home["body"]),
+        # A challenge wall reveals no real cookies/trackers; don't read them as "none".
+        "first_response_cookies": [] if block_reason else first_response_cookies(home["set_cookie"]),
+        "trackers": [] if block_reason else detect_trackers(home_page),
+        "consent_manager": None if block_reason else detect_consent_manager(home["body"]),
         "policy_signals": None,
         "fetches": 0,
     }
