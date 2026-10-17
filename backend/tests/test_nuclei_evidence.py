@@ -63,7 +63,12 @@ def test_batch_retains_requested_selector_version_and_explicit_unknown_evaluatio
     assert coverage["safety_policy"]["rate_limit_per_second"] == 10
     assert coverage["safety_policy"]["excluded_templates"] == 2516
     assert "default-login" in coverage["safety_policy"]["exclude_tags"]
-    assert coverage["targets"][HOST] == {"process_status": "completed", "matched_templates": ["exposed-panel"], "evaluation_status": "unknown"}
+    assert coverage["severity_order"] == ["critical", "high", "medium", "low"]
+    target = coverage["targets"][HOST]
+    assert target["process_status"] == "completed" and target["matched_templates"] == ["exposed-panel"]
+    assert target["evaluation_status"] == "unknown"
+    # Four severity passes ran in order, each recorded.
+    assert [target["severity_passes"][s]["status"] for s in ("critical", "high", "medium", "low")] == ["completed"] * 4
     assert coverage["targets"]["failed.acme.test"]["process_status"] == "failed"
     assert coverage["per_host_timeout_seconds"] == 30
     assert coverage["started_at"] <= coverage["completed_at"]

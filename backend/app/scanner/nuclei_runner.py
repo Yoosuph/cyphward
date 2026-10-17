@@ -8,6 +8,7 @@ from shared.scan_budget import gather_with_deadline, ensure_stage_budget
 from shared.scanner_identity import SCANNER_USER_AGENT
 import json
 import os
+import time
 import functools
 import hashlib
 import pathlib
@@ -24,6 +25,8 @@ NUCLEI_POLICY_DIR = pathlib.Path(__file__).resolve().parents[3] / "scanner" / "n
 NUCLEI_EXCLUDE_TAGS = "default-login,brute-force,bruteforce,intrusive,fuzz,fuzzing,dos"
 # ~10 requests/second per host and one template at a time keeps scans gentle.
 NUCLEI_RATE_LIMIT = int(os.getenv("SCANNER_NUCLEI_RATE_LIMIT", "10"))
+# Most important first, so the time budget always covers critical before low.
+NUCLEI_SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 
 
 @functools.lru_cache(maxsize=1)
@@ -379,9 +382,29 @@ async def run_nuclei_batch(
     max_processes = max(1, min(4, int(os.getenv("SCANNER_NUCLEI_MAX_PROCESSES", "1"))))
     semaphore = asyncio.Semaphore(max(1, min(concurrency, max_processes)))
 
+    severity_passes: Dict[str, Dict[str, Any]] = {}
+
     async def _run_with_semaphore(host: str) -> List[Dict[str, Any]]:
         async with semaphore:
-            return await run_nuclei(host, templates, severity, timeout, strict=True)
+            deadline = time.monotonic() + timeout
+            findings: List[Dict[str, Any]] = []
+            passes: Dict[str, Any] = {}
+            for index, level in enumerate(NUCLEI_SEVERITY_ORDER):
+                remaining = int(deadline - time.monotonic())
+                if index > 0 and remaining < 10:  # keep the budget for critical/high; skip the rest
+                    passes[level] = {"status": "skipped_budget", "matches": 0}
+                    continue
+                try:
+                    level_findings = await run_nuclei(host, templates, level, max(remaining, 5), strict=True)
+                except ToolExecutionError as exc:
+                    if index == 0:
+                        raise  # unreachable host / nuclei missing: the host failed, as before
+                    passes[level] = {"status": "failed", "matches": 0, "error": str(exc)[:200]}
+                    continue
+                passes[level] = {"status": "completed", "matches": len(level_findings)}
+                findings.extend(level_findings)
+            severity_passes[host] = passes
+            return findings
 
     tasks = [_run_with_semaphore(h) for h in hostnames]
     results = await gather_with_deadline(tasks)
@@ -393,6 +416,7 @@ async def run_nuclei_batch(
     batch.tool_coverage = {
         "version": 1, "tool": "nuclei", "tool_version": version,
         "requested_selector": templates, "severity_filter": severity,
+        "severity_order": NUCLEI_SEVERITY_ORDER,
         "template_set_version": nuclei_policy().get("templates_version"), "evaluated_templates": None,
         "negative_verification": "unknown",
         "safety_policy": {"rate_limit_per_second": NUCLEI_RATE_LIMIT, "exclude_tags": NUCLEI_EXCLUDE_TAGS,
@@ -406,6 +430,7 @@ async def run_nuclei_batch(
             "matched_templates": sorted({str((finding.get("evidence") or {}).get("template_id"))
                                           for finding in batch if finding.get("_hostname") == host
                                           and (finding.get("evidence") or {}).get("template_id")}),
+            "severity_passes": severity_passes.get(host, {}),
             "evaluation_status": "unknown",
         } for host in hostnames},
     }

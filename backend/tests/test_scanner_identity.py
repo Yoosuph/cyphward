@@ -132,3 +132,37 @@ def test_both_nuclei_invocations_pass_the_safety_args(monkeypatch):
         assert "-exclude-tags" in cmd and "-exclude-id" in cmd
         assert cmd[cmd.index("-rate-limit") + 1] == "10"
         assert "-H" in cmd
+
+
+def test_nuclei_runs_severities_in_order_and_records_each_pass(monkeypatch):
+    calls = []
+
+    async def version(): return "3.11.1"
+
+    async def scan(host, templates, severity, timeout, strict=False):
+        calls.append(severity)
+        return []  # no matches
+
+    monkeypatch.setattr(nuclei_runner, "_nuclei_version", version)
+    monkeypatch.setattr(nuclei_runner, "run_nuclei", scan)
+    batch = asyncio.run(nuclei_runner.run_nuclei_batch(["acme.example.test"], timeout=300))
+    assert calls == ["critical", "high", "medium", "low"], "critical first, low last"
+    passes = batch.coverage()["tool_coverage"]["targets"]["acme.example.test"]["severity_passes"]
+    assert all(passes[s]["status"] == "completed" for s in ("critical", "high", "medium", "low"))
+
+
+def test_critical_runs_even_on_a_tiny_budget_and_lower_severities_are_skipped(monkeypatch):
+    calls = []
+
+    async def version(): return "3.11.1"
+
+    async def scan(host, templates, severity, timeout, strict=False):
+        calls.append(severity)
+        return []
+
+    monkeypatch.setattr(nuclei_runner, "_nuclei_version", version)
+    monkeypatch.setattr(nuclei_runner, "run_nuclei", scan)
+    batch = asyncio.run(nuclei_runner.run_nuclei_batch(["acme.example.test"], timeout=5))
+    passes = batch.coverage()["tool_coverage"]["targets"]["acme.example.test"]["severity_passes"]
+    assert calls[0] == "critical" and passes["critical"]["status"] == "completed"
+    assert passes["low"]["status"] == "skipped_budget", "a tiny budget keeps the important pass, skips low"

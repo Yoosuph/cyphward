@@ -121,10 +121,11 @@ def test_nuclei_sigkill_produces_actionable_failure(monkeypatch):
 
 
 def test_partial_batch_retains_positive_findings_and_actual_coverage(monkeypatch):
-    async def scan(host, *args, **kwargs):
+    async def scan(host, templates, severity="low,medium,high,critical", *args, **kwargs):
         if host == "bad.acme.test":
-            raise ToolExecutionError("tool crashed")
-        return [{"_hostname": host, "title": "Exposed panel"}]
+            raise ToolExecutionError("tool crashed")  # fails on the first (critical) pass
+        # Each severity pass loads only its own tier; the match is on the critical pass.
+        return [{"_hostname": host, "title": "Exposed panel"}] if severity == "critical" else []
 
     monkeypatch.setattr(nuclei_runner, "run_nuclei", scan)
     result = asyncio.run(nuclei_runner.run_nuclei_batch(["good.acme.test", "bad.acme.test"]))

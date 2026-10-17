@@ -141,8 +141,11 @@ try {
           first_response_cookies: [{ name: "__cf_bm", category: "infrastructure" }, { name: "_ga", category: "tracker" }],
           trackers: [{ vendor: "google_tag_manager", strength: "loader", consent_blocked: false }],
           consent_manager: null, security_txt: { present: true, has_contact: true },
+        }, {
+          hostname: "app.example.ng", blocked: true, block_reason: "bot_protection:cloudflare",
+          pages: [], first_response_cookies: [], trackers: [], consent_manager: null,
         }],
-        attempted_hosts: ["example.ng"], successful_hosts: ["example.ng"], failed_hosts: {},
+        attempted_hosts: ["example.ng", "app.example.ng"], successful_hosts: ["example.ng", "app.example.ng"], failed_hosts: {},
       },
     },
     {
@@ -348,7 +351,8 @@ try {
       });
       const privacyText = await page.$eval('.scan-check[data-stage="privacy"]', (element) => element.innerText);
       for (const expected of ["Privacy notices (static)", "answers every address", "__cf_bm (infrastructure)",
-                              "_ga (tracker)", "google tag manager (loader)", "present, with contact", "Heuristic"]) {
+                              "_ga (tracker)", "google tag manager (loader)", "present, with contact", "Heuristic",
+                              "bot protection blocked the check", "bot protection:cloudflare", "cyphward.com/scanner"]) {
         assert.ok(privacyText.includes(expected), `Privacy row shows ${expected}`);
       }
       assert.ok((await page.$eval(".scan-checks-panel summary", (element) => element.innerText)).includes("of 7 checks completed"),

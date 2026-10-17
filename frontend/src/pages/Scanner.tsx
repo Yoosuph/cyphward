@@ -8,7 +8,7 @@ const CHECKS = [
   "Requests public web pages: each host's homepage and robots.txt, and for the privacy check up to ten public pages such as /privacy, /cookies and /.well-known/security.txt.",
   'Checks which of the 100 most common TCP ports accept a connection.',
   'Reads TLS certificates and connection settings.',
-  'Runs read-only known-vulnerability checks (open-source Nuclei templates), rate-limited.',
+  'Runs read-only known-vulnerability checks (open-source Nuclei templates), most serious first, rate-limited.',
 ];
 
 const NEVER = [
@@ -73,7 +73,35 @@ export default function Scanner() {
         </section>
 
         <section className="space-y-3 about-section" data-reveal>
-          <p className="eyebrow">04 · CONTACT</p>
+          <p className="eyebrow">04 · ALLOWLISTING</p>
+          <h2 className="font-display text-2xl font-medium text-ink">Letting the scanner through</h2>
+          <p>
+            Bot protection and web application firewalls sometimes answer the scanner with a challenge or a
+            block page. When that happens, the scan still runs, but the blocked checks are marked
+            <em> not assessed</em> rather than passed. To let the checks run, allowlist the scanner by either
+            of these:
+          </p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>
+              <span className="text-ink">User-Agent</span> contains{' '}
+              <span className="mono text-xs text-ink break-all">Cyphward-Security-Scanner</span>, or the full
+              value above; or
+            </li>
+            <li>
+              <span className="text-ink">source IP address</span>{' '}
+              <span className="mono text-xs text-ink" data-testid="scanner-egress-ip">20.164.35.81</span>.
+            </li>
+          </ul>
+          <p>
+            On Cloudflare, add a WAF custom rule or a bot-management skip for that User-Agent or IP. On
+            Vercel, open the project's <span className="text-ink">Firewall</span>, add a rule whose condition
+            matches the <span className="mono text-xs">User-Agent</span> header (or that IP) and set the action
+            to <span className="text-ink">Allow</span> (bypass the challenge).
+          </p>
+        </section>
+
+        <section className="space-y-3 about-section" data-reveal>
+          <p className="eyebrow">05 · CONTACT</p>
           <h2 className="font-display text-2xl font-medium text-ink">Something look wrong?</h2>
           <p>
             If the scanner visited a domain you own and you did not verify it with Cyphward, or the scans are

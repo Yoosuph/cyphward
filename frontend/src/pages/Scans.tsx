@@ -130,7 +130,14 @@ function PrivacyDetails({ raw }: { raw: any }) {
       <p>Heuristic, from each page's HTML only: pages built by JavaScript and anything loaded later are not seen.</p>
       {hosts.map((host) => (
         <details key={host.hostname}>
-          <summary>{host.hostname}{host.catch_all ? " · answers every address" : ""}</summary>
+          <summary>{host.hostname}{host.blocked ? " · bot protection blocked the check" : host.catch_all ? " · answers every address" : ""}</summary>
+          {host.blocked ? (
+            <p>
+              This site's bot protection blocked Cyphward's static check{host.block_reason ? ` (${String(host.block_reason).replace(/_/g, " ")})` : ""}, so its
+              privacy pages could not be read. Allowlist the scanner to let this check run — see{" "}
+              <a href="https://cyphward.com/scanner" target="_blank" rel="noopener noreferrer" className="scan-url">cyphward.com/scanner</a>.
+            </p>
+          ) : (
           <ul>
             {(host.pages || []).map((page: any) => (
               <li key={page.kind}>
@@ -157,6 +164,7 @@ function PrivacyDetails({ raw }: { raw: any }) {
             <li><strong>Consent manager</strong>: {host.consent_manager || "none seen"}</li>
             {host.security_txt && <li><strong>security.txt</strong>: {host.security_txt.present ? (host.security_txt.has_contact ? "present, with contact" : "present, no contact") : "not found"}</li>}
           </ul>
+          )}
         </details>
       ))}
     </div>
