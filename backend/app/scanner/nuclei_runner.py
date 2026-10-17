@@ -4,6 +4,7 @@ Executes ProjectDiscovery Nuclei templates against discovered hosts for deep vul
 Falls back gracefully if Nuclei binary is not installed.
 """
 import asyncio
+from backend.app.scanner.privacy_probe import looks_blocked
 from shared.scan_budget import BudgetExceeded, gather_with_deadline, ensure_stage_budget, stage_remaining
 from shared.scanner_identity import SCANNER_USER_AGENT
 import json
@@ -219,9 +220,39 @@ UNCOUNTABLE_TEMPLATE_KEYS = {"flow", "workflows", "code", "javascript", "dns", "
                              "network", "websocket", "whois", "http2", "multiprotocol"}
 
 
-def count_receipts(stdout: bytes, hostname: str, template_id: str) -> int:
-    """Number of non-match receipts Nuclei printed for this exact template on this host."""
-    count = 0
+_STATUS_LINE = re.compile(r"^HTTP/[\d.]+\s+(\d{3})")
+UNUSABLE_STATUSES = {401, 403, 429}  # plus every 5xx
+
+
+def receipt_verdict(data: Dict[str, Any]) -> str:
+    """Does this non-match record show a real answer from the target?
+
+    "ok" only for a response without an error field, whose status is not 401/403/429/5xx and which is not
+    a WAF or bot-protection challenge. A non-match against a block page proves nothing about the target,
+    so anything else is "error", "no_response", "bad_status" or "blocked" and the finding is not assessed.
+    """
+    if data.get("error"):
+        return "error"
+    response = data.get("response")
+    if not isinstance(response, str) or not response.strip():
+        return "no_response"
+    head, _, body = response.replace("\r\n", "\n").partition("\n\n")
+    lines = head.split("\n")
+    match = _STATUS_LINE.match(lines[0].strip())
+    if not match:
+        return "no_response"
+    status = int(match.group(1))
+    headers = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:]) if k.strip()}
+    if status in UNUSABLE_STATUSES or status >= 500:
+        return "bad_status"
+    if looks_blocked(status, headers, body):
+        return "blocked"
+    return "ok"
+
+
+def receipt_summary(stdout: bytes, hostname: str, template_id: str) -> Dict[str, int]:
+    """Non-match records Nuclei printed for this exact template on this host, by verdict."""
+    summary: Dict[str, int] = {}
     for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
@@ -233,8 +264,14 @@ def count_receipts(stdout: bytes, hostname: str, template_id: str) -> int:
         if (isinstance(data, dict) and data.get("matcher-status") is False
                 and data.get("template-id") == template_id
                 and str(data.get("host", "")).lower().rstrip(".") == hostname.lower().rstrip(".")):
-            count += 1
-    return count
+            verdict = receipt_verdict(data)
+            summary[verdict] = summary.get(verdict, 0) + 1
+    return summary
+
+
+def count_receipts(stdout: bytes, hostname: str, template_id: str) -> int:
+    """Receipts that count as proof: real answers from the target only."""
+    return receipt_summary(stdout, hostname, template_id).get("ok", 0)
 
 
 @functools.lru_cache(maxsize=1)
@@ -355,7 +392,9 @@ async def run_nuclei_template(
                 pass
 
     rc = proc.returncode if proc.returncode is not None else -1
-    receipts = count_receipts(stdout, hostname, template_id)
+    summary = receipt_summary(stdout, hostname, template_id)
+    receipts = summary.get("ok", 0)
+    unusable = {k: v for k, v in summary.items() if k != "ok"}
     # A non-zero process exit is not proof that a finding is fixed.
     if rc != 0:
         return {"ok": False, "findings": [], "error": _nuclei_exit_error(rc)}
@@ -368,10 +407,10 @@ async def run_nuclei_template(
     if not any((finding.get("evidence") or {}).get("template_id") == template_id for finding in findings):
         return {"ok": False, "findings": findings,
                 "error": "No matching finding was returned, but per-template completion was not proven.",
-                "receipts": receipts, "expected_receipts": expected,
-                "proven_clean": expected == PROVABLE_REQUESTS and receipts >= 1}
+                "receipts": receipts, "expected_receipts": expected, "unusable_receipts": unusable,
+                "proven_clean": expected == PROVABLE_REQUESTS and receipts >= 1 and not unusable}
     return {"ok": True, "findings": findings, "error": None, "receipts": receipts,
-            "expected_receipts": expected, "proven_clean": False}
+            "expected_receipts": expected, "unusable_receipts": unusable, "proven_clean": False}
 
 
 VERIFY_MIN_SECONDS = 30  # do not start a rerun with less stage time than this
@@ -397,6 +436,10 @@ async def verify_open_findings(items: List[Dict[str, str]]) -> Dict[str, Any]:
             clean.append({"host": host, "template_id": template_id})
         elif rerun.get("ok"):
             unverified.append({"host": host, "template_id": template_id, "reason": "still_reproduces"})
+        elif rerun.get("unusable_receipts"):
+            # The target did not give a real answer (challenge page, 401/403/429/5xx, error): not assessed.
+            unverified.append({"host": host, "template_id": template_id, "reason": "not_assessed",
+                               "detail": sorted(rerun["unusable_receipts"])[0]})
         elif rerun.get("expected_receipts") != PROVABLE_REQUESTS and "expected_receipts" in rerun:
             unverified.append({"host": host, "template_id": template_id, "reason": "template_not_provable"})
         else:

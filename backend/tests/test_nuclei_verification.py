@@ -7,6 +7,7 @@ request, so a multi-request template can never be proven this way.
 """
 import asyncio
 import json
+import pathlib
 import textwrap
 
 import pytest
@@ -21,8 +22,22 @@ from backend.tests.test_baseline_coverage import (
 TEMPLATE = "exposed-panel"
 
 
-def _receipt(template=TEMPLATE, host=HOST, status=False):
-    return json.dumps({"template-id": template, "host": host, "matcher-status": status, "info": {}}) + "\n"
+FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "privacy_sites"
+OK_PAGE = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nServer: nginx\r\n\r\n<html><body>Welcome</body></html>"
+
+
+def _response(status, body="", headers=None):
+    reason = {200: "OK", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 429: "Too Many Requests",
+              500: "Internal Server Error", 503: "Service Unavailable"}.get(status, "Status")
+    head = "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items())
+    return f"HTTP/1.1 {status} {reason}\r\nContent-Type: text/html\r\n{head}\r\n{body}"
+
+
+def _receipt(template=TEMPLATE, host=HOST, status=False, response=OK_PAGE, **extra):
+    data = {"template-id": template, "host": host, "matcher-status": status, "info": {}, **extra}
+    if response is not None:
+        data["response"] = response
+    return json.dumps(data) + "\n"
 
 
 # ── Receipts ────────────────────────────────────────────────────────────────
@@ -246,3 +261,72 @@ def test_a_failed_nuclei_stage_with_no_receipt_never_resolves(store, monkeypatch
     _seed_nuclei_finding(store)
     _finalize(store, monkeypatch, _with_verification(None), nuclei_status="failed")
     assert _find(store, NUC_FINDING)["status"] == "open"
+
+
+# ── A receipt only proves a template clean if the answer came from the target ──
+
+
+def _prove(monkeypatch, receipt_line):
+    """Run the worker's verification for one open finding against a faked Nuclei rerun."""
+    async def spawn(*args, **kwargs):
+        return _Process(receipt_line.encode())
+
+    monkeypatch.setattr(nuclei_runner.ip_guard, "resolve_connect_ip", lambda host: "93.184.216.34")
+    monkeypatch.setattr(nuclei_runner.shutil, "which", lambda name: "/usr/bin/nuclei")
+    monkeypatch.setattr(nuclei_runner.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(nuclei_runner, "template_request_count", lambda template_id: 1)
+    return asyncio.run(nuclei_runner.verify_open_findings([{"host": HOST, "template_id": TEMPLATE}]))
+
+
+def test_a_200_non_match_receipt_for_a_single_request_template_resolves_the_finding(store, monkeypatch):
+    verification = _prove(monkeypatch, _receipt(response=_response(200, "<html>Welcome</html>")))
+    assert verification["clean"] == [{"host": HOST, "template_id": TEMPLATE}] and verification["unverified"] == []
+    _seed_nuclei_finding(store)
+    _finalize(store, monkeypatch, _with_verification(verification), nuclei_status="completed")
+    assert _find(store, NUC_FINDING)["status"] == "resolved"
+
+
+def test_a_403_cloudflare_challenge_receipt_leaves_the_finding_open_as_not_assessed(store, monkeypatch):
+    challenge = _response(403, (FIXTURES / "cloudflare_challenge.html").read_text(), {"cf-mitigated": "challenge"})
+    verification = _prove(monkeypatch, _receipt(response=challenge))
+    assert verification["clean"] == []
+    assert verification["unverified"][0]["reason"] == "not_assessed"
+    _seed_nuclei_finding(store)
+    _finalize(store, monkeypatch, _with_verification(verification), nuclei_status="completed")
+    assert _find(store, NUC_FINDING)["status"] == "open"
+
+
+def test_a_200_page_that_is_really_a_challenge_is_not_proof(store, monkeypatch):
+    vercel = _response(200, "<html>Vercel Security Checkpoint</html>", {"x-vercel-mitigated": "challenge"})
+    just_a_moment = _response(200, "<html><title>Just a moment...</title></html>")
+    for page in (vercel, just_a_moment):
+        verification = _prove(monkeypatch, _receipt(response=page))
+        assert verification["clean"] == [] and verification["unverified"][0]["reason"] == "not_assessed", page[:60]
+        assert verification["unverified"][0]["detail"] == "blocked"
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+def test_unusable_statuses_are_never_proof(monkeypatch, status):
+    verification = _prove(monkeypatch, _receipt(response=_response(status, "denied")))
+    assert verification["clean"] == []
+    assert verification["unverified"][0]["reason"] == "not_assessed"
+    assert verification["unverified"][0]["detail"] == "bad_status"
+
+
+def test_a_404_is_a_real_answer_from_the_target(monkeypatch):
+    assert _prove(monkeypatch, _receipt(response=_response(404, "not here")))["clean"] == [
+        {"host": HOST, "template_id": TEMPLATE}]
+
+
+def test_a_receipt_with_an_error_or_no_response_is_never_proof(monkeypatch):
+    # An error field makes Nuclei's own output untrustworthy: the strict parser fails the whole rerun.
+    errored = _prove(monkeypatch, _receipt(error="could not connect to host"))
+    assert errored["clean"] == [] and errored["unverified"][0]["reason"] == "no_receipt_or_rerun_failed"
+    assert nuclei_runner.receipt_verdict({"error": "x", "response": OK_PAGE}) == "error"
+    bare = _prove(monkeypatch, _receipt(response=None))
+    assert bare["clean"] == [] and bare["unverified"][0]["detail"] == "no_response"
+
+
+def test_one_bad_receipt_among_good_ones_blocks_the_proof(monkeypatch):
+    mixed = _receipt(response=_response(200, "ok")) + _receipt(response=_response(403, "denied"))
+    assert _prove(monkeypatch, mixed)["clean"] == []
