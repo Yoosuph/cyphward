@@ -28,12 +28,13 @@ from typing import Any, Dict
 
 from backend.app.core.auth import log_audit
 from backend.app.core.database import execute_query
-from backend.app.core.cron_claim import DAILY_SCAN_CRON_NAME, cron_run_completed
+from backend.app.core.cron_claim import COMPLIANCE_REMINDERS_CRON_NAME, DAILY_SCAN_CRON_NAME, cron_run_completed
 from backend.app.workflows.inngest_workflow import run_daily_scan_schedule
 
 logger = logging.getLogger("cyphward.scheduler")
 
 DAILY_SCAN_HOUR_UTC = 6
+COMPLIANCE_REMINDERS_HOUR_UTC = 7
 CRON_RAN_ACTION = "cron.ran"
 _RETRY_SECONDS = 300  # failed runs are retried after 5 minutes
 _CLAIM_BACKOFF_SECONDS = 60  # another owner holds today's claim — recheck soon
@@ -121,3 +122,57 @@ async def daily_scan_scheduler(stop: asyncio.Event) -> None:
             except asyncio.TimeoutError:
                 pass
     logger.info("daily scan scheduler stopped")
+
+
+def reminders_wake_at(now: datetime, ran_today: bool) -> datetime:
+    """Next wake instant for the daily 07:00 UTC compliance reminders (same rules as next_wake_at)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now = now.astimezone(timezone.utc)
+    at = now.replace(hour=COMPLIANCE_REMINDERS_HOUR_UTC, minute=0, second=0, microsecond=0)
+    if ran_today:
+        return at + timedelta(days=1)
+    return at if now < at else now
+
+
+async def compliance_reminders_scheduler(stop: asyncio.Event) -> None:
+    """Background loop: run the compliance reminders once a day at 07:00 UTC (with catch-up).
+
+    Runs under its own atomic `cron_runs` claim, so replicas and the Inngest cron cannot double-send.
+    Local import: the reminders module pulls in the mailer, which the scan scheduler does not need.
+    """
+    from backend.app.compliance.reminders import run_compliance_reminders
+
+    logger.info("compliance reminders scheduler started (07:00 UTC)")
+    while not stop.is_set():
+        try:
+            now = datetime.now(timezone.utc)
+            ran_today = cron_run_completed(COMPLIANCE_REMINDERS_CRON_NAME, now.date())
+            delay = max((reminders_wake_at(now, ran_today) - now).total_seconds(), 0.0)
+            if delay > 0:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=delay)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+            result = await run_compliance_reminders()
+            if isinstance(result, dict) and result.get("claimed") is False:
+                backoff = _CLAIM_BACKOFF_SECONDS
+            else:
+                backoff = 0
+            if backoff:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=backoff)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("compliance reminders run failed; retrying in %d minutes", _RETRY_SECONDS // 60)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=_RETRY_SECONDS)
+                break
+            except asyncio.TimeoutError:
+                pass
+    logger.info("compliance reminders scheduler stopped")

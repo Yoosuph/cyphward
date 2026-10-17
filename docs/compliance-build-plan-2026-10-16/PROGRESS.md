@@ -278,3 +278,53 @@ Next: C1, as planned in `C1-plan.md`.
 - No UI yet (C3c). The API returns the statuses and sources; the Compliance page is unchanged apart from the reason wording.
 - No reminders (C3b), so an expired answer is not notified yet.
 - The display timezone is stored and returned, but the owner setting that changes it is not built (C3c).
+
+## C3b — incidents and expiry reminders (branch `codex/compliance-c3b`, stacked on `codex/compliance-c3a`)
+
+**State:** implemented and validated locally. Not released. No production access.
+
+### Changed behaviour
+
+- **Migration** `20261017150000_compliance_incidents_reminders.sql` (additive, after the C3a migration):
+  - `compliance_incidents`: title ≤ 200, severity and status checks, `detected_at`, `became_aware_at`, `notified_commission_at`, `notified_subjects_at`, notes ≤ 4000, `created_by`, timestamps, and the plan's sanity check (`became_aware_at >= detected_at - 30 days`).
+  - `compliance_reminders`: primary key `(attestation_id, threshold_days)`, `sent_at`, cascade with the answer.
+  - RLS like the other app tables. Grants for `cyphward_app`: incidents SELECT, INSERT and UPDATE of `(status, notified_commission_at, notified_subjects_at, notes, severity, updated_at)` only, **no DELETE** (D15); reminders SELECT, INSERT.
+- **Incidents API** (`api/compliance.py`, `compliance/incidents.py`): `GET/POST /api/v1/compliance/incidents`, `PATCH /api/v1/compliance/incidents/{id}`.
+  - Owner/admin write, members read, Growth gate on every endpoint, tenant scoped (another organisation's id is a 404).
+  - Every write is audited in the same transaction. The audit metadata holds field names and values for status, severity and notified times, never the title or notes text.
+  - Responses carry `deadline_at` (= `became_aware_at + 72 h`, UTC), `hours_remaining`, `overdue`, `notified_late` and `commission_state` (`pending`, `overdue`, `notified_on_time`, `notified_late`), plus a `local` block in the organisation's display zone. Exactly 72 h is still pending; notified at or before the deadline is never overdue; notified after is `notified_late`, not overdue.
+  - A time sent without an offset is read as wall-clock time in the organisation's display zone and stored in UTC. A time the zone skipped or repeats at a clock change is refused with a request for the UTC offset. Future times and notifications before awareness are refused.
+  - The list response also carries the plain checklist and the "not legal advice" line.
+- **Reminders** (`compliance/reminders.py`): job `compliance_reminders` under the existing atomic `cron_runs` claim, started by the in-process scheduler (07:00 UTC, with catch-up) and by an Inngest cron, which share the claim.
+  - Finds current, unexpired answers inside 30 or 7 days with no reminder row for the smallest threshold they are inside (5 days left is a 7-day reminder only). `not_sure` answers are skipped.
+  - Per answer: the reminder row and the in-app notification in one transaction, with the claim checked `FOR SHARE` in it; the emails after. The claim is re-checked before every email.
+  - Email goes to the answer's owner and the organisation's owners/admins, through the mailer (`alerts` sender). It names the requirement, the expiry date (in the organisation's zone) and a link, and has no answer text, notes or evidence link.
+
+### Decisions taken for Yusuf (defaults applied; please confirm or override)
+
+| # | Decision | Default applied | Why |
+|---|---|---|---|
+| C3b-1 | Starter gating of incident writes | Incident reads **and writes** return 403 on Starter. | The task asks for the same Growth gate as the compliance API. C3a-2 left attestation writes ungated, so this differs; a Starter organisation cannot log a breach here. Easy to loosen to read-only gating if you prefer. |
+| C3b-2 | Reminder timing | 07:00 UTC, one hour after the scan sweep, with its own claim name `compliance_reminders`. | Keeps the scan scheduler's loop and tests untouched. |
+| C3b-3 | Both thresholds due at once | Send only the smaller threshold. | An answer first seen with 5 days left would otherwise get two emails in one run. |
+| C3b-4 | A crash after the reminder commit | The email is lost, never doubled. | The plan says the row comes first so a retry cannot double-send. The in-app notification is in the same transaction as the row. |
+| C3b-5 | Notified-late wording | `notified_late` is not `overdue`. `overdue` means not notified and past the deadline; a closed incident that was never notified stays overdue. | The deadline state follows what the organisation recorded; nothing is inferred about whether notification was required. |
+| C3b-6 | Time entered without an offset | Read in the organisation's zone; ambiguous or skipped clock-change times are refused. | Avoids guessing a deadline that is legally sensitive. |
+| C3b-7 | Notified times | Cannot precede `became_aware_at` or lie in the future (5 minutes of clock skew allowed). They can be cleared to null to correct an entry (audited). | Catches typos; keeps a correction path since the app cannot delete. |
+
+### Validation (fresh owned loopback PostgreSQL on `127.0.0.1:55441`, bootstrap script only: 32 migrations, restricted `cyphward_app`)
+
+- **New tests:**
+  - `test_compliance_incidents.py`: **19** (no database). 72-hour edges (exactly 72 h, one minute either side, notified before, at and after the deadline), clock-change arithmetic, Lagos near midnight, skipped and repeated local times, validation, banned-phrase checks over the checklist, disclaimer, reminder and email copy, and the reminders wake time.
+  - `test_compliance_incidents_postgres.py`: **24**. No DELETE and column-limited UPDATE grants; reminders insert-only; schema checks; members cannot write; Starter gate; cross-tenant list and PATCH; immutable fields refused; every write audited without notes or title; a failed audit write rolls the incident back; deadline over the API; Lagos and New York storage and display; thresholds 30/7; recipients and no answer content; retry cannot double-send; mail failure loses but never doubles; superseded and expired answers; stale claim cannot write or send; claim lost between the reminder and the email sends nothing; a held claim makes a second runner do nothing. Emails are stubbed.
+- **Full backend suite on the owned loopback DB: 906 passed, 16 skipped.**
+- **Full backend suite without a database: 784 passed, 138 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_incidents_postgres.py`): **123 passed.**
+- `git diff --check`: passed. Frontend not changed.
+
+### Limitations
+
+- No UI (C3c). The incident form, countdown and the owner setting for the display zone are still to build.
+- The Inngest platform is not wired in production (see `scheduler.py`), so the in-process loop is what runs the job.
+- Release order: apply the migration before the API; the job fails (and is retried) if the tables are missing.
+- Nothing deployed; the day-after `cron_runs` check in the C3 plan §10 still needs the founder's OK.

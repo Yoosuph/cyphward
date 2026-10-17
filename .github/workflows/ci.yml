@@ -80,7 +80,7 @@ jobs:
       - name: Bootstrap the empty service database
         run: python backend/scripts/bootstrap_test_database.py
       - name: Run independent-connection acceptance tests
-        run: python -m pytest backend/tests/test_scan_admission_postgres.py backend/tests/test_scan_execution_postgres.py backend/tests/test_owner_views_postgres.py backend/tests/test_owner_actions_postgres.py backend/tests/test_compliance_postgres.py backend/tests/test_compliance_attestations_postgres.py backend/tests/test_third_party_findings_postgres.py backend/tests/test_privacy_stage_postgres.py -q
+        run: python -m pytest backend/tests/test_scan_admission_postgres.py backend/tests/test_scan_execution_postgres.py backend/tests/test_owner_views_postgres.py backend/tests/test_owner_actions_postgres.py backend/tests/test_compliance_postgres.py backend/tests/test_compliance_attestations_postgres.py backend/tests/test_compliance_incidents_postgres.py backend/tests/test_third_party_findings_postgres.py backend/tests/test_privacy_stage_postgres.py -q
       - name: Stop the owned test cluster
         if: always()
         run: |
