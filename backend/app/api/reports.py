@@ -6,13 +6,16 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Dict, Any
 import httpx
+import json
 import logging
+from datetime import datetime
 
 from backend.app.core.database import execute_query, execute_one
 from backend.app.core.auth import get_current_org, require_admin, log_audit
 from backend.app.core.plans import require_quota
 from backend.app.risk.check_set import COVERAGE_VERSION, NUCLEI_LINE, domain_coverage_line
 from backend.app.risk.engine import compute_risk_score, latest_assessment
+from backend.app.snapshots import store as snapshots
 from backend.app.services.mailer import (
     generate_executive_report_html,
     send_email_async,
@@ -34,6 +37,7 @@ class SendReportEmailRequest(BaseModel):
 class CreateReportRequest(BaseModel):
     domain_id: Optional[str] = None
     title: Optional[str] = None
+    request_key: Optional[str] = None
 
 
 def _report_scope(scoring: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,12 +118,70 @@ def _report_drivers(findings: list[Dict[str, Any]]) -> list[Dict[str, str]]:
     ]
 
 
+LEGACY_LABEL = ("Legacy report: built from live data before assessment snapshots existed. Its figures may differ "
+                "from today's and its evidence cannot be verified.")
+SNAPSHOT_LABEL = "Issued from a frozen assessment snapshot. Later scans and changes do not alter it."
+
+
+def _integrity(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Legacy reports (no snapshot) are labelled, never backfilled."""
+    if row.get("snapshot_id"):
+        return {"integrity": "snapshot", "integrity_label": SNAPSHOT_LABEL}
+    return {"integrity": "legacy", "integrity_label": LEGACY_LABEL}
+
+
+def _drivers_from_snapshot(findings: list[Dict[str, Any]]) -> list[Dict[str, str]]:
+    return _report_drivers([{"severity": f["severity"], "title": f["title"], "description": f["description"],
+                             "remediation": f["remediation"]} for f in findings])
+
+
+def render_from_snapshot(content: Dict[str, Any], snapshot: Dict[str, Any], focus_domain: Optional[str]) -> str:
+    """The report page, built only from the frozen content: the same snapshot always renders the same page."""
+    scoring, scope = content["scoring"], content["scope"]
+    counts = scoring["counts"]
+    integrity = [
+        f"Issued from assessment snapshot {snapshot['seq']} (sha256 {snapshot['content_sha256'][:12]}…), "
+        f"frozen {content['generated_at'][:16].replace('T', ' ')} UTC. Later scans do not change this report.",
+        scope["note"],
+    ]
+    if focus_domain:
+        integrity.append(f"Focus domain: {focus_domain}. The score above is organisation-wide, not a score for "
+                         "this domain alone.")
+    return generate_executive_report_html(
+        org_name=scope["org_name"], domain=focus_domain or ", ".join(d["domain"] for d in scope["domains"]),
+        score=scoring["score"], grade=scoring["grade"], posture_label=scoring["posture_label"],
+        assets_count=scope["assets"], critical_count=counts.get("critical", 0), high_count=counts.get("high", 0),
+        medium_count=counts.get("medium", 0), drivers=_drivers_from_snapshot(content["findings"]["open"]),
+        scope_label=scoring.get("scope_label"), coverage_label=scoring.get("coverage_label"),
+        domain_line=scoring.get("domain_coverage_line") or scope.get("domain_line") or None, nuclei_line=scoring.get("nuclei_line"),
+        generated_at=datetime.fromisoformat(content["generated_at"]),
+        report_ref=f"S{snapshot['seq']}-{snapshot['content_sha256'][:8]}", integrity_lines=integrity,
+    )
+
+
+def _summary_from_snapshot(content: Dict[str, Any], snapshot: Dict[str, Any], focus: Optional[str]) -> Dict[str, Any]:
+    scoring, counts = content["scoring"], content["scoring"]["counts"]
+    return {
+        "score": scoring["score"], "grade": scoring["grade"], "assessed": scoring["assessed"],
+        "assessed_at": content["dates"]["assessment_completed_at"],
+        "model": scoring["model"], "scope": scoring["scope"], "scope_label": scoring["scope_label"],
+        "coverage_label": scoring["coverage_label"], "domain_coverage_line": scoring["domain_coverage_line"],
+        "domain_coverage": scoring["domain_states"], "nuclei_line": scoring["nuclei_line"],
+        "assets": content["scope"]["assets"], "critical": counts.get("critical", 0), "high": counts.get("high", 0),
+        "medium": counts.get("medium", 0), "low": counts.get("low", 0),
+        "resolved_last_30d": content["findings"]["resolved_last_30d"],
+        "snapshot": {"id": str(snapshot["id"]), "seq": snapshot["seq"], "sha256": snapshot["content_sha256"],
+                     "generated_at": content["generated_at"]},
+        "focus_domain": focus,
+    }
+
+
 @router.get("")
 def list_reports(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     rows = execute_query(
         """
-        SELECT r.id, r.title, r.status, r.summary, r.domain_id, r.scan_id, r.created_at, r.updated_at,
-               d.domain
+        SELECT r.id, r.title, r.status, r.summary, r.domain_id, r.scan_id, r.snapshot_id, r.report_version,
+               r.created_at, r.updated_at, d.domain
         FROM reports r
         LEFT JOIN domains d ON d.id = r.domain_id AND d.org_id = r.org_id
         WHERE r.org_id = %s
@@ -128,6 +190,7 @@ def list_reports(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
         """,
         (org["id"],),
     ) or []
+    rows = [{**r, **_integrity(r)} for r in rows]
     return {"reports": rows, "total": len(rows)}
 
 
@@ -136,72 +199,63 @@ def create_report(
     req: CreateReportRequest,
     org: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
-    """Generate and persist an assessment report from live data (spec §32)."""
-    # A supplied domain must belong to the caller's org — reject before the
-    # report is assembled or stored (the composite (org_id, domain_id) FK
-    # enforces the same rule at insert time).
+    """Freeze an assessment snapshot and generate the report from it (Packet 04).
+
+    The snapshot is organisation-scoped; `domain_id` only names a focus domain, which must belong to
+    this organisation and be in the snapshot's scope (a verified domain). One request makes one
+    snapshot and one report in a single transaction; a retried `request_key` returns the first.
+    """
+    if not snapshots.valid_request_key(req.request_key):
+        raise HTTPException(status_code=422, detail="request_key must be 8-80 letters, digits or . _ : -")
+    focus = None
     if req.domain_id:
-        domain = execute_one(
-            "SELECT id FROM domains WHERE id = %s AND org_id = %s",
-            (req.domain_id, org["id"]),
-        )
+        domain = execute_one("SELECT id, domain, verification_status FROM domains WHERE id = %s AND org_id = %s",
+                             (req.domain_id, org["id"]))
         if not domain:
             raise HTTPException(status_code=404, detail="Domain not found.")
-    # Plan entitlement: monthly report quota — checked before the expensive
-    # assembly (review P1 line 33).
+        if domain["verification_status"] != "verified":
+            raise HTTPException(status_code=422, detail="That domain is not verified, so it is not in the assessment scope.")
+        focus = domain["domain"]
+    if req.request_key:
+        again = execute_one(
+            "SELECT r.id FROM reports r JOIN assessment_snapshots s ON s.org_id = r.org_id AND s.id = r.snapshot_id "
+            "WHERE r.org_id = %s AND s.request_key = %s", (org["id"], req.request_key))
+        if again:
+            return {"report": _report_row(org["id"], again["id"]), "created": False}
     require_quota(org, "reports")
-    data = _build_report(org, req.domain_id)
-    title = req.title or f"Security Assessment — {data['domain'] or org['name']}"
 
-    html_content = generate_executive_report_html(
-        org_name=data["org_name"],
-        domain=data["domain"],
-        score=data["score"],
-        grade=data["grade"],
-        posture_label=data["posture_label"],
-        assets_count=data["assets_count"],
-        critical_count=data["critical_count"],
-        high_count=data["high_count"],
-        medium_count=data["medium_count"],
-        drivers=_report_drivers(data["findings"]),
-        scope_label=data["scope_label"],
-        coverage_label=data["coverage_label"],
-        domain_line=data["domain_coverage_line"] or None,
-        nuclei_line=data["nuclei_line"],
-    )
+    def insert_report(conn, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        content = snapshot["content"]
+        if focus and focus not in [d["domain"] for d in content["scope"]["domains"]]:
+            raise HTTPException(status_code=422, detail="That domain is not in the assessment scope.")
+        title = req.title or f"Security Assessment — {focus or content['scope']['org_name']}"
+        html_content = render_from_snapshot(content, snapshot, focus)
+        return conn.execute(
+            "INSERT INTO reports (org_id, domain_id, title, status, html, summary, created_by, snapshot_id, report_version) "
+            "VALUES (%s, %s, %s, 'ready', %s, %s::jsonb, %s, %s, %s) RETURNING id",
+            (org["id"], req.domain_id, title, html_content,
+             json.dumps(_summary_from_snapshot(content, snapshot, focus)), org.get("current_user_id"),
+             snapshot["id"], content["report_version"])).fetchone()
 
-    summary = {
-        "score": data["score"],
-        "grade": data["grade"],
-        "assessed": data["assessed"],
-        "assessed_at": (data.get("assessment") or {}).get("completed_at"),
-        "assessment_coverage": (data.get("assessment") or {}).get("coverage"),
-        "model": data["model"],
-        "scope": data["scope"],
-        "scope_label": data["scope_label"],
-        "coverage_label": data["coverage_label"],
-        "domain_coverage_line": data["domain_coverage_line"],
-        "domain_coverage": data["domain_coverage"],
-        "nuclei_line": data["nuclei_line"],
-        "assets": data["assets_count"],
-        "critical": data["critical_count"],
-        "high": data["high_count"],
-        "medium": data["medium_count"],
-        "low": data["low_count"],
-        "resolved_last_30d": data["resolved_recent"],
-    }
+    try:
+        made = snapshots.create(org, org.get("current_user_id"), request_key=req.request_key, on_insert=insert_report)
+    except snapshots.StateChanging:
+        raise HTTPException(status_code=409, detail="Your data changed while the report was being prepared. Try again.")
+    if made["created"]:
+        log_audit(org["id"], org.get("current_user_id"), "report.generated", "report", str(made["extra"]["id"]))
+        return {"report": _report_row(org["id"], made["extra"]["id"]), "created": True}
+    again = execute_one("SELECT id FROM reports WHERE org_id = %s AND snapshot_id = %s ORDER BY created_at LIMIT 1",
+                        (org["id"], made["snapshot"]["id"]))
+    if not again:
+        raise HTTPException(status_code=409, detail="That request key was already used for a snapshot without a report.")
+    return {"report": _report_row(org["id"], again["id"]), "created": False}
 
-    report = execute_one(
-        """
-        INSERT INTO reports (org_id, domain_id, title, status, html, summary, created_by)
-        VALUES (%s, %s, %s, 'ready', %s, %s::jsonb, %s)
-        RETURNING id, org_id, domain_id, title, status, summary, created_at, updated_at
-        """,
-        (org["id"], req.domain_id, title, html_content, __import__("json").dumps(summary),
-         org.get("current_user_id")),
-    )
-    log_audit(org["id"], org.get("current_user_id"), "report.generated", "report", str(report["id"]))
-    return {"report": report}
+
+def _report_row(org_id: Any, report_id: Any) -> Dict[str, Any]:
+    row = execute_one(
+        "SELECT id, org_id, domain_id, title, status, summary, snapshot_id, report_version, created_at, updated_at "
+        "FROM reports WHERE id = %s AND org_id = %s", (str(report_id), str(org_id)))
+    return {**row, **_integrity(row)}
 
 
 @router.get("/{report_id}")
@@ -212,7 +266,7 @@ def get_report(report_id: str, org: Dict[str, Any] = Depends(get_current_org)) -
     )
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
-    return {"report": report}
+    return {"report": {**report, **_integrity(report)}}
 
 
 @router.post("/send-email")

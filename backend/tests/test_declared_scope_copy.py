@@ -10,6 +10,7 @@ import pytest
 
 from backend.app.ai.llm_provider import CloudLLMProvider
 from backend.app.api import reports as reports_api
+from backend.app.snapshots import builder as snapshot_builder
 from backend.app.risk.check_set import NUCLEI_LINE
 from backend.app.services.mailer import generate_executive_report_html
 
@@ -204,7 +205,7 @@ def _create_report(monkeypatch, client, auth_headers, store, scoring):
         captured.update(kwargs)
         return real_render(**kwargs)
 
-    monkeypatch.setattr(reports_api, "compute_risk_score", lambda findings, assessment=None: scoring)
+    monkeypatch.setattr(snapshot_builder, "compute_risk_score", lambda findings, assessment=None: scoring)
     monkeypatch.setattr(reports_api, "generate_executive_report_html", capturing_render)
     resp = client.post("/api/v1/reports", json={"domain_id": DOM_A1},
                        headers=auth_headers(ALICE, email="alice@acme.test", org=ORG_A))

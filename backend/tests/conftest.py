@@ -121,6 +121,9 @@ class FakeConn:
     def cursor(self):
         return FakeCursor(self._store)
 
+    def execute(self, sql: str, params=()):
+        return FakeCursor(self._store).execute(sql, params)
+
     def transaction(self):
         return nullcontext(self)
 
@@ -1559,16 +1562,38 @@ class FakeStore:
             return rows
 
         if s.startswith("INSERT INTO reports"):
-            org_id, domain_id, title, html, summary, created_by = params
+            org_id, domain_id, title, html, summary, created_by, snapshot_id, report_version = params
             row = {
                 "id": f"rep-{len(self.reports) + 1}", "org_id": org_id,
                 "domain_id": domain_id, "title": title, "status": "ready",
                 "summary": summary, "created_at": "2026-10-04T00:00:00",
-                "updated_at": "2026-10-04T00:00:00",
+                "updated_at": "2026-10-04T00:00:00", "snapshot_id": snapshot_id, "report_version": report_version,
             }
             self.reports.append(row)
-            return [{k: row[k] for k in ("id", "org_id", "domain_id", "title",
-                                         "status", "summary", "created_at", "updated_at")}]
+            return [{"id": row["id"]}]
+
+        # --- assessment snapshots (the real write path runs in the PostgreSQL tests) ---
+        if s.startswith("SELECT pg_advisory_xact_lock"):
+            return []
+        if s.startswith("SELECT id, org_id, seq") and "request_key = %s" in s:
+            return [x for x in self.snapshots if x["org_id"] == params[0] and x.get("request_key") == params[1]][:1]
+        if s.startswith("SELECT coalesce(max(seq), 0) + 1 AS seq"):
+            return [{"seq": 1 + len([x for x in self.snapshots if x["org_id"] == params[0]])}]
+        if s.startswith("INSERT INTO assessment_snapshots"):
+            org_id, seq, version, content, sha, request_key, created_by, created_at = params
+            row = {"id": f"snap-{len(self.snapshots) + 1}", "org_id": org_id, "seq": seq, "schema_version": version,
+                   "scope": "organization", "content_sha256": sha, "request_key": request_key,
+                   "created_by": created_by, "created_at": created_at, "content": content.obj}
+            self.snapshots.append(row)
+            return [{k: v for k, v in row.items() if k != "content"}]
+        if s.startswith("INSERT INTO audit_log") and "snapshot.created" in s:
+            return []
+        if s.startswith("SELECT id, org_id, domain_id, title, status, summary, snapshot_id, report_version"):
+            rid, org_id = params
+            return [r for r in self.reports if r["id"] == rid and r["org_id"] == org_id]
+        if s.startswith("SELECT id, domain, verification_status FROM domains WHERE id = %s AND org_id = %s"):
+            did, org_id = params
+            return [d for d in self.domains if d["id"] == did and d["org_id"] == org_id][:1]
 
         if "SELECT * FROM domains WHERE org_id" in s:
             org_id = params[0]
@@ -1925,6 +1950,7 @@ class FakeStore:
         self.password_reset_tokens = []
         self.organization_invites = []
         self.reports = []
+        self.snapshots = []
 
 
 # ---------------------------------------------------------------------------
@@ -1941,6 +1967,20 @@ def store(monkeypatch):
         yield FakeConn(st)
 
     monkeypatch.setattr(database, "get_db", fake_get_db)
+    # Snapshot gathering reads many tables; the PostgreSQL tests exercise the real queries.
+    import backend.app.snapshots.builder as snapshot_builder
+    monkeypatch.setattr(snapshot_builder, "fence", lambda org_id: "fence")
+    monkeypatch.setattr(snapshot_builder, "_domain_sections", lambda org_id: [
+        {"domain_id": d["id"], "domain": d["domain"], "scan_id": None, "observed_at": None,
+         "coverage": {"recorded": False}, "tools": {}}
+        for d in st.domains if d["org_id"] == org_id and d.get("verification_status") == "verified"])
+    monkeypatch.setattr(snapshot_builder, "_finding_rows", lambda org_id: [
+        f for f in st.findings if f["org_id"] == org_id and f["status"] != "resolved"])
+    monkeypatch.setattr(snapshot_builder, "_compliance", lambda org_id, now: {
+        "disclaimer": "", "register": {"version": "t", "title": "t", "references_pending_review": 0},
+        "questionnaire_version": "t", "readiness": {"with_evidence": 0, "present": 0, "gap": 0, "awaiting_input": 0,
+                                                    "not_assessed": 0, "applicable": 0},
+        "groups": [], "requirements": [], "attestations": []})
     import backend.app.core.scan_admission as scan_admission_mod
     monkeypatch.setattr(scan_admission_mod, "get_db", fake_get_db)
     import backend.app.core.scan_execution as execution_mod

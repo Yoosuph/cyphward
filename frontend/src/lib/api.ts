@@ -444,6 +444,10 @@ export interface ReportRow {
   created_at: string;
   updated_at: string;
   html?: string | null;
+  snapshot_id?: string | null;
+  report_version?: string | null;
+  integrity?: 'snapshot' | 'legacy';
+  integrity_label?: string;
 }
 
 export async function listReports(): Promise<{ reports: ReportRow[]; total: number }> {
@@ -452,7 +456,7 @@ export async function listReports(): Promise<{ reports: ReportRow[]; total: numb
   return { reports: [], total: 0 };
 }
 
-export async function createReport(payload?: { domain_id?: string; title?: string }): Promise<{ report: ReportRow } | null> {
+export async function createReport(payload?: { domain_id?: string; title?: string; request_key?: string }): Promise<{ report: ReportRow } | null> {
   return apiFetch('/reports', {
     method: 'POST',
     body: JSON.stringify(payload || {}),

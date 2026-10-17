@@ -154,7 +154,16 @@ export default function Reports() {
             <tbody className="divide-y divide-line/60">
               {reports.map(r => (
                 <tr key={r.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="stack-title px-4 py-3 text-ink font-semibold max-w-[280px] truncate">{r.title}</td>
+                  <td className="stack-title px-4 py-3 text-ink font-semibold max-w-[280px]">
+                    <div className="truncate">{r.title}</div>
+                    <div
+                      className="mt-1 text-[10px] font-normal text-soft whitespace-normal"
+                      title={r.integrity_label}
+                      data-testid="report-integrity"
+                    >
+                      {r.integrity === 'legacy' ? 'LEGACY · LIMITED EVIDENCE' : 'FROZEN SNAPSHOT'}
+                    </div>
+                  </td>
                   <td data-label="Domain" className="px-4 py-3 text-soft">{r.domain || '—'}</td>
                   <td data-label="Status" className="px-4 py-3">
                     <StatusChip level={r.status === 'ready' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn'}>
