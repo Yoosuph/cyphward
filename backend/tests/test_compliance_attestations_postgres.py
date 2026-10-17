@@ -418,6 +418,16 @@ def test_starter_is_gated_from_the_questionnaire_and_history(world):
     assert world.client.get("/api/v1/compliance/attestations/breach.response_plan", headers=headers).status_code == 403
 
 
+def test_starter_cannot_record_an_answer(world):
+    org_id = world.make_org("starter")
+    owner = world.make_person(org_id, "owner")
+    response = world.client.post(
+        "/api/v1/compliance/attestations", headers=world.headers(owner, org_id),
+        json={"question_key": "breach.response_plan", "answer": {"value": "yes"}, "owner_user_id": owner})
+    assert response.status_code == 403
+    assert world.rows("SELECT count(*) AS n FROM compliance_attestations WHERE org_id = %s", (org_id,))[0]["n"] == 0
+
+
 def test_queued_writers_are_stamped_in_supersede_order(world):
     import time
 

@@ -80,6 +80,9 @@ def compliance_questionnaire(org: Dict[str, Any] = Depends(get_current_org)) -> 
 
 @router.post("/attestations", status_code=201)
 def record_attestation(body: AttestationIn, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+    # Same plan gate as the reads: a Starter organisation cannot store answers it could not read back.
+    if status.is_starter(org):
+        raise HTTPException(status_code=403, detail=GROWTH_DETAIL)
     try:
         return attestation_store.record(
             org, org["current_user_id"], question_key=body.question_key, answer=body.answer,
