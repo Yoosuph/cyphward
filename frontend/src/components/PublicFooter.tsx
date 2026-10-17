@@ -68,6 +68,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               <ul className="space-y-2 text-xs mono text-soft">
                 <li><Link to="/pricing" className="hover:text-ink">Pricing</Link></li>
                 <li><Link to="/about" className="hover:text-ink">About</Link></li>
+                <li><Link to="/scanner" className="hover:text-ink">Our scanner</Link></li>
                 <li><Link to="/teams" className="hover:text-ink">Team</Link></li>
                 <li><Link to="/contact" className="hover:text-ink">Contact</Link></li>
                 <li><Link to="/login" className="hover:text-ink">Sign In</Link></li>

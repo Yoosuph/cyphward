@@ -12,6 +12,7 @@ non-public addresses is never connected to.
 from typing import Dict, Any, List, Optional
 import asyncio
 from shared.scan_budget import ensure_stage_budget
+from shared.scanner_identity import SCANNER_USER_AGENT
 import ssl
 import socket
 import datetime
@@ -229,7 +230,7 @@ async def probe_http_service(
                     resp = await client.get(
                         _pinned_url(current_scheme, target_ip, current_path),
                         headers={
-                            "User-Agent": "Cyphward-Security-Scanner/1.0",
+                            "User-Agent": SCANNER_USER_AGENT,
                             "Host": current_host,
                         },
                         # Connect by IP (pin), present the real hostname in

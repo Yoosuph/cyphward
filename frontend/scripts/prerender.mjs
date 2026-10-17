@@ -38,6 +38,13 @@ const PAGES = [
     canonical: 'https://cyphward.com/about',
   },
   {
+    url: '/scanner',
+    file: 'scanner/index.html',
+    title: 'Scanner — Cyphward',
+    description: "What Cyphward's security scanner does, which domains it scans (only ones their owners verified), its User-Agent and how to reach us.",
+    canonical: 'https://cyphward.com/scanner',
+  },
+  {
     url: '/teams',
     file: 'teams/index.html',
     title: 'Team — Cyphward',

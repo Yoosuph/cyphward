@@ -9,6 +9,8 @@ ARG SUBFINDER_VERSION=2.16.0
 ARG NAABU_VERSION=2.6.1
 ARG HTTPX_VERSION=1.12.0
 ARG NUCLEI_VERSION=3.11.1
+# Pinned so the safe-scan exclusion policy (scanner/nuclei_policy/) is reproducible.
+ARG NUCLEI_TEMPLATES_VERSION=10.4.9
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -43,14 +45,26 @@ RUN set -eux; \
         rm -rf "/tmp/${tool}.zip" /tmp/unz; \
     done
 
-# --- Nuclei templates at build time (runner uses the http/ subset) --------
-RUN nuclei -update-templates
-
+# --- App code --------------------------------------------------------------
 WORKDIR /opt/cyphward-scanner
-
 COPY shared/ ./shared/
 COPY backend/ ./backend/
 COPY scanner/ ./scanner/
+
+# --- Nuclei templates, pinned (runner uses the http/ subset) --------------
+# Pinned to the version the exclusion policy was built against, so the safe
+# scan set is reproducible, then verified against the committed policy so a
+# template change cannot silently widen what the scanner runs.
+RUN set -eux; \
+    curl -fsSL -o /tmp/templates.tar.gz \
+        "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${NUCLEI_TEMPLATES_VERSION}.tar.gz"; \
+    mkdir -p /root/nuclei-templates; \
+    tar -xzf /tmp/templates.tar.gz -C /root/nuclei-templates --strip-components=1; \
+    rm /tmp/templates.tar.gz; \
+    mkdir -p /root/.config/nuclei; \
+    printf '{"nuclei-templates-directory":"/root/nuclei-templates","nuclei-templates-version":"v%s"}\n' \
+        "${NUCLEI_TEMPLATES_VERSION}" > /root/.config/nuclei/.templates-config.json; \
+    python3 -I scanner/scripts/verify_nuclei_excludes.py /root/nuclei-templates scanner/nuclei_policy
 
 # Fail closed at startup when SCANNER_CORE_URL / SCANNER_API_KEY are missing.
 CMD ["python", "-m", "scanner.runner"]

@@ -222,6 +222,12 @@ def _not_found_conclusively(host: Dict[str, Any], kind: str) -> bool:
             and set(tried) == set(FIXED_PATHS[kind]) and all(v in GONE_STATUSES for v in tried.values()))
 
 
+def _blocked_host(hosts, apex):
+    """The apex host (or the only host) when it is behind bot protection, else None."""
+    rep = next((h for h in hosts if h.get("hostname") == apex), hosts[0] if hosts else None)
+    return rep if rep and rep.get("blocked") else None
+
+
 def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
                      previous: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """One domain's privacy result for one requirement, or None when the stage did not run."""
@@ -236,6 +242,11 @@ def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
     if not hosts:
         return {"status": NOT_ASSESSED, "reason": "privacy_check_failed", "details": base}
 
+    # Present evidence still wins even if the apex is challenge-walled (a policy
+    # was fetched on some host). Otherwise a blocked apex is not assessable here:
+    # never a gap, never "no trackers found".
+    blocked = _blocked_host(hosts, apex)
+
     if signal in ("privacy_policy", "cookie_notice"):
         for host in hosts:
             page = _page(host, signal)
@@ -249,6 +260,9 @@ def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
                     details["policy_signals"] = host["policy_signals"]
                 return {"status": PRESENT, "reason": "linked_off_domain" if page.get("off_domain") else "page_found",
                         "details": details}
+        if blocked:
+            return {"status": NOT_ASSESSED, "reason": "blocked_by_bot_protection",
+                    "details": {**base, "host": blocked["hostname"], "block_reason": blocked.get("block_reason")}}
         apex_host = next((h for h in hosts if h["hostname"] == apex), None)
         if apex_host and _not_found_conclusively(apex_host, signal):
             return {"status": GAP, "reason": "not_found_by_static_check",
@@ -259,7 +273,7 @@ def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
 
     if signal == "trackers_before_consent":
         observed = []
-        for host in hosts:
+        for host in (h for h in hosts if not h.get("blocked")):  # a blocked host reveals nothing real
             for cookie in host.get("first_response_cookies") or []:
                 if cookie.get("category") == "tracker":  # infrastructure, necessary and unknown cookies never count
                     observed.append({"host": host["hostname"], "how": "cookie_on_first_response",
@@ -269,12 +283,16 @@ def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
                     if tracker.get("strength") == "direct" and not tracker.get("consent_blocked"):
                         observed.append({"host": host["hostname"], "how": f"tracker_{tracker.get('source')}",
                                          "vendor": tracker.get("vendor")})
+        seen = [h for h in hosts if not h.get("blocked")]
         listed = [{"host": h["hostname"], "name": c.get("name"), "category": c.get("category")}
-                  for h in hosts for c in h.get("first_response_cookies") or []]
-        consent = sorted({h["consent_manager"] for h in hosts if h.get("consent_manager")})
+                  for h in seen for c in h.get("first_response_cookies") or []]
+        consent = sorted({h["consent_manager"] for h in seen if h.get("consent_manager")})
         if observed:
             return {"status": GAP, "reason": "tracker_before_consent",
                     "details": {**base, "observed": observed, "cookies": listed, "consent_managers": consent}}
+        if blocked:
+            return {"status": NOT_ASSESSED, "reason": "blocked_by_bot_protection",
+                    "details": {**base, "host": blocked["hostname"], "block_reason": blocked.get("block_reason")}}
         return {"status": NOT_ASSESSED, "reason": "needs_browser_test",
                 "details": {**base, "cookies": listed, "consent_managers": consent,
                             "loaders": sorted({t["vendor"] for h in hosts for t in h.get("trackers") or []
@@ -286,6 +304,9 @@ def evaluate_privacy(requirement: Dict[str, Any], observation: Any, apex: str,
             if dpo.get("state") == "mentioned":
                 return {"status": PRESENT, "reason": "dpo_contact_in_policy",
                         "details": {**base, "host": host["hostname"], "url": _page(host, "privacy_policy").get("url")}}
+        if blocked:
+            return {"status": NOT_ASSESSED, "reason": "blocked_by_bot_protection",
+                    "details": {**base, "host": blocked["hostname"], "block_reason": blocked.get("block_reason")}}
         return {"status": NOT_ASSESSED, "reason": "dpo_contact_not_found_in_policy", "details": base}
     return None
 

@@ -49,6 +49,9 @@ REASON_TEXT = {
     "apex_not_checked": "Your main website could not be checked statically this time.",
     "not_found_inconclusive": "Not found, but the static check could not try every common address.",
     "privacy_check_failed": "The static privacy check could not fetch your website this time.",
+    "blocked_by_bot_protection": "Your website's bot protection blocked Cyphward's static check, so its privacy pages "
+                                 "could not be read. Allowlist the Cyphward scanner (see cyphward.com/scanner) to let "
+                                 "this check run.",
     "no_privacy_observation": "No static privacy check has run for this domain yet.",
     "tracker_before_consent": "A known tracker was observed before any consent: see the vendors listed.",
     "needs_browser_test": "No tracker was observed in the first response, but only a browser test can show that "
