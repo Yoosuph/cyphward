@@ -440,3 +440,30 @@ Next: C1, as planned in `C1-plan.md`.
 
 - A Nuclei tool version appears only where the worker recorded it in the scan results; older scans show none.
 - The fence reduces, but cannot remove, a read of a state that changes mid-way; after 3 attempts the request fails with 409 instead of freezing a mixed state.
+
+## C4 — NDPA readiness evidence pack and DPO six-monthly section (branch `track-b/c4-evidence-pack`, stacked on Packet 04)
+
+**State:** implemented and validated locally; review-ready. Not released. Migration `20261018120000_evidence_packs.sql` (after the Packet 04 migration). Adds `reportlab` to `requirements.txt`.
+
+- **Pack (`backend/app/packs/`):** one neutral document (`document.py`) rendered twice: HTML (`render.to_html`) and PDF (`render.to_pdf`, reportlab, pure Python, Helvetica, uncompressed, `invariant=1`). Built only from a snapshot's frozen content: scope, dates, snapshot id and hash, register version, readiness as counts (D5), every requirement with status, source labels and evidence references (observation time and scan, linked finding titles, customer answer owner/answered/expiry/https link), prioritised gaps (gap by worst linked finding severity, then not assessed, then awaiting input) with the register's suggested next step, the register `DISCLAIMER`, and "not a Compliance Audit Return … a DPCO may use this pack as supporting evidence".
+- **D4 marker:** every clause with `clause_verified: false` reads "… · reference pending review" in the table (HTML and PDF) and a summary line counts them. All 29 are unverified today.
+- **All not assessed:** states "N of M … have evidence" with zero, and "Nothing has been recorded as evidence yet … says nothing either way about your obligations".
+- **Immutable:** `evidence_packs` stores `issued_at`, the snapshot id, the HTML and PDF bytes and their sha256, and the frozen DPO data. `cyphward_app` has SELECT and INSERT only; a guard trigger refuses any change except the profile-deletion action clearing `issued_by`. Downloads serve the stored bytes (ETag = sha256). A second issue makes a new row; it can reuse a snapshot or freeze a new one. Issue refuses a snapshot whose content no longer matches its hash (409).
+- **DPO section (GAID Art. 13 and register clause label):** window = 183 days ending at the snapshot's own time (so it is fixed by the snapshot, not the issue time). Counts: scans run and by outcome, coverage of completed scans (complete/partial/not assessed/not recorded), findings opened and resolved by severity, open at the snapshot, incidents logged by status and severity and how many had the Commission notified (no titles or notes), and the notices and consent observations from the snapshot. Issued with the pack (`include_dpo`, default on) or on its own (`kind: dpo_section`). States plainly that it is not a Compliance Audit Return.
+- **Reminder:** the existing daily `compliance_reminders` job (same `cron_runs` claim) now also sends a once-per-half-year reminder (`dpo_reminders`, key `YYYY-H1/H2`) to owners and admins of Growth organisations that have a verified domain and have not issued a pack this half-year. In-app notification type `compliance_report_due`, plus email; the reminder row and notification commit together before any email.
+- **API (Growth only; Starter 403 on reads and writes):** `GET/POST /api/v1/packs`, `GET /api/v1/packs/{id}`, `/{id}/html`, `/{id}/pdf`. Members list and download; owners/admins issue; `request_key` makes a retry return the first pack. Other organisations' pack and snapshot ids are 404.
+- **Frontend:** a Packs tab on /comply (issue both kinds, list, download PDF/HTML through an authenticated Blob fetch). Members see the list read-only; Starter sees the existing Growth gate.
+- **Tests:** `test_packs_postgres.py` **21 passed** (content, pending markers in HTML and PDF text, honest all-not-assessed, non-Latin organisation name, byte-identical re-download after later scans and answers, new pack on re-issue, append-only grants and trigger, altered snapshot refused, cross-tenant and cross-tenant FK, RBAC, Starter gate, concurrent issue by key and distinct, DPO counts with no incident title or note, standalone DPO and lean pack, window fixed by the snapshot, banned phrases over HTML and PDF-extracted text, organisation delete cascade, reminders per half-year and none after an issued pack). Full backend suite on the local database **1016 passed, 16 skipped**. CI PostgreSQL list **185 passed**. Frontend: `npm run build` passed; `test:compliance-ui` passed (now covers Packs at desktop/390/320, member read-only, Starter gate, no verdict language); `test:scans-ui`, `test:score-ui`, `test:onboarding-ui` passed.
+
+### Decisions for Yusuf (C4)
+
+1. **Packs are Growth only** (D1), including downloads.
+2. **PDF text:** Helvetica covers Latin-1, so other characters are folded (an organisation called "Ọ̀ṣun" prints as "Osun" in the PDF; the HTML keeps it). A bundled Unicode font would fix that at the cost of a binary in the repo.
+3. **Reminder cadence:** calendar half-years (January and July), first run after deploy reminds Growth organisations once for 2026-H2.
+4. **DPO window** is 183 days ending at the snapshot time. Incident status counts are as recorded at issue time.
+5. **The register's DPO clause** is "GAID 2025 Arts. 11–13; NDPA 2023 s.32" (unverified); the pack prints the register's wording, not a hand-written Art. 13.
+6. **Before sending any pack to customers** the founder or a partner DPCO must review the register (D4); until then every reference shows "reference pending review".
+
+### Limitations
+- Packs and snapshots have no automatic purge (see Packet 04 decision 2).
+- The PDF is plain tables, not a designed layout.
