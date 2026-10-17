@@ -210,6 +210,23 @@ Next: C1, as planned in `C1-plan.md`.
 - **Workaround in C2a:** the bound was raised to 20 s (15 of 15 passed). That is a timing allowance, not a fix.
 - **Proper fix:** stub the DNS resolver (and any other network call) in that test's pipeline, and restore a tight bound, so the test measures recovery behaviour only.
 
+## Scoring carry-forward (branch `codex/scoring-carry-forward`)
+
+- **Rule:** the organisation score comes from open findings. A failed, partial or timed-out stage never removes a finding or raises the score. A finding auto-resolves only when its own detector completed for that host in that scan.
+- **Already enforced before this change:** Nuclei findings are never auto-resolved; an unreachable HTTP host and failed security checks leave their findings open as "not evaluated"; DNS is judged query by query.
+- **Added:** `backend/tests/test_carry_forward_scoring.py`, 7 tests:
+  - partial DNS (DMARC query never completed) keeps the DMARC finding open, and the score does not drop;
+  - failed Nuclei and timed-out Nuclei keep their findings and points;
+  - unreachable HTTP keeps the header finding and points;
+  - failed security checks do not lower the score;
+  - a positive control: once DMARC is answered, the same finding resolves, so the partial-DNS result is caused by the missing query.
+- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run, 30 migrations, restricted `cyphward_app`). Full backend suite **792 passed, 16 skipped**. The CI PostgreSQL race list **73 passed**. Opt-in integration suites (`CYPHWARD_*_INTEGRATION`) were not run; CI does not run them.
+
+## Decisions for Yusuf (scoring and scanner)
+
+1. **Nuclei findings never auto-resolve.** A CVE that is fixed stays open until someone resolves it by hand. This is deliberate for now, because absence from a Nuclei run is not proof of a fix. Schedule a verified-resolution rule later: a template resolves only after a completed run that included that template and host.
+2. **Tiered Nuclei defaults (from the 17 Oct count):** daily critical+high at 20 req/s (about 19 min for five hosts; 15 req/s is at the limit); weekly full safe set at 25 req/s with a one-hour budget (about 50 min estimated). Estimates are a lower bound, so confirm with a real scan before relying on them.
+
 ## C3 — attestations, owners and expiry, breach log (branch `codex/compliance-c3-rebased`)
 
 **Status: plan only. Implementation not started.** This PR carries the C3 plan onto current `main` and records the defaults for D11–D15. The build is too large for one session, so it is split as follows (each its own PR, tests included):

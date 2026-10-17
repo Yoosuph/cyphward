@@ -96,7 +96,10 @@ export default function Scanner() {
             On Cloudflare, add a WAF custom rule or a bot-management skip for that User-Agent or IP. On
             Vercel, open the project's <span className="text-ink">Firewall</span>, add a rule whose condition
             matches the <span className="mono text-xs">User-Agent</span> header (or that IP) and set the action
-            to <span className="text-ink">Allow</span> (bypass the challenge).
+            to <span className="text-ink">Bypass</span>, so the challenge is skipped.
+          </p>
+          <p>
+            The scanner's IP address is a static Azure address and will not change without notice.
           </p>
         </section>
 
