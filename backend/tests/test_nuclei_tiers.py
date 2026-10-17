@@ -114,3 +114,42 @@ def test_rate_limit_reaches_the_nuclei_command_exactly_once(monkeypatch):
     cmd = captured[0]
     assert cmd.count("-rate-limit") == 1
     assert cmd[cmd.index("-rate-limit") + 1] == "20"
+
+
+def test_weekly_jobs_get_the_time_a_weekly_run_needs():
+    from backend.app.core.nuclei_tier import timeouts_for
+    assert timeouts_for("daily", 300, 900) == (300, 900), "a daily job keeps the configured timeouts"
+    stage, recon = timeouts_for("weekly", 300, 900)
+    assert stage == 3600 and recon == 3600 + 900
+    assert timeouts_for("weekly", 5000, 9000) == (5000, 9000), "larger configured values are kept"
+
+
+def test_the_job_names_its_tier_and_older_workers_can_ignore_it():
+    from shared.contracts import ScanJob
+    base = dict(scan_id="s", organization_id="o", domain_id="d", target="acme.test", scope=["acme.test"],
+                created_at="2026-10-17T00:00:00Z", lease_expires_at="2026-10-17T01:00:00Z",
+                claim_generation=1, claim_token="t" * 40)
+    assert ScanJob(**base).nuclei_tier == "daily"
+    assert ScanJob(**base, nuclei_tier="weekly").nuclei_tier == "weekly"
+
+
+def test_the_tier_budget_is_cut_from_the_stage_time_that_is_really_left(monkeypatch):
+    from shared.scan_budget import ReconBudget
+    calls = []
+    hosts = [f"h{i}.example.test" for i in range(5)]
+
+    async def run():
+        return await ReconBudget(1000, 40).run(lambda: _async_batch(monkeypatch, hosts, calls))
+
+    async def _async_batch(monkeypatch, hosts, calls):
+        async def version():
+            return "3.11.1"
+        monkeypatch.setattr(nuclei_runner, "_nuclei_version", version)
+        monkeypatch.setattr(nuclei_runner, "run_nuclei", _recording_run(calls))
+        return await nuclei_runner.run_nuclei_batch(hosts, tier="weekly")
+
+    batch = asyncio.run(run())
+    coverage = batch.coverage()["tool_coverage"]
+    assert coverage["budget_seconds"] <= 40, "a weekly budget never exceeds the stage deadline"
+    assert coverage["host_budget_seconds"] <= 8
+    assert all(c["timeout"] <= 8 for c in calls if c["severity"] == "critical")

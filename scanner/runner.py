@@ -286,7 +286,7 @@ async def execute_job(client: CoreClient, cfg, job: ScanJob) -> Dict[str, Any]:
     tls = await run_stage(client, cfg, job, "tls", _tls, optional=True, plan=tls_plan, budget=budget)
     stats["tls"] = len(tls or [])
 
-    nuclei_tier = os.getenv("SCANNER_NUCLEI_TIER", "daily")
+    nuclei_tier = os.getenv("SCANNER_NUCLEI_TIER") or getattr(job, "nuclei_tier", "daily")
     nuclei_plan = stage_plan("nuclei", discovered, job.scope, dns_records, http_probes,
                              cap=limits.nuclei_max_hosts, available=_tool("nuclei"))
     async def _nuclei():

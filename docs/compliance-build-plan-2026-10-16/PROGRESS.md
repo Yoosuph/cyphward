@@ -212,15 +212,20 @@ Next: C1, as planned in `C1-plan.md`.
 
 ## Tiered Nuclei (branch `codex/tiered-nuclei`)
 
-- **Daily tier (default):** critical + high, 20 requests/s, 1,500 s stage budget.
-- **Weekly tier:** full safe set (critical, high, medium, low), 25 requests/s, 3,600 s budget. Selectable with `SCANNER_NUCLEI_TIER=weekly`; **Core does not yet send a per-job tier**, so weekly runs happen only when the worker is configured for it.
-- **Fair share:** the tier budget is split equally between hosts. A host that starts inside the budget keeps its share; a host that never starts is recorded as `omitted` (`budget_exhausted`, process status `not_reached`), not failed. A host the stage deadline interrupts mid-run stays failed (`recon_stage_deadline`), as before.
-- **Rate:** the tier rate now reaches the Nuclei command (it was previously ignored by `run_nuclei`). Legacy callers without a tier keep the old behaviour.
-- **Tests:** `backend/tests/test_nuclei_tiers.py`, 7 tests (tier defaults, unknown tier, daily severities and rate, weekly severities/rate/budget, equal host shares, unreached hosts not assessed, rate flag once in the command). Two existing fakes now accept `rate_limit`. A missing `os` import in `scanner/runner.py` was caught by the full suite and fixed.
-- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run, 30 migrations). Full backend suite **792 passed, 16 skipped**. CI PostgreSQL list **73 passed** (run above).
+- **Daily tier:** critical + high, 20 requests/s, 1,500 s budget.
+- **Weekly tier:** full safe set (critical, high, medium, low), 25 requests/s, 3,600 s budget.
+- **Core chooses the tier at claim time** (`backend/app/core/nuclei_tier.py`). A domain gets a weekly run when no weekly run has been *attempted* for it in the last 7 days (a weekly Nuclei observation recorded by the worker); every other scan is daily. The claim carries `nuclei_tier`, and a weekly job also carries longer stage and recon timeouts (stage at least 3,600 s; recon at least 3,600 + 900 s). Older workers ignore the new field and keep their own default.
+- **Operator override:** `SCANNER_NUCLEI_TIER` on the worker pins a tier and wins over the job.
+- **Fair share:** the budget is split equally between hosts, cut from the *smaller* of the tier budget and the stage time really left. A host that never starts is recorded as `omitted` (`budget_exhausted`, process status `not_reached`), not failed. A host the stage deadline interrupts mid-run stays failed (`recon_stage_deadline`), as before.
+- **Rate:** the tier rate now reaches the Nuclei command (it was ignored by `run_nuclei`). Legacy callers without a tier keep the old behaviour.
+- **Tests:**
+  - `test_nuclei_tiers.py`, 10 tests (tier defaults, unknown tier, daily and weekly severities and rates, equal shares, unreached hosts not assessed, rate flag once, weekly timeouts, job field default, share cut from stage time left);
+  - `test_nuclei_tier_postgres.py`, 8 tests on the migrated database (weekly when none in 7 days, daily after one, weekly again after 8 days, daily runs don't count, other domain and other organisation don't count, and the claim itself returns the tier and timeouts).
+- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run). Full backend suite **803 passed, 16 skipped**. CI PostgreSQL list **81 passed**.
 
 ## Decisions for Yusuf (tiered Nuclei)
 
-1. **Daily scans no longer run medium and low templates.** That is the agreed trade-off for the budget. Weekly covers them once Core sends the tier.
-2. **Core must send `nuclei_tier` per job** before weekly runs are real. This is a protocol change and needs its own review.
-3. **Estimates:** daily about 19 min for five hosts at 20 req/s; weekly about 50 min at 25 req/s. Confirm with one real scan before relying on them.
+1. **Daily scans no longer run medium and low templates.** Weekly covers them: the first scan of a domain after release is weekly, then one per 7 days.
+2. **"Attempted", not "completed", counts as a weekly run.** This stops a host set that cannot fit the budget from making every scan a one-hour weekly scan. The cost is that a partial weekly run is not retried until the next week; its coverage is recorded in the evidence.
+3. **Release order:** deploy the API first (older workers ignore the new field), then the worker. Until the new worker runs, scans stay on the old behaviour.
+4. **Estimates:** daily about 19 min for five hosts at 20 req/s; weekly about 50 min at 25 req/s. Confirm with one real scan after release.

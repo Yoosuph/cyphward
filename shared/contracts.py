@@ -110,6 +110,8 @@ class ScanJob(BaseModel):
     created_at: str
     authorization_context: Dict[str, Any] = Field(default_factory=dict)
     limits: ScanJobLimits = Field(default_factory=ScanJobLimits)
+    # Which Nuclei tier this scan runs. Older workers ignore the field and keep their own default.
+    nuclei_tier: Literal["daily", "weekly"] = "daily"
     lease_expires_at: str
     claim_generation: int = Field(ge=1)
     claim_token: str = Field(min_length=32, max_length=128, pattern=r'^[A-Za-z0-9_-]+$', repr=False)
