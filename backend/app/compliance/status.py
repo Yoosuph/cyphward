@@ -4,10 +4,11 @@ Status is derived on every read (C1-plan section 4). Organization scoping is
 explicit in every query. Plan gating (decision D1) only hides detail; it never
 changes a status or the readiness figure.
 """
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.billing.subscriptions import resolve_plan
-from backend.app.compliance import mapping
+from backend.app.compliance import attestation_store, attestations, mapping
 from backend.app.compliance.register import DISCLAIMER, REGISTER, requirement as register_requirement
 from backend.app.core.database import execute_one, execute_query
 
@@ -38,7 +39,7 @@ REASON_TEXT = {
     "clean_result_not_provable": "Template runs report matches only; a clean result is never shown as evidence.",
     "complete_scans_in_window": "Complete scans within the window.",
     "no_complete_scan_in_window": "No scan in the window finished every declared check.",
-    "awaiting_customer_input": "Cyphward has no source for this yet. You will be able to answer it in a later release.",
+    "awaiting_customer_input": "No answer yet. An owner or admin can answer this on the questionnaire.",
     "check_not_available_yet": "The check that observes this arrives in a later release.",
     "page_found": "Found by Cyphward's static check of your website.",
     "linked_off_domain": "Your website links to a policy hosted elsewhere; Cyphward recorded the link but did not fetch it.",
@@ -59,11 +60,17 @@ REASON_TEXT = {
     "dpo_contact_in_policy": "A DPO contact appears in your published privacy policy (heuristic).",
     "dpo_contact_not_found_in_policy": "No DPO contact was found in your published privacy policy.",
 }
+REASON_TEXT.update(attestations.REASON_TEXT)
 
 
 def _plan(org: Dict[str, Any]) -> str:
     sub = execute_one("SELECT * FROM subscriptions WHERE org_id = %s", (org["id"],))
     return resolve_plan(org, sub)["plan"]
+
+
+def is_starter(org: Dict[str, Any]) -> bool:
+    """Starter sees only the security group (decision D1). Used to gate the questionnaire reads."""
+    return _plan(org) == "starter"
 
 
 def _context(org_id: str) -> Dict[str, Any]:
@@ -92,7 +99,8 @@ def _context(org_id: str) -> Dict[str, Any]:
         "WHERE s.org_id = %s AND s.status = 'completed' AND s.completed_at > now() - make_interval(days => %s) "
         "AND ss.assessment_coverage->>'version' = '2'",
         (org_id, HISTORY_DAYS)) or []
-    return {"domains": domains, "latest": latest, "live": live, "history": history}
+    return {"domains": domains, "latest": latest, "live": live, "history": history,
+            "answers": attestation_store.current_rows(org_id)}
 
 
 def _findings(org_id: str, ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -104,14 +112,22 @@ def _findings(org_id: str, ids: List[str]) -> Dict[str, Dict[str, Any]]:
             for r in rows}
 
 
-def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-    result = mapping.requirement_status(req, domains=ctx["domains"], latest_rows=ctx["latest"].get(req["key"], {}),
-                                        live_findings=ctx["live"], history=ctx["history"])
+def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    observed = mapping.requirement_status(req, domains=ctx["domains"], latest_rows=ctx["latest"].get(req["key"], {}),
+                                          live_findings=ctx["live"], history=ctx["history"])
+    observed_sourced = any(d.get("source") for d in observed["domains"])
+    attested = attestations.requirement_outcome(req["key"], ctx.get("answers", {}), now)
+    result = attestations.merge(observed, attested, observed_sourced)
     domains = [{**d, "status_label": STATUS_LABELS[d["status"]], "reason_text": REASON_TEXT.get(d["reason"], ""),
                 "source_label": SOURCE_LABELS.get(d["source"]) if d.get("source") else None}
                for d in result["domains"]]
-    has_evidence = any(d.get("source") for d in domains) or bool(result["unlinked_finding_ids"])
-    source = next((d["source"] for d in domains if d.get("source")), mapping.TOOL_SOURCE)
+    answered = bool(attested) and any(entry["row"] for entry in attested["answers"])
+    has_evidence = observed_sourced or bool(result["unlinked_finding_ids"]) or answered
+    source = result.get("headline_source") or next((d["source"] for d in domains if d.get("source")),
+                                                   mapping.TOOL_SOURCE)
+    sources = [{**s, "source_label": SOURCE_LABELS[s["source"]], "status_label": STATUS_LABELS[s["status"]],
+                "reason_text": REASON_TEXT.get(s["reason"], "")} for s in result.get("sources", [])]
     return {
         "key": req["key"], "group": req["group"], "title": req["title"], "summary": req["summary"],
         "clause": req["clause"], "clause_verified": req["clause_verified"],
@@ -126,8 +142,19 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any
         "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
         "source": source if has_evidence else None,
         "source_label": SOURCE_LABELS[source] if has_evidence else None,
+        "sources": sources,
+        "answers": [_answer_view(entry) for entry in (attested["answers"] if attested else [])],
         "domains": domains, "unlinked_finding_ids": result["unlinked_finding_ids"],
     }
+
+
+def _answer_view(entry: Dict[str, Any]) -> Dict[str, Any]:
+    row = entry["row"]
+    return {"question_key": entry["question_key"], "status": entry["status"],
+            "status_label": STATUS_LABELS[entry["status"]], "reason": entry["reason"],
+            "reason_text": REASON_TEXT.get(entry["reason"], ""),
+            "answered": row is not None, "owner_name": row.get("owner_name") if row else None,
+            "expires_at": row["expires_at"].isoformat() if row and row.get("expires_at") else None}
 
 
 def _attach_findings(org_id: str, views: List[Dict[str, Any]]) -> None:

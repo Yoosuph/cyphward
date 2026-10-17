@@ -77,6 +77,12 @@ def test_register_has_no_verdict_language():
     _assert_clean(_strings(raw, keys=True), "register")
 
 
+def test_questionnaire_has_no_verdict_language():
+    from backend.app.compliance import questionnaire as compliance_questionnaire
+    raw = json.loads(compliance_questionnaire.QUESTIONNAIRE_FILE.read_text())
+    _assert_clean(_strings(raw, keys=True), "questionnaire")
+
+
 def _synthetic_context():
     d1 = {"id": "11111111-1111-4111-8111-111111111111", "domain": "acme.test"}
     d2 = {"id": "22222222-2222-4222-8222-222222222222", "domain": "shop.test"}
