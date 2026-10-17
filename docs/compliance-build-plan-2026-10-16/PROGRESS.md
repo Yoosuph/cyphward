@@ -267,9 +267,9 @@ Next: C1, as planned in `C1-plan.md`.
   - `test_compliance_questionnaire.py`: **51**. Validator rejections, answer normalisation, expiry, the truth table cases, merge rules and labels, and an overview check against a fake store.
   - `test_compliance_attestations_postgres.py`: **26**. Atomic superseding; queued writers stamped in supersede order (a third session holds the lock); a current answer cannot point at another question or an older answer (commit fails); a failed audit write rolls the supersede back; two concurrent writers serialise to one current answer; append-only grants; supersede-once trigger; cross-tenant FK; the HTTPS and length checks; a cross-tenant or non-member owner is refused with nothing written; every write is audited without answer text; members get 403 and nothing is written; expiry is renewal due, never present; profile deletion clears the owner without changing the answer; tenant scope; Starter gating.
   - `test_compliance_claims.py`: **+1** (questionnaire file has no verdict language).
-- **Full backend suite on the owned loopback DB: 859 passed, 16 skipped.**
-- **Full backend suite without a database (the CI backend job): 765 passed, 111 skipped.**
-- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_attestations_postgres.py`): **96 passed**.
+- **Full backend suite on the owned loopback DB: 863 passed, 16 skipped.**
+- **Full backend suite without a database (the CI backend job): 765 passed, 114 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_attestations_postgres.py`): **99 passed**.
 - `git diff --check`: passed.
 - Frontend: not changed; `npm run build` not re-run. No browser suite in this PR.
 
