@@ -134,12 +134,14 @@ def test_disclaimer_is_the_plan_text_and_is_always_returned(monkeypatch):
 
 
 def test_compliance_page_copy_has_no_verdict_language():
-    source = (ROOT / "frontend" / "src" / "pages" / "Compliance.tsx").read_text()
-    # User-visible text: JSX text nodes and string literals.
-    texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
-    flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
-    _assert_clean(flat, "Compliance.tsx")
-    assert "data.disclaimer" in source, "the page renders the API disclaimer"
+    pages = ROOT / "frontend" / "src" / "pages"
+    for path in [pages / "Compliance.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
+        source = path.read_text()
+        # User-visible text: JSX text nodes and string literals.
+        texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
+        flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
+        _assert_clean(flat, path.name)
+    assert "data.disclaimer" in (pages / "Compliance.tsx").read_text(), "the page renders the API disclaimer"
 
 
 def test_scan_page_privacy_copy_has_no_verdict_language():

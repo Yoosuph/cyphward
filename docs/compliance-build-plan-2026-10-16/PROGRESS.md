@@ -335,3 +335,27 @@ Next: C1, as planned in `C1-plan.md`.
 
 - **`backend/tests/test_scan_execution_postgres.py::test_unverified_queued_jobs_do_not_starve_local_recovery`.** It failed in 1 of 3 runs of the CI PostgreSQL list on this machine (and in two earlier full-suite runs), and passed 12 of 12 when run alone. Same cause as the first flaky test: it wraps the local pipeline in a **5 s** `asyncio.wait_for`, and `no_external` stubs discovery but not DNS or the HTTP probes, so the pipeline does real lookups for synthetic hosts and its time depends on the resolver and the machine's load.
 - **Proper fix:** stub `resolve_host_dns` and the HTTP probe in `no_external` (check the other tests that use it first), then keep a tight bound.
+
+## C3c — frontend (stacked on C3b, PR base `codex/compliance-c3b`)
+
+- `/comply` now has three tabs: **Readiness** (default, unchanged), **Answer questions** and **Incidents**. New code: `frontend/src/pages/compliance/{Questionnaire,Incidents,shared}.tsx`, typed calls in `lib/api.ts` (all with `throwOnError` so 403/409/422 keep their status).
+- **Answer questions:** applicability questions first, then one register group at a time. Follow-ups render only when the API says `shown`. The questionnaire is refetched after each save. Owner picker is the organisation's members (`GET /members`) and defaults to the viewer. Expiry is a preset list capped at 24 months (the longest option sends 729 days, inside the API's 730-day cap); date answers show "renews N days after the date" and send no expiry. Evidence link is https only, notes are capped at 1000 characters, and digit runs in text answers are refused before sending. Each attested requirement shows "You told us … on … (owner …, renews …)" labelled customer attested; expired answers read "renewal due"; an **Excluded** section lists not-applicable requirements with their reasons.
+- **Incidents:** severity and status, a live hours-and-minutes countdown that ticks from the API's `deadline_at`, a red **Overdue** badge, "Notified late", create and edit forms, the six-step checklist and the not-legal-advice disclaimer. Times typed in the form are sent as typed (no offset) and read by the API in the organisation's zone, with the zone shown beside each field. Edit sends only changed fields, `null` to clear, and shows title and awareness times read-only.
+- **Roles:** members get no form controls or write buttons. **Starter:** 403s on questionnaire and incidents show the Growth-plan upgrade panel in the tab, not an error.
+- **Times:** shown in `display_timezone` through `Intl` (incident times from the API's `local` block), never the browser's zone.
+- `backend/tests/test_compliance_claims.py` now also scans the new `pages/compliance/*.tsx` copy for banned phrases.
+
+### Decisions for Yusuf (C3c)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C3c-1 | Owner setting for `organizations.display_timezone` (D11 says "editable by owners in Settings") | **Not built.** No API endpoint updates it (checked `backend/app/api`), and the task's backend contract lists none. Organisations stay on the Africa/Lagos default until an endpoint and a Settings control are added. Suggest a small follow-up PR. |
+| C3c-2 | Zone on the Readiness tab for Starter organisations | The questionnaire (which carries the zone) is gated, so Starter falls back to Africa/Lagos for the dates there. |
+| C3c-3 | Expiry control | Presets (3, 6, 12 default, 18, 24 months), not a free date picker. Avoids the 730-day cap rejecting the last days of "24 months". |
+| C3c-4 | Questionnaire saves | Per question, not one batch, because follow-up visibility is decided server-side from saved answers. |
+
+### Validation
+
+- `npm run build` (tsc + vite + prerender): passed.
+- `npm run test:compliance-ui`: passed at 1440/390/320. It now covers the questionnaire flow (applicability first, hidden follow-up appears after saving, owner picker, https-only link, 24-month expiry inside 730 days, date answers without expiry, digit refusal), told-us lines and the Excluded section, incidents (overdue, notified late, countdown, live tick to Overdue, create with naive times, PATCH with only changes and null), the checklist and disclaimer, members read-only (no form controls, no writes), the Starter gate, and no horizontal overflow including with forms open. The browser runs in Asia/Tokyo and the mock organisation in America/New_York, so a viewer-zone bug would fail.
+- `test:scans-ui`, `test:score-ui`, `test:onboarding-ui`: passed. `test_compliance_claims.py`: 8 passed.

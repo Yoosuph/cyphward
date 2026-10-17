@@ -4,15 +4,22 @@ import { AlertTriangle, ChevronDown, ClipboardList, Info, Lock, RefreshCw } from
 import { PageHead, Loading } from '../components/ui';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../lib/auth';
 import {
   createRemediationTask,
   getComplianceOverview,
+  getQuestionnaire,
   getRemediationTasks,
   type ComplianceFindingRef,
   type ComplianceOverview,
   type ComplianceRequirement,
   type ComplianceStatus,
+  type Questionnaire,
+  type QuestionnaireQuestion,
 } from '../lib/api';
+import QuestionnaireTab, { ToldUs } from './compliance/Questionnaire';
+import IncidentsTab from './compliance/Incidents';
+import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
 
 /**
  * NDPA / GAID readiness evidence. Shows what Cyphward has observed for each
@@ -24,11 +31,13 @@ const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', n
 
 const CARD = 'rounded-lg border border-line bg-raised';
 
-function fmtDay(value?: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
+const DEFAULT_ZONE = 'Africa/Lagos';
+type Tab = 'readiness' | 'questions' | 'incidents';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'readiness', label: 'Readiness' },
+  { key: 'questions', label: 'Answer questions' },
+  { key: 'incidents', label: 'Incidents' },
+];
 
 function Chip({ status, label }: { status: ComplianceStatus; label: string }) {
   return <span className="uppercase"><StatusChip level={CHIP[status]}>{label}</StatusChip></span>;
@@ -74,8 +83,10 @@ function TaskButton({ finding }: { finding: ComplianceFindingRef }) {
   );
 }
 
-function RequirementRow({ req }: { req: ComplianceRequirement }) {
+function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone: string; told: QuestionnaireQuestion[] }) {
   const [open, setOpen] = useState(false);
+  const fmtDay = (value?: string | null) => fmtDayZone(value, zone);
+  const renewalDue = told.some(q => q.current?.expired);
   return (
     <li className="border-t border-line first:border-t-0">
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
@@ -86,6 +97,7 @@ function RequirementRow({ req }: { req: ComplianceRequirement }) {
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end shrink-0">
           <Chip status={req.status} label={req.status_label} />
+          {renewalDue && <span className="tag uppercase text-warn" data-testid="renewal-due">Renewal due</span>}
           <SourceTag label={req.source_label} />
           <ChevronDown size={14} className={`hidden sm:block text-soft transition-transform ${open ? 'rotate-180' : ''}`} />
         </div>
@@ -95,6 +107,12 @@ function RequirementRow({ req }: { req: ComplianceRequirement }) {
         <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
+          {told.some(q => q.current) && (
+            <div className="p-3 rounded border border-line bg-inset/50 space-y-2">
+              <p className="mono text-[10px] tracking-[.16em] text-soft">YOUR ANSWER · CUSTOMER ATTESTED</p>
+              {told.filter(q => q.current).map(q => <ToldUs key={q.key} q={q} zone={zone} />)}
+            </div>
+          )}
 
           {req.checks_performed && (
             <dl className="grid sm:grid-cols-2 gap-3 text-xs">
@@ -207,9 +225,26 @@ function RequirementRow({ req }: { req: ComplianceRequirement }) {
 }
 
 export default function Compliance() {
+  const { organization } = useAuth();
+  const canEdit = ['owner', 'admin'].includes(organization?.membership_role || 'member');
+  const [tab, setTab] = useState<Tab>('readiness');
   const [data, setData] = useState<ComplianceOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [qn, setQn] = useState<Questionnaire | null>(null);
+  const [qnGated, setQnGated] = useState(false);
+  const [qnError, setQnError] = useState<string | null>(null);
+
+  const loadQuestionnaire = useCallback(async () => {
+    setQnError(null);
+    try {
+      setQn(await getQuestionnaire());
+      setQnGated(false);
+    } catch (e) {
+      if (isGrowthGate(e)) setQnGated(true);
+      else setQnError(errorText(e, 'Could not load the questions.'));
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -221,7 +256,8 @@ export default function Compliance() {
     } finally {
       setLoading(false);
     }
-  }, []);
+    void loadQuestionnaire();
+  }, [loadQuestionnaire]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -243,6 +279,9 @@ export default function Compliance() {
   if (!data) return null;
   const r = data.readiness;
   const total = data.groups.reduce((n, g) => n + g.requirement_count, 0);
+  const zone = qn?.display_timezone || DEFAULT_ZONE;
+  const answersFor = (key: string) => (qn?.questions || []).filter(q => q.evidences.some(e => e.key === key));
+  const excluded = data.groups.flatMap(g => g.requirements.filter(q => q.status === 'not_applicable'));
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
@@ -262,6 +301,31 @@ export default function Compliance() {
         <span>{data.disclaimer}</span>
       </div>
 
+      <div role="tablist" aria-label="Compliance sections" className="flex flex-wrap gap-2">
+        {TABS.map(t => (
+          <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`btn-mini ${tab === t.key ? '!border-ink !text-ink' : ''}`}>
+            {t.label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'questions' && (
+        <div role="tabpanel" aria-labelledby="tab-questions">
+          {qnGated ? <GrowthGate what="The questionnaire" />
+            : qnError && !qn ? <LoadError message={qnError} onRetry={() => void loadQuestionnaire()} />
+            : !qn ? <p className="text-xs mono text-soft">LOADING QUESTIONS…</p>
+            : <QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} />}
+        </div>
+      )}
+
+      {tab === 'incidents' && (
+        <div role="tabpanel" aria-labelledby="tab-incidents"><IncidentsTab canEdit={canEdit} /></div>
+      )}
+
+      {tab === 'readiness' && (
+      <div role="tabpanel" aria-labelledby="tab-readiness" className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className={`lg:col-span-4 p-6 ${CARD}`}>
           <p className="text-[11px] mono uppercase text-soft">Readiness evidence</p>
@@ -310,11 +374,30 @@ export default function Compliance() {
                 <Link to="/settings" className="btn-mini whitespace-nowrap self-start">SEE PLANS</Link>
               </div>
             ) : (
-              <ul>{group.requirements.map(req => <RequirementRow key={req.key} req={req} />)}</ul>
+              <ul>{group.requirements.filter(req => req.status !== 'not_applicable').map(req => (
+                <RequirementRow key={req.key} req={req} zone={zone} told={answersFor(req.key)} />
+              ))}</ul>
             )}
           </section>
         ))}
+
+        {excluded.length > 0 && (
+          <section className={CARD} aria-label="Excluded" data-testid="excluded-section">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+              <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">Excluded · not applicable to you</h2>
+              <p className="text-xs text-soft mt-1.5">These left the count above because of your answers. Change the answer and they return.</p>
+            </div>
+            <ul>{excluded.map(req => (
+              <li key={req.key} className="px-4 sm:px-5 py-3.5 border-t border-line first:border-t-0 space-y-1" data-testid={`excluded-${req.key}`}>
+                <p className="text-sm text-ink font-medium break-words">{req.title}</p>
+                <p className="text-xs text-soft break-words">{req.reason_text}</p>
+              </li>
+            ))}</ul>
+          </section>
+        )}
       </div>
+      </div>
+      )}
     </div>
   );
 }
