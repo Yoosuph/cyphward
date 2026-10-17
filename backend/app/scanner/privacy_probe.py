@@ -335,18 +335,23 @@ async def probe_privacy_host(host: str, scope: List[str], client: httpx.AsyncCli
         return await fetch_in_scope(client, url, scope, max_bytes=max_bytes)
 
     home = await get("/")
-    if home["status"] is None or home["status"] >= 400:
-        raise RuntimeError(home["error"] or f"homepage returned HTTP {home['status']}")
-    home_page = parse_page(home["body"])
-    home_hash = fingerprint(normalise_text(home_page))
+    if home["status"] is None:
+        raise RuntimeError(home["error"] or "homepage could not be fetched")  # transport failure: the host failed
+    # A non-2xx homepage (e.g. bot protection returning 403) is not a host
+    # failure: the host answered. Its body can't be read for links, but the
+    # fixed policy/cookie paths and security.txt are still worth trying.
+    home_ok = home["status"] < 400
+    home_page = parse_page(home["body"]) if home_ok else parse_page("")
+    home_hash = fingerprint(normalise_text(home_page)) if home_ok else None
 
     probe = await get(f"/cyphward-{secrets.token_hex(6)}-not-a-page")
     probe_hash = fingerprint(normalise_text(parse_page(probe["body"]))) if probe["status"] == 200 else None
-    catch_all = probe["status"] == 200 or (probe_hash is not None and probe_hash == home_hash)
+    catch_all = probe["status"] == 200 or (home_hash is not None and probe_hash is not None and probe_hash == home_hash)
 
     out: Dict[str, Any] = {
         "hostname": host,
-        "homepage": {"url": home["url"], "status": home["status"], "final_url": home["final_url"]},
+        "homepage": {"url": home["url"], "status": home["status"], "final_url": home["final_url"],
+                     "blocked": not home_ok},
         "catch_all": catch_all,
         "pages": [],
         "first_response_cookies": first_response_cookies(home["set_cookie"]),

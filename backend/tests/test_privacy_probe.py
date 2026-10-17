@@ -274,3 +274,39 @@ def test_real_probe_output_maps_to_evidence():
 
     spa = _observation([Site({(H, "/"): (200, {}, HTML("spa_shell.html"))}, catch_all=HTML("spa_shell.html"))])
     assert mapping.evaluate_privacy(policy, spa, H)["reason"] == "site_serves_every_path"
+
+
+# ── A blocked (non-2xx) homepage is not a host failure ─────────────────────
+def test_a_403_homepage_is_still_assessed_not_failed():
+    # Bot protection returns 403 on the homepage but a real policy at /privacy.
+    site = Site({(H, "/"): (403, {}, "<html><title>Forbidden</title></html>"),
+                 (H, "/privacy"): (200, {}, HTML("privacy_page.html"))})
+    r = probe(site)
+    assert r["homepage"]["status"] == 403 and r["homepage"]["blocked"] is True
+    assert r["catch_all"] is False
+    pol = page(r, "privacy_policy")
+    assert pol["matched"] is True and pol["found_by"] == "fixed_path"
+
+
+def test_a_fully_blocked_site_reports_no_policy_without_failing():
+    def block_all(request):  # bot protection returns 403 on every path
+        return httpx.Response(403, text="<html><title>Forbidden</title></html>")
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(block_all)) as client:
+            return await pp.run_privacy_batch([H], [H], client=client)
+    batch = asyncio.run(run())
+    assert batch.successful_hosts == [H] and batch.failed_hosts == {}, "a 403 host answered; it did not fail"
+    host = batch[0]
+    assert host["homepage"]["blocked"] is True and host["catch_all"] is False
+    assert page(host, "privacy_policy")["matched"] is False
+    assert all(status == 403 for status in page(host, "privacy_policy")["fixed_paths"].values())
+
+
+def test_a_transport_failure_still_fails_the_host():
+    def boom(request):
+        raise httpx.ConnectError("refused")
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(boom)) as client:
+            return await pp.run_privacy_batch([H], [H], client=client)
+    batch = asyncio.run(run())
+    assert batch.successful_hosts == [] and H in batch.failed_hosts
