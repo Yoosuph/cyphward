@@ -1532,6 +1532,9 @@ class FakeStore:
                       if x["id"] == did and x["org_id"] == org_id), None)
             return [d] if d else []
 
+        if s.startswith("SELECT id FROM domains WHERE domain = %s"):
+            return [d for d in self.domains if d["domain"] == params[0]][:1]
+
         if s.startswith("SELECT id FROM domains WHERE id = %s AND org_id = %s"):
             did, org_id = params
             return [d for d in self.domains if d["id"] == did and d["org_id"] == org_id][:1]

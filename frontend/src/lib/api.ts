@@ -130,7 +130,8 @@ export async function verifyDomain(domainId: string): Promise<{ status: string; 
 }
 
 export async function deleteDomain(domainId: string): Promise<boolean> {
-  const data = await apiFetch<any>(`/domains/${domainId}`, { method: 'DELETE' });
+  // Throw on failure so the caller can show the server's reason instead of "removed".
+  const data = await apiFetch<any>(`/domains/${domainId}`, { method: 'DELETE' }, true);
   return !!data;
 }
 

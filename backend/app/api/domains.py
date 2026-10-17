@@ -173,6 +173,15 @@ def add_domain(
     if existing:
         raise HTTPException(status_code=400, detail=f"Domain {domain_clean} is already added.")
 
+    # One domain, one organisation: a name registered anywhere on the platform is refused.
+    # The message does not say who holds it.
+    held_elsewhere = execute_one("SELECT id FROM domains WHERE domain = %s", (domain_clean,))
+    if held_elsewhere:
+        raise HTTPException(status_code=409, detail=(
+            f"{domain_clean} is already registered on Cyphward. "
+            "If you believe it belongs to you, contact security@cyphward.com."
+        ))
+
     # Plan entitlement: domain-count limit (review P1 line 33).
     require_quota(org, "domains")
 

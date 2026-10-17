@@ -144,8 +144,9 @@ export default function Domains() {
       await deleteDomain(domainId);
       toast(`${name} removed.`);
       await loadDomains();
-    } catch (e) {
-      toast('Failed to delete domain');
+    } catch (e: any) {
+      toast(e?.message || 'Failed to delete domain');
+      await loadDomains();
     }
   };
 

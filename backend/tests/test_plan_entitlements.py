@@ -215,3 +215,15 @@ def test_entitlements_for_legacy_text():
     assert entitlements_for({"plan": "Scale"})["plan"] == "growth"
     assert entitlements_for({"plan": "starter"})["max_domains"] == 1
     assert entitlements_for({"plan": "growth"})["max_members"] == 25
+
+
+def test_domain_registered_to_another_org_is_refused_without_naming_it(client, auth_headers, store):
+    other_org = "22222222-bbbb-4bbb-8bbb-222222222222"
+    store.domains.append({"id": "dom-held", "org_id": other_org, "domain": "held.acme.test",
+                          "verification_status": "verified"})
+    resp = client.post("/api/v1/domains", json={"domain": "held.acme.test"},
+                       headers=_h(auth_headers, ADMI, ORG_A))
+    assert resp.status_code == 409
+    assert "security@cyphward.com" in resp.json()["detail"]
+    assert other_org not in resp.text
+    assert not any(d["org_id"] == ORG_A and d["domain"] == "held.acme.test" for d in store.domains)
