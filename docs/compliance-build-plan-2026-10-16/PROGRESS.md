@@ -210,6 +210,173 @@ Next: C1, as planned in `C1-plan.md`.
 - **Workaround in C2a:** the bound was raised to 20 s (15 of 15 passed). That is a timing allowance, not a fix.
 - **Proper fix:** stub the DNS resolver (and any other network call) in that test's pipeline, and restore a tight bound, so the test measures recovery behaviour only.
 
+## Scoring carry-forward (branch `codex/scoring-carry-forward`)
+
+- **Rule:** the organisation score comes from open findings. A failed, partial or timed-out stage never removes a finding or raises the score. A finding auto-resolves only when its own detector completed for that host in that scan.
+- **Already enforced before this change:** Nuclei findings are never auto-resolved; an unreachable HTTP host and failed security checks leave their findings open as "not evaluated"; DNS is judged query by query.
+- **Added:** `backend/tests/test_carry_forward_scoring.py`, 7 tests:
+  - partial DNS (DMARC query never completed) keeps the DMARC finding open, and the score does not drop;
+  - failed Nuclei and timed-out Nuclei keep their findings and points;
+  - unreachable HTTP keeps the header finding and points;
+  - failed security checks do not lower the score;
+  - a positive control: once DMARC is answered, the same finding resolves, so the partial-DNS result is caused by the missing query.
+- **Validation:** owned loopback PostgreSQL (`127.0.0.1:55432`, bootstrap run, 30 migrations, restricted `cyphward_app`). Full backend suite **792 passed, 16 skipped**. The CI PostgreSQL race list **73 passed**. Opt-in integration suites (`CYPHWARD_*_INTEGRATION`) were not run; CI does not run them.
+
+## Decisions for Yusuf (scoring and scanner)
+
+1. **Nuclei findings never auto-resolve.** A CVE that is fixed stays open until someone resolves it by hand. This is deliberate for now, because absence from a Nuclei run is not proof of a fix. Schedule a verified-resolution rule later: a template resolves only after a completed run that included that template and host.
+2. **Tiered Nuclei defaults (from the 17 Oct count):** daily critical+high at 20 req/s (about 19 min for five hosts; 15 req/s is at the limit); weekly full safe set at 25 req/s with a one-hour budget (about 50 min estimated). Estimates are a lower bound, so confirm with a real scan before relying on them.
+
+## C3 — attestations, owners and expiry, breach log (branch `codex/compliance-c3-rebased`)
+
+**Status: plan only. Implementation not started.** This PR carries the C3 plan onto current `main` and records the defaults for D11–D15. The build is too large for one session, so it is split as follows (each its own PR, tests included):
+
+1. **C3a — data and read side:** questionnaire JSON and validator, the one additive migration with its grants and RLS, the truth table (applicability, expiry, superseding, mixed DPO sources), the questionnaire and attestation API, and PostgreSQL tests for atomic superseding, append-only grants, cross-tenant rejection and audit.
+2. **C3b — reminders and incidents:** the daily `compliance_reminders` cron (30/7-day thresholds, dedupe, stale-claim guard, stubbed email), incidents API with server-side 72-hour deadline, plus its timezone and edge tests.
+3. **C3c — frontend and browser suite:** the "Answer questions" flow, Excluded section, Incidents tab with countdown and overdue badge, banned-phrase check, desktop/390/320 browser tests.
+
+### Decisions for Yusuf (C3 defaults applied, per the plan's recommendations)
+
+- **D11 — display time zone:** add `organizations.display_timezone`, default **Africa/Lagos**, editable by owners in Settings. Store UTC everywhere.
+- **D12 — expired answer:** shows **Awaiting your input — renewal due**, is never presented as present, and gets reminders at 30 and 7 days before expiry.
+- **D13 — "Not sure" answers:** treated as unanswered (`awaiting_input`), never as a gap.
+- **D14 — who may own an answer:** any member of the organisation; owners and admins assign.
+- **D15 — incident retention:** the app never deletes incidents. Closed incidents stay as history; removal is operator SQL only and audited.
+
+## C3a — questionnaire, attestations, read side (branch `codex/compliance-c3a`)
+
+**State:** implemented and validated locally; review-ready. Stacked on `codex/compliance-c3-rebased` (PR 32, the C3 plan), so the PR diff is C3a only. Retarget to `main` once PR 32 merges. **Not released.** Migration `20261017130000_compliance_attestations.sql` (additive; 31 migrations in total). No frontend, reminders or incidents (C3b and C3c).
+
+### Changed behaviour
+
+- **Questionnaire** `backend/app/compliance/questionnaires/ndpa_gaid_v1.json`: the 20 questions in plan section 2. Validated at import (`compliance/questionnaire.py`), so an invalid file stops the API. The validator checks, in both directions:
+  - each `evidences` key is a register requirement that takes customer answers, in the question's group;
+  - each applicability target is a conditional requirement whose `applicability_question` is that question;
+  - every customer-answered requirement has a question, and every conditional requirement has a deciding question;
+  - `show_if` names an earlier question; `evidence_on` only maps answers the question can take.
+- **Truth table** `compliance/attestations.py` (pure): yes/no/date answers map to present/gap through each question's `evidence_on`; not sure, unanswered and hidden follow-ups are awaiting input; an expired answer is awaiting input (`answer_expired`) and never present; a not-applicable answer leaves the requirement out of the denominator with its reason. Several questions can evidence one requirement (training, DPIA, registration), and any gap beats awaiting input, which beats present.
+- **DPO contact** (mixed sources): present if the answer or C2a's observation is present; the other source's gap is still listed beside it. Every requirement returns a `sources` list, so no label is shared. Customer-only requirements carry `customer_attested` only (tested).
+- **Store** `compliance/attestation_store.py`: one write transaction per answer. It takes a per-(organization, question) advisory lock, reads `clock_timestamp()` after the lock (so `attested_at` orders the supersede chain), checks the owner is a member (`FOR SHARE`), supersedes the current answer, inserts the new one and writes `audit_log` in the same transaction. Answer text and notes stay out of the audit metadata.
+- **API** (all tenant-scoped through `get_current_org`):
+  - `GET /api/v1/compliance/questionnaire`: any member; Growth only (D1).
+  - `POST /api/v1/compliance/attestations`: owner or admin only; 422 for an owner outside the organization, a bad answer or link; 409 if the current answer changed mid-write.
+  - `GET /api/v1/compliance/attestations/{question_key}`: history, newest first, marking superseded rows; any member; Growth only.
+- **Status read path** (`status.py`): the answers join the context, and requirement views gain `answers`, `sources` and `headline_source`. The reason text for unanswered customer requirements changed from the C1 "later release" wording.
+- **D11:** `organizations.display_timezone`, default `Africa/Lagos`, in this migration. Read-only in C3a; the owner-editable setting belongs to C3c.
+- **D12–D15:** expiry is 12 months by default, capped at 24, and date questions expire from their date (Q6 +183 days, Q16 +365 days). Any member may own an answer. Not sure is awaiting input. Nothing is deleted: the app role has no DELETE, and a trigger allows a current answer to be superseded once and nothing else to change except the profile-deletion `SET NULL`.
+
+### Decisions taken for Yusuf (defaults applied; please confirm or override)
+
+| # | Decision | Default applied | Why |
+|---|---|---|---|
+| C3a-1 | Migration scope | D11's `display_timezone` column is in the attestations migration, so there's still one migration in C3a. Incidents and reminders get their own migration in C3b. | §4 says one migration, which C3a keeps. The column is additive and D11 wants the default on the org. |
+| C3a-2 | Starter gating | The questionnaire and history reads are Growth only (403 on Starter). Writes are not gated. | Every question sits in a Growth-locked group, so reads are gated like the requirement detail. Writes follow the D1 rule that gating applies to reads. |
+| C3a-3 | A1 = No and `annual_car` | Not changed: only `registered` is excluded by A1 = No. `annual_car` is excluded only by OHL, as the plan table says. | A non-major-importance org would still see `annual_car` as awaiting input. Literal plan; please confirm. |
+| C3a-4 | A1 "major importance" evidence | Yes and no both count as present for `major_importance_status`. | "No" is a determined answer, not a gap, and it also excludes `registered`. |
+| C3a-5 | Hidden follow-ups | A question whose `show_if` is not met is not shown, its old answer is ignored, and a POST to it returns 422. | Keeps stale answers from counting after the prerequisite changes. |
+| C3a-6 | Owner name visibility | Members see the owner's name (profile full name) on answers. | Owners need to be identifiable; no email or ID is returned. |
+| C3a-7 | Superseding guarantee | **Enforced in the database.** A deferred constraint trigger checks at commit that `superseded_by` names a newer answer to the same question in the same organization. The supersede-once trigger and the composite FK also apply. | Covers the cross-question, older-row and cycle cases. Tests fail the commit for each. |
+
+### Validation (fresh owned loopback PostgreSQL 18.6 on `127.0.0.1:55439`, socket in `/tmp`, bootstrap script only: 31 migrations, restricted `cyphward_app`)
+
+- **Release order:** the migration must be applied **before** the API that reads or writes these tables is deployed. The status read path now queries `compliance_attestations` on every overview, so an API deployed first would fail the overview for every organisation. This follows the §10 order (migration first, then the API).
+- **New tests:**
+  - `test_compliance_questionnaire.py`: **51**. Validator rejections, answer normalisation, expiry, the truth table cases, merge rules and labels, and an overview check against a fake store.
+  - `test_compliance_attestations_postgres.py`: **26**. Atomic superseding; queued writers stamped in supersede order (a third session holds the lock); a current answer cannot point at another question or an older answer (commit fails); a failed audit write rolls the supersede back; two concurrent writers serialise to one current answer; append-only grants; supersede-once trigger; cross-tenant FK; the HTTPS and length checks; a cross-tenant or non-member owner is refused with nothing written; every write is audited without answer text; members get 403 and nothing is written; expiry is renewal due, never present; profile deletion clears the owner without changing the answer; tenant scope; Starter gating.
+  - `test_compliance_claims.py`: **+1** (questionnaire file has no verdict language).
+- **Full backend suite on the owned loopback DB: 863 passed, 16 skipped.**
+- **Full backend suite without a database (the CI backend job): 765 passed, 114 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_attestations_postgres.py`): **99 passed**.
+- `git diff --check`: passed.
+- Frontend: not changed; `npm run build` not re-run. No browser suite in this PR.
+
+### Limitations
+
+- No UI yet (C3c). The API returns the statuses and sources; the Compliance page is unchanged apart from the reason wording.
+- No reminders (C3b), so an expired answer is not notified yet.
+- The display timezone is stored and returned, but the owner setting that changes it is not built (C3c).
+
+## C3b — incidents and expiry reminders (branch `codex/compliance-c3b`, stacked on `codex/compliance-c3a`)
+
+**State:** implemented and validated locally. Not released. No production access.
+
+### Changed behaviour
+
+- **Migration** `20261017150000_compliance_incidents_reminders.sql` (additive, after the C3a migration):
+  - `compliance_incidents`: title ≤ 200, severity and status checks, `detected_at`, `became_aware_at`, `notified_commission_at`, `notified_subjects_at`, notes ≤ 4000, `created_by`, timestamps, and the plan's sanity check (`became_aware_at >= detected_at - 30 days`).
+  - `compliance_reminders`: primary key `(attestation_id, threshold_days)`, `sent_at`, cascade with the answer.
+  - RLS like the other app tables. Grants for `cyphward_app`: incidents SELECT, INSERT and UPDATE of `(status, notified_commission_at, notified_subjects_at, notes, severity, updated_at)` only, **no DELETE** (D15); reminders SELECT, INSERT.
+- **Incidents API** (`api/compliance.py`, `compliance/incidents.py`): `GET/POST /api/v1/compliance/incidents`, `PATCH /api/v1/compliance/incidents/{id}`.
+  - Owner/admin write, members read, Growth gate on every endpoint, tenant scoped (another organisation's id is a 404).
+  - Every write is audited in the same transaction. The audit metadata holds field names and values for status, severity and notified times, never the title or notes text.
+  - Responses carry `deadline_at` (= `became_aware_at + 72 h`, UTC), `hours_remaining`, `overdue`, `notified_late` and `commission_state` (`pending`, `overdue`, `notified_on_time`, `notified_late`), plus a `local` block in the organisation's display zone. Exactly 72 h is still pending; notified at or before the deadline is never overdue; notified after is `notified_late`, not overdue.
+  - A time sent without an offset is read as wall-clock time in the organisation's display zone and stored in UTC. A time the zone skipped or repeats at a clock change is refused with a request for the UTC offset. Future times and notifications before awareness are refused.
+  - The list response also carries the plain checklist and the "not legal advice" line.
+- **Reminders** (`compliance/reminders.py`): job `compliance_reminders` under the existing atomic `cron_runs` claim, started by the in-process scheduler (07:00 UTC, with catch-up) and by an Inngest cron, which share the claim.
+  - Finds current, unexpired answers inside 30 or 7 days with no reminder row for the smallest threshold they are inside (5 days left is a 7-day reminder only). `not_sure` answers are skipped.
+  - Per answer: the reminder row and the in-app notification in one transaction, with the claim checked `FOR SHARE` in it; the emails after. The claim is re-checked before every email.
+  - Email goes to the answer's owner and the organisation's owners/admins, through the mailer (`alerts` sender). It names the requirement, the expiry date (in the organisation's zone) and a link, and has no answer text, notes or evidence link.
+
+### Decisions taken for Yusuf (defaults applied; please confirm or override)
+
+| # | Decision | Default applied | Why |
+|---|---|---|---|
+| C3b-1 | Starter gating of incident writes | Incident reads **and writes** return 403 on Starter. | The task asks for the same Growth gate as the compliance API. C3a-2 left attestation writes ungated, so this differs; a Starter organisation cannot log a breach here. Easy to loosen to read-only gating if you prefer. |
+| C3b-2 | Reminder timing | 07:00 UTC, one hour after the scan sweep, with its own claim name `compliance_reminders`. | Keeps the scan scheduler's loop and tests untouched. |
+| C3b-3 | Both thresholds due at once | Send only the smaller threshold. | An answer first seen with 5 days left would otherwise get two emails in one run. |
+| C3b-4 | A crash after the reminder commit | The email is lost, never doubled. | The plan says the row comes first so a retry cannot double-send. The in-app notification is in the same transaction as the row. |
+| C3b-5 | Notified-late wording | `notified_late` is not `overdue`. `overdue` means not notified and past the deadline; a closed incident that was never notified stays overdue. | The deadline state follows what the organisation recorded; nothing is inferred about whether notification was required. |
+| C3b-6 | Time entered without an offset | Read in the organisation's zone; ambiguous or skipped clock-change times are refused. | Avoids guessing a deadline that is legally sensitive. |
+| C3b-7 | Notified times | Cannot precede `became_aware_at` or lie in the future (5 minutes of clock skew allowed). They can be cleared to null to correct an entry (audited). | Catches typos; keeps a correction path since the app cannot delete. |
+
+### Validation (fresh owned loopback PostgreSQL on `127.0.0.1:55441`, bootstrap script only: 32 migrations, restricted `cyphward_app`)
+
+- **New tests:**
+  - `test_compliance_incidents.py`: **19** (no database). 72-hour edges (exactly 72 h, one minute either side, notified before, at and after the deadline), clock-change arithmetic, Lagos near midnight, skipped and repeated local times, validation, banned-phrase checks over the checklist, disclaimer, reminder and email copy, and the reminders wake time.
+  - `test_compliance_incidents_postgres.py`: **24**. No DELETE and column-limited UPDATE grants; reminders insert-only; schema checks; members cannot write; Starter gate; cross-tenant list and PATCH; immutable fields refused; every write audited without notes or title; a failed audit write rolls the incident back; deadline over the API; Lagos and New York storage and display; thresholds 30/7; recipients and no answer content; retry cannot double-send; mail failure loses but never doubles; superseded and expired answers; stale claim cannot write or send; claim lost between the reminder and the email sends nothing; a held claim makes a second runner do nothing. Emails are stubbed.
+- **Full backend suite on the owned loopback DB: 907 passed, 16 skipped.**
+- **Full backend suite without a database: 784 passed, 139 skipped.**
+- **CI PostgreSQL race list** (`ci.yml`, now includes `test_compliance_incidents_postgres.py`): **124 passed** (2 of 3 runs; the third hit the second known flaky test, below).
+- **Review fix (reminder recipients):** the recipient query emailed the answer's owner without checking they are still a member, so a person who had left the organisation would still get its reminders. It now selects current members only (the owner if still a member, plus the owners and admins). New test `test_a_former_member_who_owns_an_answer_is_not_emailed` failed before the fix.
+- `git diff --check`: passed. Frontend not changed.
+
+### Limitations
+
+- No UI (C3c). The incident form, countdown and the owner setting for the display zone are still to build.
+- The Inngest platform is not wired in production (see `scheduler.py`), so the in-process loop is what runs the job.
+- Release order: apply the migration before the API; the job fails (and is retried) if the tables are missing.
+- Nothing deployed; the day-after `cron_runs` check in the C3 plan §10 still needs the founder's OK.
+- An answer to a follow-up question that is now hidden (C3a-5) still gets reminders, because it was never superseded. Not filtered here.
+
+## Second known flaky test (to fix properly later)
+
+- **`backend/tests/test_scan_execution_postgres.py::test_unverified_queued_jobs_do_not_starve_local_recovery`.** It failed in 1 of 3 runs of the CI PostgreSQL list on this machine (and in two earlier full-suite runs), and passed 12 of 12 when run alone. Same cause as the first flaky test: it wraps the local pipeline in a **5 s** `asyncio.wait_for`, and `no_external` stubs discovery but not DNS or the HTTP probes, so the pipeline does real lookups for synthetic hosts and its time depends on the resolver and the machine's load.
+- **Proper fix:** stub `resolve_host_dns` and the HTTP probe in `no_external` (check the other tests that use it first), then keep a tight bound.
+
+## C3c — frontend (stacked on C3b, PR base `codex/compliance-c3b`)
+
+- `/comply` now has three tabs: **Readiness** (default, unchanged), **Answer questions** and **Incidents**. New code: `frontend/src/pages/compliance/{Questionnaire,Incidents,shared}.tsx`, typed calls in `lib/api.ts` (all with `throwOnError` so 403/409/422 keep their status).
+- **Answer questions:** applicability questions first, then one register group at a time. Follow-ups render only when the API says `shown`. The questionnaire is refetched after each save. Owner picker is the organisation's members (`GET /members`) and defaults to the viewer. Expiry is a preset list capped at 24 months (the longest option sends 729 days, inside the API's 730-day cap); date answers show "renews N days after the date" and send no expiry. Evidence link is https only, notes are capped at 1000 characters, and digit runs in text answers are refused before sending. Each attested requirement shows "You told us … on … (owner …, renews …)" labelled customer attested; expired answers read "renewal due"; an **Excluded** section lists not-applicable requirements with their reasons.
+- **Incidents:** severity and status, a live hours-and-minutes countdown that ticks from the API's `deadline_at`, a red **Overdue** badge, "Notified late", create and edit forms, the six-step checklist and the not-legal-advice disclaimer. Times typed in the form are sent as typed (no offset) and read by the API in the organisation's zone, with the zone shown beside each field. Edit sends only changed fields, `null` to clear, and shows title and awareness times read-only.
+- **Roles:** members get no form controls or write buttons. **Starter:** 403s on questionnaire and incidents show the Growth-plan upgrade panel in the tab, not an error.
+- **Times:** shown in `display_timezone` through `Intl` (incident times from the API's `local` block), never the browser's zone.
+- `backend/tests/test_compliance_claims.py` now also scans the new `pages/compliance/*.tsx` copy for banned phrases.
+
+### Decisions for Yusuf (C3c)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C3c-1 | Owner setting for `organizations.display_timezone` (D11 says "editable by owners in Settings") | **Not built.** No API endpoint updates it (checked `backend/app/api`), and the task's backend contract lists none. Organisations stay on the Africa/Lagos default until an endpoint and a Settings control are added. Suggest a small follow-up PR. |
+| C3c-2 | Zone on the Readiness tab for Starter organisations | The questionnaire (which carries the zone) is gated, so Starter falls back to Africa/Lagos for the dates there. |
+| C3c-3 | Expiry control | Presets (3, 6, 12 default, 18, 24 months), not a free date picker. Avoids the 730-day cap rejecting the last days of "24 months". |
+| C3c-4 | Questionnaire saves | Per question, not one batch, because follow-up visibility is decided server-side from saved answers. |
+
+### Validation
+
+- `npm run build` (tsc + vite + prerender): passed.
+- `npm run test:compliance-ui`: passed at 1440/390/320. It now covers the questionnaire flow (applicability first, hidden follow-up appears after saving, owner picker, https-only link, 24-month expiry inside 730 days, date answers without expiry, digit refusal), told-us lines and the Excluded section, incidents (overdue, notified late, countdown, live tick to Overdue, create with naive times, PATCH with only changes and null), the checklist and disclaimer, members read-only (no form controls, no writes), the Starter gate, and no horizontal overflow including with forms open. The browser runs in Asia/Tokyo and the mock organisation in America/New_York, so a viewer-zone bug would fail.
+- `test:scans-ui`, `test:score-ui`, `test:onboarding-ui`: passed. `test_compliance_claims.py`: 8 passed.
+
 ## Tiered Nuclei (branch `codex/tiered-nuclei`)
 
 - **Daily tier:** critical + high, 20 requests/s, 1,500 s budget.

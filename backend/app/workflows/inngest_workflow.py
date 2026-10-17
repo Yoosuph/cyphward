@@ -1172,3 +1172,13 @@ async def inngest_daily_scan_cron(ctx: inngest.Context) -> Dict[str, Any]:
     """Inngest platform cron entry point (06:00 UTC). Delegates to the shared
     daily scan schedule; only fires when the Inngest app is registered."""
     return await run_daily_scan_schedule()
+
+
+@inngest_client.create_function(
+    fn_id="cyphward-compliance-reminders",
+    trigger=inngest.TriggerCron(cron="0 7 * * *"),
+)
+async def inngest_compliance_reminders_cron(ctx: inngest.Context) -> Dict[str, Any]:
+    """Inngest platform cron entry point (07:00 UTC). Shares the in-process loop's atomic claim."""
+    from backend.app.compliance.reminders import run_compliance_reminders
+    return await run_compliance_reminders()

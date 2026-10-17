@@ -1,0 +1,207 @@
+"""Expiry reminders for customer answers (packet C3b).
+
+A daily job, run under the same atomic `cron_runs` claim as the scan sweep (from
+the in-process scheduler and from the Inngest cron). For each current answer that
+expires within 30 or 7 days it records a `compliance_reminders` row FIRST, in the
+same transaction as the in-app notification, and only then sends the email. A
+retry therefore cannot send twice: the second pass finds the row and skips. The
+cost is that a crash between the commit and the email loses that email; the
+in-app notification is already there.
+
+An answer in the 7-day window gets the 7-day reminder only, never both at once.
+A stale claim cannot write or send: the claim is checked, under FOR SHARE, in
+every transaction that writes, and again just before each email.
+
+The email names the requirement, the expiry date and a link. It carries no
+answer content, no notes and no evidence link.
+"""
+import asyncio
+import html
+import logging
+import os
+import socket
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from backend.app.compliance import questionnaire as qn
+from backend.app.compliance import register
+from backend.app.compliance.incidents import DEFAULT_TIMEZONE, zone_for
+from backend.app.core import database
+from backend.app.core.config import FRONTEND_URL
+from backend.app.core.cron_claim import (
+    COMPLIANCE_REMINDERS_CRON_NAME,
+    claim_cron_run,
+    complete_cron_run,
+    lock_cron_claim,
+    release_cron_run,
+)
+from backend.app.core.execution_fence import ClaimLost
+from backend.app.services import mailer
+
+logger = logging.getLogger("cyphward.compliance.reminders")
+
+THRESHOLDS = (30, 7)  # days before expiry, largest first
+LINK_PATH = "/comply"
+DUE_SQL = """
+SELECT a.id, a.org_id, a.question_key, a.owner_user_id, a.expires_at, o.name AS org_name,
+       o.display_timezone, t.threshold_days
+FROM compliance_attestations a
+JOIN organizations o ON o.id = a.org_id
+-- The smallest threshold the answer is inside: 5 days left is a 7-day reminder, not also a 30-day one.
+CROSS JOIN LATERAL (SELECT min(x) AS threshold_days FROM unnest(%s::int[]) AS x
+                    WHERE a.expires_at <= %s + make_interval(days => x)) t
+WHERE a.superseded_by IS NULL
+  AND a.expires_at > %s
+  AND a.answer ->> 'value' IS DISTINCT FROM 'not_sure'
+  AND t.threshold_days IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM compliance_reminders r
+                  WHERE r.attestation_id = a.id AND r.threshold_days = t.threshold_days)
+ORDER BY a.expires_at, a.id
+"""
+RECIPIENTS_SQL = """
+SELECT DISTINCT ON (lower(p.email)) p.email, p.full_name
+FROM profiles p
+WHERE p.email IS NOT NULL AND p.email <> '' AND p.id IN (
+  -- Current members only: the answer's owner, if they are still a member, plus the organisation's owners and admins.
+  SELECT user_id FROM organization_members WHERE org_id = %s AND (user_id = %s OR role IN ('owner', 'admin')))
+ORDER BY lower(p.email)
+"""
+
+
+def _claimant_id() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def what_expires(question_key: str) -> Optional[str]:
+    """The register requirement(s) the answer evidences, else the question itself. Never the answer."""
+    question = qn.question(question_key)
+    if question is None:
+        return None
+    titles = [register.requirement(k)["title"] for k in question["evidences"]]
+    return "; ".join(titles) if titles else question["prompt"]
+
+
+def expiry_date_text(expires_at: datetime, tz_name: Optional[str]) -> str:
+    local = expires_at.astimezone(zone_for(tz_name or DEFAULT_TIMEZONE))
+    return f"{local.day} {local.strftime('%B %Y')}"
+
+
+def link() -> str:
+    return f"{FRONTEND_URL}{LINK_PATH}"
+
+
+def notification_copy(subject_text: str, expiry_text: str, threshold: int) -> Dict[str, str]:
+    return {"title": f"Renewal due in {threshold} days: {subject_text}"[:200],
+            "body": f"The answer that backs this item expires on {expiry_text}. "
+                    "Review it and record a fresh answer to keep your records current."}
+
+
+def email_copy(org_name: str, subject_text: str, expiry_text: str, threshold: int, url: str) -> Dict[str, str]:
+    subject = f"Renewal due by {expiry_text}: {subject_text}"[:200]
+    text = (f"An answer recorded for {org_name} on Cyphward expires on {expiry_text} "
+            f"({threshold} days or fewer from now).\n\n"
+            f"Item: {subject_text}\n\n"
+            "Review it and record a fresh answer to keep your records current. "
+            "After it expires, this item shows as awaiting your input until a fresh answer is recorded.\n\n"
+            f"Open the questionnaire: {url}\n\n"
+            "This reminder is sent once for each threshold. It does not include your answer.\n\n"
+            "— Cyphward")
+    safe = {k: html.escape(v) for k, v in (("org", org_name), ("item", subject_text), ("date", expiry_text))}
+    page = (f'<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;'
+            f'color:#3A352D;line-height:1.65;max-width:520px">'
+            f'<p>An answer recorded for <strong>{safe["org"]}</strong> on Cyphward expires on '
+            f'<strong>{safe["date"]}</strong> ({threshold} days or fewer from now).</p>'
+            f'<p>Item: <strong>{safe["item"]}</strong></p>'
+            f'<p>Review it and record a fresh answer to keep your records current. '
+            f'After it expires, this item shows as awaiting your input until a fresh answer is recorded.</p>'
+            f'<p><a href="{html.escape(url)}" style="display:inline-block;background:#E5532B;color:#fff;'
+            f'text-decoration:none;border-radius:8px;padding:12px 22px;font-weight:700">Open the questionnaire</a></p>'
+            f'<p style="font-size:12px;color:#8A8377">This reminder is sent once for each threshold. '
+            f'It does not include your answer.</p></div>')
+    return {"subject": subject, "text": text, "html": page}
+
+
+def _due(now: datetime) -> List[Dict[str, Any]]:
+    return database.execute_query(DUE_SQL, (list(THRESHOLDS), now, now)) or []
+
+
+def _record_reminder(claim: Dict[str, Any], item: Dict[str, Any], subject_text: str, expiry_text: str,
+                     ) -> Optional[List[Dict[str, Any]]]:
+    """Under the held claim: the reminder row, then the in-app notification, in one transaction.
+    Returns the email recipients, or None when another run already recorded this reminder."""
+    copy = notification_copy(subject_text, expiry_text, item["threshold_days"])
+    with database.get_db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                lock_cron_claim(cur, claim)
+                cur.execute(
+                    "INSERT INTO compliance_reminders (attestation_id, threshold_days) VALUES (%s, %s) "
+                    "ON CONFLICT DO NOTHING RETURNING attestation_id", (item["id"], item["threshold_days"]))
+                if cur.fetchone() is None:
+                    return None
+                cur.execute(
+                    "INSERT INTO notifications (org_id, type, title, body, severity, link) "
+                    "VALUES (%s, 'compliance_renewal', %s, %s, %s, %s)",
+                    (item["org_id"], copy["title"], copy["body"],
+                     "medium" if item["threshold_days"] <= 7 else "info", LINK_PATH))
+                cur.execute(RECIPIENTS_SQL, (item["org_id"], item["owner_user_id"]))
+                return cur.fetchall()
+
+
+def _claim_is_current(claim: Dict[str, Any]) -> bool:
+    try:
+        with database.get_db() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    lock_cron_claim(cur, claim)
+        return True
+    except ClaimLost:
+        return False
+
+
+async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    result = {"due": 0, "reminded": 0, "emails_sent": 0, "email_failures": 0, "skipped": 0}
+    due = await asyncio.to_thread(_due, now)
+    result["due"] = len(due)
+    for item in due:
+        subject_text = what_expires(item["question_key"])
+        if subject_text is None:  # a question retired from the questionnaire
+            result["skipped"] += 1
+            continue
+        expiry_text = expiry_date_text(item["expires_at"], item["display_timezone"])
+        recipients = await asyncio.to_thread(_record_reminder, claim, item, subject_text, expiry_text)
+        if recipients is None:
+            result["skipped"] += 1
+            continue
+        result["reminded"] += 1
+        email = email_copy(item["org_name"], subject_text, expiry_text, item["threshold_days"], link())
+        for person in recipients:
+            if not await asyncio.to_thread(_claim_is_current, claim):
+                raise ClaimLost("Scheduler claim is no longer current")
+            try:
+                await mailer.send_email_async(person["email"], email["subject"], email["html"], email["text"],
+                                              person.get("full_name"), kind="alerts")
+                result["emails_sent"] += 1
+            except Exception:
+                result["email_failures"] += 1
+                logger.warning("compliance reminder email failed for an organisation member", exc_info=True)
+    return result
+
+
+async def run_compliance_reminders(now: Optional[datetime] = None, run_day: Optional[date] = None) -> Dict[str, Any]:
+    """The daily job. Returns {"claimed": False} without touching anything when another owner holds today's claim."""
+    now = now or datetime.now(timezone.utc)
+    run_day = run_day or now.astimezone(timezone.utc).date()
+    claim = await asyncio.to_thread(claim_cron_run, COMPLIANCE_REMINDERS_CRON_NAME, run_day, _claimant_id())
+    if not claim:
+        return {"claimed": False, "due": 0, "reminded": 0}
+    try:
+        result = await _sweep(claim, now)
+        if not await asyncio.to_thread(complete_cron_run, COMPLIANCE_REMINDERS_CRON_NAME, run_day, claim):
+            raise ClaimLost("Scheduler ownership expired before completion")
+    except BaseException:
+        await asyncio.to_thread(release_cron_run, COMPLIANCE_REMINDERS_CRON_NAME, run_day, claim)
+        raise
+    result["claimed"] = True
+    logger.info("compliance reminders complete: %s", result)
+    return result

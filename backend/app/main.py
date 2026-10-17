@@ -43,6 +43,7 @@ from backend.app.workflows.inngest_workflow import (
     inngest_client,
     inngest_scan_pipeline_fn,
     inngest_daily_scan_cron,
+    inngest_compliance_reminders_cron,
 )
 import inngest.fast_api
 from backend.app.core.security_headers import SecurityHeadersMiddleware
@@ -72,7 +73,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 inngest.fast_api.serve(
     app,
     inngest_client,
-    [inngest_scan_pipeline_fn, inngest_daily_scan_cron],
+    [inngest_scan_pipeline_fn, inngest_daily_scan_cron, inngest_compliance_reminders_cron],
     serve_path="/api/inngest"
 )
 
@@ -202,6 +203,7 @@ async def stop_execution_recovery() -> None:
 # ---------------------------------------------------------------------------
 _scheduler_task: asyncio.Task | None = None
 _scheduler_stop: asyncio.Event | None = None
+_reminders_task: asyncio.Task | None = None
 
 
 @app.on_event("startup")
@@ -222,23 +224,30 @@ async def start_daily_scan_scheduler() -> None:
     _scheduler_task = asyncio.create_task(daily_scan_scheduler(_scheduler_stop))
     track_background_task("scheduler", _scheduler_task)
 
+    from backend.app.scheduler import compliance_reminders_scheduler
+
+    global _reminders_task
+    _reminders_task = asyncio.create_task(compliance_reminders_scheduler(_scheduler_stop))
+    track_background_task("compliance_reminders", _reminders_task)
+
 
 @app.on_event("shutdown")
 async def stop_daily_scan_scheduler() -> None:
     if _scheduler_stop is not None:
         _scheduler_stop.set()
-    if _scheduler_task is None:
-        return
-    try:
-        await asyncio.wait_for(_scheduler_task, timeout=5)
-    except asyncio.TimeoutError:
-        _scheduler_task.cancel()
+    for task in (_scheduler_task, _reminders_task):
+        if task is None:
+            continue
         try:
-            await _scheduler_task
+            await asyncio.wait_for(task, timeout=5)
+        except asyncio.TimeoutError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         except asyncio.CancelledError:
             pass
-    except asyncio.CancelledError:
-        pass
 
 
 if __name__ == "__main__":

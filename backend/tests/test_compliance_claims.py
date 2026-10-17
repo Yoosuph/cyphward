@@ -77,6 +77,12 @@ def test_register_has_no_verdict_language():
     _assert_clean(_strings(raw, keys=True), "register")
 
 
+def test_questionnaire_has_no_verdict_language():
+    from backend.app.compliance import questionnaire as compliance_questionnaire
+    raw = json.loads(compliance_questionnaire.QUESTIONNAIRE_FILE.read_text())
+    _assert_clean(_strings(raw, keys=True), "questionnaire")
+
+
 def _synthetic_context():
     d1 = {"id": "11111111-1111-4111-8111-111111111111", "domain": "acme.test"}
     d2 = {"id": "22222222-2222-4222-8222-222222222222", "domain": "shop.test"}
@@ -128,12 +134,14 @@ def test_disclaimer_is_the_plan_text_and_is_always_returned(monkeypatch):
 
 
 def test_compliance_page_copy_has_no_verdict_language():
-    source = (ROOT / "frontend" / "src" / "pages" / "Compliance.tsx").read_text()
-    # User-visible text: JSX text nodes and string literals.
-    texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
-    flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
-    _assert_clean(flat, "Compliance.tsx")
-    assert "data.disclaimer" in source, "the page renders the API disclaimer"
+    pages = ROOT / "frontend" / "src" / "pages"
+    for path in [pages / "Compliance.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
+        source = path.read_text()
+        # User-visible text: JSX text nodes and string literals.
+        texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
+        flat = [t if isinstance(t, str) else " ".join(x for x in t if x) for t in texts]
+        _assert_clean(flat, path.name)
+    assert "data.disclaimer" in (pages / "Compliance.tsx").read_text(), "the page renders the API disclaimer"
 
 
 def test_scan_page_privacy_copy_has_no_verdict_language():

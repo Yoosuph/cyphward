@@ -1021,6 +1021,9 @@ export interface ComplianceRequirement {
   findings: ComplianceFindingRef[];
   informational_findings: ComplianceFindingRef[];
   policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
+  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string }[];
+  answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
+              owner_name: string | null; expires_at: string | null }[];
 }
 
 export interface ComplianceReadiness {
@@ -1052,3 +1055,133 @@ export interface ComplianceOverview {
 export async function getComplianceOverview(): Promise<ComplianceOverview> {
   return (await apiFetch<ComplianceOverview>('/compliance/overview', undefined, true)) as ComplianceOverview;
 }
+
+
+// ---- Questionnaire and customer answers (C3a) ----
+export interface QuestionnaireAnswer {
+  id: string;
+  value: string | null;
+  date: string | null;
+  text: string | null;
+  owner_user_id: string | null;
+  owner_name: string | null;
+  attested_at: string;
+  expires_at: string;
+  expired: boolean;
+  evidence_link: string | null;
+  notes: string | null;
+}
+
+export interface QuestionnaireQuestion {
+  key: string;
+  group: string;
+  group_title: string;
+  prompt: string;
+  type: 'yes_no' | 'choice' | 'date' | 'text';
+  shown: boolean;
+  options: string[];
+  allow_not_applicable: boolean;
+  allows_date: boolean;
+  date_label: string | null;
+  allows_text: boolean;
+  text_label: string | null;
+  text_max: number | null;
+  expiry_days_from_date: number | null;
+  show_if: { question: string; value: string } | null;
+  evidences: { key: string; title: string }[];
+  applicability: { requirement_key: string; when: string }[];
+  answer_state: 'unanswered' | 'answered' | 'not_sure' | 'expired';
+  current: QuestionnaireAnswer | null;
+  status: ComplianceStatus | null;
+  status_label: string | null;
+  reason: string | null;
+  reason_text: string | null;
+}
+
+export interface Questionnaire {
+  disclaimer: string;
+  version: string;
+  display_timezone: string;
+  answered: number;
+  questions: QuestionnaireQuestion[];
+}
+
+export interface OrgMember {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+}
+
+export interface AttestationInput {
+  question_key: string;
+  answer: { value: string; date?: string; text?: string };
+  owner_user_id: string;
+  expires_at?: string;
+  evidence_link?: string;
+  notes?: string;
+}
+
+export const getQuestionnaire = () =>
+  apiFetch<Questionnaire>('/compliance/questionnaire', undefined, true) as Promise<Questionnaire>;
+
+export const recordAttestation = (body: AttestationInput) =>
+  apiFetch<QuestionnaireAnswer>('/compliance/attestations', { method: 'POST', body: JSON.stringify(body) }, true);
+
+export const getAttestationHistory = (key: string) =>
+  apiFetch<{ question_key: string; history: (QuestionnaireAnswer & { superseded: boolean })[] }>(
+    `/compliance/attestations/${encodeURIComponent(key)}`, undefined, true);
+
+export const listOrgMembers = () => apiFetch<OrgMember[]>('/members', undefined, true) as Promise<OrgMember[]>;
+
+// ---- Breach incident log (C3b) ----
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentStatus = 'open' | 'contained' | 'closed';
+
+export interface Incident {
+  id: string;
+  title: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  notes: string | null;
+  detected_at: string;
+  became_aware_at: string;
+  notified_commission_at: string | null;
+  notified_subjects_at: string | null;
+  deadline_at: string;
+  hours_remaining: number | null;
+  overdue: boolean;
+  notified_late: boolean;
+  commission_state: 'pending' | 'overdue' | 'notified_on_time' | 'notified_late';
+  display_timezone: string;
+  local: Record<'detected_at' | 'became_aware_at' | 'notified_commission_at' | 'notified_subjects_at' | 'deadline_at', string | null>;
+}
+
+export interface IncidentList {
+  disclaimer: string;
+  checklist: { key: string; title: string; text: string }[];
+  deadline_hours: number;
+  display_timezone: string;
+  incidents: Incident[];
+}
+
+export interface IncidentCreate {
+  title: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  detected_at: string;
+  became_aware_at: string;
+  notified_commission_at?: string | null;
+  notified_subjects_at?: string | null;
+  notes?: string | null;
+}
+
+export type IncidentChanges = Partial<Pick<Incident, 'status' | 'severity' | 'notified_commission_at' | 'notified_subjects_at' | 'notes'>>;
+
+export const listIncidents = () => apiFetch<IncidentList>('/compliance/incidents', undefined, true) as Promise<IncidentList>;
+
+export const createIncident = (body: IncidentCreate) =>
+  apiFetch<Incident>('/compliance/incidents', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<Incident>;
+
+export const updateIncident = (id: string, changes: IncidentChanges) =>
+  apiFetch<Incident>(`/compliance/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }, true) as Promise<Incident>;
