@@ -151,3 +151,16 @@ def test_scan_page_privacy_copy_has_no_verdict_language():
     texts = re.findall(r">([^<>{}]+)<", section) + re.findall(r"\"([^\"\n]{3,})\"", section)
     _assert_clean(texts, "Scans.tsx privacy")
     assert "Heuristic" in section
+
+
+def test_document_draft_copy_has_no_verdict_language():
+    """Packet C5: the fixed copy of the AI-drafted documents, before and after any model wording."""
+    from backend.app.compliance import documents as docs
+    fixed = [docs.LABEL, docs.FOOTER, *docs.TITLES.values(), *docs.SOURCE_LABELS.values()]
+    for gaps in docs.FIXED_GAPS.values():
+        fixed += [label for _, label in gaps]
+    _assert_clean(fixed, "document copy")
+    assert docs.LABEL == "Draft — not legal advice"
+    for kind in docs.KINDS:
+        inputs = docs.build_inputs(kind, {"org_name": "Acme", "domains": [], "answers": {}, "observed": {}})
+        _assert_clean([docs.build_template(inputs), docs.reviewer_notes(inputs)], kind)

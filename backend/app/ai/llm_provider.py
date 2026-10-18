@@ -10,9 +10,9 @@ import time
 import asyncio
 import logging
 import httpx
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from backend.app.ai.base import AIProvider
-from backend.app.ai.privacy import sanitize_for_ai
+from backend.app.ai.privacy import sanitize_for_ai, sanitize_text
 from backend.app.ai.heuristic_provider import HeuristicAIProvider
 from backend.app.risk.check_set import NUCLEI_LINE
 
@@ -175,6 +175,17 @@ class CloudLLMProvider(AIProvider):
                 logger.warning("openai structured call error: %s", type(exc).__name__)
 
         return None
+
+    async def draft_document(self, system_prompt: str, template: str) -> Optional[str]:
+        if not self.gemini_key and not self.openai_key:
+            return None
+        # The template is fixed text plus markers. The privacy layer must leave it unchanged; if it would
+        # rewrite anything, nothing is sent.
+        if sanitize_text(template) != template:
+            return None
+        res = await self._call_llm(system_prompt, template)
+        text = res.get("text") if isinstance(res, dict) else None
+        return text if isinstance(text, str) else None
 
     async def explain_finding(self, finding: Dict[str, Any]) -> Dict[str, Any]:
         if not self.gemini_key and not self.openai_key:

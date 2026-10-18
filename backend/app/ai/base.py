@@ -3,7 +3,7 @@ Cyphward AI Provider Interface
 Defines the required contract for AI remediation, explanation, and executive reporting.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 class AIProvider(ABC):
@@ -55,3 +55,11 @@ class AIProvider(ABC):
         Interactive conversational AI analysis with enclave telemetry and regulatory grounding.
         """
         pass
+
+    async def draft_document(self, system_prompt: str, template: str) -> Optional[str]:
+        """Reword a tokenised document draft (packet C5). Return None when the provider cannot.
+
+        The caller sends only fixed text with {{TOKEN}} and [MISSING: ...] markers, never customer answers,
+        and validates whatever comes back; a provider with no text generation keeps this default.
+        """
+        return None
