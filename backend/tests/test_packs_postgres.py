@@ -385,3 +385,116 @@ def test_an_organisation_that_issued_a_pack_this_half_year_is_not_reminded(world
     now = datetime.now(timezone.utc) + timedelta(minutes=5)
     asyncio.run(reminders.run_compliance_reminders(now=now, run_day=run_days()))
     assert _notes(world, org) == []
+
+
+# ── Quota: a pack is one report-sized unit; its own snapshot is not counted again ───────────────────────
+
+
+def _limit(monkeypatch, n):
+    from backend.app.core import plans
+    monkeypatch.setitem(plans.PLANS["growth"], "monthly_reports", n)
+
+
+def _usage(org):
+    from backend.app.core.plans import usage_for_org
+    return usage_for_org(org)["monthly_reports"]
+
+
+def test_a_pack_with_a_fresh_snapshot_uses_exactly_one_unit_even_on_the_last_one(world, monkeypatch):
+    _limit(monkeypatch, 2)
+    org, owner, *_ = _assessed_org(world)
+    assert _create(world, org, owner).status_code == 201          # 1 unit used
+    first = _issue(world, org, owner)                             # the last unit: pack + its fresh snapshot
+    assert first.status_code == 201 and _usage(org) == 2
+    blocked = _issue(world, org, owner)
+    assert blocked.status_code == 402 and "quota reached" in blocked.json()["detail"]
+    assert _usage(org) == 2, "a refused pack must not leave a snapshot behind that uses another unit"
+    assert world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"] == 2
+
+
+def test_a_pack_made_from_an_existing_snapshot_takes_over_its_unit(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org, owner, *_ = _assessed_org(world)
+    snap = _create(world, org, owner).json()["snapshot"]["id"]
+    assert _usage(org) == 1
+    made = _issue(world, org, owner, snapshot_id=snap)
+    assert made.status_code == 201 and _usage(org) == 1, "the pack replaces the snapshot's unit"
+    again = _issue(world, org, owner, snapshot_id=snap)
+    assert again.status_code == 402, "a second pack is a new unit"
+
+
+def test_a_retried_pack_request_key_is_not_charged_twice(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org, owner, *_ = _assessed_org(world)
+    first = _issue(world, org, owner, request_key="pack-retry-0001")
+    again = _issue(world, org, owner, request_key="pack-retry-0001")
+    assert first.status_code == 201 and again.status_code == 201 and again.json()["created"] is False
+    assert _usage(org) == 1
+
+
+def test_a_pack_and_a_snapshot_cannot_both_take_the_last_unit(world, monkeypatch):
+    _limit(monkeypatch, 2)
+    org, owner, *_ = _assessed_org(world)
+    assert _create(world, org, owner).status_code == 201
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        codes = sorted(f.result().status_code for f in [pool.submit(_issue, world, org, owner), pool.submit(_create, world, org, owner)])
+    assert codes == [201, 402]
+    assert _usage(org) == 2
+
+
+def test_another_organisations_packs_do_not_use_this_ones_quota(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    a, owner_a, *_ = _assessed_org(world, name="Pack quota A")
+    b, owner_b, *_ = _assessed_org(world, name="Pack quota B")
+    assert _issue(world, a, owner_a).status_code == 201
+    assert _issue(world, b, owner_b).status_code == 201
+    assert _issue(world, a, owner_a).status_code == 402
+
+
+# ── Busy: the same bounded build slots and lock wait as snapshots ─────────────────────────────────────
+
+
+def test_a_busy_slot_or_a_held_lock_gives_a_clean_503_and_issues_nothing(world, monkeypatch):
+    import threading
+    from backend.app.snapshots import store as snapshot_store
+    org, owner, *_ = _assessed_org(world)
+    snap = _create(world, org, owner).json()["snapshot"]["id"]
+    monkeypatch.setattr(snapshot_store, "_BUILD_SLOTS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(snapshot_store, "BUSY_WAIT_SECONDS", 0.2)
+    snapshot_store._BUILD_SLOTS.acquire()
+    busy = _issue(world, org, owner, snapshot_id=snap)
+    assert busy.status_code == 503 and busy.headers["Retry-After"] == "5"
+    snapshot_store._BUILD_SLOTS.release()
+    monkeypatch.setattr(snapshot_store, "LOCK_WAIT_MS", 300)
+    holder = psycopg.connect(world.url)
+    try:
+        holder.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"snapshot:{org}",))
+        assert _issue(world, org, owner, snapshot_id=snap).status_code == 503
+    finally:
+        holder.rollback()
+        holder.close()
+    assert world.rows("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s", (org,))[0]["n"] == 0
+    assert _issue(world, org, owner, snapshot_id=snap).status_code == 201
+
+
+# ── Retention ───────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_packs_show_when_they_become_eligible_for_removal_and_follow_the_setting(world):
+    org, owner, *_ = _assessed_org(world)
+    pack = _issue(world, org, owner).json()["pack"]
+    issued, until = datetime.fromisoformat(pack["issued_at"]), datetime.fromisoformat(pack["retain_until"])
+    assert until.year == issued.year + 3 and until.month == issued.month
+    assert world.client.put("/api/v1/snapshots/retention", json={"months": 24}, headers=H(world, owner, org)).status_code == 200
+    listing = _get(world, org, owner, "").json()
+    assert listing["retention_months"] == 24 and "24 months" in listing["retention"]
+    assert datetime.fromisoformat(listing["packs"][0]["retain_until"]).year == issued.year + 2
+    assert "Names of answer owners" in listing["retention"]
+
+
+def test_the_retention_text_and_pack_list_never_claim_compliance(world):
+    org, owner, *_ = _assessed_org(world)
+    _issue(world, org, owner)
+    text = json.dumps(_get(world, org, owner, "").json()).lower()
+    for phrase in BANNED + ("certification", "adequate", "adequacy", "guarantee"):
+        assert phrase not in text, phrase

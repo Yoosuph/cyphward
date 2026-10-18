@@ -1581,6 +1581,8 @@ class FakeStore:
         # --- assessment snapshots (the real write path runs in the PostgreSQL tests) ---
         if s.startswith("SELECT pg_advisory_xact_lock") or s.startswith("SET LOCAL lock_timeout"):
             return []
+        if s.startswith("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s"):
+            return [{"n": 0}]
         if s == "SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s":
             return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x)}]
         if s.startswith("SELECT id, org_id, seq") and "request_key = %s" in s:

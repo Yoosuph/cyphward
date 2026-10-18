@@ -192,7 +192,7 @@ try {
   let incidents = freshIncidents(Date.now());
   const downloads = [];
   const freshPacks = () => [{ id: "p-old00000000", snapshot_id: "s-old00000000", kind: "readiness_pack", pack_version: "cyphward-ndpa-pack-v1",
-    issued_at: "2026-10-10T09:00:00Z", issued_by: user.id, window_start: null, window_end: null, html_sha256: "a".repeat(64), pdf_sha256: "d".repeat(64) }];
+    issued_at: "2026-10-10T09:00:00Z", retain_until: "2029-10-10T09:00:00Z", issued_by: user.id, window_start: null, window_end: null, html_sha256: "a".repeat(64), pdf_sha256: "d".repeat(64) }];
   let packs = freshPacks();
   const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); writes.length = 0; posts.length = 0; downloads.length = 0; };
   const json = (request, status, body) => void request.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -257,11 +257,12 @@ try {
         const body = JSON.parse(request.postData() || "{}");
         writes.push({ method, path, body });
         packs.unshift({ id: `p-new-${writes.length}000000`, snapshot_id: "s-new0000000", kind: body.kind, pack_version: "cyphward-ndpa-pack-v1",
-          issued_at: new Date().toISOString(), issued_by: user.id, window_start: null, window_end: null,
+          issued_at: new Date().toISOString(), retain_until: "2029-10-18T09:00:00Z", issued_by: user.id, window_start: null, window_end: null,
           html_sha256: "b".repeat(64), pdf_sha256: "c".repeat(64) });
         return json(request, 201, { pack: packs[0], created: true });
       }
-      return json(request, 200, { packs, total: packs.length, notice: "Supporting evidence only. Not a Compliance Audit Return." });
+      return json(request, 200, { packs, total: packs.length, notice: "Supporting evidence only. Not a Compliance Audit Return.", retention_months: 36,
+        retention: "Kept for 36 months from the day it is issued (the default is 36 months, 3 years), and removed with your organisation. Names of answer owners recorded at the time stay in issued snapshots and packs." });
     }
     if (path.endsWith("/api/v1/members")) return json(request, 200, members);
     let body = {};
@@ -558,8 +559,12 @@ try {
     await openTab("Packs");
     await page.waitForSelector('[data-testid="packs"]');
     const pk = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="pack-list"] li').length,
-      notice: document.querySelector('[data-testid="packs-notice"]')?.textContent || "" }));
+      notice: document.querySelector('[data-testid="packs-notice"]')?.textContent || "",
+      retention: document.querySelector('[data-testid="packs-retention"]')?.textContent || "",
+      row: document.querySelector('[data-testid="pack-list"] li')?.textContent || "" }));
     assert.equal(pk.rows, 1, `${name}: the issued pack is listed`);
+    assert.ok(/36 months/.test(pk.retention) && /names of answer owners/i.test(pk.retention), `${name}: packs show the retention period and the owner-name disclosure`);
+    assert.ok(/kept until/i.test(pk.row), `${name}: each pack shows when it becomes eligible for removal`);
     assert.ok(/not a compliance audit return/i.test(pk.notice), `${name}: packs say they are not a Compliance Audit Return`);
     const beforePack = writes.length;
     await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());

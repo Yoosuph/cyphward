@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.app.compliance import status
 from backend.app.core.auth import get_current_org, require_admin
 from backend.app.packs import store
+from backend.app.api.snapshots import retention_note
 from backend.app.snapshots import store as snapshots
 
 router = APIRouter(prefix="/api/v1/packs", tags=["Evidence packs"])
@@ -41,10 +42,17 @@ def _growth_admin(org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any
     return org
 
 
+def _busy() -> HTTPException:
+    return HTTPException(status_code=503, detail="Packs are being prepared right now. Try again in a few seconds.",
+                         headers={"Retry-After": "5"})
+
+
 @router.get("")
 def list_packs(org: Dict[str, Any] = Depends(_growth)) -> Dict[str, Any]:
-    rows = [store.summary(r) for r in store.listing(org["id"])]
-    return {"packs": rows, "total": len(rows), "notice": NOT_A_CAR}
+    months = snapshots.retention_months(org)
+    rows = [store.summary(r, months) for r in store.listing(org["id"])]
+    return {"packs": rows, "total": len(rows), "notice": NOT_A_CAR, "retention_months": months,
+            "retention": retention_note(months)}
 
 
 @router.post("", status_code=201)
@@ -54,7 +62,7 @@ def issue_pack(req: PackIn, org: Dict[str, Any] = Depends(_growth_admin)) -> Dic
     if req.request_key:
         again = store.by_request_key(org["id"], req.request_key)
         if again:
-            return {"pack": store.summary(again), "created": False}
+            return {"pack": store.summary(again, snapshots.retention_months(org)), "created": False}
     user = org.get("current_user_id")
     snapshot_id = req.snapshot_id
     if snapshot_id is None:
@@ -62,6 +70,8 @@ def issue_pack(req: PackIn, org: Dict[str, Any] = Depends(_growth_admin)) -> Dic
             made = snapshots.create(org, user)
         except snapshots.StateChanging:
             raise HTTPException(status_code=409, detail="Your data changed while the snapshot was being read. Try again.")
+        except snapshots.Busy:
+            raise _busy()
         snapshot_id = str(made["snapshot"]["id"])
     try:
         issued = store.issue(org, user, snapshot_id, req.kind, include_dpo=req.include_dpo, request_key=req.request_key)
@@ -69,7 +79,9 @@ def issue_pack(req: PackIn, org: Dict[str, Any] = Depends(_growth_admin)) -> Dic
         raise HTTPException(status_code=404, detail="Snapshot not found.")
     except store.SnapshotAltered:
         raise HTTPException(status_code=409, detail="That snapshot no longer matches its recorded hash; no pack was issued.")
-    return {"pack": store.summary(issued["pack"]), "created": issued["created"]}
+    except snapshots.Busy:
+        raise _busy()
+    return {"pack": store.summary(issued["pack"], snapshots.retention_months(org)), "created": issued["created"]}
 
 
 @router.get("/{pack_id}")
@@ -77,7 +89,7 @@ def get_pack(pack_id: str, org: Dict[str, Any] = Depends(_growth)) -> Dict[str, 
     row = store.get(org["id"], pack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Pack not found.")
-    return {"pack": store.summary(row), "notice": NOT_A_CAR}
+    return {"pack": store.summary(row, snapshots.retention_months(org)), "notice": NOT_A_CAR}
 
 
 def _download(pack_id: str, org: Dict[str, Any], body: str, media: str, extension: str) -> Response:

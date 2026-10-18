@@ -8,9 +8,11 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import psycopg.errors
 from psycopg.types.json import Jsonb
 
 from backend.app.core import database
+from backend.app.core.plans import require_quota
 from backend.app.core.database import execute_one, execute_query
 from backend.app.packs import document, dpo, render
 from backend.app.snapshots import store as snapshots
@@ -34,8 +36,21 @@ def _sha(data: bytes) -> str:
 
 def issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: str, *, include_dpo: bool = True,
           request_key: Optional[str] = None) -> Dict[str, Any]:
+    """Issue a pack. It counts as one unit of the plan's monthly reports quota, charged under the same
+    per-organisation lock as snapshots so a pack and a snapshot cannot both take the last unit. The build is
+    one of the few allowed at once per process (waiters hold no connection) and its lock wait is bounded:
+    both raise snapshots.Busy, which the API maps to a 503."""
     if kind not in KINDS:
         raise ValueError("unknown pack kind")
+    try:
+        with snapshots.build_slot():
+            return _issue(org, user_id, snapshot_id, kind, include_dpo, request_key)
+    except psycopg.errors.LockNotAvailable as exc:
+        raise snapshots.Busy("Another pack or snapshot for this organisation is still being prepared.") from exc
+
+
+def _issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: str, include_dpo: bool,
+           request_key: Optional[str]) -> Dict[str, Any]:
     org_id = str(org["id"])
     try:
         snap = snapshots.get(org_id, snapshot_id)
@@ -48,12 +63,16 @@ def issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: s
     content = snap["content"]
     with database.get_db() as conn:
         with conn.transaction():
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"pack:{org_id}",))
+            conn.execute(f"SET LOCAL lock_timeout = '{snapshots.LOCK_WAIT_MS}ms'")
+            # The snapshot lock key: snapshots, reports and packs share one lock per organisation, so the quota
+            # check below and the insert are atomic across all three.
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"snapshot:{org_id}",))
             if request_key:
                 row = conn.execute(f"SELECT {META} FROM evidence_packs WHERE org_id = %s AND request_key = %s",
                                    (org_id, request_key)).fetchone()
                 if row:
                     return {"pack": row, "created": False}
+            require_quota(org, "reports", exclude_snapshot_id=str(snap["id"]))
             end = snap["created_at"]
             section = dpo.build(org_id, end, content) if (kind == "dpo_section" or include_dpo) else None
             issued_at = conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"].astimezone(timezone.utc)
@@ -76,10 +95,11 @@ def issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: s
     return {"pack": row, "created": True}
 
 
-def summary(row: Dict[str, Any]) -> Dict[str, Any]:
+def summary(row: Dict[str, Any], months: int = snapshots.DEFAULT_RETENTION_MONTHS) -> Dict[str, Any]:
     iso = lambda v: v.astimezone(timezone.utc).isoformat() if v else None  # noqa: E731
     return {"id": str(row["id"]), "snapshot_id": str(row["snapshot_id"]), "kind": row["kind"],
             "pack_version": row["pack_version"], "issued_at": iso(row["issued_at"]),
+            "retain_until": iso(snapshots.add_months(row["issued_at"].astimezone(timezone.utc), months)),
             "issued_by": str(row["issued_by"]) if row.get("issued_by") else None,
             "window_start": iso(row.get("window_start")), "window_end": iso(row.get("window_end")),
             "html_sha256": row["html_sha256"], "pdf_sha256": row["pdf_sha256"]}

@@ -481,3 +481,22 @@ Next: C1, as planned in `C1-plan.md`.
 ### Limitations
 - Packs and snapshots have no automatic purge (see Packet 04 decision 2).
 - The PDF is plain tables, not a designed layout.
+
+## Release run, 18 Oct 2026 (Packet 04, then C4, then C5)
+
+### Packet 04 (#38): released and production-verified
+
+- **Gates:** founder-agreed changes added (quota, 36-month retention setting, owner names kept); independent review APPROVE in round 2 (round 1 REJECT, fixed); CI green on `792580a`; full suite on the owned loopback database 1014 passed / 16 skipped, CI PostgreSQL list 183 passed; migration rehearsed on a fresh database built from `main`'s 33 migrations (42 snapshot tests pass on it).
+- **Backup:** `~/cyphward-release-backups/2026-10-18-release-pr38/full.dump.gpg`, AES-256, checksum of the decrypted dump verified (`b2bd6fb5…`), plaintext shredded.
+- **Migration:** only `20261018100000_assessment_snapshots.sql` (sha256 `92be5ab8ed4f350d`, the same file that was rehearsed), applied as `postgres` in one transaction with `lock_timeout 5s` and `statement_timeout 60s`, recorded in `supabase_migrations.schema_migrations`. No existing table's row count changed; new table `assessment_snapshots`. Verified: row-level security on; `cyphward_app` has SELECT and INSERT only (UPDATE and DELETE refused); both guard triggers present; `reports.snapshot_id` and `report_version` added (the 5 existing reports stay legacy, `snapshot_id` null); `organizations.evidence_retention_months` default 36 on both organisations.
+- **Merge:** `a7e9719f2bc6567176c215fdda62d552a7f1b63f` (previous main `e20c3cfdc137`); fork `main` synced; API deploy live at `a7e9719` at 00:29 UTC.
+- **Post-checks passed:** `/health` healthy; `GET`/`POST /api/v1/snapshots`, `GET`/`PUT /api/v1/snapshots/retention`, `GET /api/v1/snapshots/{id}`, `GET`/`POST /api/v1/reports` all return 401 unauthenticated; `app.cyphward.com/comply` serves 200; the live Reports bundle contains the new label ("INTEGRITY NOT CONFIRMED") and the retention note.
+
+### C4 (#40): changes made for release
+
+- **Quota:** an evidence pack is one unit of `monthly_reports`. Usage = reports + packs + snapshots that neither a report nor a pack belongs to. A pack made from an existing snapshot takes over that snapshot's unit (no extra unit); a second pack from it is a new unit. A pack with a fresh snapshot uses exactly one unit, including the last one; a refused pack leaves nothing behind. The charge is made under the same per-organisation lock as snapshots (packs now take the `snapshot:` lock key), so a pack and a snapshot cannot both take the last unit.
+- **Pool safety:** pack issuance uses the same bounded build slots and bounded lock wait as snapshots (`snapshots.build_slot()`); both give a 503 with `Retry-After`.
+- **Retention:** pack summaries show `retain_until` (issued date plus the organisation's retention period) and the list carries the retention text, including the owner-name disclosure; the Packs screen shows both. Owner names recorded at answer time stay in issued packs (founder-agreed).
+- **Migration:** `20261018120000_evidence_packs.sql` now sets `lock_timeout 5s` and `statement_timeout 60s` inside its transaction.
+- **Tests added:** 10 in `test_packs_postgres.py` (quota boundary, takeover, retry, pack-vs-snapshot race, cross-organisation, busy slot and held lock, retention date and text, banned phrases) plus Packs assertions in the compliance browser suite. Mutation checks (pack not charged; usage ignoring packs) fail them.
+

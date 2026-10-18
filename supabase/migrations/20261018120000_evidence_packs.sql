@@ -11,6 +11,8 @@
 -- Deletion: organisation deletion cascades to packs and reminders (the cascade runs as the table owner).
 -- Additive. Apply after 20261018100000_assessment_snapshots.sql and before the API that writes it.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 
 CREATE TABLE IF NOT EXISTS evidence_packs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

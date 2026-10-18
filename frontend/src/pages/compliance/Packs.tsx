@@ -76,6 +76,7 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
           evidence for a licensed DPCO. It is not a Compliance Audit Return.
         </span>
       </div>
+      {data?.retention && <p className="text-xs text-soft leading-relaxed" data-testid="packs-retention">{data.retention}</p>}
 
       {canEdit ? (
         <div className="flex flex-wrap gap-2">
@@ -104,7 +105,7 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
               <div className="min-w-0">
                 <p className="text-sm text-ink font-semibold">{KIND_LABEL[p.kind]}</p>
                 <p className="mono text-[11px] text-soft">
-                  Issued {fmtTimeZone(p.issued_at, zone)} · from snapshot {p.snapshot_id.slice(0, 8)} · sha256 {p.html_sha256.slice(0, 12)}…
+                  Issued {fmtTimeZone(p.issued_at, zone)} · kept until {fmtTimeZone(p.retain_until, zone).split(',')[0]} · from snapshot {p.snapshot_id.slice(0, 8)} · sha256 {p.html_sha256.slice(0, 12)}…
                 </p>
               </div>
               <div className="flex gap-2">

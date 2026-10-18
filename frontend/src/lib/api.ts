@@ -1206,12 +1206,15 @@ export interface EvidencePack {
   window_end: string | null;
   html_sha256: string;
   pdf_sha256: string;
+  retain_until: string;
 }
 
 export interface PackList {
   packs: EvidencePack[];
   total: number;
   notice: string;
+  retention_months: number;
+  retention: string;
 }
 
 export const listPacks = () => apiFetch<PackList>('/packs', undefined, true) as Promise<PackList>;
