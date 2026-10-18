@@ -87,6 +87,16 @@ def usage_for_org(org_id: str) -> Dict[str, int]:
         """,
         (org_id,),
     )
+    # An assessment snapshot is an issued record, so it counts as one report-sized unit. A snapshot that a
+    # report belongs to is already counted through the report; only the others are added here.
+    snapshots = execute_one(
+        """
+        SELECT count(*) AS n FROM assessment_snapshots s
+        WHERE s.org_id = %s AND s.created_at >= date_trunc('month', now())
+          AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.org_id = s.org_id AND r.snapshot_id = s.id)
+        """,
+        (org_id,),
+    )
     domains = execute_one(
         "SELECT count(*) AS n FROM domains WHERE org_id = %s", (org_id,)
     )
@@ -96,7 +106,7 @@ def usage_for_org(org_id: str) -> Dict[str, int]:
     )
     return {
         "monthly_scans": (scans or {}).get("n", 0),
-        "monthly_reports": (reports or {}).get("n", 0),
+        "monthly_reports": (reports or {}).get("n", 0) + (snapshots or {}).get("n", 0),
         "domains": (domains or {}).get("n", 0),
         "members": (members or {}).get("n", 0),
     }
