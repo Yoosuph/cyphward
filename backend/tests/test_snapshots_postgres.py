@@ -444,3 +444,115 @@ def test_snapshot_content_and_report_never_claim_compliance(world):
     for phrase in BANNED:
         assert phrase not in content, f"snapshot content: {phrase}"
         assert phrase not in html, f"report html: {phrase}"
+
+
+# ── Quota: a snapshot is one report-sized unit of the monthly reports quota ───────────────────────────
+
+
+def _limit(monkeypatch, n):
+    from backend.app.core import plans
+    monkeypatch.setitem(plans.PLANS["growth"], "monthly_reports", n)
+
+
+def _usage(org):
+    from backend.app.core.plans import usage_for_org
+    return usage_for_org(org)["monthly_reports"]
+
+
+def test_snapshots_count_against_the_monthly_reports_quota(world, monkeypatch):
+    _limit(monkeypatch, 2)
+    org, owner, *_ = _assessed_org(world)
+    assert _create(world, org, owner).status_code == 201
+    assert _create(world, org, owner).status_code == 201
+    blocked = _create(world, org, owner)
+    assert blocked.status_code == 402 and "quota reached" in blocked.json()["detail"]
+    assert _usage(org) == 2
+    assert world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"] == 2
+    assert world.rows("SELECT count(*) AS n FROM audit_log WHERE org_id = %s AND action = 'snapshot.created'", (org,))[0]["n"] == 2
+
+
+def test_a_retried_request_key_is_not_charged_twice(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org, owner, *_ = _assessed_org(world)
+    first = _create(world, org, owner, request_key="retry-key-0001")
+    again = _create(world, org, owner, request_key="retry-key-0001")
+    assert first.status_code == 201 and again.status_code == 201 and again.json()["created"] is False
+    assert _usage(org) == 1
+
+
+def test_a_report_and_its_snapshot_count_once(world, monkeypatch):
+    _limit(monkeypatch, 5)
+    org, owner, *_ = _assessed_org(world)
+    assert world.client.post("/api/v1/reports", json={}, headers=world.headers(owner, org)).status_code == 201
+    assert _usage(org) == 1, "the report counts; the snapshot it belongs to is not added again"
+    assert _create(world, org, owner).status_code == 201
+    assert _usage(org) == 2
+
+
+def test_the_last_unit_goes_to_exactly_one_of_two_concurrent_requests(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org, owner, *_ = _assessed_org(world)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        codes = sorted(f.result().status_code for f in [pool.submit(_create, world, org, owner) for _ in range(2)])
+    assert codes == [201, 402]
+    assert world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"] == 1
+
+
+def test_another_organisations_snapshots_do_not_use_up_this_ones_quota(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org_a, owner_a, *_ = _assessed_org(world, name="Quota A")
+    org_b, owner_b, *_ = _assessed_org(world, name="Quota B")
+    assert _create(world, org_a, owner_a).status_code == 201
+    assert _create(world, org_b, owner_b).status_code == 201
+    assert _create(world, org_a, owner_a).status_code == 402
+
+
+# ── Retention: a recorded period, 36 months by default, owner-set ─────────────────────────────────────
+
+
+def test_retention_defaults_to_three_years_and_each_snapshot_shows_its_date(world):
+    from datetime import datetime
+    org, owner, *_ = _assessed_org(world)
+    made = _create(world, org, owner).json()["snapshot"]
+    listing = world.client.get("/api/v1/snapshots", headers=world.headers(owner, org)).json()
+    assert listing["retention_months"] == 36 and "36 months" in listing["retention"]
+    created = datetime.fromisoformat(made["created_at"])
+    until = datetime.fromisoformat(made["retain_until"])
+    assert until.year == created.year + 3 and until.month == created.month
+    assert "never deletes" in listing["retention"] and "Names of answer owners" in listing["retention"]
+
+
+def test_only_the_owner_sets_retention_and_it_is_range_checked_and_audited(world):
+    org, owner, *_ = _assessed_org(world)
+    admin, member = world.make_person(org, "admin"), world.make_person(org, "member")
+    put = lambda user, months: world.client.put("/api/v1/snapshots/retention", json={"months": months}, headers=world.headers(user, org))
+    assert put(member, 60).status_code == 403 and put(admin, 60).status_code == 403
+    for bad in (11, 121, 0, -5):
+        assert put(owner, bad).status_code == 422
+    assert world.client.put("/api/v1/snapshots/retention", json={"months": "sixty"}, headers=world.headers(owner, org)).status_code == 422
+    assert put(owner, 60).status_code == 200
+    assert world.rows("SELECT evidence_retention_months AS m FROM organizations WHERE id = %s", (org,))[0]["m"] == 60
+    audit = world.rows("SELECT metadata FROM audit_log WHERE org_id = %s AND action = 'snapshot.retention_set'", (org,))
+    assert len(audit) == 1 and audit[0]["metadata"] == {"previous_months": 36, "months": 60}
+    assert world.client.get("/api/v1/snapshots", headers=world.headers(member, org)).json()["retention_months"] == 60
+
+
+def test_retention_is_per_organisation_and_the_database_checks_the_range(world):
+    org_a, owner_a, *_ = _assessed_org(world, name="Retention A")
+    org_b, owner_b, *_ = _assessed_org(world, name="Retention B")
+    assert world.client.put("/api/v1/snapshots/retention", json={"months": 24}, headers=world.headers(owner_a, org_a)).status_code == 200
+    assert world.rows("SELECT evidence_retention_months AS m FROM organizations WHERE id = %s", (org_b,))[0]["m"] == 36
+    with pytest.raises(psycopg.errors.CheckViolation):
+        world.setup.execute("UPDATE organizations SET evidence_retention_months = 6 WHERE id = %s", (org_a,))
+    world.setup.rollback()
+
+
+def test_add_months_handles_month_ends_and_leap_years():
+    from datetime import datetime, timezone
+    from backend.app.snapshots.store import add_months
+    utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
+    assert add_months(utc(2026, 1, 31), 1) == utc(2026, 2, 28)
+    assert add_months(utc(2027, 12, 31), 2) == utc(2028, 2, 29)
+    assert add_months(utc(2026, 10, 18), 36) == utc(2029, 10, 18)
+    assert add_months(utc(2028, 2, 29), 12) == utc(2029, 2, 28)
+    assert add_months(utc(2026, 11, 30), 3) == utc(2027, 2, 28)
