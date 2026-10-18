@@ -190,7 +190,11 @@ try {
   const writes = [];
   let questions = freshQuestions();
   let incidents = freshIncidents(Date.now());
-  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); writes.length = 0; posts.length = 0; };
+  const downloads = [];
+  const freshPacks = () => [{ id: "p-old00000000", snapshot_id: "s-old00000000", kind: "readiness_pack", pack_version: "cyphward-ndpa-pack-v1",
+    issued_at: "2026-10-10T09:00:00Z", retain_until: "2029-10-10T09:00:00Z", issued_by: user.id, window_start: null, window_end: null, html_sha256: "a".repeat(64), pdf_sha256: "d".repeat(64) }];
+  let packs = freshPacks();
+  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); writes.length = 0; posts.length = 0; downloads.length = 0; };
   const json = (request, status, body) => void request.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -242,6 +246,23 @@ try {
       const target = incidents.find((i) => path.endsWith(`/${i.id}`));
       for (const [k, v] of Object.entries(body)) target[k] = k.startsWith("notified_") && v ? new Date(Date.parse(`${v}Z`) + 4 * HOUR).toISOString() : v;
       return json(request, 200, incidentView(target, ORG_ZONE, now));
+    }
+    if (path.includes("/api/v1/packs")) {
+      if (!growth) return json(request, 403, { detail: "Evidence packs are part of the Growth plan." });
+      if (/\/packs\/[^/]+\/(html|pdf)$/.test(path)) {
+        downloads.push(path);
+        return void request.respond({ status: 200, contentType: path.endsWith("pdf") ? "application/pdf" : "text/html", body: "stored bytes" });
+      }
+      if (method === "POST") {
+        const body = JSON.parse(request.postData() || "{}");
+        writes.push({ method, path, body });
+        packs.unshift({ id: `p-new-${writes.length}000000`, snapshot_id: "s-new0000000", kind: body.kind, pack_version: "cyphward-ndpa-pack-v1",
+          issued_at: new Date().toISOString(), retain_until: "2029-10-18T09:00:00Z", issued_by: user.id, window_start: null, window_end: null,
+          html_sha256: "b".repeat(64), pdf_sha256: "c".repeat(64) });
+        return json(request, 201, { pack: packs[0], created: true });
+      }
+      return json(request, 200, { packs, total: packs.length, notice: "Supporting evidence only. Not a Compliance Audit Return.", retention_months: 36,
+        retention: "Kept for 36 months from the day it is issued (the default is 36 months, 3 years), and removed with your organisation. Names of answer owners recorded at the time stay in issued snapshots and packs." });
     }
     if (path.endsWith("/api/v1/members")) return json(request, 200, members);
     let body = {};
@@ -533,6 +554,29 @@ try {
     assert.ok(await overflowOf() <= 0, `${name}: overflow in incidents`);
     await noVerdicts(`${name} incidents`);
     if (process.env.CYPHWARD_COMPLIANCE_SCREENSHOTS === "1") await page.screenshot({ path: `/tmp/compliance-incidents-${name}.png`, fullPage: true });
+
+    // Packs: list, issue, download; supporting-evidence notice; no verdict language.
+    await openTab("Packs");
+    await page.waitForSelector('[data-testid="packs"]');
+    const pk = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="pack-list"] li').length,
+      notice: document.querySelector('[data-testid="packs-notice"]')?.textContent || "",
+      retention: document.querySelector('[data-testid="packs-retention"]')?.textContent || "",
+      row: document.querySelector('[data-testid="pack-list"] li')?.textContent || "" }));
+    assert.equal(pk.rows, 1, `${name}: the issued pack is listed`);
+    assert.ok(/36 months/.test(pk.retention) && /names of answer owners/i.test(pk.retention), `${name}: packs show the retention period and the owner-name disclosure`);
+    assert.ok(/kept until/i.test(pk.row), `${name}: each pack shows when it becomes eligible for removal`);
+    assert.ok(/not a compliance audit return/i.test(pk.notice), `${name}: packs say they are not a Compliance Audit Return`);
+    const beforePack = writes.length;
+    await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="pack-list"] li').length === 2, { timeout: 5000 });
+    assert.equal(writes[beforePack].body.kind, "dpo_section", `${name}: issue sends the kind`);
+    assert.ok(/^ui-/.test(writes[beforePack].body.request_key || ""), `${name}: each click carries its own request key`);
+    assert.deepEqual(Object.keys(writes[beforePack].body).sort(), ["kind", "request_key"], `${name}: issue sends only the kind and the key`);
+    await page.evaluate(() => document.querySelector('[data-testid="download-pdf"]').click());
+    for (let waited = 0; waited < 3000 && !downloads.some((d) => d.endsWith("/pdf")); waited += 100) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(downloads.some((d) => d.endsWith("/pdf")), `${name}: the PDF is fetched with the session`);
+    assert.ok(await overflowOf() <= 0, `${name}: overflow in packs`);
+    await noVerdicts(`${name} packs`);
   }
 
   // The countdown runs on its own and flips to Overdue when the deadline passes.
@@ -577,6 +621,14 @@ try {
     assert.ok(i.overdue, `${name}: members see the overdue badge`);
     assert.equal(i.forms, 0, `${name}: no form controls rendered for a member (incidents)`);
     assert.ok(!i.buttons.some((b) => /EDIT|RECORD/.test(b)), `${name}: no incident write buttons`);
+    await openTab("Packs");
+    await page.waitForSelector('[data-testid="packs"]');
+    const mp = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="pack-list"] li').length,
+      issue: [...document.querySelectorAll("button")].some((b) => /ISSUE/.test(b.textContent)),
+      note: !!document.querySelector('[data-testid="read-only-note"]'),
+      download: !!document.querySelector('[data-testid="download-pdf"]') }));
+    assert.ok(mp.rows === 1 && mp.download && mp.note && !mp.issue, `${name}: members download packs but cannot issue`);
+    await noVerdicts(`${name} member packs`);
     assert.equal(writes.length, 0, `${name}: members send no writes`);
     assert.ok(await overflowOf() <= 0, `${name}: member overflow`);
     await noVerdicts(`${name} member`);
@@ -588,7 +640,7 @@ try {
   reset();
   await page.setViewport({ width: 390, height: 900 });
   await gotoComply();
-  for (const tabName of ["Answer questions", "Incidents"]) {
+  for (const tabName of ["Answer questions", "Incidents", "Packs"]) {
     await openTab(tabName);
     await page.waitForSelector('[data-testid="growth-gate"]', { timeout: 5000 });
     const gate = await bodyText();

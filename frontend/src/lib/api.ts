@@ -1190,6 +1190,49 @@ export const createIncident = (body: IncidentCreate) =>
 export const updateIncident = (id: string, changes: IncidentChanges) =>
   apiFetch<Incident>(`/compliance/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }, true) as Promise<Incident>;
 
+// ============================================================================
+// Evidence packs (packet C4). Growth plan; members read, owners and admins issue.
+// ============================================================================
+export type PackKind = 'readiness_pack' | 'dpo_section';
+
+export interface EvidencePack {
+  id: string;
+  snapshot_id: string;
+  kind: PackKind;
+  pack_version: string;
+  issued_at: string;
+  issued_by: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  html_sha256: string;
+  pdf_sha256: string;
+  retain_until: string;
+}
+
+export interface PackList {
+  packs: EvidencePack[];
+  total: number;
+  notice: string;
+  retention_months: number;
+  retention: string;
+}
+
+export const listPacks = () => apiFetch<PackList>('/packs', undefined, true) as Promise<PackList>;
+
+export const issuePack = (body: { kind: PackKind; include_dpo?: boolean; request_key?: string }) =>
+  apiFetch<{ pack: EvidencePack; created: boolean }>('/packs', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ pack: EvidencePack; created: boolean }>;
+
+/** The stored bytes of an issued pack. A plain link cannot send the session headers, so this fetches a Blob. */
+export async function downloadPack(id: string, format: 'html' | 'pdf'): Promise<Blob> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  const res = await fetch(`${API_BASE}/packs/${encodeURIComponent(id)}/${format}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(orgId ? { 'X-Organization-Id': orgId } : {}) },
+  });
+  if (!res.ok) throw new Error(res.status === 403 ? 'Evidence packs are part of the Growth plan.' : 'The download failed. Try again.');
+  return res.blob();
+}
+
 // How long issued snapshots (and packs) are kept. Members read it; the owner sets it.
 export interface EvidenceRetention { retention_months: number; retention: string }
 export const getEvidenceRetention = () =>

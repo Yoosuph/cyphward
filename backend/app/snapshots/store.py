@@ -14,6 +14,7 @@ report generated from it appear together or not at all.
 import json
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -44,6 +45,17 @@ class Busy(RuntimeError):
     """Too many snapshots are being prepared at once. The API maps it to 503 with Retry-After."""
 
 
+@contextmanager
+def build_slot():
+    """One of the few concurrent heavy builds (snapshot or pack) this process allows. Holds no connection while waiting."""
+    if not _BUILD_SLOTS.acquire(timeout=BUSY_WAIT_SECONDS):
+        raise Busy("Other snapshots are being prepared right now.")
+    try:
+        yield
+    finally:
+        _BUILD_SLOTS.release()
+
+
 class StateChanging(RuntimeError):
     """The organisation's data kept changing while the snapshot was read. The API maps it to 409."""
 
@@ -60,14 +72,11 @@ def create(org: Dict[str, Any], user_id: Optional[str], *, request_key: Optional
     under the per-organisation lock, so two requests cannot both take the last unit. A retried request that
     finds its first snapshot is not charged again. A caller that charges the quota itself (it issues something
     that will reference this snapshot) passes charge=False."""
-    if not _BUILD_SLOTS.acquire(timeout=BUSY_WAIT_SECONDS):
-        raise Busy("Other snapshots are being prepared right now.")
     try:
-        return _create(org, user_id, request_key, on_insert, charge)
+        with build_slot():
+            return _create(org, user_id, request_key, on_insert, charge)
     except psycopg.errors.LockNotAvailable as exc:
         raise Busy("Another snapshot for this organisation is still being prepared.") from exc
-    finally:
-        _BUILD_SLOTS.release()
 
 
 def _create(org: Dict[str, Any], user_id: Optional[str], request_key: Optional[str],
