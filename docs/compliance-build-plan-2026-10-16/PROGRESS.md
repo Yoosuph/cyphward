@@ -435,6 +435,9 @@ Next: C1, as planned in `C1-plan.md`.
 3. **Domain deletion keeps snapshots** (and reports, as before). A snapshot holds domain names as text, so it still names a deleted domain. Erasure of that history is by deleting the organisation.
 4. **`/reports/send-email` still builds from live data** (it is a message, not an issued report). It is unchanged and is not an immutable record.
 5. **Snapshots are available on every plan** (a report needs one); compliance detail is filtered for Starter on read.
+6. **Quota (founder-agreed, release run):** a snapshot is one unit of the plan's `monthly_reports` quota. Usage = reports + snapshots that no report belongs to (and, with C4, packs). The charge happens inside the snapshot write under the per-organisation lock, so two concurrent requests cannot both take the last unit; a retried `request_key` is not charged twice; a report and its own snapshot count once.
+7. **Retention setting (founder-agreed):** `organizations.evidence_retention_months`, default **36 (3 years)**, owner-set between 12 and 120 months (`PUT /api/v1/snapshots/retention`, audited). Each snapshot shows `retain_until`. It is a recorded policy, not a purge: the app role has no DELETE, so removal after the period is an operator-run step.
+8. **Owner names stay in issued snapshots and packs (founder-agreed).** A name recorded at the time of an answer is part of the issued record; erasure of that history is by deleting the organisation. The retention text says so.
 
 ### Limitations
 
