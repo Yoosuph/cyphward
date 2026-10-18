@@ -609,3 +609,18 @@ def test_a_pack_without_the_dpo_section_does_not_stop_the_six_monthly_reminder(w
     now = datetime.now(timezone.utc) + timedelta(minutes=5)
     asyncio.run(reminders.run_compliance_reminders(now=now, run_day=run_days()))
     assert len(_notes(world, org)) == 1
+
+
+def test_the_worst_case_cell_still_fits_a_pdf_row(world):
+    """8 references of the longest allowed size, in the widest letters and as one unbroken string, in every group."""
+    from backend.app.packs import document
+    org, owner, *_ = _assessed_org(world)
+    snap = _create(world, org, owner).json()["snapshot"]
+    row = world.rows("SELECT * FROM assessment_snapshots WHERE id = %s", (snap["id"],))[0]
+    content = row["content"]
+    for kind, title in (("wide capitals", "WWWWMMMM " * 40), ("unbroken", "A" * 400), ("mixed", "Header Finding Title With Words " * 12)):
+        for req in content["compliance"]["requirements"]:
+            req["findings"] = [{"id": str(i), "title": title, "severity": "high", "status": "open"} for i in range(900)]
+        doc = document.build("readiness_pack", row, content, datetime.now(timezone.utc), None)
+        assert render.to_pdf(doc).startswith(b"%PDF"), kind
+        assert render.to_html(doc), kind

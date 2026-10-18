@@ -16,8 +16,8 @@ from backend.app.compliance.register import DISCLAIMER
 
 PACK_VERSION = "cyphward-ndpa-pack-v1"
 PENDING = "reference pending review"
-MAX_REFERENCES = 12          # evidence references shown in one table cell
-MAX_REFERENCE_CHARS = 280    # and the longest one
+MAX_REFERENCES = 8           # evidence references shown in one table cell
+MAX_REFERENCE_CHARS = 200    # and the longest one (8 x 200 characters fits a PDF row at any letter width)
 NOT_A_CAR = ("This document is not a Compliance Audit Return and does not replace one. A Compliance Audit Return "
              "for a data controller or processor of major importance is filed by a licensed DPCO. A DPCO may use "
              "this pack as supporting evidence.")
