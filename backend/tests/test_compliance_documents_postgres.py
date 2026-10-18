@@ -35,8 +35,19 @@ class Stub:
 
 @pytest.fixture
 def stub(monkeypatch):
+    """A stub model, with the (default-off) model path switched on so that path stays tested."""
     provider = Stub()
     monkeypatch.setattr(store, "get_ai_provider", lambda: provider)
+    monkeypatch.setattr(docs, "MODEL_ENABLED", True)
+    return provider
+
+
+@pytest.fixture
+def spy(monkeypatch):
+    """A stub model with the DEFAULT configuration (model path off): it must never be called."""
+    provider = Stub(lambda template: template)
+    monkeypatch.setattr(store, "get_ai_provider", lambda: provider)
+    assert docs.MODEL_ENABLED is False, "the model path must be off unless an operator turns it on"
     return provider
 
 
@@ -362,3 +373,70 @@ def test_deleting_the_organisation_removes_documents_approvals_and_quota(world, 
     world.setup.commit()
     for table in ("compliance_documents", "compliance_document_approvals", "compliance_document_quota"):
         assert world.rows(f"SELECT count(*) AS n FROM {table} WHERE org_id = %s", (org_id,))[0]["n"] == 0
+
+
+
+# ── Review round 1: the model is off by default; honest behaviour under load and lock waits ──────────────
+
+
+def test_by_default_nothing_is_sent_to_a_model_and_the_template_is_stored(world, team, spy):
+    org_id, owner, *_ = team
+    res = _generate(world, org_id, owner)
+    assert res.status_code == 201 and res.json()["generator"] == "template" and res.json()["fallback_reason"] is None
+    assert spy.prompts == [], "with the model path off no prompt of any kind is built or sent"
+    row = world.rows("SELECT text, generator FROM compliance_documents WHERE org_id = %s", (org_id,))[0]
+    assert row["text"].startswith("Draft — not legal advice") and row["generator"] == "template"
+    assert docs.banned_hits(row["text"]) == []
+
+
+def test_concurrent_generations_get_distinct_versions_and_each_uses_one_unit(world, team, spy):
+    from concurrent.futures import ThreadPoolExecutor
+    org_id, owner, *_ = team
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        replies = [f.result() for f in [pool.submit(_generate, world, org_id, owner) for _ in range(6)]]
+    assert {r.status_code for r in replies} == {201}
+    assert sorted(r.json()["version"] for r in replies) == [1, 2, 3, 4, 5, 6]
+    assert world.rows("SELECT n FROM compliance_document_quota WHERE org_id = %s", (org_id,))[0]["n"] == 6
+
+
+def test_a_model_that_takes_too_long_is_cut_off_and_the_template_is_stored(world, team, monkeypatch):
+    import asyncio
+    org_id, owner, *_ = team
+
+    class Slow(Stub):
+        async def draft_document(self, system_prompt, template):
+            await asyncio.sleep(5)
+            return template
+
+    monkeypatch.setattr(store, "get_ai_provider", lambda: Slow())
+    monkeypatch.setattr(docs, "MODEL_ENABLED", True)
+    monkeypatch.setattr(docs, "MODEL_TIMEOUT_SECONDS", 0.3)
+    res = _generate(world, org_id, owner)
+    assert res.status_code == 201 and res.json()["generator"] == "template" and res.json()["fallback_reason"] == "model_timeout"
+
+
+def test_a_held_document_lock_is_waited_for_only_briefly_for_generate_and_approve(world, team, spy, monkeypatch):
+    import time
+    org_id, owner, *_ = team
+    first = _generate(world, org_id, owner).json()
+    monkeypatch.setattr(store, "LOCK_WAIT_MS", 300)
+    holder = psycopg.connect(world.url)
+    try:
+        holder.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"compliance-doc:{org_id}:privacy_policy",))
+        started = time.monotonic()
+        busy = _generate(world, org_id, owner)
+        approve = world.client.post(f"{BASE}/{first['id']}/approve", headers=world.headers(owner, org_id))
+        assert busy.status_code == 503 and approve.status_code == 503 and busy.headers["Retry-After"] == "5"
+        assert time.monotonic() - started < 5
+    finally:
+        holder.rollback()
+        holder.close()
+    assert world.client.post(f"{BASE}/{first['id']}/approve", headers=world.headers(owner, org_id)).status_code == 201
+
+
+def test_the_migration_is_one_transaction_with_timeouts():
+    import pathlib
+    sql = (pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261018200000_compliance_documents.sql").read_text()
+    body = [line.strip() for line in sql.splitlines() if line.strip() and not line.strip().startswith("--")]
+    assert body[0] == "BEGIN;" and body[-1] == "COMMIT;"
+    assert "SET LOCAL lock_timeout" in sql and "SET LOCAL statement_timeout" in sql

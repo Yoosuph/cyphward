@@ -16,7 +16,9 @@ A draft says what the organisation told us. It never claims the organisation com
 """
 import hashlib
 import json
+import os
 import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -61,9 +63,38 @@ OBSERVED_KEYS = ("gaid.consent.banner_visible", "gaid.consent.accept_and_reject"
 # ── Text checks ──────────────────────────────────────────────────────────────
 
 
+# The model may only reword the template, and the check on what it returns is a deny-list of patterns: it
+# cannot tell a faithful rewording from a paraphrased claim ("fulfils every legal obligation"), an invented
+# commitment, a flipped negation or a dropped sentence. So the model path is OFF unless an operator turns it
+# on, and the stored draft is the deterministic, grounded template. Turning it on needs a stronger check first.
+MODEL_ENABLED = os.getenv("COMPLIANCE_DOCS_MODEL", "off").strip().lower() == "on"
+MODEL_TIMEOUT_SECONDS = 45  # the whole model step (all providers and retries), not one call
+
+# Look-alike letters (Cyrillic and Greek) that survive NFKC, folded to the Latin letter they imitate.
+CONFUSABLES = str.maketrans({
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y", "і": "i", "ј": "j", "ѕ": "s", "һ": "h",
+    "ԁ": "d", "ɡ": "g", "ν": "v", "ο": "o", "α": "a", "ε": "e", "ι": "i", "κ": "k", "ρ": "p", "τ": "t", "υ": "u",
+})
+STEMS = ("compliant", "complies", "certif", "satisf", "adequa", "guarante")
+
+
+def fold(text: str) -> str:
+    """Text as a reader sees it: compatibility forms folded (full-width letters), invisible format characters
+    (zero-width spaces and joiners, soft hyphens) removed, look-alike letters mapped to Latin."""
+    text = unicodedata.normalize("NFKC", text or "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return text.translate(CONFUSABLES).lower()
+
+
 def banned_hits(text: str) -> List[str]:
-    lowered = text.lower()
-    return [phrase for phrase in BANNED if phrase in lowered]
+    lowered = fold(text)
+    hits = [phrase for phrase in BANNED if phrase in lowered]
+    # A claim broken up inside one word with hyphens or dots ("com-pliant", "c.o.m.p.l.i.a.n.t"): check each
+    # token with its non-letters removed (per token, so letters of neighbouring words never join up).
+    for token in lowered.split():
+        letters = re.sub(r"[^a-z]", "", token)
+        hits += [stem for stem in STEMS if stem in letters and stem not in hits]
+    return hits
 
 
 def clean_slot(value: Any) -> Optional[str]:
@@ -74,7 +105,10 @@ def clean_slot(value: Any) -> Optional[str]:
     """
     if not isinstance(value, str):
         return None
-    text = re.sub(r"[\x00-\x1f\x7f]+", " ", value)
+    # NFKC and no invisible format characters (zero-width spaces and joiners), but legitimate letters with
+    # diacritics stay: only the banned-phrase check below looks at the look-alike-folded form.
+    text = "".join(ch for ch in unicodedata.normalize("NFKC", value) if unicodedata.category(ch) != "Cf")
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
     text = re.sub(r"[{}\[\]<>|`*_#]", "", text)
     text = re.sub(r"\s+", " ", text).strip()[:MAX_SLOT].strip()
     if not text or banned_hits(text):

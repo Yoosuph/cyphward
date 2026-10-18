@@ -12,6 +12,7 @@ Every query is scoped by organisation. Documents and approvals are append-only (
 INSERT only). An approval is the customer's own statement (`customer_attested`); it never changes a register
 requirement and is shown only on the Documents page and in the audit log.
 """
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -99,6 +100,13 @@ def reserve(org_id: str) -> int:
 # ── Drafting ──────────────────────────────────────────────────────────────────
 
 
+LOCK_WAIT_MS = 8000
+
+
+class Busy(RuntimeError):
+    """Another draft or approval for this document is still being saved. The API maps it to 503."""
+
+
 async def _model_body(template: str) -> Tuple[Optional[str], str, Optional[str]]:
     """(text, generator, reason) from the provider; text is None when nothing usable came back."""
     provider = get_ai_provider()
@@ -128,12 +136,22 @@ async def generate(org: Dict[str, Any], actor_id: str, kind: str) -> Dict[str, A
     inputs = docs.build_inputs(kind, ctx)
     template = docs.build_template(inputs)
     await run_in_threadpool(reserve, org_id)
-    body, provider_name, reason = await _model_body(template)
+    if not docs.MODEL_ENABLED:
+        # The default: the stored draft is the deterministic, grounded template. Nothing is sent to a model.
+        body, provider_name, reason = None, "template", None
+    else:
+        try:
+            body, provider_name, reason = await asyncio.wait_for(_model_body(template), timeout=docs.MODEL_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            body, provider_name, reason = None, "template", "model_timeout"
     candidates = []
     if body is not None:
         candidates.append((body, provider_name, None))
     candidates.append((template, "template", reason))
-    return await run_in_threadpool(_save, org_id, str(actor_id), inputs, candidates)
+    try:
+        return await run_in_threadpool(_save, org_id, str(actor_id), inputs, candidates)
+    except psycopg.errors.LockNotAvailable as exc:
+        raise Busy("This draft is still being saved. Try again in a few seconds.") from exc
 
 
 def _save(org_id: str, actor: str, inputs: Dict[str, Any], candidates: List[Tuple[str, str, Optional[str]]]
@@ -144,6 +162,7 @@ def _save(org_id: str, actor: str, inputs: Dict[str, Any], candidates: List[Tupl
     doc_id = str(uuid.uuid4())
     with database.get_db() as conn:
         with conn.transaction():
+            conn.execute(f"SET LOCAL lock_timeout = '{LOCK_WAIT_MS}ms'")
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"compliance-doc:{org_id}:{kind}",))
             at = conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"]
             version = conn.execute(
@@ -187,6 +206,13 @@ def _save(org_id: str, actor: str, inputs: Dict[str, Any], candidates: List[Tupl
 def approve(org_id: str, actor_id: str, document_id: str) -> Optional[Dict[str, Any]]:
     """Record the actor's approval of the latest version of a document. None when the id is not this
     organisation's. The approval changes no register requirement."""
+    try:
+        return _approve(org_id, actor_id, document_id)
+    except psycopg.errors.LockNotAvailable as exc:
+        raise Busy("This document is being saved. Try again in a few seconds.") from exc
+
+
+def _approve(org_id: str, actor_id: str, document_id: str) -> Optional[Dict[str, Any]]:
     org_id, actor = str(org_id), str(actor_id)
     with database.get_db() as conn:
         with conn.transaction():
@@ -195,6 +221,7 @@ def approve(org_id: str, actor_id: str, document_id: str) -> Optional[Dict[str, 
                 "WHERE id = %s AND org_id = %s", (document_id, org_id)).fetchone()
             if doc is None:
                 return None
+            conn.execute(f"SET LOCAL lock_timeout = '{LOCK_WAIT_MS}ms'")
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"compliance-doc:{org_id}:{doc['kind']}",))
             latest = conn.execute(
                 "SELECT MAX(version) AS v FROM compliance_documents WHERE org_id = %s AND kind = %s",

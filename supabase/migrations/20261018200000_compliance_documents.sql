@@ -11,6 +11,8 @@
 -- Additive. Apply before the API that uses it. The app role gets SELECT and INSERT only on the two
 -- document tables (no UPDATE, no DELETE); rows leave only when the organisation is deleted (cascade).
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 
 CREATE TABLE IF NOT EXISTS compliance_documents (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),

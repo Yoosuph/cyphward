@@ -286,3 +286,35 @@ def test_final_checks_catch_a_dropped_placeholder_or_leftover_slot():
     assert "placeholder_dropped:retention" in docs.final_problems(text.replace("how long you keep", "x"), inputs)
     assert "slot_left" in docs.final_problems(text + "{{DPO_NAME}}", inputs)
     assert "label_missing" in docs.final_problems("Hello\n" + text, inputs)
+
+
+
+# ── Review round 1: the filter folds what a reader sees, and the model path is off by default ────────────
+
+DISGUISED_CLAIMS = [
+    "this draft is com\u200bpliant", "this draft is c\u043empliant", "this draft is \uff43\uff4f\uff4d\uff50\uff4c\uff49\uff41\uff4e\uff54",
+    "this draft is com-pliant", "this draft is c.o.m.p.l.i.a.n.t", "a Cert\u200bified policy", "an ad\u0435quate policy",
+    "we g\u200buarantee it", "a fully\u00adcompliant draft",
+]
+
+
+@pytest.mark.parametrize("text", DISGUISED_CLAIMS)
+def test_disguised_claims_are_found(text):
+    assert docs.banned_hits(text), text
+
+
+def test_a_customer_value_with_a_disguised_claim_is_not_used_but_real_names_are():
+    assert docs.clean_slot("Cert\u200bified DPO") is None
+    assert docs.clean_slot("DPO, c\u043empliant officer") is None
+    assert docs.clean_slot("Ọlá Adéwálé") == "Ọlá Adéwálé", "legitimate letters with diacritics stay"
+    assert docs.clean_slot("Ada Obi, Chief Privacy Officer") == "Ada Obi, Chief Privacy Officer"
+    assert docs.clean_slot("Ada\u200b Obi") == "Ada Obi", "invisible characters are removed, not rejected"
+
+
+def test_ordinary_text_has_no_false_hits_across_word_boundaries():
+    for text in ("The cat sat is fine for us.", "We keep a log of who has access, and we review it.", "Contact us at the address above."):
+        assert docs.banned_hits(text) == [], text
+
+
+def test_the_model_path_is_off_by_default():
+    assert docs.MODEL_ENABLED is False and docs.MODEL_TIMEOUT_SECONDS > 0

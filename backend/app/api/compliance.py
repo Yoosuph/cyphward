@@ -167,6 +167,8 @@ async def generate_document(kind: str, org: Dict[str, Any] = Depends(require_adm
         return await document_store.generate(org, org["current_user_id"], kind)
     except document_store.QuotaExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc))
+    except document_store.Busy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
     except document_store.DocumentError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -178,6 +180,8 @@ def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_ad
         approved = document_store.approve(str(org["id"]), org["current_user_id"], str(document_id))
     except document_store.DocumentConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except document_store.Busy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
     if approved is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return approved
