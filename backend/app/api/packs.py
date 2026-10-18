@@ -51,7 +51,7 @@ def _busy() -> HTTPException:
 def list_packs(org: Dict[str, Any] = Depends(_growth)) -> Dict[str, Any]:
     months = snapshots.retention_months(org)
     rows = [store.summary(r, months) for r in store.listing(org["id"])]
-    return {"packs": rows, "total": len(rows), "notice": NOT_A_CAR, "retention_months": months,
+    return {"packs": rows, "total": store.count(org["id"]), "notice": NOT_A_CAR, "retention_months": months,
             "retention": retention_note(months)}
 
 
@@ -59,29 +59,33 @@ def list_packs(org: Dict[str, Any] = Depends(_growth)) -> Dict[str, Any]:
 def issue_pack(req: PackIn, org: Dict[str, Any] = Depends(_growth_admin)) -> Dict[str, Any]:
     if not snapshots.valid_request_key(req.request_key):
         raise HTTPException(status_code=422, detail="request_key must be 8-80 letters, digits or . _ : -")
+    months = snapshots.retention_months(org)
     if req.request_key:
         again = store.by_request_key(org["id"], req.request_key)
         if again:
-            return {"pack": store.summary(again, snapshots.retention_months(org)), "created": False}
+            if again["kind"] != req.kind or (req.snapshot_id and str(again["snapshot_id"]) != str(req.snapshot_id)):
+                raise HTTPException(status_code=409, detail="That request_key was already used for a different pack.")
+            return {"pack": store.summary(again, months), "created": False}
     user = org.get("current_user_id")
-    snapshot_id = req.snapshot_id
-    if snapshot_id is None:
-        try:
-            made = snapshots.create(org, user)
-        except snapshots.StateChanging:
-            raise HTTPException(status_code=409, detail="Your data changed while the snapshot was being read. Try again.")
-        except snapshots.Busy:
-            raise _busy()
-        snapshot_id = str(made["snapshot"]["id"])
     try:
-        issued = store.issue(org, user, snapshot_id, req.kind, include_dpo=req.include_dpo, request_key=req.request_key)
+        if req.snapshot_id is None:
+            # One transaction: the new snapshot, the pack and the quota charge commit together or not at all.
+            issued = store.issue_with_new_snapshot(org, user, req.kind, include_dpo=req.include_dpo,
+                                                   request_key=req.request_key)
+        else:
+            issued = store.issue(org, user, req.snapshot_id, req.kind, include_dpo=req.include_dpo,
+                                 request_key=req.request_key)
     except store.SnapshotMissing:
         raise HTTPException(status_code=404, detail="Snapshot not found.")
     except store.SnapshotAltered:
         raise HTTPException(status_code=409, detail="That snapshot no longer matches its recorded hash; no pack was issued.")
+    except store.KeyUsedWithoutPack:
+        raise HTTPException(status_code=409, detail="That request_key was already used for a snapshot without a pack.")
+    except snapshots.StateChanging:
+        raise HTTPException(status_code=409, detail="Your data changed while the snapshot was being read. Try again.")
     except snapshots.Busy:
         raise _busy()
-    return {"pack": store.summary(issued["pack"], snapshots.retention_months(org)), "created": issued["created"]}
+    return {"pack": store.summary(issued["pack"], months), "created": issued["created"]}
 
 
 @router.get("/{pack_id}")

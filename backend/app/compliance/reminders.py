@@ -71,7 +71,7 @@ ORDER BY lower(p.email)
 DPO_DUE_SQL = """
 SELECT o.id, o.name, o.plan, o.display_timezone FROM organizations o
 WHERE NOT EXISTS (SELECT 1 FROM dpo_reminders r WHERE r.org_id = o.id AND r.period_key = %s)
-  AND NOT EXISTS (SELECT 1 FROM evidence_packs p WHERE p.org_id = o.id AND p.issued_at >= %s)
+  AND NOT EXISTS (SELECT 1 FROM evidence_packs p WHERE p.org_id = o.id AND p.issued_at >= %s AND p.dpo IS NOT NULL)
   AND EXISTS (SELECT 1 FROM domains d WHERE d.org_id = o.id AND d.verification_status = 'verified')
   AND EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = o.id AND m.role IN ('owner', 'admin'))
 ORDER BY o.id

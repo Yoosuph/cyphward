@@ -569,7 +569,9 @@ try {
     const beforePack = writes.length;
     await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="pack-list"] li').length === 2, { timeout: 5000 });
-    assert.deepEqual(writes[beforePack].body, { kind: "dpo_section" }, `${name}: issue sends only the kind`);
+    assert.equal(writes[beforePack].body.kind, "dpo_section", `${name}: issue sends the kind`);
+    assert.ok(/^ui-/.test(writes[beforePack].body.request_key || ""), `${name}: each click carries its own request key`);
+    assert.deepEqual(Object.keys(writes[beforePack].body).sort(), ["kind", "request_key"], `${name}: issue sends only the kind and the key`);
     await page.evaluate(() => document.querySelector('[data-testid="download-pdf"]').click());
     for (let waited = 0; waited < 3000 && !downloads.some((d) => d.endsWith("/pdf")); waited += 100) await new Promise((r) => setTimeout(r, 100));
     assert.ok(downloads.some((d) => d.endsWith("/pdf")), `${name}: the PDF is fetched with the session`);

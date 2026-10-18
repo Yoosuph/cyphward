@@ -45,7 +45,7 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
   const generate = async (kind: PackKind) => {
     setBusy(kind);
     try {
-      await issuePack({ kind });
+      await issuePack({ request_key: `ui-${crypto.randomUUID()}`, kind });
       toast('Pack issued');
       await load();
     } catch (e) {

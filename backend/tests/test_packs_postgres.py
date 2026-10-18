@@ -165,8 +165,9 @@ def test_the_app_role_cannot_update_or_delete_a_pack_and_the_owner_cannot_edit_i
 def test_an_altered_snapshot_is_refused(world, monkeypatch):
     org, owner, *_ = _assessed_org(world)
     from backend.app.snapshots import store as snapshots
-    monkeypatch.setattr(snapshots, "verify", lambda row: False)
-    assert _issue(world, org, owner).status_code == 409
+    stored = _create(world, org, owner).json()["snapshot"]["id"]   # a snapshot already in the database
+    monkeypatch.setattr(snapshots, "verify", lambda row: False)    # ... whose content no longer matches its hash
+    assert _issue(world, org, owner, snapshot_id=stored).status_code == 409
     assert world.rows("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s", (org,))[0]["n"] == 0
 
 
@@ -498,3 +499,113 @@ def test_the_retention_text_and_pack_list_never_claim_compliance(world):
     text = json.dumps(_get(world, org, owner, "").json()).lower()
     for phrase in BANNED + ("certification", "adequate", "adequacy", "guarantee"):
         assert phrase not in text, phrase
+
+
+# ── Review round 1: no orphan snapshots, big packs render, honest errors ────────────────────────────────
+
+
+def _counts(world, org):
+    return (world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"],
+            world.rows("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s", (org,))[0]["n"], _usage(org))
+
+
+def test_a_pack_with_a_fresh_snapshot_commits_both_or_neither(world, monkeypatch):
+    org, owner, *_ = _assessed_org(world)
+
+    def boom(doc):
+        raise RuntimeError("the PDF could not be drawn")
+
+    monkeypatch.setattr(render, "to_pdf", boom)
+    with pytest.raises(RuntimeError):
+        _issue(world, org, owner)
+    assert _counts(world, org) == (0, 0, 0), "a failed render must leave no snapshot, no pack and no charge"
+
+
+def test_concurrent_retries_with_one_key_make_one_snapshot_one_pack_and_one_unit(world, monkeypatch):
+    _limit(monkeypatch, 5)
+    org, owner, *_ = _assessed_org(world)
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        replies = [f.result() for f in [pool.submit(_issue, world, org, owner, request_key="one-key-0000001") for _ in range(5)]]
+    assert {r.status_code for r in replies} == {201}
+    assert len({r.json()["pack"]["id"] for r in replies}) == 1
+    assert _counts(world, org) == (1, 1, 1)
+
+
+def test_a_busy_fresh_issue_leaves_nothing_behind(world, monkeypatch):
+    import threading
+    from backend.app.snapshots import store as snapshot_store
+    org, owner, *_ = _assessed_org(world)
+    monkeypatch.setattr(snapshot_store, "_BUILD_SLOTS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(snapshot_store, "BUSY_WAIT_SECONDS", 0.2)
+    snapshot_store._BUILD_SLOTS.acquire()
+    assert _issue(world, org, owner).status_code == 503
+    snapshot_store._BUILD_SLOTS.release()
+    assert _counts(world, org) == (0, 0, 0)
+
+
+def test_a_request_key_used_for_a_snapshot_without_a_pack_is_a_409_not_a_charge(world, monkeypatch):
+    _limit(monkeypatch, 5)
+    org, owner, *_ = _assessed_org(world)
+    assert _create(world, org, owner, request_key="shared-key-00001").status_code == 201
+    clash = _issue(world, org, owner, request_key="shared-key-00001")
+    assert clash.status_code == 409 and _counts(world, org) == (1, 0, 1)
+
+
+def test_a_request_key_reused_for_a_different_pack_is_a_409(world):
+    org, owner, *_ = _assessed_org(world)
+    assert _issue(world, org, owner, kind="readiness_pack", request_key="reuse-key-00001").status_code == 201
+    assert _issue(world, org, owner, kind="dpo_section", request_key="reuse-key-00001").status_code == 409
+    assert _issue(world, org, owner, kind="readiness_pack", request_key="reuse-key-00001").json()["created"] is False
+
+
+def test_a_requirement_with_hundreds_of_linked_findings_still_renders_a_pdf_and_html(world):
+    from backend.app.packs import document
+    org, owner, *_ = _assessed_org(world)
+    snap = _create(world, org, owner).json()["snapshot"]
+    row = world.rows("SELECT * FROM assessment_snapshots WHERE id = %s", (snap["id"],))[0]
+    content = row["content"]
+    target = next(r for r in content["compliance"]["requirements"] if r["group"] == "security")
+    target["findings"] = [{"id": str(i), "title": f"Header finding number {i} on a long host name example.snapshot.test",
+                           "severity": "high", "status": "open"} for i in range(600)]
+    doc = document.build("readiness_pack", row, content, datetime.now(timezone.utc), None)
+    pdf, html = render.to_pdf(doc), render.to_html(doc)
+    text = " ".join(render.pdf_extract_text(pdf).split())
+    assert pdf.startswith(b"%PDF")
+    assert re.search(r"and \d{3} more references", text) and re.search(r"and \d{3} more references", html)
+    assert text.count("Header finding number") <= 12 * 40, "only a handful of the findings are listed in each cell"
+
+
+def test_the_pack_list_total_is_the_real_count_and_a_bad_id_is_a_404(world):
+    org, owner, *_ = _assessed_org(world)
+    for _ in range(3):
+        _pack(world, org, owner)
+    assert _get(world, org, owner, "").json()["total"] == 3
+    for suffix in ("/not-a-uuid", "/not-a-uuid/pdf", "/not-a-uuid/html"):
+        assert _get(world, org, owner, suffix).status_code == 404
+
+
+def test_the_dpo_section_says_when_its_counts_were_read(world):
+    org, owner, *_ = _assessed_org(world)
+    pack = _pack(world, org, owner)
+    text = _collapse(world.rows("SELECT html FROM evidence_packs WHERE id = %s", (pack["id"],))[0]["html"])
+    assert "These counts were read on the day this pack was issued" in text
+
+
+def test_the_pack_scan_for_claim_language_uses_the_full_banned_list(world):
+    org, owner, *_ = _assessed_org(world)
+    pack = _pack(world, org, owner)
+    html = world.rows("SELECT html, pdf FROM evidence_packs WHERE id = %s", (pack["id"],))[0]
+    texts = [_collapse(html["html"]).lower(), _collapse(render.pdf_extract_text(bytes(html["pdf"]))).lower()]
+    for text in texts:
+        scrubbed = text.replace("tls certificate", "").replace("certificate", "")
+        for phrase in BANNED + ("certification", "adequate", "adequacy", "guarantee"):
+            assert phrase not in scrubbed, phrase
+
+
+def test_a_pack_without_the_dpo_section_does_not_stop_the_six_monthly_reminder(world, mail, run_days):
+    org, owner, *_ = _assessed_org(world)
+    _pack(world, org, owner, kind="readiness_pack", include_dpo=False)
+    assert world.rows("SELECT dpo FROM evidence_packs WHERE org_id = %s", (org,))[0]["dpo"] is None
+    now = datetime.now(timezone.utc) + timedelta(minutes=5)
+    asyncio.run(reminders.run_compliance_reminders(now=now, run_day=run_days()))
+    assert len(_notes(world, org)) == 1

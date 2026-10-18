@@ -1,8 +1,10 @@
 """The pack as a neutral document: headings, paragraphs, bullets and tables.
 
 The HTML and the PDF are two renderings of this one structure, so they carry the same text, source
-labels and disclaimer. It is built only from a snapshot's frozen content (plus the frozen DPO section
-and the issue time); nothing here reads live data.
+labels and disclaimer. It is built from a snapshot's frozen content plus the DPO section and the issue
+time. The DPO section is read when the pack is issued (for the window the snapshot fixes) and stored with
+the pack, so one pack never changes, but two packs from one snapshot can show different counts; the section
+says so.
 
 Wording rule (plan section 0): evidence is labelled and organised, never judged. Do not write
 "compliant", "certified", "satisfies", "is met" and the like; the tests scan every rendering for them.
@@ -14,6 +16,8 @@ from backend.app.compliance.register import DISCLAIMER
 
 PACK_VERSION = "cyphward-ndpa-pack-v1"
 PENDING = "reference pending review"
+MAX_REFERENCES = 12          # evidence references shown in one table cell
+MAX_REFERENCE_CHARS = 280    # and the longest one
 NOT_A_CAR = ("This document is not a Compliance Audit Return and does not replace one. A Compliance Audit Return "
              "for a data controller or processor of major importance is filed by a licensed DPCO. A DPCO may use "
              "this pack as supporting evidence.")
@@ -52,7 +56,12 @@ def evidence_references(req: Dict[str, Any], attestations: Dict[str, Dict[str, A
             link = f", link {att['evidence_link']}" if att.get("evidence_link") else ""
             parts.append(f"Customer answer by {who}, answered {day(att.get('attested_at'))}, "
                          f"expires {day(a.get('expires_at'))}{link}")
-    return "; ".join(parts) if parts else "No evidence recorded."
+    if len(parts) > MAX_REFERENCES:
+        # A table cell cannot grow without limit (a PDF row cannot split across pages); the rest stay in the snapshot.
+        hidden = len(parts) - MAX_REFERENCES
+        parts = [p[:MAX_REFERENCE_CHARS] for p in parts[:MAX_REFERENCES]]
+        parts.append(f"and {hidden} more references, all of them in the snapshot this pack was made from")
+    return "; ".join(p[:MAX_REFERENCE_CHARS] for p in parts) if parts else "No evidence recorded."
 
 
 def _worst_severity(req: Dict[str, Any]) -> int:
@@ -74,6 +83,8 @@ def _dpo_blocks(dpo: Dict[str, Any], snapshot: Dict[str, Any]) -> List[Dict[str,
         {"type": "para", "text": f"Supporting evidence for the data-security part of a DPO's six-monthly report ({ref}). "
                                  f"Window: {when(w['start'])} to {when(w['end'])}. Counts only; no incident titles or notes appear here."},
         {"type": "para", "text": NOT_A_CAR},
+        {"type": "para", "text": "These counts were read on the day this pack was issued, for a window the snapshot fixes. This pack "
+                                 "never changes, but another pack issued later from the same snapshot can show different counts."},
         {"type": "table", "head": ["Measure", "Count"], "rows": [
             ["Scans run in the window", str(sc["run"])],
             ["Scans by outcome", ", ".join(f"{k} {v}" for k, v in sorted(sc["by_status"].items())) or "none"],

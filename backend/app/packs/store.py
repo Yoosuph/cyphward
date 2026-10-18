@@ -5,6 +5,7 @@ HTML and PDF bytes with their sha256 and audits, all in one transaction. Reads s
 A second issue is a new row; nothing ever updates a pack. Every query is scoped by organisation.
 """
 import hashlib
+from uuid import UUID
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -49,18 +50,49 @@ def issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: s
         raise snapshots.Busy("Another pack or snapshot for this organisation is still being prepared.") from exc
 
 
+def _uuid(value: Any) -> Optional[str]:
+    try:
+        return str(UUID(str(value)))
+    except ValueError:
+        return None
+
+
+def _insert_pack(conn, org: Dict[str, Any], user_id: Optional[str], snap: Dict[str, Any], kind: str,
+                 include_dpo: bool, request_key: Optional[str]) -> Dict[str, Any]:
+    """Render and store one pack on an open transaction (the caller holds the organisation lock and has charged the quota)."""
+    org_id = str(org["id"])
+    content = snap["content"]
+    end = snap["created_at"]
+    section = dpo.build(org_id, end, content) if (kind == "dpo_section" or include_dpo) else None
+    issued_at = conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"].astimezone(timezone.utc)
+    doc = document.build(kind, snap, content, issued_at, section)
+    html_bytes = render.to_html(doc).encode("utf-8")
+    pdf_bytes = render.to_pdf(doc)
+    win = dpo.window_for(end) if section else {"start": None, "end": None}
+    row = conn.execute(
+        f"INSERT INTO evidence_packs (org_id, snapshot_id, kind, pack_version, issued_at, issued_by, window_start, "
+        f"window_end, dpo, html, html_sha256, pdf, pdf_sha256, request_key) "
+        f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {META}",
+        (org_id, str(snap["id"]), kind, document.PACK_VERSION, issued_at, user_id, win["start"], win["end"],
+         Jsonb(section) if section else None, html_bytes.decode("utf-8"), _sha(html_bytes), pdf_bytes,
+         _sha(pdf_bytes), request_key)).fetchone()
+    conn.execute(
+        "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
+        "VALUES (%s, %s, 'compliance.pack.issued', 'evidence_pack', %s, %s)",
+        (org_id, user_id, str(row["id"]), Jsonb({"kind": kind, "snapshot_id": str(snap["id"]),
+                                                  "html_sha256": row["html_sha256"]})))
+    return row
+
+
 def _issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: str, include_dpo: bool,
            request_key: Optional[str]) -> Dict[str, Any]:
     org_id = str(org["id"])
-    try:
-        snap = snapshots.get(org_id, snapshot_id)
-    except Exception:
-        snap = None
+    valid = _uuid(snapshot_id)
+    snap = snapshots.get(org_id, valid) if valid else None
     if not snap:
         raise SnapshotMissing()
     if not snapshots.verify(snap):
         raise SnapshotAltered()
-    content = snap["content"]
     with database.get_db() as conn:
         with conn.transaction():
             conn.execute(f"SET LOCAL lock_timeout = '{snapshots.LOCK_WAIT_MS}ms'")
@@ -73,26 +105,35 @@ def _issue(org: Dict[str, Any], user_id: Optional[str], snapshot_id: str, kind: 
                 if row:
                     return {"pack": row, "created": False}
             require_quota(org, "reports", exclude_snapshot_id=str(snap["id"]))
-            end = snap["created_at"]
-            section = dpo.build(org_id, end, content) if (kind == "dpo_section" or include_dpo) else None
-            issued_at = conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"].astimezone(timezone.utc)
-            doc = document.build(kind, snap, content, issued_at, section)
-            html_bytes = render.to_html(doc).encode("utf-8")
-            pdf_bytes = render.to_pdf(doc)
-            win = dpo.window_for(end) if section else {"start": None, "end": None}
-            row = conn.execute(
-                f"INSERT INTO evidence_packs (org_id, snapshot_id, kind, pack_version, issued_at, issued_by, window_start, "
-                f"window_end, dpo, html, html_sha256, pdf, pdf_sha256, request_key) "
-                f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {META}",
-                (org_id, str(snap["id"]), kind, document.PACK_VERSION, issued_at, user_id, win["start"], win["end"],
-                 Jsonb(section) if section else None, html_bytes.decode("utf-8"), _sha(html_bytes), pdf_bytes,
-                 _sha(pdf_bytes), request_key)).fetchone()
-            conn.execute(
-                "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
-                "VALUES (%s, %s, 'compliance.pack.issued', 'evidence_pack', %s, %s)",
-                (org_id, user_id, str(row["id"]), Jsonb({"kind": kind, "snapshot_id": str(snap["id"]),
-                                                          "html_sha256": row["html_sha256"]})))
+            row = _insert_pack(conn, org, user_id, snap, kind, include_dpo, request_key)
     return {"pack": row, "created": True}
+
+
+class KeyUsedWithoutPack(RuntimeError):
+    """The request key already belongs to a snapshot that has no pack. The API maps it to 409."""
+
+
+def issue_with_new_snapshot(org: Dict[str, Any], user_id: Optional[str], kind: str, *, include_dpo: bool = True,
+                            request_key: Optional[str] = None) -> Dict[str, Any]:
+    """Freeze the organisation's state and issue a pack from it in ONE transaction under one lock.
+
+    The snapshot, the pack and the quota charge commit together or not at all, so a failure (a busy slot, a
+    lock timeout, a render error) or N concurrent retries with one key can never leave a charged snapshot
+    behind. The snapshot write takes the build slot; the pack is built inside it (no second slot)."""
+    if kind not in KINDS:
+        raise ValueError("unknown pack kind")
+    org_id = str(org["id"])
+
+    def insert(conn, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        return _insert_pack(conn, org, user_id, snapshot, kind, include_dpo, request_key)
+
+    made = snapshots.create(org, user_id, request_key=request_key, on_insert=insert)
+    if made["created"]:
+        return {"pack": made["extra"], "created": True, "snapshot": made["snapshot"]}
+    existing = by_request_key(org_id, request_key) if request_key else None
+    if not existing:
+        raise KeyUsedWithoutPack()
+    return {"pack": existing, "created": False, "snapshot": made["snapshot"]}
 
 
 def summary(row: Dict[str, Any], months: int = snapshots.DEFAULT_RETENTION_MONTHS) -> Dict[str, Any]:
@@ -113,11 +154,14 @@ def listing(org_id: str, limit: int = 50) -> List[Dict[str, Any]]:
 def get(org_id: str, pack_id: str, *, body: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """One pack of this organisation; `body` is 'html' or 'pdf' to include those stored bytes."""
     columns = META + {"html": ", html", "pdf": ", pdf"}.get(body or "", "")
-    try:
-        return execute_one(f"SELECT {columns} FROM evidence_packs WHERE org_id = %s AND id = %s",
-                           (str(org_id), str(pack_id)))
-    except Exception:
+    valid = _uuid(pack_id)
+    if not valid:  # a malformed id is the same 404 as another organisation's id
         return None
+    return execute_one(f"SELECT {columns} FROM evidence_packs WHERE org_id = %s AND id = %s", (str(org_id), valid))
+
+
+def count(org_id: str) -> int:
+    return (execute_one("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s", (str(org_id),)) or {}).get("n", 0)
 
 
 def by_request_key(org_id: str, request_key: str) -> Optional[Dict[str, Any]]:
