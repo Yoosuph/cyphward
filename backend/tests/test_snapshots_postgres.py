@@ -556,3 +556,141 @@ def test_add_months_handles_month_ends_and_leap_years():
     assert add_months(utc(2026, 10, 18), 36) == utc(2029, 10, 18)
     assert add_months(utc(2028, 2, 29), 12) == utc(2029, 2, 28)
     assert add_months(utc(2026, 11, 30), 3) == utc(2027, 2, 28)
+
+
+# ── Review round 1: the shared pool, honest errors, and the gaps the reviewer named ───────────────────
+
+
+def test_a_busy_build_slot_gives_a_clean_503_and_writes_nothing(world, monkeypatch):
+    import threading
+    from backend.app.snapshots import store as snapshot_store
+    monkeypatch.setattr(snapshot_store, "_BUILD_SLOTS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(snapshot_store, "BUSY_WAIT_SECONDS", 0.2)
+    org, owner, *_ = _assessed_org(world)
+    snapshot_store._BUILD_SLOTS.acquire()
+    busy = _create(world, org, owner)
+    assert busy.status_code == 503 and busy.headers["Retry-After"] == "5"
+    assert world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"] == 0
+    snapshot_store._BUILD_SLOTS.release()
+    assert _create(world, org, owner).status_code == 201
+
+
+def test_a_held_organisation_lock_is_waited_for_only_briefly(world, monkeypatch):
+    import time
+    from backend.app.snapshots import store as snapshot_store
+    monkeypatch.setattr(snapshot_store, "LOCK_WAIT_MS", 300)
+    org, owner, *_ = _assessed_org(world)
+    holder = psycopg.connect(world.url, row_factory=dict_row)
+    try:
+        holder.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"snapshot:{org}",))
+        started = time.monotonic()
+        busy = _create(world, org, owner)
+        assert busy.status_code == 503 and time.monotonic() - started < 5
+    finally:
+        holder.rollback()
+        holder.close()
+    assert _create(world, org, owner).status_code == 201
+
+
+def test_at_most_a_few_builds_run_at_once_so_waiters_never_hold_pool_connections(world, monkeypatch):
+    import threading
+    import time
+    from backend.app.snapshots import builder, store as snapshot_store
+    orgs = [_assessed_org(world, name=f"Pool {i}")[:2] for i in range(8)]
+    running, peak, guard = [0], [0], threading.Lock()
+    real_build = builder.build
+
+    def counting_build(org, now=None):
+        with guard:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.15)
+        try:
+            return real_build(org, now)
+        finally:
+            with guard:
+                running[0] -= 1
+
+    monkeypatch.setattr(builder, "build", counting_build)
+    monkeypatch.setattr(snapshot_store, "BUSY_WAIT_SECONDS", 30)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = [f.result().status_code for f in [pool.submit(_create, world, o, u) for o, u in orgs]]
+    assert codes == [201] * 8
+    assert 1 < peak[0] <= 3, f"builds ran {peak[0]} at once; the agreed ceiling is 3"
+
+
+def test_data_that_keeps_changing_is_a_409_and_leaves_nothing(world, monkeypatch):
+    from itertools import count
+    from backend.app.snapshots import builder
+    ticker = count()
+    monkeypatch.setattr(builder, "fence", lambda org_id: str(next(ticker)))
+    org, owner, *_ = _assessed_org(world)
+    assert _create(world, org, owner).status_code == 409
+    assert world.rows("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (org,))[0]["n"] == 0
+
+
+def test_retrying_a_report_at_the_quota_limit_returns_the_first_report(world, monkeypatch):
+    _limit(monkeypatch, 1)
+    org, owner, *_ = _assessed_org(world)
+    body = {"request_key": "report-retry-0001"}
+    first = world.client.post("/api/v1/reports", json=body, headers=world.headers(owner, org))
+    again = world.client.post("/api/v1/reports", json=body, headers=world.headers(owner, org))
+    assert first.status_code == 201 and again.status_code == 201
+    assert again.json()["created"] is False and again.json()["report"]["id"] == first.json()["report"]["id"]
+    assert world.client.post("/api/v1/reports", json={}, headers=world.headers(owner, org)).status_code == 402
+
+
+def test_owner_names_recorded_at_answer_time_stay_in_the_issued_snapshot(world):
+    org, owner, *_ = _assessed_org(world)
+    store.record({"id": org}, owner, question_key="breach.response_plan", answer={"value": "yes"}, owner_user_id=owner)
+    made = _create(world, org, owner).json()["snapshot"]
+    attestations = _stored(world, made["id"])["content"]["compliance"]["attestations"]
+    assert [a["owner_name"] for a in attestations] == ["Snapshot Tester"]
+
+
+def test_retain_until_follows_the_organisations_retention_period(world):
+    from datetime import datetime
+    org, owner, *_ = _assessed_org(world)
+    _create(world, org, owner)
+    put = world.client.put("/api/v1/snapshots/retention", json={"months": 12}, headers=world.headers(owner, org))
+    assert put.status_code == 200
+    listing = world.client.get("/api/v1/snapshots", headers=world.headers(owner, org)).json()
+    only = listing["snapshots"][0]
+    created, until = datetime.fromisoformat(only["created_at"]), datetime.fromisoformat(only["retain_until"])
+    assert listing["retention_months"] == 12 and until.year == created.year + 1 and until.month == created.month
+    assert world.client.get("/api/v1/snapshots/retention", headers=world.headers(owner, org)).json()["retention_months"] == 12
+
+
+def test_the_snapshot_list_reports_the_real_total_and_a_bad_id_is_a_404(world):
+    org, owner, *_ = _assessed_org(world)
+    for _ in range(3):
+        assert _create(world, org, owner).status_code == 201
+    listing = world.client.get("/api/v1/snapshots", headers=world.headers(owner, org)).json()
+    assert listing["total"] == 3 and len(listing["snapshots"]) == 3
+    assert world.client.get("/api/v1/snapshots/not-a-uuid", headers=world.headers(owner, org)).status_code == 404
+
+
+def test_every_content_column_of_an_issued_report_is_guarded(world):
+    org, owner, *_ = _assessed_org(world)
+    other = world.client.post("/api/v1/reports", json={}, headers=world.headers(owner, org)).json()["report"]
+    report = world.client.post("/api/v1/reports", json={}, headers=world.headers(owner, org)).json()["report"]
+    admin_url = os.environ.get("CYPHWARD_TEST_DATABASE_ADMIN_URL")
+    if not admin_url:
+        pytest.skip("needs the table owner connection")
+    with psycopg.connect(admin_url) as owner_conn:
+        for change in ("title = 'edited'", "summary = '{}'::jsonb", "report_version = 'edited'",
+                       f"snapshot_id = '{other['snapshot_id']}'"):
+            with pytest.raises(psycopg.errors.RaiseException):
+                owner_conn.execute(f"UPDATE reports SET {change} WHERE id = %s", (report["id"],))
+            owner_conn.rollback()
+
+
+def test_retention_text_and_report_labels_never_claim_compliance(world):
+    from backend.app.api.snapshots import retention_note
+    org, owner, *_ = _assessed_org(world)
+    report = world.client.post("/api/v1/reports", json={}, headers=world.headers(owner, org)).json()["report"]
+    texts = [retention_note(36).lower(), retention_note(120).lower(), report["integrity_label"].lower(),
+             json.dumps(world.client.get("/api/v1/snapshots", headers=world.headers(owner, org)).json()).lower()]
+    for text in texts:
+        for phrase in BANNED + ("certification", "adequate", "adequacy", "guarantee", "meets the requirement"):
+            assert phrase not in text, phrase

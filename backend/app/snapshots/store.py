@@ -13,9 +13,11 @@ report generated from it appear together or not at all.
 """
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+import psycopg.errors
 from psycopg.types.json import Jsonb
 
 from backend.app.core import database
@@ -26,6 +28,20 @@ from backend.app.snapshots import builder
 MAX_ATTEMPTS = 3
 REQUEST_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,80}$")
 COLUMNS = "id, org_id, seq, schema_version, scope, content_sha256, request_key, created_by, created_at"
+
+
+# A snapshot build checks out one pooled connection for its transaction and, while it holds the per-organisation
+# lock, more of them for the reads it makes (the shared pool is small and its checkout times out after 5 s). So
+# waiting requests must not hold a connection: at most MAX_CONCURRENT_BUILDS run per process, the others wait on
+# this semaphore (holding nothing) and give up after BUSY_WAIT_SECONDS, and the lock wait itself is bounded.
+MAX_CONCURRENT_BUILDS = 3
+BUSY_WAIT_SECONDS = 6.0
+LOCK_WAIT_MS = 8000
+_BUILD_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_BUILDS)
+
+
+class Busy(RuntimeError):
+    """Too many snapshots are being prepared at once. The API maps it to 503 with Retry-After."""
 
 
 class StateChanging(RuntimeError):
@@ -44,9 +60,22 @@ def create(org: Dict[str, Any], user_id: Optional[str], *, request_key: Optional
     under the per-organisation lock, so two requests cannot both take the last unit. A retried request that
     finds its first snapshot is not charged again. A caller that charges the quota itself (it issues something
     that will reference this snapshot) passes charge=False."""
+    if not _BUILD_SLOTS.acquire(timeout=BUSY_WAIT_SECONDS):
+        raise Busy("Other snapshots are being prepared right now.")
+    try:
+        return _create(org, user_id, request_key, on_insert, charge)
+    except psycopg.errors.LockNotAvailable as exc:
+        raise Busy("Another snapshot for this organisation is still being prepared.") from exc
+    finally:
+        _BUILD_SLOTS.release()
+
+
+def _create(org: Dict[str, Any], user_id: Optional[str], request_key: Optional[str],
+            on_insert: Optional[Callable[[Any, Dict[str, Any]], Any]], charge: bool) -> Dict[str, Any]:
     org_id = str(org["id"])
     with database.get_db() as conn:
         with conn.transaction():
+            conn.execute(f"SET LOCAL lock_timeout = '{LOCK_WAIT_MS}ms'")
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"snapshot:{org_id}",))
             if request_key:
                 row = conn.execute(f"SELECT {COLUMNS} FROM assessment_snapshots WHERE org_id = %s AND request_key = %s",
@@ -84,6 +113,10 @@ def get(org_id: str, snapshot_id: str) -> Optional[Dict[str, Any]]:
     """One snapshot with its content, only if it belongs to this organisation."""
     return execute_one(f"SELECT {COLUMNS}, content FROM assessment_snapshots WHERE org_id = %s AND id = %s",
                        (str(org_id), str(snapshot_id)))
+
+
+def count(org_id: str) -> int:
+    return (execute_one("SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s", (str(org_id),)) or {}).get("n", 0)
 
 
 def listing(org_id: str, limit: int = 50) -> List[Dict[str, Any]]:

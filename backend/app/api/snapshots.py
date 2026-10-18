@@ -5,6 +5,7 @@ Every query is scoped by the caller's organization, so another organization's id
 Starter reads the readiness counts and the security group only (decision D1).
 """
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -39,7 +40,13 @@ class RetentionIn(BaseModel):
 def list_snapshots(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     months = store.retention_months(org)
     rows = [store.summary(r, months) for r in store.listing(org["id"])]
-    return {"snapshots": rows, "total": len(rows), "retention_months": months, "retention": retention_note(months)}
+    return {"snapshots": rows, "total": store.count(org["id"]), "retention_months": months, "retention": retention_note(months)}
+
+
+@router.get("/retention")
+def get_retention(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+    months = store.retention_months(org)
+    return {"retention_months": months, "retention": retention_note(months)}
 
 
 @router.put("/retention")
@@ -59,15 +66,19 @@ def create_snapshot(req: SnapshotIn, org: Dict[str, Any] = Depends(require_admin
         made = store.create(org, org.get("current_user_id"), request_key=req.request_key)
     except store.StateChanging:
         raise HTTPException(status_code=409, detail="Your data changed while the snapshot was being read. Try again.")
+    except store.Busy:
+        raise HTTPException(status_code=503, detail="Snapshots are being prepared right now. Try again in a few seconds.",
+                            headers={"Retry-After": "5"})
     return {"snapshot": store.summary(made["snapshot"], store.retention_months(org)), "created": made["created"]}
 
 
 @router.get("/{snapshot_id}")
 def get_snapshot(snapshot_id: str, org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     try:
-        row = store.get(org["id"], snapshot_id)
-    except Exception:  # a malformed id is the same 404 as another organization's id
-        row = None
+        UUID(snapshot_id)
+    except ValueError:  # a malformed id is the same 404 as another organization's id
+        raise HTTPException(status_code=404, detail="Snapshot not found.")
+    row = store.get(org["id"], snapshot_id)
     if not row:
         raise HTTPException(status_code=404, detail="Snapshot not found.")
     starter = status.is_starter(org)

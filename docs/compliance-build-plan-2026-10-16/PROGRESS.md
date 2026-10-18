@@ -439,6 +439,15 @@ Next: C1, as planned in `C1-plan.md`.
 7. **Retention setting (founder-agreed):** `organizations.evidence_retention_months`, default **36 (3 years)**, owner-set between 12 and 120 months (`PUT /api/v1/snapshots/retention`, audited). Each snapshot shows `retain_until`. It is a recorded policy, not a purge: the app role has no DELETE, so removal after the period is an operator-run step.
 8. **Owner names stay in issued snapshots and packs (founder-agreed).** A name recorded at the time of an answer is part of the issued record; erasure of that history is by deleting the organisation. The retention text says so.
 
+### Independent review before release (Packet 04, release run 18 Oct 2026)
+
+- **Reviewer:** a fresh subagent that did not write the code. Fable was requested first and was **not available** (it needs usage credits), so the review ran on **Opus**.
+- **Round 1: REJECT.** One blocker:
+  - **Connection-pool starvation.** A snapshot write held one pooled connection and the per-organisation lock, then checked out more connections for its reads, with no bound on the lock wait. With roughly 20 concurrent requests (one admin retrying in a loop is enough) the pool of 20 would fill with waiters, the lock holder could not get its second connection, and every other tenant's requests would time out. Quota did not help because it ran after the lock. **Fix:** at most 3 builds run per process (waiters hold nothing and give up after 6 s with a 503 and `Retry-After`), and the advisory-lock wait is bounded at 8 s. Tests: a busy slot gives a 503 and writes nothing; a held lock is waited for briefly; with 8 simultaneous builds at most 3 ran at once (the test fails if the cap is removed).
+  - **Should-fix, all done:** the Reports page showed "FROZEN SNAPSHOT" for any non-legacy value (now only when `integrity` is `snapshot`; otherwise "INTEGRITY NOT CONFIRMED"); the retention note, the owner-name disclosure and an owner-only retention control now appear on the Reports page; the Reports page now sends a `request_key` per click so a double-click is not charged twice; a malformed snapshot id is a clean 404 (the broad `except` that hid database errors is gone); `total` is the real count; added tests for the 409 path, a report retried at the quota limit, owner names kept in issued snapshots, `retain_until` following the setting, every guarded report column, and the banned-phrase list extended (certification, adequate, adequacy, guarantee, meets the requirement) over the retention text, labels and list responses.
+  - **Notes, accepted and recorded:** storage per snapshot is bounded by the monthly reports quota, not by size; `reports_snapshot_fk` has no ON DELETE action, so an operator purge after the retention period must delete a snapshot's reports first; the read fence does not cover `assets`, the organisation name or finding edits that do not bump `updated_at`.
+- **Production database role:** the API connects as `cyphward_app` (checked, username only), so the append-only grants apply in production.
+
 ### Limitations
 
 - A Nuclei tool version appears only where the worker recorded it in the scan results; older scans show none.
