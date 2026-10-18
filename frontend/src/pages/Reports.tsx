@@ -6,7 +6,56 @@ import { readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead, Loading } from '../components/ui';
-import { sendReportEmail } from '../lib/api';
+import { sendReportEmail, getEvidenceRetention, setEvidenceRetention, type EvidenceRetention } from '../lib/api';
+import { useAuth } from '../lib/auth';
+
+const RETENTION_CHOICES = [12, 24, 36, 48, 60, 84, 120];
+
+/** What happens to an issued report's record, in plain words, and (for the owner) how long to keep it. */
+function RetentionNote() {
+  const toast = useToast();
+  const { organization } = useAuth();
+  const isOwner = organization?.membership_role === 'owner';
+  const [info, setInfo] = useState<EvidenceRetention | null>(null);
+  const [months, setMonths] = useState(36);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getEvidenceRetention().then(res => { if (live) { setInfo(res); setMonths(res.retention_months); } }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+
+  if (!info) return null;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await setEvidenceRetention(months);
+      setInfo(res);
+      toast('Retention saved');
+    } catch (err: any) {
+      toast(err.message || 'Could not save retention');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="panel p-4 space-y-3" data-testid="evidence-retention">
+      <p className="text-xs text-soft leading-relaxed">{info.retention}</p>
+      {isOwner && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-soft">
+          <label htmlFor="retention-months">Keep issued records for</label>
+          <select id="retention-months" value={months} onChange={e => setMonths(Number(e.target.value))}
+                  className="bg-inset border border-line rounded px-2 py-1 text-ink">
+            {RETENTION_CHOICES.map(m => <option key={m} value={m}>{m} months</option>)}
+          </select>
+          <button type="button" onClick={save} disabled={saving || months === info.retention_months}
+                  className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line text-ink disabled:opacity-50">Save</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Reports() {
   const toast = useToast();
@@ -45,7 +94,8 @@ export default function Reports() {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const res = await createReport();
+      // One key per click: a double-click or a retry finds the first report instead of using another unit of the quota.
+      const res = await createReport({ request_key: `ui-${crypto.randomUUID()}` });
       if (res?.report) {
         toast('Report generated');
         await load();
@@ -130,6 +180,8 @@ export default function Reports() {
         }
       />
 
+      <RetentionNote />
+
       {loading ? (
         <Loading label="SAVED REPORTS" />
       ) : reports.length === 0 ? (
@@ -154,7 +206,16 @@ export default function Reports() {
             <tbody className="divide-y divide-line/60">
               {reports.map(r => (
                 <tr key={r.id} className="hover:bg-inset/40 transition-colors">
-                  <td className="stack-title px-4 py-3 text-ink font-semibold max-w-[280px] truncate">{r.title}</td>
+                  <td className="stack-title px-4 py-3 text-ink font-semibold max-w-[280px]">
+                    <div className="truncate">{r.title}</div>
+                    <div
+                      className="mt-1 text-[10px] font-normal text-soft whitespace-normal"
+                      title={r.integrity_label}
+                      data-testid="report-integrity"
+                    >
+                      {r.integrity === 'snapshot' ? 'FROZEN SNAPSHOT' : r.integrity === 'legacy' ? 'LEGACY · LIMITED EVIDENCE' : 'INTEGRITY NOT CONFIRMED'}
+                    </div>
+                  </td>
                   <td data-label="Domain" className="px-4 py-3 text-soft">{r.domain || '—'}</td>
                   <td data-label="Status" className="px-4 py-3">
                     <StatusChip level={r.status === 'ready' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn'}>

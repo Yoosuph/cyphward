@@ -19,6 +19,7 @@ import {
 } from '../lib/api';
 import QuestionnaireTab, { ToldUs } from './compliance/Questionnaire';
 import IncidentsTab from './compliance/Incidents';
+import PacksTab from './compliance/Packs';
 import DocumentsTab from './compliance/Documents';
 import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
 
@@ -33,11 +34,12 @@ const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', n
 const CARD = 'rounded-lg border border-line bg-raised';
 
 const DEFAULT_ZONE = 'Africa/Lagos';
-type Tab = 'readiness' | 'questions' | 'incidents' | 'documents';
+type Tab = 'readiness' | 'questions' | 'incidents' | 'packs' | 'documents';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'readiness', label: 'Readiness' },
   { key: 'questions', label: 'Answer questions' },
   { key: 'incidents', label: 'Incidents' },
+  { key: 'packs', label: 'Packs' },
   { key: 'documents', label: 'Documents' },
 ];
 
@@ -326,6 +328,9 @@ export default function Compliance() {
         <div role="tabpanel" aria-labelledby="tab-incidents"><IncidentsTab canEdit={canEdit} /></div>
       )}
 
+      {tab === 'packs' && (
+        <div role="tabpanel" aria-labelledby="tab-packs"><PacksTab canEdit={canEdit} zone={zone} /></div>
+      )}
       {tab === 'documents' && (
         <div role="tabpanel" aria-labelledby="tab-documents"><DocumentsTab canEdit={canEdit} /></div>
       )}

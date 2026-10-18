@@ -444,6 +444,10 @@ export interface ReportRow {
   created_at: string;
   updated_at: string;
   html?: string | null;
+  snapshot_id?: string | null;
+  report_version?: string | null;
+  integrity?: 'snapshot' | 'legacy';
+  integrity_label?: string;
 }
 
 export async function listReports(): Promise<{ reports: ReportRow[]; total: number }> {
@@ -452,7 +456,7 @@ export async function listReports(): Promise<{ reports: ReportRow[]; total: numb
   return { reports: [], total: 0 };
 }
 
-export async function createReport(payload?: { domain_id?: string; title?: string }): Promise<{ report: ReportRow } | null> {
+export async function createReport(payload?: { domain_id?: string; title?: string; request_key?: string }): Promise<{ report: ReportRow } | null> {
   return apiFetch('/reports', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -1185,6 +1189,56 @@ export const createIncident = (body: IncidentCreate) =>
 
 export const updateIncident = (id: string, changes: IncidentChanges) =>
   apiFetch<Incident>(`/compliance/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }, true) as Promise<Incident>;
+
+// ============================================================================
+// Evidence packs (packet C4). Growth plan; members read, owners and admins issue.
+// ============================================================================
+export type PackKind = 'readiness_pack' | 'dpo_section';
+
+export interface EvidencePack {
+  id: string;
+  snapshot_id: string;
+  kind: PackKind;
+  pack_version: string;
+  issued_at: string;
+  issued_by: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  html_sha256: string;
+  pdf_sha256: string;
+  retain_until: string;
+}
+
+export interface PackList {
+  packs: EvidencePack[];
+  total: number;
+  notice: string;
+  retention_months: number;
+  retention: string;
+}
+
+export const listPacks = () => apiFetch<PackList>('/packs', undefined, true) as Promise<PackList>;
+
+export const issuePack = (body: { kind: PackKind; include_dpo?: boolean; request_key?: string }) =>
+  apiFetch<{ pack: EvidencePack; created: boolean }>('/packs', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ pack: EvidencePack; created: boolean }>;
+
+/** The stored bytes of an issued pack. A plain link cannot send the session headers, so this fetches a Blob. */
+export async function downloadPack(id: string, format: 'html' | 'pdf'): Promise<Blob> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  const res = await fetch(`${API_BASE}/packs/${encodeURIComponent(id)}/${format}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(orgId ? { 'X-Organization-Id': orgId } : {}) },
+  });
+  if (!res.ok) throw new Error(res.status === 403 ? 'Evidence packs are part of the Growth plan.' : 'The download failed. Try again.');
+  return res.blob();
+}
+
+// How long issued snapshots (and packs) are kept. Members read it; the owner sets it.
+export interface EvidenceRetention { retention_months: number; retention: string }
+export const getEvidenceRetention = () =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', undefined, true) as Promise<EvidenceRetention>;
+export const setEvidenceRetention = (months: number) =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', { method: 'PUT', body: JSON.stringify({ months }) }, true) as Promise<EvidenceRetention>;
 
 // ---- AI-drafted documents (C5) ----
 export type DocumentKind = 'privacy_policy' | 'cookie_notice' | 'breach_response_plan' | 'retention_schedule';

@@ -60,9 +60,15 @@ def generate_executive_report_html(
     coverage_label: Optional[str] = None,
     domain_line: Optional[str] = None,
     nuclei_line: Optional[str] = None,
+    generated_at: Optional[datetime] = None,
+    report_ref: Optional[str] = None,
+    integrity_lines: Optional[List[str]] = None,
 ) -> str:
     """
     Renders a clean, light-themed HTML security report email in plain English.
+
+    A report issued from a snapshot passes the snapshot's own time, reference and integrity lines, so
+    the same snapshot always renders the same page. Without them the page is stamped with the current time.
     Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
 
     A graded score (grade plus scope_label) is described as valid only within the
@@ -86,8 +92,9 @@ def generate_executive_report_html(
         score_suffix = ""
         grade_text = "not assessed"
         grade_line = f"{escape(posture_label or 'Not assessed')} · Insufficient evidence for a score"
-    report_ref = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    stamp = generated_at or datetime.now(timezone.utc)
+    report_ref = report_ref or stamp.strftime("%Y%m%d-%H%M")
+    generated_at = stamp.strftime("%Y-%m-%d %H:%M")
 
     if not summary_text:
         if assessed and grade and scope_label:
@@ -129,7 +136,7 @@ def generate_executive_report_html(
     domain = escape(domain or "No verified domain")
     summary_text = escape(summary_text)
 
-    scope_lines = [line for line in (coverage_label, domain_line, nuclei_line) if line]
+    scope_lines = [line for line in (coverage_label, domain_line, nuclei_line, *(integrity_lines or [])) if line]
     scope_html = ""
     if scope_lines:
         scope_items = "".join(

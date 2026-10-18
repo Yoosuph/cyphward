@@ -71,8 +71,11 @@ def entitlements_for(org: Dict[str, Any]) -> Dict[str, Any]:
     return {"plan": slug, **PLANS[slug]}
 
 
-def usage_for_org(org_id: str) -> Dict[str, int]:
-    """Current quota usage for an organization."""
+def usage_for_org(org_id: str, exclude_snapshot_id: Optional[str] = None) -> Dict[str, int]:
+    """Current quota usage for an organization.
+
+    `exclude_snapshot_id` leaves one snapshot out of the count: a pack about to be issued from it turns that
+    snapshot's unit into the pack's unit, so issuing must not count the snapshot as well."""
     scans = execute_one(
         """
         SELECT count(*) AS n FROM scans
@@ -87,6 +90,22 @@ def usage_for_org(org_id: str) -> Dict[str, int]:
         """,
         (org_id,),
     )
+    # Issued records are report-sized units: a report, an evidence pack, and a snapshot that neither a report
+    # nor a pack belongs to (those are already counted through the report or pack).
+    snapshots = execute_one(
+        """
+        SELECT count(*) AS n FROM assessment_snapshots s
+        WHERE s.org_id = %s AND s.created_at >= date_trunc('month', now())
+          AND (%s::uuid IS NULL OR s.id <> %s::uuid)
+          AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.org_id = s.org_id AND r.snapshot_id = s.id)
+          AND NOT EXISTS (SELECT 1 FROM evidence_packs p WHERE p.org_id = s.org_id AND p.snapshot_id = s.id)
+        """,
+        (org_id, exclude_snapshot_id, exclude_snapshot_id),
+    )
+    packs = execute_one(
+        "SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s AND created_at >= date_trunc('month', now())",
+        (org_id,),
+    )
     domains = execute_one(
         "SELECT count(*) AS n FROM domains WHERE org_id = %s", (org_id,)
     )
@@ -96,7 +115,7 @@ def usage_for_org(org_id: str) -> Dict[str, int]:
     )
     return {
         "monthly_scans": (scans or {}).get("n", 0),
-        "monthly_reports": (reports or {}).get("n", 0),
+        "monthly_reports": (reports or {}).get("n", 0) + (snapshots or {}).get("n", 0) + (packs or {}).get("n", 0),
         "domains": (domains or {}).get("n", 0),
         "members": (members or {}).get("n", 0),
     }
@@ -113,7 +132,7 @@ def monthly_scan_count(org_id: str) -> int:
     return (row or {}).get("n", 0)
 
 
-def require_quota(org: Dict[str, Any], kind: str) -> Dict[str, Any]:
+def require_quota(org: Dict[str, Any], kind: str, *, exclude_snapshot_id: Optional[str] = None) -> Dict[str, Any]:
     """Enforce one quota; raises 402 with the plan limit when exhausted.
 
     `kind` is one of scans/domains/reports/members. Returns the resolved
@@ -128,7 +147,7 @@ def require_quota(org: Dict[str, Any], kind: str) -> Dict[str, Any]:
     limit: Optional[int] = ent[quota_key]
     if limit is None:
         return ent
-    usage = usage_for_org(str(org["id"]))
+    usage = usage_for_org(str(org["id"]), exclude_snapshot_id)
     used = usage[{"scans": "monthly_scans", "reports": "monthly_reports"}.get(kind, kind)]
     if used >= limit:
         label = ent["label"]
