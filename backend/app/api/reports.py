@@ -241,6 +241,9 @@ def create_report(
         made = snapshots.create(org, org.get("current_user_id"), request_key=req.request_key, on_insert=insert_report)
     except snapshots.StateChanging:
         raise HTTPException(status_code=409, detail="Your data changed while the report was being prepared. Try again.")
+    except snapshots.Busy:
+        raise HTTPException(status_code=503, detail="Reports are being prepared right now. Try again in a few seconds.",
+                            headers={"Retry-After": "5"})
     if made["created"]:
         log_audit(org["id"], org.get("current_user_id"), "report.generated", "report", str(made["extra"]["id"]))
         return {"report": _report_row(org["id"], made["extra"]["id"]), "created": True}

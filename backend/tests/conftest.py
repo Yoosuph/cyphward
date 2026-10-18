@@ -196,6 +196,12 @@ class FakeStore:
         if s.startswith("SELECT DISTINCT a.hostname AS host, f.evidence"):
             return []  # nuclei re-verification targets; the real query runs in the PostgreSQL tests
 
+        if s.startswith("SELECT count(*) AS n FROM assessment_snapshots s WHERE s.org_id = %s"):
+            # Snapshots no report belongs to count toward the monthly reports quota (the real query runs in PostgreSQL).
+            referenced = {r.get("snapshot_id") for r in self.reports}
+            return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x
+                              and x["id"] not in referenced and _in_current_month(x.get("created_at")))}]
+
         if s == 'SELECT clock_timestamp() AS claim_now':
             return [{'claim_now': datetime.now(timezone.utc)}]
         if s.startswith('SELECT id, org_id, status, claimed_by, claim_generation'):
@@ -1573,8 +1579,10 @@ class FakeStore:
             return [{"id": row["id"]}]
 
         # --- assessment snapshots (the real write path runs in the PostgreSQL tests) ---
-        if s.startswith("SELECT pg_advisory_xact_lock"):
+        if s.startswith("SELECT pg_advisory_xact_lock") or s.startswith("SET LOCAL lock_timeout"):
             return []
+        if s == "SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s":
+            return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x)}]
         if s.startswith("SELECT id, org_id, seq") and "request_key = %s" in s:
             return [x for x in self.snapshots if x["org_id"] == params[0] and x.get("request_key") == params[1]][:1]
         if s.startswith("SELECT coalesce(max(seq), 0) + 1 AS seq"):

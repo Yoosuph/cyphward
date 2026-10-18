@@ -1229,3 +1229,10 @@ export async function downloadPack(id: string, format: 'html' | 'pdf'): Promise<
   if (!res.ok) throw new Error(res.status === 403 ? 'Evidence packs are part of the Growth plan.' : 'The download failed. Try again.');
   return res.blob();
 }
+
+// How long issued snapshots (and packs) are kept. Members read it; the owner sets it.
+export interface EvidenceRetention { retention_months: number; retention: string }
+export const getEvidenceRetention = () =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', undefined, true) as Promise<EvidenceRetention>;
+export const setEvidenceRetention = (months: number) =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', { method: 'PUT', body: JSON.stringify({ months }) }, true) as Promise<EvidenceRetention>;

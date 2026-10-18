@@ -16,6 +16,14 @@
 --
 -- Additive. Apply before the API that writes it.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
+-- Retention period for issued snapshots and packs, in months (default 3 years). It is a recorded policy:
+-- the app role cannot delete, so removal after the period is an operator-run step, never automatic.
+ALTER TABLE organizations
+  ADD COLUMN IF NOT EXISTS evidence_retention_months integer NOT NULL DEFAULT 36
+    CHECK (evidence_retention_months BETWEEN 12 AND 120);
 
 CREATE TABLE IF NOT EXISTS assessment_snapshots (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
