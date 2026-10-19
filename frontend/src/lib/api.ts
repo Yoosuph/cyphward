@@ -1025,7 +1025,7 @@ export interface ComplianceRequirement {
   findings: ComplianceFindingRef[];
   informational_findings: ComplianceFindingRef[];
   policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
-  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string }[];
+  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string; headline?: boolean }[];
   answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
               owner_name: string | null; expires_at: string | null }[];
 }

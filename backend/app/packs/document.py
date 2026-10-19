@@ -41,14 +41,39 @@ def clause_label(req: Dict[str, Any]) -> str:
     return req["clause"] if req["clause_verified"] else f"{req['clause']} · {PENDING}"
 
 
-def evidence_references(req: Dict[str, Any], attestations: Dict[str, Dict[str, Any]]) -> str:
+OBSERVED_SOURCES = ("tool_observed", "externally_observed")
+
+
+def evidence_items(req: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The requirement's evidence items, the headline one first (works on snapshots frozen before `headline` existed).
+
+    One rule: the Status and Source columns describe `items[0]`, and its evidence is written first; any other
+    source follows on its own labelled line ("Also: ...")."""
+    head = req.get("source")
+    if not head:
+        return []
+    items = [dict(s) for s in req.get("sources") or []]
+    if not any(s["source"] == head for s in items):
+        items.append({"source": head, "source_label": req["source_label"], "status": req["status"],
+                      "status_label": req["status_label"]})
+    for item in items:
+        if item["source"] == head:  # the headline item carries the row's own status
+            item["status"], item["status_label"] = req["status"], req["status_label"]
+    return sorted(items, key=lambda i: i["source"] != head)
+
+
+def _segment_parts(item: Dict[str, Any], req: Dict[str, Any], attestations: Dict[str, Dict[str, Any]],
+                   with_findings: bool) -> List[str]:
     parts: List[str] = []
-    for d in req["domains"]:
-        if d.get("source"):
-            scan = f", scan {d['scan_id'][:8]}" if d.get("scan_id") else ""
-            parts.append(f"{d['domain']}: {d['status_label']}, {d['source_label']}, observed {when(d.get('observed_at'))}{scan}")
-    for f in req["findings"]:
-        parts.append(f"Finding: {f['title']} ({f['severity']}, {f['status']})")
+    if item["source"] in OBSERVED_SOURCES:
+        for d in req["domains"]:
+            if d.get("source") == item["source"]:
+                scan = f", scan {d['scan_id'][:8]}" if d.get("scan_id") else ""
+                parts.append(f"{d['domain']}: {d['status_label']}, observed {when(d.get('observed_at'))}{scan}")
+        if with_findings:
+            for f in req["findings"]:
+                parts.append(f"Finding: {f['title']} ({f['severity']}, {f['status']})")
+        return parts or [f"{item['status_label']}, nothing observed yet"]
     for a in req["answers"]:
         if a.get("owner_name") or a.get("expires_at"):
             who = a.get("owner_name") or "owner not recorded"
@@ -56,12 +81,30 @@ def evidence_references(req: Dict[str, Any], attestations: Dict[str, Dict[str, A
             link = f", link {att['evidence_link']}" if att.get("evidence_link") else ""
             parts.append(f"Customer answer by {who}, answered {day(att.get('attested_at'))}, "
                          f"expires {day(a.get('expires_at'))}{link}")
-    if len(parts) > MAX_REFERENCES:
-        # A table cell cannot grow without limit (a PDF row cannot split across pages); the rest stay in the snapshot.
-        hidden = len(parts) - MAX_REFERENCES
-        parts = [p[:MAX_REFERENCE_CHARS] for p in parts[:MAX_REFERENCES]]
-        parts.append(f"and {hidden} more references, all of them in the snapshot this pack was made from")
-    return "; ".join(p[:MAX_REFERENCE_CHARS] for p in parts) if parts else "No evidence recorded."
+    return [item["status_label"]] + (parts or ["no answer recorded yet"])
+
+
+def _capped(parts: List[str], limit: int) -> List[str]:
+    if len(parts) <= limit:
+        return [p[:MAX_REFERENCE_CHARS] for p in parts]
+    # A table cell cannot grow without limit (a PDF row cannot split across pages); the rest stay in the snapshot.
+    hidden = len(parts) - limit
+    return [p[:MAX_REFERENCE_CHARS] for p in parts[:limit]] + [
+        f"and {hidden} more references, all of them in the snapshot this pack was made from"]
+
+
+def evidence_references(req: Dict[str, Any], attestations: Dict[str, Dict[str, Any]]) -> str:
+    items = evidence_items(req)
+    if not items:
+        return "No evidence recorded."
+    first_observed = next((i["source"] for i in items if i["source"] in OBSERVED_SOURCES), None)
+    lines = []
+    for n, item in enumerate(items):
+        parts = _segment_parts(item, req, attestations, item["source"] == first_observed)
+        parts = _capped(parts, (MAX_REFERENCES if len(items) == 1 else MAX_REFERENCES - 3 * (len(items) - 1)) if n == 0
+                        else 2)
+        lines.append(("Also: " if n else "") + f"{item['source_label']}: " + "; ".join(parts))
+    return "\n".join(lines)
 
 
 def _worst_severity(req: Dict[str, Any]) -> int:

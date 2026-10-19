@@ -609,3 +609,28 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 2. **Removal after the retention period is an operator step.** A snapshot that a report points to cannot be purged until that report is deleted first (`reports_snapshot_fk` has no ON DELETE action); write the purge runbook before the first snapshot reaches 36 months.
 3. **Accepted should-fix items,** each recorded above with its reviewer: threadpool occupancy and one organisation taking all three build slots (add `pg_try_advisory_xact_lock`, a per-organisation slot and a rate limit on the snapshot and report endpoints); the DPO counts being read at pack issue time; a request key raced on both pack paths can give a 500 or an earlier pack of another kind; hardening of the banned-word filter for accented Latin letters and hyphen-plus-space splits in customer name fields.
 
+
+## PR-A: one row, one evidence item (status, source and evidence agree)
+
+**Problem (found in the INNOVATECH readiness pack).** The row "DPO contact published" read Status "Awaiting your input", Source "Customer attested", Evidence "cyphward.com: Not assessed, Externally observed, ...". **Root cause:** for a requirement with both an observed result and a customer answer, `attestations.merge` picks the headline status and source from one side (here the answer side), but the requirement's `domains` list is always the observed side, and `packs/document.py: evidence_references` always printed the domain lines first. Three cells, two different evidence items.
+
+**The one rule.** The headline Status and Source always describe the same evidence item, and that item is written first in the evidence cell, led by its source label. When a second source exists it follows on its own line, `Also: <source>: ...`, with its own status. Nobody reads one source's status next to the other's evidence. The headline-choice precedence in `merge` is unchanged (present beats gap beats awaiting; observed wins ties).
+
+**What changed (new snapshots and packs only).**
+- `compliance/status.py`: `sources` is now ordered headline-first and each item has `headline`; a single-source requirement gets its own one-item `sources` (it had none), so `(status, source)` is always a pair in `sources`. The /comply row shows one line: "The status above comes from <source> evidence. Also on this requirement: ...".
+- `snapshots/builder.py`: copies `headline`; `schema_version` stays 1; no stored snapshot is rewritten.
+- `packs/document.py`: `evidence_items` / `evidence_references` follow the rule. They also read snapshots frozen before this change (they work from `source`, `sources` and `domains`, not from the new flag). The cell stays capped: 8 references of 200 characters in all (5 for the headline source plus 2 for the other, each with a "more" line).
+- `packs/render.py`: a newline in a cell becomes `<br>` in HTML and a line break in the PDF.
+- Issued packs are stored bytes and are served as stored; nothing re-renders them. The pack version string is still `cyphward-ndpa-pack-v1` in this PR; PR-B introduces v2.
+
+**Tests.** Full backend suite on the local database: 1168 passed, 16 skipped; the CI PostgreSQL list (packs test file extended) passes; frontend build and the four browser suites pass. `test_pack_row_consistency.py` (pure, 30 tests): every requirement of the real register through 5 observed results x 5 customer-answer states (present, gap, not assessed, expired, none; yes, no, not sure, expired, none), asserting on the /comply view, the snapshot content, the pack document, the HTML and the text extracted from the PDF that the row's pair is in `sources`, `sources[0]` is the single headline item, the evidence text starts with the headline source label, other sources follow as `Also:` lines, and no banned phrase appears (HTML and PDF text). Regression test built from the production combination; a snapshot frozen before this rule; a bounded cell with 400 domains and 600 findings. Postgres test `test_dpo_contact_row_shows_...also_line` issues a real pack. Mutation checks: unsorted `sources` in either layer (16-17 of 30 combinations fail), observed-first evidence (17 fail). One existing fixture in `test_packs_postgres.py` (600 findings) now also sets the requirement's source, as real data always does.
+
+**Limitations.** The "Also:" line for the observed side uses the domain's own status (for example "Not assessed") while the requirement-level observed status in `sources` can read "Awaiting your input" (the privacy mapping turns "nothing found yet" into awaiting when the customer can attest). Both are true at their level; the pack shows the domain level. The frontend line is plain text and has no browser assertion of its own.
+
+### Decisions for Yusuf (PR-A)
+
+| # | Decision | Default applied |
+|---|---|---|
+| A-1 | Which source is the headline | Unchanged: present, then gap, then the customer's answer; ties go to the answer. Only the presentation is fixed. |
+| A-2 | Second source in a pack row | Shown on its own "Also:" line with its own status. |
+| A-3 | Pack version label | Stays v1 in this PR; v2 arrives with the branded pack in PR-B. |
