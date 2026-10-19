@@ -926,7 +926,7 @@ def test_the_review_text_validator_refuses_every_banned_phrase_and_control_chara
             practitioner.clean_text(f"We found it {phrase.upper()} today", "Comment")
     assert practitioner.clean_text("  line\x00 one\x07 ", "Comment") == "line one"
     assert practitioner.clean_text("   ", "Comment") is None
-    for fine in ("Checked this method against the Act", "The analysis met my expectations of the draft", "Read s.25 twice"):
+    for fine in ("Checked this method against the Act", "The analysis was thorough", "Read s.25 twice"):
         assert practitioner.clean_text(fine, "Comment") == fine
     for refused in ("Not compliant yet", "non-compliant", "It is met."):
         with pytest.raises(practitioner.TextError):
@@ -1064,7 +1064,11 @@ ADVERSARIAL = [
     "\uff43\uff4f\uff4d\uff50\uff4c\uff49\uff41\uff4e\uff54", "\U0001d41c\U0001d428\U0001d426\U0001d429\U0001d425\U0001d422\U0001d41a\U0001d427\U0001d42d",
     "com\u200bpliant", "c\u043empliant", "com-pliant", "c.o.m.p.l.i.a.n.t", "Certif\u00ADied", "It satisfies the Act", "fully meets it",
     "This is adequate", "we guarantee it", "Fulfils s.25",
+    "c0mpliant", "compIiant", "c\u00f6mpliant", "\u0441\u043e\u043c\u0440li\u0430nt", "c o m p l i a n t", "compl iant", "Requirement met.",
+    "They meet s.25.", "In line with the NDPA; no gaps", "Lawful and sufficient.", "ndpa-compliant", "certification done",
 ]
+ORDINARY = ["TLS certificate on the site was reviewed", "Board approval minutes seen", "Checked this method against the Act",
+            "Meeting minutes and approval records were seen", "Read the clause and the explanatory notes", "Looked at the DPO appointment letter"]
 
 
 @pytest.mark.parametrize("text", ADVERSARIAL)
@@ -1172,3 +1176,69 @@ def test_a_failed_session_audit_is_tried_again_on_the_next_request(rw):
             conn.execute("DROP FUNCTION c6_fail_session()")
     assert rw.w.client.get(f"{RB}/overview", headers=_h(rw, a.uid, a.org)).status_code == 200
     assert len(_audit(rw, a.org, "compliance.reviewer.session")) == 1
+
+
+@pytest.mark.parametrize("text", ORDINARY)
+def test_ordinary_review_wording_is_not_over_blocked(rw, text):
+    a = _active(rw)
+    assert practitioner.violation(text) is None
+    assert _review(rw, a, outcome="reviewed_with_comments", comment=text).status_code == 201
+    assert _clause(rw, a, note=text).status_code == 201
+
+
+def test_a_reviewer_email_domain_that_states_a_conclusion_is_withheld_not_printed(rw):
+    org, owner = rw.setup_org()
+    uid, email = rw.make_user(email=f"ada-{uuid4().hex[:6]}@ndpa-compliant-certified.test")
+    assert rw.grant(org, owner, email).status_code == 201
+    a = SimpleNamespace(uid=uid, org=org)
+    label = _review(rw, a).json()["practitioner_review"]["label"]
+    assert "email domain withheld" in label and "compliant" not in label.lower() and "certified" not in label.lower()
+    clause = _clause(rw, a).json()["clause_review"]["label"]
+    assert "email domain withheld" in clause and "compliant" not in clause.lower()
+    seen = json.dumps(rw.w.client.get(f"/api/v1/compliance/requirements/{KEY}", headers=_h(rw, owner, org)).json()["clause_review"]).lower()
+    assert "compliant" not in seen
+
+
+def test_a_request_authenticated_before_a_takeover_cannot_pass_or_write_after_it(rw, monkeypatch):
+    from backend.app.core import auth as core_auth
+    org, owner = rw.setup_org()
+    victim = f"race-{uuid4().hex[:6]}@dpco.test"
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: None)
+    attacker = rw.w.client.post("/api/v1/auth/register", json={"email": victim, "password": "attacker-password-1", "full_name": "Mallory"}).json()
+    rw.extra_profile(victim)
+    assert rw.grant(org, owner, victim).status_code == 201
+    # The request is authenticated (get_current_user) while the account is still the attacker's.
+    user = core_auth.get_current_user(authorization=f"Bearer {attacker['access_token']}")
+    assert user["session_id"]
+    google_mod._upsert_google_profile(victim, "Dr Real Practitioner")  # commits: verified, sessions revoked
+    with pytest.raises(Exception) as refused:
+        reviewer.require_reviewer(user=user, x_organization_id=org)
+    assert getattr(refused.value, "status_code", None) == 403
+    # And a context that already passed the access check cannot write once the session is gone.
+    grant_id = rw.w.rows("SELECT id FROM compliance_reviewer_grants WHERE org_id = %s", (org,))[0]["id"]
+    ctx = {"grant_id": grant_id, "org_id": org, "user_id": user["id"], "email": victim, "full_name": "Mallory",
+           "session_id": user["session_id"]}
+    with pytest.raises(reviewer.NoAccess):
+        reviewer.record_review(ctx, KEY, "reviewed", None)
+    assert rw.w.rows("SELECT 1 FROM compliance_practitioner_reviews WHERE org_id = %s", (org,)) == []
+
+
+def test_concurrent_duplicate_request_keys_give_one_record_and_no_errors(rw):
+    a = _active(rw)
+    barrier = Barrier(6)
+
+    def go(i):
+        from fastapi.testclient import TestClient
+        from backend.app.main import app
+        barrier.wait()
+        return TestClient(app).post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed", "request_key": "same-key-0001"},
+                                    headers=_h(rw, a.uid, a.org)).status_code
+
+    with ThreadPoolExecutor(6) as pool:
+        codes = list(pool.map(go, range(6)))
+    assert codes == [201] * 6
+    assert len(rw.w.rows("SELECT 1 FROM compliance_practitioner_reviews WHERE org_id = %s", (a.org,))) == 1
+    assert len(_audit(rw, a.org, "compliance.reviewer.review_recorded")) == 1
+    differs = rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed_with_comments", "comment": "Different", "request_key": "same-key-0001"},
+                               headers=_h(rw, a.uid, a.org))
+    assert differs.status_code == 422

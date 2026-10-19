@@ -82,6 +82,11 @@ ACTIVE_SQL = """
     FROM compliance_reviewer_grants g
     JOIN profiles p ON p.id = %(uid)s AND lower(p.email) = g.reviewer_email AND p.email_verified_at IS NOT NULL
     WHERE g.revoked_at IS NULL AND g.expires_at > clock_timestamp()
+      -- The session that authenticated the request must still be live in this same statement: a takeover of an
+      -- unverified account revokes its sessions in the transaction that verifies the email, so a request
+      -- authenticated just before it cannot pass here once it has committed.
+      AND EXISTS (SELECT 1 FROM auth_sessions s WHERE s.id = %(sid)s AND s.user_id = p.id AND s.revoked_at IS NULL
+                  AND s.expires_at > clock_timestamp())
       AND NOT EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = g.org_id AND m.user_id = p.id)
 """
 
@@ -94,12 +99,12 @@ def _uuid(value: Any) -> Optional[str]:
         return None
 
 
-def active_grants(user_id: str) -> List[Dict[str, Any]]:
+def active_grants(user_id: str, session_id: Optional[str]) -> List[Dict[str, Any]]:
     """Every organisation this account may review right now, with the organisation's name."""
     rows = execute_query(
         "SELECT a.grant_id, a.org_id, a.purpose, a.expires_at, o.name AS org_name "
         f"FROM ({ACTIVE_SQL}) a JOIN organizations o ON o.id = a.org_id ORDER BY o.name, a.grant_id",
-        {"uid": str(user_id)}) or []
+        {"uid": str(user_id), "sid": _uuid(session_id)}) or []
     return rows
 
 
@@ -147,13 +152,13 @@ def require_reviewer(
     if not org_id:
         raise denied()
     grant = execute_one(f"SELECT a.* FROM ({ACTIVE_SQL}) a WHERE a.org_id = %(org)s",
-                        {"uid": str(user["id"]), "org": org_id})
+                        {"uid": str(user["id"]), "sid": _uuid(user.get("session_id")), "org": org_id})
     if not grant:
         raise denied()
     org = execute_one("SELECT * FROM organizations WHERE id = %s", (org_id,))
     if not org or status.is_starter(org):
         raise denied()
-    ctx = {**grant, "org": org, "user": user}
+    ctx = {**grant, "org": org, "user": user, "session_id": _uuid(user.get("session_id"))}
     _note_session(ctx)
     return ctx
 
@@ -369,6 +374,13 @@ def _display_name(ctx: Dict[str, Any]) -> str:
 KEY = re.compile(r"^[A-Za-z0-9._:-]{8,80}$")
 
 
+def _same_request(row: Dict[str, Any], grant_id: str, key: str, columns: str, values: tuple) -> None:
+    names = [c.strip() for c in columns.split(",")]
+    if (str(row["grant_id"]) != grant_id or row["requirement_key"] != key
+            or any(row[n] != v for n, v in zip(names, values))):
+        raise GrantError("That request_key was already used for a different request.")
+
+
 def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action: str, resource_type: str,
            meta: Dict[str, Any], key: str, request_key: Optional[str]) -> Dict[str, Any]:
     """Insert one record under a SHARE lock on the grant, which makes a concurrent revocation wait, and audit it
@@ -387,20 +399,29 @@ def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action:
                 live = conn.execute(
                     "SELECT 1 FROM compliance_reviewer_grants WHERE id = %s AND org_id = %s AND revoked_at IS NULL "
                     "AND expires_at > clock_timestamp() FOR SHARE", (grant_id, org_id)).fetchone()
-                if not live:
+                # The session must still be live, and stays so until this write commits (a takeover that revokes it waits).
+                session = conn.execute(
+                    "SELECT 1 FROM auth_sessions WHERE id = %s AND user_id = %s AND revoked_at IS NULL "
+                    "AND expires_at > clock_timestamp() FOR SHARE", (ctx.get("session_id"), user_id)).fetchone()
+                if not live or not session:
                     raise NoAccess()
                 if request_key:
                     again = conn.execute(f"SELECT * FROM {table} WHERE org_id = %s AND request_key = %s",
                                          (org_id, request_key)).fetchone()
                     if again:
-                        if str(again["grant_id"]) != grant_id or again["requirement_key"] != key:
-                            raise GrantError("That request_key was already used for a different request.")
+                        _same_request(again, grant_id, key, columns, values)
                         return again
                 placeholders = ", ".join(["%s"] * (len(values) + 7))
                 row = conn.execute(
                     f"INSERT INTO {table} (org_id, requirement_key, grant_id, reviewer_user_id, reviewer_name, "
-                    f"reviewer_domain, request_key, {columns}) VALUES ({placeholders}) RETURNING *",
+                    f"reviewer_domain, request_key, {columns}) VALUES ({placeholders}) "
+                    f"ON CONFLICT (org_id, request_key) WHERE request_key IS NOT NULL DO NOTHING RETURNING *",
                     (org_id, key, grant_id, user_id, _display_name(ctx), domain, request_key) + values).fetchone()
+                if row is None:  # a concurrent request with the same key won: return its record, write nothing
+                    again = conn.execute(f"SELECT * FROM {table} WHERE org_id = %s AND request_key = %s",
+                                         (org_id, request_key)).fetchone()
+                    _same_request(again, grant_id, key, columns, values)
+                    return again
                 conn.execute(
                     "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
                     "VALUES (%s, %s, %s, %s, %s, %s)",

@@ -11,6 +11,7 @@ only reads and words things; writes are in reviewer.py. Kept free of imports fro
 this) so there is no cycle.
 """
 import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -28,37 +29,62 @@ BANNED_PHRASES = (
 GUIDANCE = ("Describe what you reviewed (the clause reference, the documents seen), not whether the organisation "
             "complies. Words that state a conclusion, such as '{word}', are not accepted.")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-# Beyond the phrases above, a conclusion can be worded many ways ("complies with", "meets s.25 in full",
-# "conforms to", "approved"), so the stems are matched too, on text folded the way a reader sees it
-# (compatibility forms, invisible characters and look-alike letters), token by token.
-STEMS = ("complian", "complie", "comply", "conform", "approv", "certif", "satisf", "adequa", "guarante", "fulfil")
-EXACT_WORDS = ("meets", "met")  # "met" only counts as part of the banned phrase "is met"
+# Beyond the phrases above, a conclusion can be worded many ways ("complies with", "meets s.25", "in line with the
+# NDPA", "sufficient"), and disguised many more (accents, look-alike letters and digits, spaces or dots between
+# letters). Text is reduced to a SKELETON first (accents stripped, compatibility forms and invisible characters
+# folded, look-alike letters mapped, and l, I, 1 and | all read as the same letter), then checked three ways:
+# whole-word phrases, whole-token forms and prefixes, and a space-and-punctuation-free run of the long stems.
+# "certificate" and "approval" are ordinary words (a TLS certificate, board approval minutes) and are allowed;
+# "certified", "certification" and "approved" are claims and are not.
 WITHHELD = "Comment withheld: the wording was not accepted"
+EXTRA_LOOKALIKES = str.maketrans({"м": "m", "т": "t", "к": "k", "в": "b", "н": "h", "ѵ": "v", "ӏ": "i", "ı": "i",
+                                  "μ": "m", "β": "b", "η": "n", "χ": "x"})
+CONFUSABLE_CHARS = str.maketrans({"l": "i", "1": "i", "|": "i", "!": "i", "0": "o", "3": "e", "4": "a", "5": "s",
+                                  "$": "s", "@": "a", "7": "t"})
 
 
 class TextError(ValueError):
     """Free text the review notes cannot accept. The API maps it to 422."""
 
 
-def _fold(text: str) -> str:
+def skeleton(text: str) -> str:
     from backend.app.compliance.documents import fold  # one folding for every text check in the product
-    return fold(text)
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    stripped = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    return fold(stripped).translate(EXTRA_LOOKALIKES).translate(CONFUSABLE_CHARS)
+
+
+def _sk(word: str) -> str:
+    return skeleton(word)
+
+
+EXACT_TOKENS = {_sk(w) for w in ("met", "meet", "meets", "sufficient", "sufficiency", "lawful", "lawfully")}
+TOKEN_FORMS = re.compile("^(?:" + "|".join(_sk(w) for w in (
+    r"certif(?:y|ied|ies|ying|ication|ications)", r"approv(?:e|ed|es|ing)")) + ")$")
+TOKEN_PREFIXES = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "satisf", "adequa", "guarante", "fulfil",
+                                        "sufficien", "lawful"))
+RUN_STEMS = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "satisf", "adequa", "guarante", "fulfil",
+                                   "sufficien", "lawful", "certified", "certification", "certifies", "approved",
+                                   "inlinewith"))
+EXTRA_PHRASES = ("in line with", "no gaps", "all good")
+PHRASES = tuple(sorted({" ".join(re.findall(r"[a-z0-9]+", _sk(w))) for w in BANNED_PHRASES + EXTRA_PHRASES}))
 
 
 def violation(text: str) -> Optional[str]:
-    """The banned word or stem in this text, or None. Used when text is written and again when it is rendered."""
-    lowered = _fold(text)
-    flat = " ".join(lowered.split())
-    for word in BANNED_PHRASES:
-        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", flat):
-            return word
-    for token in lowered.split():
-        letters = re.sub(r"[^a-z]", "", token)  # "com-pliant" and "c.o.m.p.l.i.a.n.t" are still the word
-        for stem in STEMS:
-            if stem in letters:
-                return stem
-        if letters == "meets":
-            return "meets"
+    """The banned wording found in this text, or None. Used when text is written and again when it is printed."""
+    sk = skeleton(text)
+    tokens = re.findall(r"[a-z0-9]+", sk)
+    spaced = " ".join(tokens)
+    for phrase in PHRASES:
+        if re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", spaced):
+            return phrase
+    for token in tokens:
+        if token in EXACT_TOKENS or TOKEN_FORMS.match(token) or token.startswith(TOKEN_PREFIXES):
+            return token
+    run = "".join(tokens)  # "c o m p l i a n t", "compl iant", "com-pliant"
+    for stem in RUN_STEMS:
+        if stem in run:
+            return stem
     return None
 
 
@@ -93,16 +119,21 @@ def _day(value: Optional[datetime]) -> str:
     return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _domain(row: Dict[str, Any]) -> str:
+    domain = row.get("reviewer_domain") or "email domain not recorded"
+    return "email domain withheld" if violation(domain) else domain  # the domain is chosen by the account holder too
+
+
 def _who(row: Dict[str, Any]) -> str:
     """The name as the account gave it, with the email domain, never implying a licence was checked."""
     name = "Reviewer (name withheld)" if violation(row["reviewer_name"]) else row["reviewer_name"]
-    return f"{name} ({row.get('reviewer_domain') or 'email domain not recorded'}), a reviewer named by this organisation,"
+    return f"{name} ({_domain(row)}), a reviewer named by this organisation,"
 
 
 def review_view(row: Dict[str, Any]) -> Dict[str, Any]:
     name = row["reviewer_name"]
     return {"outcome": row["outcome"], "outcome_label": OUTCOMES[row["outcome"]], "reviewer_name": name,
-            "reviewer_domain": row.get("reviewer_domain"),
+            "reviewer_domain": _domain(row),
             "reviewed_at": _iso(row["reviewed_at"]), "comment": safe_text(row.get("comment")),
             "label": f"Practitioner review recorded by {_who(row)} on {_day(row['reviewed_at'])}"}
 
@@ -111,7 +142,7 @@ def clause_view(row: Dict[str, Any]) -> Dict[str, Any]:
     name = row["reviewer_name"]
     day = _day(row["verified_at"])
     who = _who(row)
-    return {"verified": bool(row["verified"]), "reviewer_name": name, "reviewer_domain": row.get("reviewer_domain"),
+    return {"verified": bool(row["verified"]), "reviewer_name": name, "reviewer_domain": _domain(row),
             "at": _iso(row["verified_at"]), "note": safe_text(row.get("note")),
             "label": (f"reference reviewed by {who} {day}" if row["verified"]
                       else f"reference marked as not confirmed by {who} {day}")}

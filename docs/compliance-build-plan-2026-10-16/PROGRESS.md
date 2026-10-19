@@ -676,6 +676,10 @@ What a reviewer sees (an **allow-list projection** in `reviewer._project`, so a 
 - Frontend, each run on its own and each exit 0: `npm run build`, `test:compliance-ui`, `test:scans-ui`, `test:score-ui`, `test:onboarding-ui`, and the new `test:reviewer-ui` (1440, 390 and 320 px). CI runs only the build, not the browser scripts.
 - `Reviews.tsx` is now in the static banned-phrase scan in `test_compliance_claims.py`.
 
+**Review round 2 (re-review of `0477ab4`: APPROVE, should-fix items landed):** session race closed as in C6-14; the wording check works on a skeleton (accents stripped, look-alike letters and digits mapped, l/I/1/| read alike) with whole-word phrases, token forms and prefixes, a spaces-and-punctuation-free run of the long stems, and the bare words met, meet, meets, sufficient, lawful, plus "in line with" and "no gaps"; "certificate" and "approval" are allowed, "certified", "certification" and "approved" are not; the reviewer's email domain is screened and withheld alone; duplicate `request_key` requests (6 at once) give one record and 201 for all, a replay with a different body is 422.
+
+**Notes for the PR and the release:** (1) the migration was edited in place during review and has never been applied to any shared or production database. (2) Release note: when a person signs in with Google for an address whose account was registered with a password but never verified, that account's password (and sessions, reset links and remembered browsers) are discarded, because Google has proven the mailbox and the registrant had not.
+
 ### Decisions for Yusuf (C6)
 
 | # | Decision | Default applied |
@@ -692,7 +696,7 @@ What a reviewer sees (an **allow-list projection** in `reviewer._project`, so a 
 | C6-10 | Reviewers who are also members | Refused (grant refused; an existing grant stops working), to keep the two authorities separate. |
 | C6-11 | Text screening | Comments, notes, purpose and the reviewer's display name are refused or replaced if they contain the banned phrases (whole-word match, so "this method" is fine and "not compliant" is refused). |
 | C6-13 | Reviewer identity | Self-declared: nothing verifies a DPCO licence; the name is whatever the account says (screened for conclusions) and the label adds the email domain and "named by this organisation". Residual risk: an owner can grant a second mailbox and have a chosen name printed. A licence check would need a DPCO register to check against. |
-| C6-14 | Session after verification | Not required (see the takeover fix above); revisit if another path that verifies an email is added. |
+| C6-14 | Session after verification | Not required as "created after" (it would lock out the legitimate email-code flow, which verifies inside the registering session). The race the re-review found is closed differently: the access query and the write both require the authenticating session to still be live in the same statement (the write also share-locks the session row), and the takeover revokes sessions in the same transaction that verifies, so a request authenticated before the takeover cannot pass or write after it. Tested deterministically. |
 | C6-12 | Reviewer without a workspace | `/reviews` sits outside the app shell so the setup gate does not bounce them; a link appears in the setup layout and, for members, in the header. |
 
 ### Limitations

@@ -103,7 +103,7 @@ def revoke(grant_id: str, org: Dict[str, Any] = Depends(require_owner)) -> Dict[
 def my_grants(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """The organisations this account may review right now (no organisation header: it picks one)."""
     out = []
-    for g in reviewer.active_grants(str(user["id"])):
+    for g in reviewer.active_grants(str(user["id"]), user.get("session_id")):
         full = execute_one("SELECT * FROM organizations WHERE id = %s", (g["org_id"],))
         if full and not status.is_starter(full):
             out.append({"org_id": str(g["org_id"]), "org_name": g["org_name"], "purpose": g["purpose"],
