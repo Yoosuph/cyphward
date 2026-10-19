@@ -260,7 +260,8 @@ def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONRes
 def _purge_evidence_files(org_id: str, after_delete: bool = False) -> None:
     """Delete the organisation's evidence-file objects BEFORE its rows go (packet C6), so nothing is orphaned.
 
-    Fails closed: if the objects cannot be deleted the workspace is not closed (503) and can be closed again.
+    Fails closed: if the objects of a workspace that has file rows cannot be deleted it is not closed (503) and can
+    be closed again.
     Storage that is not configured is fine only when the organisation never stored a file. A second sweep after
     the rows are gone (best effort) catches an upload that committed in between; reconcile covers the rest.
     """
@@ -276,7 +277,8 @@ def _purge_evidence_files(org_id: str, after_delete: bool = False) -> None:
     try:
         evidence_file_store.purge_organization(store, org_id)
     except file_storage.StorageError:
-        if after_delete:
+        # An organisation that never stored a file is not held up by a storage outage (reconcile covers strays).
+        if after_delete or not evidence_file_store.has_any_rows(org_id):
             return
         raise HTTPException(status_code=503, detail="The stored evidence files could not be deleted, so the "
                             "workspace was not closed. Try again shortly.", headers={"Retry-After": "30"})

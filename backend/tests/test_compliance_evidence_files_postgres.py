@@ -8,6 +8,7 @@ concurrency; a failed insert deleting the object; no database connection while b
 audit rows without names; removal and its reconcile; organisation closing and its failure paths; snapshots and
 packs carrying no file data; no service key anywhere.
 """
+import asyncio
 import json
 import logging
 import os
@@ -657,18 +658,40 @@ def test_concurrent_uploads_per_process_are_bounded_and_waiters_get_503_with_ret
     monkeypatch.setattr(api, "UPLOAD_SLOT_WAIT_SECONDS", 0.2)
     api._slots.clear()
     monkeypatch.setattr("backend.app.main.SCHEDULER_ENABLED", False)
-    fake.put_delay = 1.5
+    started = threading.Event()
+    real_put = fake.put
+
+    def slow_put(*a, **k):
+        started.set()
+        time.sleep(1.5)
+        return real_put(*a, **k)
+
+    monkeypatch.setattr(fake, "put", slow_put)
     headers = lambda: {**world.headers(owner, org_id), "X-File-Name": "a.pdf"}  # noqa: E731
     # One client as a context manager keeps one event loop across requests, as the server has.
     with TestClient(app) as client, ThreadPoolExecutor(2) as pool:
         post = lambda: client.post(f"{BASE}?question_key={KEY}", content=PDF, headers=headers())  # noqa: E731
         first = pool.submit(post)
-        time.sleep(0.5)
+        assert started.wait(20)  # the first request holds the only slot now
         second = post()
         assert second.status_code == 503 and second.headers["retry-after"]
         assert first.result().status_code == 201
-        fake.put_delay = 0
+        monkeypatch.setattr(fake, "put", real_put)
         assert post().status_code == 201  # the slot came back
+
+
+def test_a_slow_sender_cannot_hold_an_upload_slot_forever(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    monkeypatch.setattr(api, "UPLOAD_READ_SECONDS", 0.2)
+
+    async def slow(request):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(api, "_read_body", slow)
+    resp = _upload(world, org_id, owner)
+    assert resp.status_code == 408 and fake.objects == {}
+    monkeypatch.undo()
+    assert _upload(world, org_id, owner).status_code == 201  # the slot was released
 
 
 def test_a_lock_wait_is_a_503_with_retry_after_and_the_object_is_deleted(world, team, fake, monkeypatch):
@@ -764,6 +787,13 @@ def test_closing_fails_closed_when_storage_cannot_delete_and_can_be_retried(worl
     assert not world.rows("SELECT 1 FROM audit_log WHERE action = 'org.closed' AND resource_id = %s", (org_id,))
     fake.fail_delete_prefix = False
     assert _close(world, org_id, owner).status_code == 200 and fake.objects == {}
+
+
+def test_a_storage_outage_does_not_block_closing_an_organisation_with_no_files(world, team, fake):
+    org_id, owner, *_ = team
+    fake.fail_delete_prefix = True
+    assert _close(world, org_id, owner).status_code == 200
+    assert world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,)) == []
 
 
 def test_closing_without_storage_configured_is_blocked_only_when_files_exist(world, monkeypatch):

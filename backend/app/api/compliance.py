@@ -204,6 +204,7 @@ def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_ad
 logger = logging.getLogger("cyphward.evidence_files.api")
 MAX_CONCURRENT_UPLOADS = 4        # per process: at most this many request bodies (10 MB each) are held at once
 UPLOAD_SLOT_WAIT_SECONDS = 10.0
+UPLOAD_READ_SECONDS = 60.0         # a slow sender cannot hold an upload slot longer than this
 RETRY_AFTER = {"Retry-After": "5"}
 _slots: Dict[str, Any] = {}
 
@@ -284,7 +285,10 @@ async def upload_evidence_file(request: Request, question_key: str = Query(min_l
         raise HTTPException(status_code=503, detail="Many uploads are running. Try again in a few seconds.",
                             headers=RETRY_AFTER)
     try:
-        data = await _read_body(request)
+        try:
+            data = await asyncio.wait_for(_read_body(request), timeout=UPLOAD_READ_SECONDS)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=408, detail="The upload took too long. Try again on a faster connection.")
         try:
             evidence_files.check_content(kind, data)
         except evidence_files.FileRejected as exc:
