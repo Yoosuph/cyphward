@@ -69,23 +69,26 @@ def test_pack_carries_scope_dates_register_statuses_sources_gaps_disclaimer_and_
         assert "assessed.snapshot.test" in flat
         assert REGISTER["version"] in flat
         assert snap["content_sha256"] in flat
-        assert "reference pending review" in flat
+        assert flat.count("reference pending review") == 1, "one legend, not one note per row"
         assert "Tool observed" in flat and "Customer attested" in flat
         assert "Prioritised gaps" in flat
         assert "https://example.test/plan" in flat
-    assert html.count("reference pending review") >= len(REGISTER["requirements"])
+    assert html.count("reference pending review") == 1
     assert pack["kind"] == "readiness_pack" and pack["html_sha256"] and pack["pdf_sha256"]
 
 
-def test_every_unverified_clause_is_marked_in_html_and_pdf(world):
+def test_every_unverified_clause_is_marked_and_one_legend_explains_the_marker(world):
+    from html import escape
     org, owner, *_ = _assessed_org(world)
     pack = _pack(world, org, owner)
     html, pdf_text, _ = _texts(world, org, owner, pack)
     for req in REGISTER["requirements"]:
         if not req["clause_verified"]:
-            marker = f"{req['clause']} · reference pending review"
-            assert marker in html
-            assert render.pdf_text(f"{req['clause']} · reference pending review") in pdf_text
+            row = f"{req['title']} ({req['clause']} \u2020)"
+            assert escape(row) in html, req["key"]
+            assert render.pdf_text(row) in pdf_text, req["key"]
+    assert html.count("reference pending review") == 1 and pdf_text.count("reference pending review") == 1
+    assert "\u2020 = reference pending review" in html and "\u2020 = reference pending review" in pdf_text
 
 
 def test_a_pack_with_nothing_assessed_renders_honestly(world):
@@ -650,3 +653,46 @@ def test_dpo_contact_row_shows_one_source_first_and_the_other_on_an_also_line(wo
         assert headline in text and other in text
         assert text.index(headline) < text.index(other)
         assert f"scan {scan[:8]}" in text
+
+
+# ── Branded pack (v2) ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("kind", ["readiness_pack", "dpo_section"])
+def test_new_packs_are_v2_carry_their_own_id_and_the_frozen_record(world, kind):
+    org, owner, *_ = _assessed_org(world)
+    pack = _pack(world, org, owner, kind=kind)
+    assert pack["pack_version"] == "cyphward-ndpa-pack-v2"
+    html, pdf_text, pdf = _texts(world, org, owner, pack)
+    snap = world.rows("SELECT id, content_sha256 FROM assessment_snapshots WHERE id = %s", (pack["snapshot_id"],))[0]
+    flat = _collapse(re.sub(r"<[^>]+>", " ", html))
+    line = f"Frozen record: snapshot {snap['id']}, sha256 {snap['content_sha256']}"
+    pages = len(re.findall(rb"/Type /Page\b", pdf))
+    for text in (flat, pdf_text):
+        assert pack["id"] in text and line in text and "Prepared with Cyphward" in text
+        assert text.count("reference pending review") == 1
+    assert f"Page {pages} of {pages}" in pdf_text and pdf_text.rindex(line) > pdf_text.index(f"Page {pages - 1} of {pages}")
+    assert not [w for w in BANNED if w in pdf_text.lower() or w in flat.lower()]
+
+
+def test_a_stored_v1_pack_is_served_as_stored_and_never_re_rendered(world):
+    """A pack issued before v2 keeps its bytes, hashes and version, whatever the renderer does now."""
+    import hashlib
+    from backend.app.packs import document
+    org, owner, *_ = _assessed_org(world)
+    snap_id = _create(world, org, owner).json()["snapshot"]["id"]
+    row = world.rows("SELECT * FROM assessment_snapshots WHERE id = %s", (snap_id,))[0]
+    doc = document.build("readiness_pack", row, row["content"], datetime.now(timezone.utc), None)  # no pack id: v1
+    html_bytes, pdf_bytes = render.to_html(doc).encode(), render.to_pdf(doc)
+    assert b"cyphward-ndpa-pack-v1" in html_bytes and b"Prepared with Cyphward" not in html_bytes
+    pid = world.setup.execute(
+        "INSERT INTO evidence_packs (org_id, snapshot_id, kind, pack_version, issued_at, issued_by, html, html_sha256, "
+        "pdf, pdf_sha256) VALUES (%s, %s, 'readiness_pack', 'cyphward-ndpa-pack-v1', now(), %s, %s, %s, %s, %s) RETURNING id",
+        (org, snap_id, owner, html_bytes.decode(), hashlib.sha256(html_bytes).hexdigest(), pdf_bytes,
+         hashlib.sha256(pdf_bytes).hexdigest())).fetchone()["id"]
+    world.setup.commit()
+    assert _get(world, org, owner, f"/{pid}/html").content == html_bytes
+    assert _get(world, org, owner, f"/{pid}/pdf").content == pdf_bytes
+    listed = next(p for p in _get(world, org, owner, "").json()["packs"] if p["id"] == str(pid))
+    assert listed["pack_version"] == "cyphward-ndpa-pack-v1"
+    assert listed["html_sha256"] == hashlib.sha256(html_bytes).hexdigest()

@@ -26,6 +26,9 @@ CSS = ("body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-seri
 
 
 def to_html(doc: Dict[str, Any]) -> str:
+    if doc.get("version") == "cyphward-ndpa-pack-v2":
+        from backend.app.packs import branded
+        return branded.to_html(doc)
     out = ['<!doctype html>', '<html lang="en">', '<head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            f'<title>{escape(doc["title"])}</title><style>{CSS}</style></head><body>', f'<h1>{escape(doc["title"])}</h1>',
@@ -59,7 +62,9 @@ def pdf_text(value: str) -> str:
     """Fold to what Helvetica can print: Latin-1 as is; other letters to their base ASCII; marks dropped; the rest '?'."""
     out = []
     for ch in value:
-        if ch in PUNCTUATION:
+        if ch == "\u2020":  # the dagger marker is in Windows-1252, which reportlab's Helvetica encodes
+            out.append(ch)
+        elif ch in PUNCTUATION:
             out.append(PUNCTUATION[ch])
         elif unicodedata.combining(ch):
             continue
@@ -76,6 +81,9 @@ def _p(text: str, style: ParagraphStyle) -> Paragraph:
 
 
 def to_pdf(doc: Dict[str, Any]) -> bytes:
+    if doc.get("version") == "cyphward-ndpa-pack-v2":
+        from backend.app.packs import branded
+        return branded.to_pdf(doc)
     sheet = getSampleStyleSheet()
     body = ParagraphStyle("body", parent=sheet["BodyText"], fontName="Helvetica", fontSize=9.5, leading=12.5)
     cell = ParagraphStyle("cell", parent=body, fontSize=8, leading=10)
@@ -121,5 +129,6 @@ def pdf_extract_text(data: bytes) -> str:
     for chunk in chunks:
         raw = chunk[1:chunk.rindex(b")")]
         raw = re.sub(rb"\\([()\\])", rb"\1", raw)
-        parts.append(raw.decode("latin-1"))
+        raw = re.sub(rb"\\([0-7]{3})", lambda m: bytes([int(m.group(1), 8)]), raw)
+        parts.append(raw.decode("cp1252", errors="replace"))
     return " ".join(" ".join(parts).split())

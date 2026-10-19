@@ -1,0 +1,2188 @@
+%PDF-1.4
+%“Œ‹ž ReportLab Generated PDF document (opensource)
+1 0 obj
+<<
+/F1 2 0 R /F2 3 0 R
+>>
+endobj
+2 0 obj
+<<
+/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
+>>
+endobj
+3 0 obj
+<<
+/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
+>>
+endobj
+4 0 obj
+<<
+/Contents 11 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 10 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+5 0 obj
+<<
+/Contents 12 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 10 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+6 0 obj
+<<
+/Contents 13 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 10 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+7 0 obj
+<<
+/Contents 14 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 10 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+8 0 obj
+<<
+/PageMode /UseNone /Pages 10 0 R /Type /Catalog
+>>
+endobj
+9 0 obj
+<<
+/Author (Cyphward) /CreationDate (D:20000101000000+00'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20000101000000+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+  /Subject (\(unspecified\)) /Title (NDPA readiness evidence pack) /Trapped /False
+>>
+endobj
+10 0 obj
+<<
+/Count 4 /Kids [ 4 0 R 5 0 R 6 0 R 7 0 R ] /Type /Pages
+>>
+endobj
+11 0 obj
+<<
+/Length 7279
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 45.68504 774.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 4 Tm /F2 18 Tf 22 TL (NDPA readiness evidence pack) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 755.7047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Organisation: INNOVATECH Nigeria Limited) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 737.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Issued: 2026-10-19 14:45 UTC) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 718.7047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Snapshot: 3 | sha256 84f60b156390abababababababababababababababababababababababababab) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 700.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Snapshot frozen: 2026-10-19 14:49 UTC) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 681.7047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Assessment dates: observations 2026-10-19 14:49 UTC to 2026-10-19 14:49 UTC) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 663.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Register: NDPA 2023 / GAID 2025 readiness register | version ndpa-gaid-v1.1) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 644.7047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Domains in scope: d0.example.com) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 626.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (Pack version: cyphward-ndpa-pack-v1) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 614.8661 cm
+Q
+q
+1 0 0 1 45.68504 583.8661 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 15.5 Tm /F1 9.5 Tf 12.5 TL (Readiness evidence, not legal advice or a compliance determination. Filing of Compliance Audit Returns for UHL/EHL) Tj T* (organisations must go through a licensed DPCO.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 578.1969 cm
+Q
+q
+1 0 0 1 45.68504 534.6969 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 28 Tm /F1 9.5 Tf 12.5 TL (This document is not a Compliance Audit Return and does not replace one. A Compliance Audit Return for a data) Tj T* (controller or processor of major importance is filed by a licensed DPCO. A DPCO may use this pack as supporting) Tj T* (evidence.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 529.0276 cm
+Q
+q
+1 0 0 1 45.68504 520.5236 cm
+Q
+q
+1 0 0 1 45.68504 490.5236 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 5 Tm /F2 13 Tf 18 TL (Readiness at a glance) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 459.5236 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 15.5 Tm /F1 9.5 Tf 12.5 TL (24 of 29 applicable requirements have evidence \(24 with evidence present, 0 gaps\) | 3 awaiting input or upcoming) Tj T* (checks | 2 not assessed.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 453.8543 cm
+Q
+q
+1 0 0 1 45.68504 422.8543 cm
+q
+BT 1 0 0 1 0 15.5 Tm 12.5 TL /F1 9.5 Tf 0 0 0 rg (29 legal references in this register are marked ') Tj (reference pending review) Tj (') Tj (: a qualified reviewer has not yet confirmed the) Tj T* (clause text.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 417.185 cm
+Q
+q
+1 0 0 1 45.68504 408.6811 cm
+Q
+q
+1 0 0 1 45.68504 378.6811 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 5 Tm /F2 13 Tf 18 TL (Requirements, status and sources) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 364.1772 cm
+Q
+q
+1 0 0 1 45.68504 338.1772 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Security measures) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 80.17717 cm
+q
+.960784 .94902 .92549 rg
+n 0 252 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 239 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 239 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 239 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 239 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 203 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Personal data protected in transit) Tj T* (\(NDPA 2023 s.39\(2\) | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 223 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 223 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Tool observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 213 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Tool observed: cyphward.com: Evidence present, observed) Tj T* (2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 157 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Web security headers and) Tj T* (software banners \(NDPA 2023) Tj T* (s.39\(1\)-\(2\) | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Tool observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 177 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Tool observed: cyphward.com: Evidence present, observed) Tj T* (2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 111 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Internet-exposed services) Tj T* (inventoried \(NDPA 2023) Tj T* (s.39\(1\)-\(2\) | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 141 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 141 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Tool observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 131 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Tool observed: cyphward.com: Evidence present, observed) Tj T* (2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Testing for known vulnerabilities) Tj T* (\(NDPA 2023 s.39\(1\)-\(2\) |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Tool observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Tool observed: cyphward.com: Evidence present, observed) Tj T* (2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Email anti-spoofing records) Tj T* (\(NDPA 2023 s.39\(1\)-\(2\) |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Tool observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Tool observed: cyphward.com: Evidence present, observed) Tj T* (2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Periodic risk assessment \(NDPA) Tj T* (2023 s.39\(2\) | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Not assessed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No evidence recorded.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 252 m 515.9055 252 l S
+n 0 0 m 0 252 l S
+n 515.9055 0 m 515.9055 252 l S
+n 0 0 m 515.9055 0 l S
+n 0 236 m 515.9055 236 l S
+n 0 200 m 515.9055 200 l S
+n 0 154 m 515.9055 154 l S
+n 0 108 m 515.9055 108 l S
+n 0 72 m 515.9055 72 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 252 l S
+n 212.4317 0 m 212.4317 252 l S
+n 293.358 0 m 293.358 252 l S
+Q
+Q
+Q
+ 
+endstream
+endobj
+12 0 obj
+<<
+/Length 11609
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 39.68504 744.2047 cm
+q
+.960784 .94902 .92549 rg
+n 0 52 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Regular testing of security) Tj T* (measures \(NDPA 2023 s.39\(2\) |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Not assessed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No evidence recorded.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 52 m 515.9055 52 l S
+n 0 36 m 0 52 l S
+n 0 0 m 0 36 l S
+n 515.9055 36 m 515.9055 52 l S
+n 515.9055 0 m 515.9055 36 l S
+n 0 0 m 515.9055 0 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 36 m 131.5053 52 l S
+n 212.4317 36 m 212.4317 52 l S
+n 293.358 36 m 293.358 52 l S
+n 131.5053 0 m 131.5053 36 l S
+n 212.4317 0 m 212.4317 36 l S
+n 293.358 0 m 293.358 36 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 738.5354 cm
+Q
+q
+1 0 0 1 45.68504 730.0315 cm
+Q
+q
+1 0 0 1 45.68504 704.0315 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Notices) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 610.0315 cm
+q
+.960784 .94902 .92549 rg
+n 0 88 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Privacy policy published \(GAID) Tj T* (2025 Art. 7 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally) Tj T* (observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally observed: cyphward.com: Evidence present,) Tj T* (observed 2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Cookie notice published \(GAID) Tj T* (2025 Art. 7 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally) Tj T* (observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally observed: cyphward.com: Evidence present,) Tj T* (observed 2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 88 m 515.9055 88 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 88 l S
+n 515.9055 0 m 515.9055 88 l S
+n 0 72 m 515.9055 72 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 88 l S
+n 212.4317 0 m 212.4317 88 l S
+n 293.358 0 m 293.358 88 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 604.3622 cm
+Q
+q
+1 0 0 1 45.68504 595.8583 cm
+Q
+q
+1 0 0 1 45.68504 569.8583 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Cookie consent) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 403.8583 cm
+q
+.960784 .94902 .92549 rg
+n 0 160 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 147 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 147 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 147 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 147 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 111 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Consent banner visible without) Tj T* (scrolling \(GAID 2025 Art. 19 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 131 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Upcoming check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 131 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 131 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No evidence recorded.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Accept and reject options \(GAID) Tj T* (2025 Art. 19 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Upcoming check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No evidence recorded.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (No non-essential cookies before) Tj T* (consent \(GAID 2025 Art. 19 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally) Tj T* (observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally observed: cyphward.com: Evidence present,) Tj T* (observed 2026-10-17 14:49 UTC, scan 654136c6) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Purpose and withdrawal) Tj T* (explained \(GAID 2025 Art. 19 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Upcoming check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (No evidence recorded.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 160 m 515.9055 160 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 160 l S
+n 515.9055 0 m 515.9055 160 l S
+n 0 144 m 515.9055 144 l S
+n 0 108 m 515.9055 108 l S
+n 0 72 m 515.9055 72 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 160 l S
+n 212.4317 0 m 212.4317 160 l S
+n 293.358 0 m 293.358 160 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 398.189 cm
+Q
+q
+1 0 0 1 45.68504 389.685 cm
+Q
+q
+1 0 0 1 45.68504 363.685 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Data protection officer) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 157.685 cm
+q
+.960784 .94902 .92549 rg
+n 0 200 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 141 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL -0.036891 Tw (Data protection officer designated) Tj T* 0 Tw (\(GAID 2025 Arts. 11-13; NDPA) Tj T* (2023 s.32 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 171 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 171 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 161 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 105 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (DPO contact published \(GAID) Tj T* (2025 Arts. 11-13; NDPA 2023) Tj T* (s.32 | reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 125 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 115 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Externally) Tj T* (observed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 85 cm
+q
+BT 1 0 0 1 0 42 Tm 10 TL /F1 8 Tf 0 0 0 rg (Externally observed: cyphward.com: Evidence present,) Tj T* (observed 2026-10-17 14:49 UTC, scan 654136c6) Tj  T* (Also: Customer attested: Evidence present; Customer) Tj T* (answer by Ada Owner, answered 2026-10-14, expires) Tj T* (2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (DPO reports to management) Tj T* (\(GAID 2025 Arts. 11-13; NDPA) Tj T* (2023 s.32 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Six-monthly DPO report \(GAID) Tj T* (2025 Arts. 11-13; NDPA 2023) Tj T* (s.32 | reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 200 m 515.9055 200 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 200 l S
+n 515.9055 0 m 515.9055 200 l S
+n 0 184 m 515.9055 184 l S
+n 0 138 m 515.9055 138 l S
+n 0 82 m 515.9055 82 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 200 l S
+n 212.4317 0 m 212.4317 200 l S
+n 293.358 0 m 293.358 200 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 152.0157 cm
+Q
+q
+1 0 0 1 45.68504 143.5118 cm
+Q
+q
+1 0 0 1 45.68504 117.5118 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Registration and audit returns) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 59.51181 cm
+q
+.960784 .94902 .92549 rg
+n 0 52 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL -0.043337 Tw (Major-importance status recorded) Tj T* 0 Tw (\(GAID 2025 Arts. 8-10 | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 52 m 515.9055 52 l S
+n 0 0 m 0 52 l S
+n 515.9055 0 m 515.9055 52 l S
+n 0 0 m 515.9055 0 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 52 l S
+n 212.4317 0 m 212.4317 52 l S
+n 293.358 0 m 293.358 52 l S
+Q
+Q
+Q
+ 
+endstream
+endobj
+13 0 obj
+<<
+/Length 11628
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 39.68504 698.2047 cm
+q
+.960784 .94902 .92549 rg
+n 0 98 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Registration with the Commission) Tj T* (\(GAID 2025 Arts. 8-10 | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Annual Compliance Audit Return) Tj T* (filed through a DPCO \(GAID) Tj T* (2025 Arts. 8-10 | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 98 m 515.9055 98 l S
+n 0 82 m 0 98 l S
+n 0 0 m 0 82 l S
+n 515.9055 82 m 515.9055 98 l S
+n 515.9055 0 m 515.9055 82 l S
+n 0 0 m 515.9055 0 l S
+n 0 82 m 515.9055 82 l S
+n 131.5053 82 m 131.5053 98 l S
+n 212.4317 82 m 212.4317 98 l S
+n 293.358 82 m 293.358 98 l S
+n 0 46 m 515.9055 46 l S
+n 131.5053 0 m 131.5053 82 l S
+n 212.4317 0 m 212.4317 82 l S
+n 293.358 0 m 293.358 82 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 692.5354 cm
+Q
+q
+1 0 0 1 45.68504 684.0315 cm
+Q
+q
+1 0 0 1 45.68504 658.0315 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Breach response) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 538.0315 cm
+q
+.960784 .94902 .92549 rg
+n 0 114 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 101 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 101 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 101 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 101 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 65 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Breach response plan \(NDPA) Tj T* (2023 s.40 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 75 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 29 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (72-hour notification process) Tj T* (\(NDPA 2023 s.40 | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Incident log \(NDPA 2023 s.40 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 114 m 515.9055 114 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 114 l S
+n 515.9055 0 m 515.9055 114 l S
+n 0 98 m 515.9055 98 l S
+n 0 62 m 515.9055 62 l S
+n 0 26 m 515.9055 26 l S
+n 131.5053 0 m 131.5053 114 l S
+n 212.4317 0 m 212.4317 114 l S
+n 293.358 0 m 293.358 114 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 532.3622 cm
+Q
+q
+1 0 0 1 45.68504 523.8583 cm
+Q
+q
+1 0 0 1 45.68504 497.8583 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Impact assessment) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 439.8583 cm
+q
+.960784 .94902 .92549 rg
+n 0 52 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Impact assessment for high-risk) Tj T* (processing \(GAID 2025 Art. 28 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 52 m 515.9055 52 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 52 l S
+n 515.9055 0 m 515.9055 52 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 52 l S
+n 212.4317 0 m 212.4317 52 l S
+n 293.358 0 m 293.358 52 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 434.189 cm
+Q
+q
+1 0 0 1 45.68504 425.685 cm
+Q
+q
+1 0 0 1 45.68504 399.685 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Lawful basis and consent records) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 295.685 cm
+q
+.960784 .94902 .92549 rg
+n 0 98 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 85 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 39 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Lawful basis documented per) Tj T* (purpose \(NDPA 2023 ss.24-25;) Tj T* (GAID 2025 Arts. 17-18 |) Tj T* (reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 59 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Consent records kept \(NDPA) Tj T* (2023 ss.24-25; GAID 2025 Arts.) Tj T* (17-18 | reference pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 98 m 515.9055 98 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 98 l S
+n 515.9055 0 m 515.9055 98 l S
+n 0 82 m 515.9055 82 l S
+n 0 36 m 515.9055 36 l S
+n 131.5053 0 m 131.5053 98 l S
+n 212.4317 0 m 212.4317 98 l S
+n 293.358 0 m 293.358 98 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 290.0157 cm
+Q
+q
+1 0 0 1 45.68504 281.5118 cm
+Q
+q
+1 0 0 1 45.68504 255.5118 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Data subject rights) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 187.5118 cm
+q
+.960784 .94902 .92549 rg
+n 0 62 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Data subject request process) Tj T* (\(NDPA 2023 Part VI; GAID 2025) Tj T* (Arts. 7, 38 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 62 m 515.9055 62 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 62 l S
+n 515.9055 0 m 515.9055 62 l S
+n 0 46 m 515.9055 46 l S
+n 131.5053 0 m 131.5053 62 l S
+n 212.4317 0 m 212.4317 62 l S
+n 293.358 0 m 293.358 62 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 181.8425 cm
+Q
+q
+1 0 0 1 45.68504 173.3386 cm
+Q
+q
+1 0 0 1 45.68504 147.3386 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Cross-border transfers) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 79.33858 cm
+q
+.960784 .94902 .92549 rg
+n 0 62 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Cross-border transfers identified) Tj T* -0.110135 Tw (\(NDPA 2023 Part VIII; GAID 2025) Tj T* 0 Tw (Art. 45 | reference pending) Tj T* (review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 62 m 515.9055 62 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 62 l S
+n 515.9055 0 m 515.9055 62 l S
+n 0 46 m 515.9055 46 l S
+n 131.5053 0 m 131.5053 62 l S
+n 212.4317 0 m 212.4317 62 l S
+n 293.358 0 m 293.358 62 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 73.66929 cm
+Q
+q
+1 0 0 1 45.68504 65.16535 cm
+Q
+ 
+endstream
+endobj
+14 0 obj
+<<
+/Length 6882
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 45.68504 782.2047 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F2 11 Tf 14 TL (Training) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 714.2047 cm
+q
+.960784 .94902 .92549 rg
+n 0 62 515.9055 -16 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Source) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Evidence reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Privacy and security training) Tj T* (\(GAID 2025 Art. 7 | reference) Tj T* (pending review\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 137.5053 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Evidence present) Tj T* ET
+Q
+Q
+q
+1 0 0 1 218.4317 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Customer attested) Tj T* ET
+Q
+Q
+q
+1 0 0 1 299.358 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Customer attested: Evidence present; Customer answer by) Tj T* (Ada Owner, answered 2026-10-14, expires 2027-08-15;) Tj T* (Customer answer by Ada Owner, answered 2026-10-14,) Tj T* (expires 2027-08-15) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 62 m 515.9055 62 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 62 l S
+n 515.9055 0 m 515.9055 62 l S
+n 0 46 m 515.9055 46 l S
+n 131.5053 0 m 131.5053 62 l S
+n 212.4317 0 m 212.4317 62 l S
+n 293.358 0 m 293.358 62 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 708.5354 cm
+Q
+q
+1 0 0 1 45.68504 700.0315 cm
+Q
+q
+1 0 0 1 45.68504 670.0315 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 5 Tm /F2 13 Tf 18 TL (Prioritised gaps and open items) Tj T* ET
+Q
+Q
+q
+1 0 0 1 39.68504 398.0315 cm
+q
+.960784 .94902 .92549 rg
+n 0 266 515.9055 -26 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 6 253 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Priority) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 253 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Requirement) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 253 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Status) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 253 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F2 8 Tf 10 TL (Why) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 243 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F2 8 Tf 10 TL (Suggested next) Tj T* (step) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 227 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (1) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 217 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Periodic risk) Tj T* (assessment) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 227 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Not assessed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 217 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (No scan in the window finished every declared) Tj T* (check.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 187 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 42 Tm /F1 8 Tf 10 TL (Keep daily scans on) Tj T* (and fix whatever) Tj T* (stops a scan from) Tj T* (finishing every) Tj T* (declared check.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 171 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (2) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 151 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Regular testing) Tj T* (of security) Tj T* (measures) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 171 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (Not assessed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 161 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (No scan in the window finished every declared) Tj T* (check.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 131 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 42 Tm /F1 8 Tf 10 TL (Keep daily scans on) Tj T* (and fix whatever) Tj T* (stops a scan from) Tj T* (finishing every) Tj T* (declared check.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 115 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (3) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 105 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Accept and) Tj T* (reject options) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 105 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Upcoming) Tj T* (check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 105 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (The check that observes this arrives in a later) Tj T* (release.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 95 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Give equal) Tj T* (prominence to) Tj T* (Accept and Reject.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 79 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (4) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Consent) Tj T* (banner visible) Tj T* (without) Tj T* (scrolling) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Upcoming) Tj T* (check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 69 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (The check that observes this arrives in a later) Tj T* (release.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 49 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Show the consent) Tj T* (banner in the first) Tj T* (screen a visitor) Tj T* (sees.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 6 33 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 2 Tm /F1 8 Tf 10 TL (5) Tj T* ET
+Q
+Q
+q
+1 0 0 1 115.9471 13 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 22 Tm /F1 8 Tf 10 TL (Purpose and) Tj T* (withdrawal) Tj T* (explained) Tj T* ET
+Q
+Q
+q
+1 0 0 1 183.6068 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (Upcoming) Tj T* (check) Tj T* ET
+Q
+Q
+q
+1 0 0 1 251.2666 23 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 12 Tm /F1 8 Tf 10 TL (The check that observes this arrives in a later) Tj T* (release.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 437.3308 3 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 32 Tm /F1 8 Tf 10 TL (Explain each cookie) Tj T* (purpose and add a) Tj T* (way to change) Tj T* (consent later.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+.721569 .698039 .647059 RG
+.4 w
+n 0 266 m 515.9055 266 l S
+n 0 0 m 515.9055 0 l S
+n 0 0 m 0 266 l S
+n 515.9055 0 m 515.9055 266 l S
+n 0 240 m 515.9055 240 l S
+n 0 184 m 515.9055 184 l S
+n 0 128 m 515.9055 128 l S
+n 0 92 m 515.9055 92 l S
+n 0 46 m 515.9055 46 l S
+n 109.9471 0 m 109.9471 266 l S
+n 177.6068 0 m 177.6068 266 l S
+n 245.2666 0 m 245.2666 266 l S
+n 431.3308 0 m 431.3308 266 l S
+Q
+Q
+Q
+q
+1 0 0 1 45.68504 392.3622 cm
+Q
+q
+1 0 0 1 45.68504 383.8583 cm
+Q
+q
+1 0 0 1 45.68504 353.8583 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 5 Tm /F2 13 Tf 18 TL (About this pack) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 322.8583 cm
+q
+BT 1 0 0 1 0 15.5 Tm -0.000781 Tw 12.5 TL /F1 9.5 Tf 0 0 0 rg (- Source labels: Tool observed and Externally observed come from Cyphward) Tj (') Tj (s checks; Customer attested is an answer) Tj T* 0 Tw (given by your team; Practitioner reviewed is reserved for a qualified reviewer.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 304.3583 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (- Generated from snapshot 3. Later scans and answers do not change this pack; issue a new pack to reflect them.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 45.68504 285.8583 cm
+q
+0 0 0 rg
+BT 1 0 0 1 0 3 Tm /F1 9.5 Tf 12.5 TL (- Cyphward organises evidence. It does not give legal advice or decide whether an obligation has been fulfilled.) Tj T* ET
+Q
+Q
+ 
+endstream
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000061 00000 n 
+0000000102 00000 n 
+0000000209 00000 n 
+0000000321 00000 n 
+0000000526 00000 n 
+0000000731 00000 n 
+0000000936 00000 n 
+0000001141 00000 n 
+0000001210 00000 n 
+0000001500 00000 n 
+0000001578 00000 n 
+0000008909 00000 n 
+0000020571 00000 n 
+0000032252 00000 n 
+trailer
+<<
+/ID 
+[<664d5cde42e978fb9bde5f50a591a576><664d5cde42e978fb9bde5f50a591a576>]
+% ReportLab generated PDF document -- digest (opensource)
+
+/Info 9 0 R
+/Root 8 0 R
+/Size 15
+>>
+startxref
+39186
+%%EOF
