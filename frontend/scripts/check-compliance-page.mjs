@@ -480,12 +480,12 @@ try {
     await page.evaluate((b) => document.querySelector(b).click(), removeBtn);
     await page.waitForFunction(() => /remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
     assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 0, `${name}: nothing removed before the confirm step`);
-    assert.ok(await clickExact("CANCEL", '[role="dialog"]'));
+    assert.ok(await page.evaluate(() => { document.querySelector('[data-testid="confirm-cancel"]').click(); return true; }));
     await page.waitForFunction(() => !/remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
     assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 0, `${name}: cancel keeps the file`);
     await page.evaluate((b) => document.querySelector(b).click(), removeBtn);
     await page.waitForFunction(() => /remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
-    assert.ok(await clickExact("REMOVE", '[role="dialog"]'));
+    assert.ok(await page.evaluate(() => { document.querySelector('[data-testid="confirm-ok"]').click(); return true; }));
     await page.waitForFunction(() => !document.body.innerText.includes("dpo-appointment-letter.pdf"), { timeout: 5000 });
     assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 1, `${name}: one removal after the confirm`);
     assert.ok(await overflowOf() <= 0, `${name}: overflow with the attach area`);

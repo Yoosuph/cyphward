@@ -93,8 +93,9 @@ export default function EvidenceFiles({ questionKey, info, zone, canEdit, onChan
   const remove = async (f: EvidenceFile) => {
     const ok = await confirm({
       title: 'Remove this file?',
-      body: <>“{f.display_name}” will no longer be listed or downloadable. This cannot be undone.</>,
-      confirmLabel: 'REMOVE', danger: true,
+      body: <>“{f.display_name}” will no longer be listed or downloadable.</>,
+      irreversible: 'A removed file cannot be brought back.',
+      confirmLabel: 'Remove file', danger: true,
     });
     if (!ok) return;
     setBusyId(f.id);
