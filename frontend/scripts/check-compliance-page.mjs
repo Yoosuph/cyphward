@@ -7,6 +7,9 @@ import assert from "node:assert/strict";
 import { createServer } from "vite";
 import puppeteer from "puppeteer-core";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const frontend = fileURLToPath(new URL("..", import.meta.url));
 process.chdir(frontend);
@@ -229,7 +232,11 @@ try {
     issued_at: "2026-10-10T09:00:00Z", retain_until: "2029-10-10T09:00:00Z", issued_by: user.id, window_start: null, window_end: null, html_sha256: "a".repeat(64), pdf_sha256: "d".repeat(64) }];
   let packs = freshPacks();
   let documents = freshDocuments();
-  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); documents = freshDocuments(); writes.length = 0; posts.length = 0; downloads.length = 0; };
+  const freshFiles = () => [{ id: "ef-old", question_key: "dpo.designated", attestation_id: "a-dpo", display_name: "dpo-appointment-letter.pdf",
+    content_type: "application/pdf", type_label: "PDF", size_bytes: 52341, sha256: "e".repeat(64), uploaded_at: "2026-10-17T09:00:00Z", uploaded_by: "Ada Obi" }];
+  let evidenceFiles = freshFiles();
+  const fileEvents = [];
+  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); documents = freshDocuments(); evidenceFiles = freshFiles(); fileEvents.length = 0; writes.length = 0; posts.length = 0; downloads.length = 0; };
   const json = (request, status, body) => void request.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -261,6 +268,34 @@ try {
       const major = questions.find((x) => x.key === "registration.major_importance");
       tier.shown = major.current?.value === "yes";
       return json(request, 201, q.current);
+    }
+    if (path.includes("/compliance/evidence-files")) {
+      if (!growth) return json(request, 403, { detail: "This part of the compliance pages is part of the Growth plan." });
+      const one = path.match(/\/evidence-files\/([^/]+)(\/download)?$/);
+      if (!one && method === "GET") {
+        return json(request, 200, { files: evidenceFiles, usage: { files: evidenceFiles.length, bytes: 1 }, uploads_available: true,
+          limits: { max_bytes: 10 * 1024 * 1024, max_files: 100, max_total_bytes: 500 * 1024 * 1024, extensions: ["docx", "jpeg", "jpg", "pdf", "png"], label: "x" } });
+      }
+      if (!one && method === "POST") {
+        const key = url.searchParams.get("question_key");
+        const name = decodeURIComponent(request.headers()["x-file-name"] || "");
+        fileEvents.push({ method, key, name, type: request.headers()["content-type"], auth: request.headers().authorization });
+        if (name.startsWith("refused")) return setTimeout(() => json(request, 422, { detail: "The file's contents do not match its PDF name. Check the file and try again." }), 100);
+        return setTimeout(() => {
+          evidenceFiles.push({ id: `ef-new-${fileEvents.length}`, question_key: key, attestation_id: null, display_name: name, content_type: "application/pdf",
+            type_label: "PDF", size_bytes: 20, sha256: "f".repeat(64), uploaded_at: new Date().toISOString(), uploaded_by: "Compliance Review" });
+          json(request, 201, evidenceFiles.at(-1));
+        }, 600);
+      }
+      if (one && one[2] && method === "GET") {
+        fileEvents.push({ method, id: one[1] });
+        return json(request, 200, { url: `https://files.example.test/object/sign/${one[1]}?token=t&download=x`, expires_in: 60, display_name: "dpo-appointment-letter.pdf" });
+      }
+      if (one && method === "DELETE") {
+        fileEvents.push({ method, id: one[1] });
+        evidenceFiles = evidenceFiles.filter((f) => f.id !== one[1]);
+        return json(request, 200, { id: one[1], removed: true, object_deleted: true });
+      }
     }
     if (path.includes("/compliance/documents")) {
       if (!growth) return json(request, 403, { detail: "This part of the compliance pages is part of the Growth plan." });
@@ -559,6 +594,61 @@ try {
     assert.ok(await overflowOf() <= 0, `${name}: overflow in the questionnaire`);
     await noVerdicts(`${name} questionnaire`);
 
+    // Evidence files (C6): list, checks mirroring the server, progress, upload, download link, confirm-then-remove.
+    assert.ok(await clickExact("2. Data protection officer", 'nav[aria-label="Question groups"]'));
+    const fq = qsel("dpo.designated");
+    await page.waitForSelector(`${fq} [data-testid="file-ef-old"]`);
+    const listed = await page.evaluate((q) => document.querySelector(`${q} [data-testid="file-ef-old"]`).innerText.replace(/\s+/g, " "), fq);
+    assert.match(listed, /dpo-appointment-letter\.pdf PDF · 51 KB · 17 Oct 2026 · Ada Obi/, `${name}: file row shows name, type, size, date, uploader (${listed})`);
+    assert.ok(await page.evaluate((q) => /Cyphward does not read or review it/.test(document.querySelector(q).innerText), fq), `${name}: attach area says it is not reviewed`);
+    assert.ok(await overflowOf() <= 0, `${name}: overflow with files listed`);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cyph-files-"));
+    const make = (file, bytes) => { const full = path.join(tmp, file); fs.writeFileSync(full, bytes); return full; };
+    const fileInput = await page.$(`${fq} [data-testid="file-input-dpo.designated"]`);
+    for (const [bad, bytes, pattern] of [["tool.exe", "MZ", /Only PDF, PNG, JPG\/JPEG or DOCX files up to 10 MB/], ["report.exe.pdf", "%PDF-1", /second extension/],
+      ["empty.pdf", "", /empty/], ["big.pdf", Buffer.alloc(10 * 1024 * 1024 + 1), /limit is 10\.0 MB/]]) {
+      await fileInput.uploadFile(make(bad, bytes));
+      await page.waitForFunction((q) => document.querySelector(`${q} [data-testid="file-error"]`), { timeout: 5000 }, fq);
+      const msg = await page.evaluate((q) => document.querySelector(`${q} [data-testid="file-error"]`).textContent, fq);
+      assert.match(msg, pattern, `${name}: ${bad} refused before sending (${msg})`);
+    }
+    assert.equal(fileEvents.filter((e) => e.method === "POST").length, 0, `${name}: refused files are never sent`);
+    await fileInput.uploadFile(make("refused-mismatch.pdf", "%PDF-1"));
+    await page.waitForFunction((q) => document.querySelector(`${q} [data-testid="upload-progress"]`), { timeout: 5000 }, fq);
+    assert.ok(await page.evaluate((q) => /Uploading refused-mismatch\.pdf/.test(document.querySelector(`${q} [data-testid="upload-progress"]`).innerText), fq), `${name}: progress shown`);
+    await page.waitForFunction((q) => /do not match/.test(document.querySelector(`${q} [data-testid="file-error"]`)?.textContent || ""), { timeout: 5000 }, fq);
+    assert.equal(await page.evaluate((q) => !!document.querySelector(`${q} [data-testid="upload-progress"]`), fq), false, `${name}: progress ends on a server refusal`);
+    await fileInput.uploadFile(make("new-minutes.pdf", "%PDF-1.4 hello"));
+    await page.waitForFunction((q) => document.body.innerText.includes("new-minutes.pdf") && !document.querySelector(`${q} [data-testid="upload-progress"]`), { timeout: 5000 }, fq);
+    const sentUpload = fileEvents.filter((e) => e.method === "POST").at(-1);
+    assert.deepEqual([sentUpload.key, sentUpload.name, sentUpload.type, sentUpload.auth], ["dpo.designated", "new-minutes.pdf", "application/octet-stream", "Bearer t"], `${name}: raw upload with the session`);
+    // Download: the API is called, then the signed link is followed as a download.
+    await page.evaluate(() => { window.__followed = []; HTMLAnchorElement.prototype.click = function () { window.__followed.push([this.href, this.getAttribute("download")]); }; });
+    assert.ok(await page.evaluate((q) => { document.querySelector(`${q} [data-testid="file-ef-old"] button[aria-label^="Download"]`).click(); return true; }, fq));
+    await page.waitForFunction(() => window.__followed.length === 1, { timeout: 5000 });
+    const followed = await page.evaluate(() => window.__followed[0]);
+    assert.ok(followed[0].startsWith("https://files.example.test/object/sign/ef-old?token=") && followed[0].includes("download="), `${name}: the signed link is followed`);
+    assert.equal(followed[1], "dpo-appointment-letter.pdf", `${name}: saved under the display name`);
+    // Remove asks first; cancel keeps the file, confirm removes it.
+    const removeBtn = `${fq} [data-testid="file-ef-old"] button[aria-label^="Remove"]`;
+    await page.evaluate((b) => document.querySelector(b).click(), removeBtn);
+    await page.waitForFunction(() => /remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
+    assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 0, `${name}: nothing removed before the confirm step`);
+    assert.ok(await clickExact("CANCEL", '[role="dialog"]'));
+    await page.waitForFunction(() => !/remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
+    assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 0, `${name}: cancel keeps the file`);
+    await page.evaluate((b) => document.querySelector(b).click(), removeBtn);
+    await page.waitForFunction(() => /remove this file\?/i.test(document.body.innerText), { timeout: 5000 });
+    assert.ok(await clickExact("REMOVE", '[role="dialog"]'));
+    await page.waitForFunction(() => !document.body.innerText.includes("dpo-appointment-letter.pdf"), { timeout: 5000 });
+    assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 1, `${name}: one removal after the confirm`);
+    assert.ok(await overflowOf() <= 0, `${name}: overflow with the attach area`);
+    // Keyboard: the attach button is reachable and its label is plain text.
+    assert.ok(await page.evaluate((q) => [...document.querySelectorAll(`${q} button`)].some((b) => b.textContent.trim() === "ATTACH EVIDENCE" && b.tabIndex === 0), fq), `${name}: attach button is focusable`);
+    await noVerdicts(`${name} evidence files`);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    if (process.env.CYPHWARD_COMPLIANCE_SCREENSHOTS === "1") await page.screenshot({ path: `/tmp/compliance-files-${name}.png`, fullPage: true });
+
     // Incidents: list, badges, countdown, zone and the checklist.
     await openTab("Incidents");
     await page.waitForSelector('[data-testid="incidents"]');
@@ -670,6 +760,18 @@ try {
     assert.ok(q.note && q.told >= 1, `${name}: members see the answers read-only`);
     assert.equal(q.forms, 0, `${name}: no form controls rendered for a member (questions)`);
     assert.ok(!q.buttons.some((b) => /^(ANSWER|UPDATE ANSWER|SAVE ANSWER)$/.test(b)), `${name}: no answer buttons`);
+    // Evidence files: a member sees the list and can download, but can neither attach nor remove.
+    assert.ok(await clickExact("2. Data protection officer", 'nav[aria-label="Question groups"]'));
+    await page.waitForSelector('[data-testid="file-ef-old"]');
+    const mf = await page.evaluate(() => ({
+      buttons: [...document.querySelectorAll('[data-testid="file-ef-old"] button')].map((b) => b.textContent.trim()),
+      inputs: document.querySelectorAll('input[type="file"], [data-testid^="file-input-"]').length,
+      attach: [...document.querySelectorAll("button")].some((b) => /ATTACH EVIDENCE|REMOVE/.test(b.textContent)),
+    }));
+    assert.deepEqual(mf.buttons, ["DOWNLOAD"], `${name}: members can only download`);
+    assert.equal(mf.inputs, 0, `${name}: no file input for a member`);
+    assert.equal(mf.attach, false, `${name}: no attach or remove for a member`);
+    assert.ok(await clickExact("1. What applies to you", 'nav[aria-label="Question groups"]'));
     await openTab("Incidents");
     await page.waitForSelector('[data-testid="incidents"]');
     const i = await page.evaluate(() => ({

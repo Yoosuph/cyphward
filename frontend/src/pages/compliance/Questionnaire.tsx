@@ -4,9 +4,10 @@ import StatusChip, { type ChipLevel } from '../../components/StatusChip';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../lib/auth';
 import {
-  listOrgMembers, recordAttestation,
-  type OrgMember, type Questionnaire as QuestionnaireData, type QuestionnaireAnswer, type QuestionnaireQuestion,
+  listEvidenceFiles, listOrgMembers, recordAttestation,
+  type EvidenceFileList, type OrgMember, type Questionnaire as QuestionnaireData, type QuestionnaireAnswer, type QuestionnaireQuestion,
 } from '../../lib/api';
+import EvidenceFiles from './EvidenceFiles';
 import { FIELD_BOX, FIELD_LABEL, ReadOnlyNote, errorText, fmtDayZone } from './shared';
 
 /**
@@ -209,8 +210,9 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
   );
 }
 
-function QuestionCard({ q, zone, canEdit, members, onSaved }: {
+function QuestionCard({ q, zone, canEdit, members, onSaved, fileInfo, onFilesChanged }: {
   q: QuestionnaireQuestion; zone: string; canEdit: boolean; members: OrgMember[]; onSaved: () => void;
+  fileInfo: EvidenceFileList | null; onFilesChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const chip = STATE_CHIP[q.answer_state];
@@ -222,6 +224,7 @@ function QuestionCard({ q, zone, canEdit, members, onSaved }: {
       </div>
       {q.evidences.length > 0 && <p className="text-[11px] mono text-soft break-words">Informs: {q.evidences.map(e => e.title).join(' · ')}</p>}
       <ToldUs q={q} zone={zone} />
+      {fileInfo && <EvidenceFiles questionKey={q.key} info={fileInfo} zone={zone} canEdit={canEdit} onChanged={onFilesChanged} />}
       {canEdit && !editing && (
         <button type="button" className="btn-mini" onClick={() => setEditing(true)}>
           <Pencil size={12} /> {q.current ? 'UPDATE ANSWER' : 'ANSWER'}
@@ -257,6 +260,7 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [stepKey, setStepKey] = useState('applicability');
+  const [fileInfo, setFileInfo] = useState<EvidenceFileList | null>(null);
   const steps = useMemo(() => buildSteps(data), [data]);
   const zone = data.display_timezone;
 
@@ -267,6 +271,12 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
       .catch(e => { if (live) setMembersError(errorText(e, 'Could not load the members list.')); });
     return () => { live = false; };
   }, [canEdit]);
+
+  // Attached files load once for the whole page. A failure just hides the file area: the answers still work.
+  const loadFiles = useMemo(() => () => {
+    listEvidenceFiles().then(r => setFileInfo(r && Array.isArray(r.files) ? r : null)).catch(() => setFileInfo(null));
+  }, []);
+  useEffect(() => { loadFiles(); }, [loadFiles]);
 
   const index = Math.max(0, steps.findIndex(s => s.key === stepKey));
   const step = steps[index];
@@ -303,7 +313,8 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
           )}
         </div>
         <ul>{step.questions.map(q => (
-          <QuestionCard key={q.key} q={q} zone={zone} canEdit={canEdit} members={members} onSaved={onSaved} />
+          <QuestionCard key={q.key} q={q} zone={zone} canEdit={canEdit} members={members} onSaved={onSaved}
+                        fileInfo={fileInfo} onFilesChanged={loadFiles} />
         ))}</ul>
       </section>
 

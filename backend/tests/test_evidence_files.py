@@ -302,7 +302,8 @@ def test_bucket_privacy_check():
 NEW_FILES = ["backend/app/compliance/evidence_files.py", "backend/app/compliance/evidence_file_store.py",
              "backend/app/storage/base.py", "backend/app/storage/memory.py", "backend/app/storage/supabase.py",
              "backend/app/storage/__init__.py", "supabase/migrations/20261019100000_compliance_evidence_files.sql",
-             "backend/scripts/reconcile_evidence_files.py", "backend/tests/evidence_samples.py"]
+             "backend/scripts/reconcile_evidence_files.py", "backend/tests/evidence_samples.py",
+             "frontend/src/pages/compliance/EvidenceFiles.tsx"]
 
 
 def _evidence_api_section() -> str:
@@ -313,6 +314,8 @@ def _evidence_api_section() -> str:
 def test_banned_phrases_do_not_appear_in_new_backend_copy_or_fixtures():
     blobs = {name: (ROOT / name).read_text() for name in NEW_FILES}
     blobs["api/compliance.py (evidence section)"] = _evidence_api_section()
+    api_ts = (ROOT / "frontend/src/lib/api.ts").read_text()
+    blobs["frontend api.ts (evidence section)"] = api_ts[api_ts.index("// ---- Evidence files attached"):]
     for name, blob in blobs.items():
         low = blob.lower()
         for phrase in BANNED:
