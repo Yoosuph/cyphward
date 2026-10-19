@@ -306,7 +306,10 @@ async def upload_evidence_file(request: Request, question_key: str = Query(min_l
                 checked=checked, size=len(data), sha256=hashlib.sha256(data).hexdigest())
         except BaseException as exc:
             # The row was not saved: do not leave the object behind (reconcile catches it if this fails too).
-            evidence_file_store.delete_object(storage, path)
+            if isinstance(exc, asyncio.CancelledError):
+                evidence_file_store.delete_object(storage, path)  # cancelled: nothing may be awaited
+            else:
+                await run_in_threadpool(evidence_file_store.delete_object, storage, path)
             if isinstance(exc, evidence_file_store.QuotaExceeded):
                 raise _quota_http(exc)
             if isinstance(exc, evidence_file_store.Busy):
