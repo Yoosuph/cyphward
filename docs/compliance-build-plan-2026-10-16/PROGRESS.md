@@ -609,3 +609,86 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 2. **Removal after the retention period is an operator step.** A snapshot that a report points to cannot be purged until that report is deleted first (`reports_snapshot_fk` has no ON DELETE action); write the purge runbook before the first snapshot reaches 36 months.
 3. **Accepted should-fix items,** each recorded above with its reviewer: threadpool occupancy and one organisation taking all three build slots (add `pg_try_advisory_xact_lock`, a per-organisation slot and a rate limit on the snapshot and report endpoints); the DPO counts being read at pack issue time; a request key raced on both pack paths can give a 500 or an earlier pack of another kind; hardening of the banned-word filter for accented Latin letters and hyphen-plus-space splits in customer name fields.
 
+
+## C6 — customer-granted, time-limited, audited DPCO reviewer access (branch `claude/relaxed-rhodes-edfaa2`, base `main`)
+
+A licensed practitioner can be given read-only access to ONE organisation's compliance pages, for 1 to 90 days, by that organisation's owner. They can record two kinds of note, both append-only and both named: "I reviewed this requirement" and "I reviewed this clause reference". Neither changes any status; neither says anything about the organisation's obligations.
+
+### What was built
+
+| Area | Files |
+|---|---|
+| Migration (one, additive) | `supabase/migrations/20261019200000_compliance_reviewer_access.sql`: `compliance_reviewer_grants`, `compliance_practitioner_reviews`, `compliance_clause_verifications` |
+| Authority and logic | `backend/app/compliance/reviewer.py` (grant, revoke, `require_reviewer`, writes, owner reads), `backend/app/compliance/practitioner.py` (labels, overlay reads, banned-phrase text check) |
+| API | `backend/app/api/compliance_reviewer.py`: owner `/api/v1/compliance/reviewer-grants` (GET, POST, POST `/{id}/revoke`), reviewer `/api/v1/compliance/reviewer/...` (`grants`, `overview`, `requirements/{key}`, `.../review`, `.../clause-reference`) |
+| Overlay in existing code | `compliance/status.py` (labels and counts), `snapshots/builder.py` (additive fields and fence), `packs/document.py` (clause label and a notes table) |
+| Frontend | `pages/compliance/ReviewerAccess.tsx` (owner tab), `pages/Reviews.tsx` (reviewer area, route `/reviews`), `lib/reviewerGrants.ts`, API helpers in `lib/api.ts`, a "Reviews" link in `Topbar.tsx` and in the setup layout, a practitioner note in `Compliance.tsx`; `/reviews` added to `hosts.ts` and the three app-host redirect lists in `vercel.json` |
+| Tests | `backend/tests/test_compliance_reviewer_postgres.py` (64 tests, added to the CI PostgreSQL list), `frontend/scripts/check-reviewer-ui.mjs` (`npm run test:reviewer-ui`, desktop/390/320, keyboard) |
+
+### Threat model: who can do what
+
+| Caller | Grant / list / revoke | Read the reviewer pages | Write a review or clause note | Anything else of the organisation |
+|---|---|---|---|---|
+| Organisation owner | yes (Growth plan to grant; list and revoke on any plan) | no (not a reviewer of their own organisation) | no | yes, as before |
+| Organisation admin or member | no (403) | no | no | as before |
+| Reviewer with an active grant | no | yes, only the granting organisation, only while the grant is live | yes, same conditions | **no**: every route that needs membership returns 403 (tested by walking every route in the app) |
+| Reviewer whose grant expired, was revoked, was replaced, or never matched a verified email | no | 403, identical body to every other refusal | 403, and the database refuses the row too | no |
+| Platform staff (no grant) | no | no (403) | no | their staff scopes only |
+| Reviewer who is also platform staff | no | by grant only | by grant only | staff scopes only; neither authority feeds the other |
+| Anyone signed in, other organisations | no | no (same 403 for "no grant", "no such organisation", "malformed id", "not you") | no | no |
+
+How a request is judged (every request, one query, database clock): the grant names the signed-in account's own **profile** email (never a token claim), that profile's email is verified, the grant is not revoked and not past `expires_at`, the account is not a member of that organisation, and the organisation is on the Growth plan. The reviewer never appears in `organization_members`; the code reads no staff table, no owner-console session and no membership role to decide access (a test greps the source for them).
+
+Writes add three layers: a `FOR SHARE` lock on the grant row (a concurrent revoke waits, bounded by `lock_timeout`, 503 with `Retry-After`), the audit row in the same transaction (a failed audit rolls the note back), and a database trigger that re-checks grant live, grant for this organisation, writer is the verified email owner, writer not a member.
+
+What a reviewer sees: the same readiness overview and requirement detail the organisation sees (status, sources, labels, evidence references, finding id/title/severity/status, domain names, history), plus each answer's value, date, owner name and expiry. Never: free text, notes, evidence links, uploaded files, members, billing, scans, finding descriptions or evidence, settings, packs, snapshots, incidents, documents.
+
+### Database
+
+- Grants: SELECT, INSERT, UPDATE(revoked_at, revoked_by); no DELETE. Reviews and clause verifications: SELECT, INSERT. RLS on all three, `REVOKE ALL` first, composite `(grant_id, org_id)` foreign keys, `ON DELETE CASCADE` from organizations, `ON DELETE SET NULL` from profiles (the name at the time is stored, so the record survives a deleted account), migration starts with `lock_timeout 5s` and `statement_timeout 60s`.
+- Checks: expiry between 1 and 90 days after `granted_at` (both from the database clock in one INSERT), outcome in `reviewed | reviewed_with_comments`, comment/note 1 to 500 characters, purpose 1 to 200, lower-case email.
+- Guard triggers: a grant starts unrevoked and only an owner of the organisation can be `granted_by`; after insert only the revocation can change, once, never cleared (referential `SET NULL` from a deleted profile is let through); reviews and verifications re-check the grant on insert.
+- One live grant per `(org, reviewer_email)` is a partial unique index; replacement revokes the old row in the same transaction under an advisory lock (a lapsed-but-unrevoked grant has `revoked_at = expires_at`, so it still reads "expired").
+
+### Product rules
+
+- Replacement, not extension: a new grant for the same person revokes the old one (audited as `compliance.reviewer.replaced`). No edit endpoint exists.
+- Grant status for the owner: `pending` (not yet opened by the reviewer), `active` (opened at least once), `expired`, `revoked`. Pending versus active comes from the reviewer's own first use (the session audit), never from whether an account exists, so the owner learns nothing about accounts. A grant to an email with no account is pending until that email signs up, verifies and opens it.
+- Words: the comment, the note, the purpose and the reviewer's display name are checked against the banned list (compliant, certified, certification, satisfies, satisfied, passes audit, pass the audit, compliance score, fully meets, meets the requirement, is met, partial compliance, fully compliant, is compliant, satisfy ndpa, adequate, adequacy, guarantee); text that states a conclusion is refused with guidance (422), a name that does is replaced by "Reviewer (name withheld)", because these strings land in packs under Cyphward's name.
+- Audit (`audit_log`, no comment text, no email, no purpose): `compliance.reviewer.granted | replaced | revoked | session | review_recorded | clause_recorded`. `session` is written on the first request of each grant per UTC day (process-local cache then a day-bounded lookup on the indexed `(org_id, created_at)`; another replica may write a second row, which is harmless). The owner sees grants, the reviewers' notes (with their text) and the audit trail, newest first.
+- Overlay: per organisation, newest row wins in both directions. The register file is not touched and a requirement the register itself marks verified keeps its plain label. `references_pending_review` counts only references still pending for that organisation.
+- Snapshots and packs: new optional fields `practitioner_review` and `clause_review` on a requirement, **present only when they exist**; schema version stays 1, v1 content reads as before, and a snapshot of an organisation with no notes is byte-identical to one made before this change. A pack reads the overlay from the snapshot it is made from, never from live tables, so a pack issued from an old snapshot shows what that snapshot froze. The pack gets a "Practitioner review notes" table and "reference reviewed by <name>, <date>" in place of "reference pending review". `FENCE_SQL` includes both new tables, so a note written during a snapshot build forces a re-read.
+- Rate limits: 20 grants per organisation per hour and 30 per owner per hour (429), 120 reviewer writes per grant per hour.
+
+### Tests and results (local PostgreSQL on port 55455)
+
+- `test_compliance_reviewer_postgres.py`: **64 passed**. Covers: owners only (admin, member, reviewer all 403); Starter 403 on grant but list and revoke work; 10 invalid grant bodies; 1, 30 and 90 day windows and the database CHECKs; a member cannot be granted and a grant stops working when its holder becomes a member; rate limit; no account-existence leak; pending until verified (unverified signup refused, verified works, token email claim ignored); expiry mid-session and revoke-then-request on every endpoint including writes; identical 403 bytes for no grant, no organisation, malformed, missing header, wrong account, another organisation's member, an owner, and revoked; two grants for one reviewer, each scoped; a route walk (every org-scoped route and method, with header and with `?org_id=`, for a reviewer who also owns their own organisation) finds no route that answers other than 403; reviewer not in members; staff and reviewer separation in both directions, with revocations; no free text, notes or links; review and clause writes over every register requirement leave the whole overview and every detail unchanged (property test); overlay newest wins, per organisation, count moves; new snapshots and packs carry notes, old ones and packs made from old snapshots do not, hashes verify, HTML and PDF render, banned phrases absent; append-only (UPDATE and DELETE refused on all three tables); a revocation recorded once and never cleared even for a superuser; non-owner grant refused by the database; the write trigger refuses a stranger, no reviewer, another organisation, revoked, unverified, member; text and outcome CHECKs; 6 concurrent grants leave exactly one live row with 5 `replaced` audits; busy lock gives 503 with `Retry-After` both ways; deleting a reviewer keeps their notes, deleting an owner nulls `granted_by`, deleting the organisation cascades; audit rows exist with no comment text, email or purpose and are visible to the owner; a failed audit write rolls the note back; banned phrases over every new response and string.
+- Mutation checks (each fails at least one test, then restored): drop the expiry condition, drop the revoked condition, drop the verified-email condition, drop the not-a-member condition, flip overlay ordering to oldest-wins, `require_owner` to `require_admin` on grant, drop the Starter check on reviewer access.
+- Full backend suite (own database, both known flaky tests deselected): see the final line of this section.
+- Frontend: build, `test:compliance-ui`, `test:scans-ui`, `test:score-ui`, `test:onboarding-ui` and the new `test:reviewer-ui` (the last passes at 1440, 390 and 320 px).
+
+### Decisions for Yusuf (C6)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C6-1 | Who may grant | Owners only. Starter organisations cannot grant (403); an organisation that later drops to Starter loses reviewer reads at once but can still list and revoke. |
+| C6-2 | Window | Default 30 days, minimum 1, maximum 90; the API takes whole days, the form's native date field is converted to days. |
+| C6-3 | Extension | None. A new grant replaces the old one and is audited. |
+| C6-4 | Reminders to the owner before expiry | Skipped (not trivial: no per-grant reminder state without adding a mutable column). |
+| C6-5 | Pack summaries for reviewers | Not given. The requirement detail already carries what a review needs, and a pack is a customer artefact. |
+| C6-6 | Findings shown to a reviewer | Exactly as the compliance API shows them (id, title, severity, status), because the brief says "exactly as the compliance API shows them"; finding descriptions and evidence blobs are never sent. Say if titles should be hidden too. |
+| C6-7 | Platform-wide clause verification | Remains a founder/DPCO decision made in the register file (`clause_verified`). The overlay is per organisation only and never edits the register. |
+| C6-8 | Schema version of snapshots | Stays 1: new fields are optional and omitted when empty, so old readers and old snapshots are unaffected. |
+| C6-9 | Overlay in packs made from an old snapshot | Frozen: they show what the snapshot froze. Issue a new snapshot to include later notes. |
+| C6-10 | Reviewers who are also members | Refused (grant refused; an existing grant stops working), to keep the two authorities separate. |
+| C6-11 | Text screening | Comments, notes, purpose and the reviewer's display name are refused or replaced if they contain the banned phrases (strict substring, so "inadequate" is refused too). |
+| C6-12 | Reviewer without a workspace | `/reviews` sits outside the app shell so the setup gate does not bounce them; a link appears in the setup layout and, for members, in the header. |
+
+### Limitations
+
+- A reviewer is matched on their profile email, which is unique but compared case-insensitively; two profiles differing only in letter case would both match one grant. Sign-up lower-cases emails, so this needs a profile created another way; both would still be verified owners of that address.
+- Owner "active" status means "opened at least once", not "opened today".
+- The first-request-per-day audit uses a per-process cache; after a restart a day can have two `session` rows.
+- No automatic purge of notes; they live with the organisation. No email is sent to the reviewer: the owner tells them (the screen says they sign in with their own account).
+- The owner screen shows the reviewer's email address in the list (the owner typed it).
+- The UI uses the existing Modal and confirm components; the UX overhaul's shared Dialog/Confirm/DateTimeField will need a swap (the owner form's native date input is a plain `<input type="date">`).

@@ -22,7 +22,6 @@ from psycopg.rows import dict_row
 
 from backend.app.compliance import attestation_store
 from backend.app.compliance import practitioner, reviewer
-from backend.app.compliance import status as cstatus
 from backend.app.compliance.register import REGISTER
 from backend.app.core.rate_limit import reset_bucket
 from backend.app.core.security import hash_password
@@ -369,7 +368,7 @@ def test_every_refusal_is_the_same_403(rw):
 
 
 def test_a_reviewer_with_two_grants_sees_only_the_organisation_they_name(rw):
-    a, b = _active(rw), None
+    a = _active(rw)
     org_b, owner_b = rw.setup_org(name="Second Org")
     assert rw.grant(org_b, owner_b, a.email).status_code == 201
     names = {g["org_name"] for g in rw.w.client.get(f"{RB}/grants", headers=_h(rw, a.uid, a.org)).json()["grants"]}
