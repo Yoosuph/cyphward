@@ -257,6 +257,31 @@ def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONRes
     )
 
 
+def _purge_evidence_files(org_id: str, after_delete: bool = False) -> None:
+    """Delete the organisation's evidence-file objects BEFORE its rows go (packet C6), so nothing is orphaned.
+
+    Fails closed: if the objects cannot be deleted the workspace is not closed (503) and can be closed again.
+    Storage that is not configured is fine only when the organisation never stored a file. A second sweep after
+    the rows are gone (best effort) catches an upload that committed in between; reconcile covers the rest.
+    """
+    from backend.app import storage as file_storage
+    from backend.app.compliance import evidence_file_store
+    try:
+        store = file_storage.get_storage()
+    except file_storage.StorageNotConfigured:
+        if not after_delete and evidence_file_store.has_any_rows(org_id):
+            raise HTTPException(status_code=503, detail="This workspace has stored files and file storage is not "
+                                "reachable, so it was not closed. Try again shortly.", headers={"Retry-After": "30"})
+        return
+    try:
+        evidence_file_store.purge_organization(store, org_id)
+    except file_storage.StorageError:
+        if after_delete:
+            return
+        raise HTTPException(status_code=503, detail="The stored evidence files could not be deleted, so the "
+                            "workspace was not closed. Try again shortly.", headers={"Retry-After": "30"})
+
+
 @router.post("/close")
 def close_organization(
     req: CloseOrganizationRequest,
@@ -276,6 +301,7 @@ def close_organization(
             status_code=400,
             detail=f"Type the workspace slug '{org['slug']}' to confirm closure.",
         )
+    _purge_evidence_files(str(org["id"]))
     log_audit(None, org.get("current_user_id"), "org.closed", "organization", str(org["id"]),
               {"slug": org["slug"], "name": org["name"]})
     deleted = execute_one(
@@ -283,4 +309,5 @@ def close_organization(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Organization not found.")
+    _purge_evidence_files(str(org["id"]), after_delete=True)
     return {"closed": True, "org_id": str(org["id"])}

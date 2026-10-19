@@ -6,14 +6,22 @@ carries the register disclaimer, statuses are present / gap / not assessed /
 awaiting input with their source, and missing evidence is never reported as
 present.
 """
+import asyncio
+import hashlib
+import logging
+import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
+from urllib.parse import unquote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.app.compliance import attestation_store, document_store, documents, incidents, questionnaire, status
+from backend.app import storage as file_storage
+from backend.app.compliance import (attestation_store, document_store, documents, evidence_file_store,
+                                    evidence_files, incidents, questionnaire, status)
 from backend.app.compliance.attestations import AnswerError
 from backend.app.core.auth import get_current_org, require_admin
 
@@ -185,3 +193,157 @@ def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_ad
     if approved is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return approved
+
+
+# ── Evidence files (packet C6) ────────────────────────────────────────────────
+#
+# Growth plan only. Owner/admin upload and remove; any member lists and downloads. Bytes go to a private bucket;
+# a download is a 60-second signed link that forces a download, issued only after the database confirms the file
+# belongs to the caller's organisation. There is no inline preview and no public URL.
+
+logger = logging.getLogger("cyphward.evidence_files.api")
+MAX_CONCURRENT_UPLOADS = 4        # per process: at most this many request bodies (10 MB each) are held at once
+UPLOAD_SLOT_WAIT_SECONDS = 10.0
+RETRY_AFTER = {"Retry-After": "5"}
+_slots: Dict[str, Any] = {}
+
+
+def _upload_slots() -> asyncio.Semaphore:
+    """One semaphore per running event loop (a semaphore must not be shared between loops)."""
+    loop = asyncio.get_running_loop()
+    if _slots.get("loop") is not loop:
+        _slots["loop"], _slots["sem"] = loop, asyncio.Semaphore(MAX_CONCURRENT_UPLOADS)
+    return _slots["sem"]
+
+
+def _storage_or_503() -> file_storage.Storage:
+    try:
+        return file_storage.get_storage()
+    except file_storage.StorageNotConfigured:
+        raise HTTPException(status_code=503, detail="File uploads are not available right now.", headers=RETRY_AFTER)
+
+
+def _file_id_or_404(file_id: str) -> str:
+    try:
+        return str(UUID(file_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="File not found.")
+
+
+def _quota_http(exc: evidence_file_store.QuotaExceeded) -> HTTPException:
+    if exc.reason == "rate":
+        return HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": str(exc.retry_after or 60)})
+    return HTTPException(status_code=409, detail=str(exc))
+
+
+async def _read_body(request: Request) -> bytes:
+    """The request body, refused as soon as it passes the size limit (no unbounded buffering)."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > evidence_files.MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The file is larger than 10 MB.")
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > evidence_files.MAX_BYTES:
+            raise HTTPException(status_code=413, detail="The file is larger than 10 MB.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.get("/evidence-files")
+def list_evidence_files(question_key: Optional[str] = Query(default=None, max_length=80),
+                        org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+    _require_growth(org)
+    result = evidence_file_store.listing(str(org["id"]), question_key)
+    result["limits"] = {"max_bytes": evidence_files.MAX_BYTES, "max_files": evidence_files.MAX_FILES,
+                        "max_total_bytes": evidence_files.MAX_TOTAL_BYTES,
+                        "extensions": sorted(evidence_files.EXTENSIONS), "label": evidence_files.ALLOWED_TEXT}
+    result["uploads_available"] = file_storage.is_configured()
+    return result
+
+
+@router.post("/evidence-files", status_code=201)
+async def upload_evidence_file(request: Request, question_key: str = Query(min_length=1, max_length=80),
+                               org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+    """The request body is the file itself (no multipart); the name travels percent-encoded in X-File-Name."""
+    _require_growth(org)
+    if questionnaire.question(question_key) is None:
+        raise HTTPException(status_code=404, detail="Question not found.")
+    raw_name = request.headers.get("x-file-name") or ""
+    if len(raw_name) > 1500:
+        raise HTTPException(status_code=422, detail="The file name is too long.")
+    try:
+        name, kind = evidence_files.check_name(unquote(raw_name))
+    except evidence_files.FileRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
+    storage = _storage_or_503()
+    org_id, actor = str(org["id"]), str(org["current_user_id"])
+    try:
+        await asyncio.wait_for(_upload_slots().acquire(), timeout=UPLOAD_SLOT_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Many uploads are running. Try again in a few seconds.",
+                            headers=RETRY_AFTER)
+    try:
+        data = await _read_body(request)
+        try:
+            evidence_files.check_content(kind, data)
+        except evidence_files.FileRejected as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        checked = evidence_files.Checked(name, kind, evidence_files.ALLOWED_TYPES[kind])
+        try:
+            await run_in_threadpool(evidence_file_store.precheck, org_id, len(data))
+        except evidence_file_store.QuotaExceeded as exc:
+            raise _quota_http(exc)
+        file_id = str(uuid.uuid4())
+        path = evidence_files.storage_path(org_id, file_id)
+        try:
+            await run_in_threadpool(storage.put, path, data, checked.content_type)
+        except file_storage.StorageError:
+            raise HTTPException(status_code=502, detail="The file could not be stored. Try again.")
+        try:
+            return await run_in_threadpool(
+                evidence_file_store.register, org_id, actor, question_key=question_key, file_id=file_id,
+                checked=checked, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+        except BaseException as exc:
+            # The row was not saved: do not leave the object behind (reconcile catches it if this fails too).
+            evidence_file_store.delete_object(storage, path)
+            if isinstance(exc, evidence_file_store.QuotaExceeded):
+                raise _quota_http(exc)
+            if isinstance(exc, evidence_file_store.Busy):
+                raise HTTPException(status_code=503, detail=str(exc), headers=RETRY_AFTER)
+            raise
+    finally:
+        _upload_slots().release()
+
+
+@router.get("/evidence-files/{file_id}/download")
+def download_evidence_file(file_id: str, response: Response, org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+    _require_growth(org)
+    found = evidence_file_store.authorize_download(str(org["id"]), str(org["current_user_id"]), _file_id_or_404(file_id))
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    storage = _storage_or_503()
+    try:
+        url = storage.create_signed_url(found["storage_path"], evidence_files.SIGNED_URL_SECONDS, found["display_name"])
+    except file_storage.StorageObjectNotFound:
+        raise HTTPException(status_code=404, detail="This file is no longer available.")
+    except file_storage.StorageError:
+        raise HTTPException(status_code=502, detail="The download link could not be created. Try again.")
+    response.headers["Cache-Control"] = "no-store"
+    return {"url": url, "expires_in": evidence_files.SIGNED_URL_SECONDS, "display_name": found["display_name"],
+            "content_type": found["content_type"], "size_bytes": int(found["size_bytes"])}
+
+
+@router.delete("/evidence-files/{file_id}")
+def remove_evidence_file(file_id: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+    _require_growth(org)
+    row = evidence_file_store.mark_removed(str(org["id"]), str(org["current_user_id"]), _file_id_or_404(file_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    # The file no longer downloads. If the object cannot be deleted now, reconcile deletes it later.
+    try:
+        storage: Optional[file_storage.Storage] = file_storage.get_storage()
+    except file_storage.StorageNotConfigured:
+        storage = None
+    cleaned = storage is not None and evidence_file_store.delete_object(storage, row["storage_path"])
+    return {"id": str(row["id"]), "removed": True, "object_deleted": cleaned}
