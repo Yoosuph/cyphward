@@ -128,7 +128,7 @@ try {
 
   const clickExact = (text, within = "body") => page.evaluate((t, scope) => {
     const root = document.querySelector(scope);
-    const el = [...(root || document).querySelectorAll("button, a")].find((b) => b.textContent.replace(/\s+/g, " ").trim() === t);
+    const el = [...(root || document).querySelectorAll("button, a")].find((b) => b.textContent.replace(/\s+/g, " ").trim().toUpperCase() === t.toUpperCase());
     if (el) el.click();
     return !!el;
   }, text, within);
@@ -163,7 +163,7 @@ try {
     await page.goto(`${origin}/comply`, { waitUntil: "networkidle0" });
     await page.waitForSelector('[data-testid="compliance-disclaimer"]', { timeout: 10000 });
     assert.equal(await page.evaluate(() => !!document.querySelector('[data-testid="reviews-link"]')), false, `${name}: no Reviews link without a grant`);
-    assert.ok(await clickExact("REVIEWER ACCESS", '[role="tablist"]'), `${name}: tab`);
+    assert.ok(await clickExact("Reviewer access", '[role="tablist"]'), `${name}: tab`);
     await page.waitForSelector('[data-testid="grant-form"]');
     const attrs = await page.evaluate(() => {
       const d = document.querySelector("#rv-expiry");

@@ -76,7 +76,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
     }
     const ok = await confirm({
       title: 'Give this reviewer access?',
-      confirmLabel: 'GIVE ACCESS',
+      confirmLabel: 'Give access',
       body: (
         <>
           <p><span className="mono text-ink">{email.trim()}</span> will be able to read your compliance pages until
@@ -106,7 +106,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const revoke = async (g: ReviewerGrant) => {
     const ok = await confirm({
       title: 'End this reviewer’s access?',
-      confirmLabel: 'END ACCESS',
+      confirmLabel: 'End access',
       danger: true,
       body: <p>{g.reviewer_email} will lose access to your compliance pages straight away. What they already recorded stays on file.</p>,
     });
