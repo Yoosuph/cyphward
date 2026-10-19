@@ -268,7 +268,7 @@ export default function Compliance() {
     }
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manual = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -276,7 +276,7 @@ export default function Compliance() {
     } catch (e) {
       const message = errorText(e, 'Something went wrong on our side. Try again in a moment.');
       setError(message);
-      toast('The page was not refreshed.');
+      if (manual) toast('The page was not refreshed.');
     } finally {
       setLoading(false);
     }
@@ -397,7 +397,7 @@ export default function Compliance() {
         title="Compliance readiness"
         note={`${data.register.title}. This is the evidence Cyphward has seen, and where each piece came from.`}
         actions={
-          <button type="button" onClick={() => void load()} aria-label="Refresh" title="Refresh"
+          <button type="button" onClick={() => void load(true)} aria-label="Refresh" title="Refresh"
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[44px] btn-tactile">
             <RefreshCw size={14} /> <span className="sm:hidden">REFRESH</span>
           </button>

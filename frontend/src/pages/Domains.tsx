@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
@@ -42,6 +42,7 @@ export default function Domains() {
   const confirmAction = useConfirm();
   const zone = useOrgZone();
   const [loadError, setLoadError] = useState<string | null>(null);
+  const domainsRef = useRef<Domain[]>([]);
   // Last-seen list paints at once on a revisit; loadDomains refreshes it.
   const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('domains') ?? []);
   const [loading, setLoading] = useState(() => readPageCache('domains') === undefined);
@@ -61,6 +62,7 @@ export default function Domains() {
   const [hostsBusy, setHostsBusy] = useState(false);
 
   const toast = useToast();
+  domainsRef.current = domains;
 
   const loadDomains = async () => {
     // The skeleton is only for a first visit; refreshes keep the list on screen.
@@ -71,7 +73,7 @@ export default function Domains() {
       setLoadError(null);
     } catch (e) {
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
-      toast('The domain list was not refreshed.');
+      if (domainsRef.current.length > 0) toast('The domain list was not refreshed.');
     } finally {
       setLoading(false);
     }

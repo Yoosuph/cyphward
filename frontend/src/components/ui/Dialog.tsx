@@ -8,7 +8,7 @@ import { lockScroll, unlockScroll } from '../../lib/scrollLock';
  *
  *   <Dialog open={!!viewing} onClose={() => setViewing(null)} title="Privacy policy">…</Dialog>
  *
- * What it guarantees (tested in frontend/scripts/check-compliance-page.mjs):
+ * What it provides (tested in frontend/scripts/check-compliance-page.mjs):
  *  - role="dialog", aria-modal, named by its title (or `ariaLabel` when there is no visible title).
  *  - Focus moves in on open (to `[data-autofocus]`, else the first control in the body, else the panel),
  *    Tab and Shift+Tab cycle inside it, Esc closes it, and focus returns to the opener on close.

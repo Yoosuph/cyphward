@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, FileText, Plus, Send, Eye, Download } from 'lucide-react';
 import { listReportsStrict, createReport, getReport, type ReportRow } from '../lib/api';
 import { useToast } from '../components/Toast';
@@ -79,6 +79,8 @@ export default function Reports() {
   const [reports, setReports] = useState<ReportRow[]>(() => readPageCache<ReportRow[]>('reports') ?? []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const listRef = useRef<ReportRow[]>([]);
+  listRef.current = reports;
   const zone = useOrgZone();
 
   const [preview, setPreview] = useState<ReportRow | null>(null);
@@ -102,7 +104,7 @@ export default function Reports() {
       setLoadError(null);
     } catch (e) {
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
-      toast('The reports were not refreshed.');
+      if (listRef.current.length > 0) toast('The reports were not refreshed.');
     } finally {
       setLoading(false);
     }

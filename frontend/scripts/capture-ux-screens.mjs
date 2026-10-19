@@ -105,6 +105,14 @@ try {
     return !!el;
   }, re.source, scope);
   const settle = async (ms = 450) => { await page.waitForNetworkIdle({ idleTime: 250, timeout: 8000 }).catch(() => {}); await sleep(ms); };
+  const setVal = (selector, value) => page.evaluate((sel, v) => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const proto = el.tagName === "SELECT" ? HTMLSelectElement.prototype : el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
+    el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+    return true;
+  }, selector, value);
   const tab = (label) => click(new RegExp(`^${label}$`, "i"), '[role="tablist"]');
 
   const screens = [
@@ -120,6 +128,14 @@ try {
     ["comply-packs-empty", "/comply", async () => { await tab("Packs"); return true; }, false, { packsEmpty: true }],
     ["comply-documents", "/comply", async () => { await tab("Documents"); return true; }],
     ["comply-document-view", "/comply", async () => { await tab("Documents"); await settle(); return click(/^VIEW$|View/, '[data-testid="doc-privacy_policy"]'); }],
+    // Screens that exist only after the overhaul (skipped, with a note, when run against the old code).
+    ["comply-incident-details", "/comply", async () => { await tab("Incidents"); await settle(); return click(/^Details$/i, '[data-testid="incident-i-live"]'); }],
+    ["comply-incident-clock-change", "/comply", async () => { await tab("Incidents"); await settle(); await click(/Record an incident/i); await settle(); await setVal("#inc-title", "Shared drive link left public"); await setVal("#inc-detected", "2026-03-08T02:30"); return setVal("#inc-aware", "2026-03-08T03:30"); }],
+    ["comply-pack-confirm", "/comply", async () => { await tab("Packs"); await settle(); return click(/Issue readiness pack/i); }],
+    ["comply-pack-details", "/comply", async () => { await tab("Packs"); await settle(); return click(/^Details$/i, '[data-testid="pack-list"]'); }],
+    ["comply-document-approve-confirm", "/comply", async () => { await tab("Documents"); await settle(); await click(/^View$/i, '[data-testid="doc-privacy_policy"]'); await settle(); return click(/Approve this version/i, '[role="dialog"]'); }],
+    ["comply-questions-renewal-date", "/comply", async () => { await tab("Answer questions"); await settle(); await click(/^Answer$/i, '[data-testid="question-registration.major_importance"]'); await settle(); await page.evaluate(() => document.querySelector('[data-testid="form-registration.major_importance"] input[type="radio"]').click()); await setVal('[data-testid="form-registration.major_importance"] select[id$="-expiry"]', "custom"); return true; }],
+    ["domains-remove-confirm", "/domains", async () => page.evaluate(() => { const b = document.querySelector('button[aria-label^="Remove "]'); if (b) b.click(); return !!b; })],
     ["reports-list", "/reports", async () => true],
     ["reports-empty", "/reports", async () => true, false, { reportsEmpty: true }],
     ["reports-preview", "/reports", async () => click(/^VIEW$/i, "main")],
