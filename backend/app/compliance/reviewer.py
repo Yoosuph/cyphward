@@ -3,8 +3,8 @@
 An organisation OWNER grants one person (named by email) review access to that organisation's readiness
 pages for 1 to 90 days. This is its own authority. It is not an organisation membership (the reviewer never
 appears in members and cannot read anything outside the readiness pages), it is not platform staff, and
-platform staff do not gain it. Nothing here reads organization_members roles, platform_staff, platform_owners
-or the owner-console sessions to decide a reviewer's access.
+platform staff do not gain it. Nothing here reads a member's role, the staff tables or the owner-console
+sessions to decide a reviewer's access.
 
 Access is decided on EVERY request by one query that checks, on the database clock: the grant names the
 signed-in account's own verified profile email, is not revoked, has not expired, the account is not a member
