@@ -129,7 +129,10 @@ export default function Dialog({
     const panel = panelRef.current;
     const backdrop = backdropRef.current;
     if (!panel || !backdrop) return;
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Development re-runs effects once: keep the first opener rather than the dialog's own element.
+    if (!openerRef.current || !openerRef.current.isConnected || panel.contains(openerRef.current)) {
+      openerRef.current = document.activeElement instanceof HTMLElement && !panel.contains(document.activeElement) ? document.activeElement : openerRef.current;
+    }
     stack.push(id);
     nodes.set(id, backdrop);
     syncInert();
@@ -145,12 +148,18 @@ export default function Dialog({
       syncInert();
       unlockScroll();
       const opener = openerRef.current;
-      let back: HTMLElement | null = opener && opener.isConnected ? opener : null;
-      if (!back) back = latest.current.returnFocusTo?.() ?? document.querySelector<HTMLElement>('[role="tabpanel"], main');
-      if (back) {
+      // Wait until the whole commit is done, so a parent and its nested dialog finish closing before anyone takes focus.
+      queueMicrotask(() => {
+        if (stack.includes(id)) return; // re-opened straight away (React development re-run)
+        const current = document.activeElement;
+        // A page control already has focus (the user moved on): leave it there.
+        if (current && current !== document.body && current.isConnected && !current.closest('.dialog-panel')) return;
+        let back: HTMLElement | null = opener && opener !== document.body && opener.isConnected ? opener : null;
+        if (!back && opener !== document.body) back = latest.current.returnFocusTo?.() ?? document.querySelector<HTMLElement>('[role="tabpanel"], main');
+        if (!back || back.closest('[inert]')) return;
         if (!back.matches(FOCUSABLE)) back.setAttribute('tabindex', '-1');
         back.focus({ preventScroll: true });
-      }
+      });
     };
   }, [open, mounted, id]);
 

@@ -1941,3 +1941,5 @@ body.drawer-open {
   .btn-mini, .btn.btn-mini{min-height:44px}
   .app-form-control{min-height:44px}
 }
+/* Native date and time pickers keep focus inside their own segments; show the ring on the whole field. */
+input[type="date"]:focus-within, input[type="datetime-local"]:focus-within{outline:2px solid var(--accent); outline-offset:2px}

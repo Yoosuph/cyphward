@@ -715,8 +715,293 @@ try {
   }
   assert.equal(writes.length, 0);
 
+  // ---------------- UX: dialogs, states, dates, keyboard, touch targets ----------------
+  const activeInfo = () => page.evaluate(() => {
+    const a = document.activeElement;
+    return { id: a?.id || "", testid: a?.getAttribute?.("data-testid") || "", tag: a?.tagName || "", inDialog: !!a?.closest?.('[role="dialog"]') };
+  });
+  const dialogOpen = () => page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  const closed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
+  const tabUntil = async (match, max = 40) => {
+    for (let i = 0; i < max; i++) {
+      await page.keyboard.press("Tab");
+      const a = await activeInfo();
+      if (match(a)) return true;
+    }
+    return false;
+  };
+  role = "admin";
+  plan = "growth";
+  reset();
+  await page.setViewport({ width: 1440, height: 900 });
+  await gotoComply();
+  await openTab("Incidents");
+  await page.waitForSelector('[data-testid="incidents"]');
+
+  // Dialog: role, label, focus in, trap, Esc, focus back, inert page, scroll lock.
+  const opener = '[data-testid="incident-i-live"] [data-testid="incident-details-open"]';
+  await page.focus(opener);
+  await page.keyboard.press("Enter");
+  await page.waitForSelector('[role="dialog"]');
+  const dlg = await page.evaluate(() => {
+    const d = document.querySelector('[role="dialog"]');
+    return {
+      modal: d.getAttribute("aria-modal"), label: document.getElementById(d.getAttribute("aria-labelledby") || "x")?.textContent || "",
+      inside: d.contains(document.activeElement), rootInert: document.getElementById("root").hasAttribute("inert"),
+      locked: document.body.classList.contains("scroll-locked"),
+    };
+  });
+  assert.equal(dlg.modal, "true", "dialog: aria-modal");
+  assert.equal(dlg.label, "Incident details", "dialog: labelled by its title");
+  assert.ok(dlg.inside, "dialog: focus moves inside on open");
+  assert.ok(dlg.rootInert && dlg.locked, "dialog: the page behind is inert and scroll-locked");
+  for (const key of ["forward", "backward"]) {
+    if (key === "backward") await page.keyboard.down("Shift");
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press("Tab");
+      assert.ok((await activeInfo()).inDialog, `dialog: Tab ${key} stays inside (press ${i + 1})`);
+    }
+    if (key === "backward") await page.keyboard.up("Shift");
+  }
+  await noVerdicts("incident details dialog");
+  await page.keyboard.press("Escape");
+  await closed();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await page.evaluate((sel) => document.activeElement === document.querySelector(sel) || document.activeElement.outerHTML.slice(0, 150), opener), true, "dialog: focus returns to the opener on Esc");
+  assert.equal(await page.evaluate(() => document.getElementById("root").hasAttribute("inert") || document.body.classList.contains("scroll-locked")), false, "dialog: page is live again after closing");
+
+  // Backdrop click closes a clean dialog; a dirty form asks first, and Esc asks too.
+  await page.click(opener);
+  await page.waitForSelector('[role="dialog"]');
+  await page.mouse.click(8, 8);
+  await closed();
+  await page.click('[data-testid="incident-i-live"] [data-testid="incident-edit"]');
+  await page.waitForSelector('[data-testid="incident-form"]');
+  await setVal("#inc-notes", "Typed but not saved");
+  await page.mouse.click(8, 8);
+  await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 2, { timeout: 3000 });
+  assert.ok(/discard your changes\?/i.test(await bodyText()), "dirty dialog: asks before discarding");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent.trim()), "Keep editing", "dirty dialog: Keep editing is the default focus");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 1, { timeout: 3000 });
+  assert.equal(await page.evaluate(() => document.querySelector("#inc-notes").value), "Typed but not saved", "dirty dialog: Esc on the question keeps the input");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 2, { timeout: 3000 });
+  assert.ok(await clickExact("Discard changes"));
+  await closed();
+  assert.equal(writes.length, 0, "dirty dialog: nothing was sent");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid") || document.activeElement?.outerHTML.slice(0, 120)), "incident-edit", "dirty dialog: focus returns to the Edit button");
+
+  // Native pickers and clock changes: a time that does not exist or happens twice is explained and never sent.
+  await clickExact("Record an incident");
+  await page.waitForSelector('[data-testid="incident-form"]');
+  const pickers = await page.evaluate(() => [...document.querySelectorAll('[data-testid="incident-form"] input')]
+    .filter((i) => /detected|aware|commission|subjects/.test(i.id)).map((i) => i.type));
+  assert.deepEqual(pickers, ["datetime-local", "datetime-local", "datetime-local", "datetime-local"], "dates: every time is a native datetime-local");
+  await setVal("#inc-title", "Clock change check");
+  await setVal("#inc-detected", "2026-03-08T02:30");
+  await setVal("#inc-aware", "2026-03-08T03:30");
+  await page.waitForSelector('[data-testid="datetime-problem"]');
+  assert.ok((await bodyText()).includes("does not exist in America/New_York"), "dates: a skipped time is explained inline");
+  await page.click('[data-testid="incident-save"]');
+  await page.waitForFunction(() => document.querySelector('[data-testid="incident-error"]')?.textContent.includes("does not exist"), { timeout: 3000 });
+  await setVal("#inc-detected", "2025-11-02T01:30");
+  await page.waitForFunction(() => document.querySelector('[data-testid="datetime-problem"]')?.textContent.includes("twice"), { timeout: 3000 });
+  await page.click('[data-testid="incident-save"]');
+  await page.waitForFunction(() => document.querySelector('[data-testid="incident-error"]')?.textContent.includes("twice"), { timeout: 3000 });
+  assert.equal(writes.length, 0, "dates: an unclear time is never sent");
+
+  // A failed save: a plain message and a toast, never a status line, and the dialog stays open with the input.
+  await setVal("#inc-detected", "2026-10-15T09:30");
+  await setVal("#inc-aware", "2026-10-15T10:45");
+  flags.failWrites = true;
+  await page.click('[data-testid="incident-save"]');
+  await page.waitForFunction(() => document.querySelector('[data-testid="incident-error"]')?.textContent.includes("could not save"), { timeout: 5000 });
+  const failText = await page.evaluate(() => document.querySelector('[data-testid="incident-error"]').textContent + document.querySelector(".toasts").innerText);
+  assert.ok(!/500|internal server|status|traceback/i.test(failText), `failure: no raw status in "${failText}"`);
+  assert.ok(failText.includes("was not saved"), "failure: a toast says so");
+  assert.ok(await dialogOpen(), "failure: the dialog stays open");
+  flags.failWrites = false;
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 2, { timeout: 3000 });
+  assert.ok(await clickExact("Discard changes"));
+  await closed();
+
+  // Focus ring on every control in a form dialog (keyboard focus).
+  await clickExact("Record an incident");
+  await page.waitForSelector('[data-testid="incident-form"]');
+  const rings = [];
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const ring = await page.evaluate(() => {
+      const a = document.activeElement;
+      if (!a || !a.closest('[role="dialog"]')) return null;
+      const c = getComputedStyle(a);
+      return { id: a.id || a.getAttribute("data-testid") || a.tagName, visible: (c.outlineStyle !== "none" && parseFloat(c.outlineWidth) > 0) || c.boxShadow !== "none" };
+    });
+    if (ring) rings.push(ring);
+  }
+  assert.ok(rings.length >= 8, "focus ring: tabbed through the controls");
+  assert.deepEqual(rings.filter((r) => !r.visible).map((r) => r.id), [], "focus ring: every control shows a visible focus ring");
+  await page.keyboard.press("Escape");
+  await closed();
+
+  // Keyboard-only: arrow keys move between tabs, Enter opens the dialog, the form is filled and saved without a mouse.
+  reset();
+  await page.setViewport({ width: 1440, height: 900 });
+  await gotoComply();
+  await page.focus("#tab-readiness");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.evaluate(() => [document.activeElement.id, document.activeElement.getAttribute("aria-selected")].join()), "tab-incidents,true", "keyboard: arrow keys select and focus the next tab");
+  await page.waitForSelector('[data-testid="incidents"]');
+  assert.ok(await tabUntil((a) => a.testid === "incident-new", 10), "keyboard: Tab reaches Record an incident");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector('[data-testid="incident-form"]');
+  assert.equal((await activeInfo()).id, "inc-title", "keyboard: focus starts on the first field");
+  await page.keyboard.type("Keyboard only entry");
+  assert.ok(await tabUntil((a) => a.id === "inc-detected", 6), "keyboard: Tab reaches the detected time");
+  await page.keyboard.type("10152026");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type("0930AM");
+  assert.ok(await tabUntil((a) => a.id === "inc-aware", 10), "keyboard: Tab reaches the aware time");
+  await page.keyboard.type("10152026");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type("1045AM");
+  assert.ok(await tabUntil((a) => a.testid === "incident-save", 40), "keyboard: Tab reaches the save button");
+  const kbBefore = writes.length;
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.body.innerText.includes("Keyboard only entry") && !document.querySelector('[data-testid="incident-form"]'), { timeout: 5000 });
+  assert.equal(writes[kbBefore].body.detected_at, "2026-10-15T13:30:00.000Z", "keyboard: the time typed in the picker goes out as UTC");
+  assert.equal(writes[kbBefore].body.title, "Keyboard only entry");
+  assert.equal((await activeInfo()).testid, "incident-new", "keyboard: focus returns to the button that opened the dialog");
+
+  // Empty and error states (incidents, packs), each with the right action and a plain message.
+  reset();
+  incidents.length = 0;
+  packs.length = 0;
+  await gotoComply();
+  await openTab("Incidents");
+  await page.waitForSelector('[data-testid="state-empty"]');
+  const emptyIncidents = await page.evaluate(() => document.querySelector('[data-testid="state-empty"]').innerText);
+  assert.ok(/No incidents recorded/.test(emptyIncidents) && /record an incident/i.test(emptyIncidents), "empty: incidents explain themselves and offer the action");
+  await openTab("Packs");
+  await page.waitForSelector('[data-testid="packs-empty"]');
+  assert.ok(/No packs issued yet/.test(await page.evaluate(() => document.querySelector('[data-testid="packs-empty"]').innerText)), "empty: packs");
+  await noVerdicts("empty states");
+  reset();
+  flags.failReads.add("/compliance/incidents");
+  await gotoComply();
+  await openTab("Incidents");
+  await page.waitForSelector('[data-testid="state-error"]');
+  const errText = await page.evaluate(() => document.querySelector('[data-testid="state-error"]').innerText);
+  assert.ok(!/500|internal server|status|traceback/i.test(errText) && /try again/i.test(errText), `error: a human message with a retry (${errText})`);
+  flags.failReads.clear();
+  await clickExact("Try again");
+  await page.waitForSelector('[data-testid="incidents"] [data-testid="incident-i-live"]', { timeout: 5000 });
+  flags.failReads.add("/compliance/overview");
+  await page.goto(`${origin}/comply`, { waitUntil: "networkidle0" });
+  await page.waitForSelector('[data-testid="state-error"]');
+  assert.ok(!/500|internal server/i.test(await bodyText()), "error: the whole page shows no raw status");
+  flags.failReads.clear();
+  await clickExact("Try again");
+  await page.waitForSelector('[data-testid="compliance-disclaimer"]', { timeout: 5000 });
+  flags.delayMs = 1500;
+  await page.goto(`${origin}/comply`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="state-loading"]', { timeout: 5000 });
+  assert.ok(/Loading/.test(await page.evaluate(() => document.querySelector('[data-testid="state-loading"]').innerText)), "loading: a labelled loading state");
+  await page.waitForSelector('[data-testid="compliance-disclaimer"]', { timeout: 8000 });
+  flags.delayMs = 0;
+
+  // A failed pack issue gives a plain toast.
+  reset();
+  await gotoComply();
+  await openTab("Packs");
+  await page.waitForSelector('[data-testid="packs"]');
+  flags.failWrites = true;
+  await page.evaluate(() => document.querySelector('[data-testid="issue-readiness_pack"]').click());
+  await page.waitForSelector('[data-testid="confirm-dialog"]');
+  await page.click('[data-testid="confirm-ok"]');
+  await page.waitForFunction(() => document.querySelector(".toasts")?.innerText.includes("not issued"), { timeout: 5000 });
+  assert.ok(!/500|internal server/i.test(await page.evaluate(() => document.querySelector(".toasts").innerText)), "failure: the toast has no raw status");
+  flags.failWrites = false;
+
+  // Questionnaire: a chosen renewal date is a native date and goes out as the end of that day in the organisation's zone, in UTC.
+  reset();
+  await gotoComply();
+  await openTab("Answer questions");
+  await page.waitForSelector('[data-testid="questionnaire"]');
+  assert.ok(await clickExact("Answer", qsel("registration.major_importance")));
+  const qf = `[data-testid="form-registration.major_importance"]`;
+  await page.waitForSelector(qf);
+  assert.ok(await chooseRadio(qf, "Yes"));
+  await setVal(`${qf} select[id$="-expiry"]`, "custom");
+  await page.waitForSelector(`${qf} input[id$="-expiry-date"]`);
+  const exp = await page.evaluate((f) => { const i = document.querySelector(`${f} input[id$="-expiry-date"]`); return { type: i.type, min: i.min, max: i.max }; }, qf);
+  assert.equal(exp.type, "date", "dates: the renewal date is a native date picker");
+  assert.ok(exp.min && exp.max && exp.min < exp.max, "dates: the renewal date has a range");
+  const wanted = new Date(Date.now() + 30 * 24 * HOUR).toISOString().slice(0, 10);
+  await setVal(`${qf} input[id$="-expiry-date"]`, wanted);
+  assert.ok((await bodyText()).includes("Day in America/New_York"), "dates: the zone is shown beside the date");
+  await clickExact("Save answer", qf);
+  await page.waitForFunction(() => !document.querySelector('[data-testid="form-registration.major_importance"]'), { timeout: 5000 });
+  const sentExpiry = writes[0].body.expires_at;
+  assert.ok(/Z$/.test(sentExpiry), "dates: the expiry is sent as UTC");
+  const wall = new Intl.DateTimeFormat("en-CA", { timeZone: ORG_ZONE, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(sentExpiry));
+  assert.equal(wall.replace(",", ""), `${wanted} 23:59`, `dates: it is 23:59 on the chosen day in New York (${wall})`);
+  const nativeOnly = await page.evaluate(() => [...document.querySelectorAll("input")].filter((i) => /date/i.test(i.id) && i.type === "text").length);
+  assert.equal(nativeOnly, 0, "dates: no free-text date inputs");
+
+  // Mobile (390 and 320): dialogs are full screen with a sticky title bar, 44px controls, no overflow, content scrolls inside.
+  for (const [name, width] of [["mobile", 390], ["small-mobile", 320]]) {
+    reset();
+    await page.setViewport({ width, height: 800, hasTouch: true, isMobile: true });
+    await gotoComply();
+    await openTab("Documents");
+    await page.waitForSelector('[data-testid="documents"]');
+    assert.ok(await clickExact("View", docCard("privacy_policy")));
+    await page.waitForSelector('[role="dialog"] [data-testid="doc-viewer"]');
+    await new Promise((r) => setTimeout(r, 450)); // let the open animation finish before measuring
+    const m = await page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]');
+      const r = d.getBoundingClientRect();
+      const bar = d.querySelector(".dialog-bar");
+      const close = d.querySelector(".dialog-close").getBoundingClientRect();
+      const body = d.querySelector(".dialog-body");
+      return {
+        w: r.width, h: r.height, vw: innerWidth, vh: innerHeight, sticky: getComputedStyle(bar).position, closeW: close.width, closeH: close.height,
+        bodyOverflow: body.scrollWidth - body.clientWidth, scrolls: body.scrollHeight > body.clientHeight, pageOverflow: document.documentElement.scrollWidth - innerWidth,
+        padBottom: parseFloat(getComputedStyle(body).paddingBottom),
+      };
+    });
+    assert.ok(Math.abs(m.w - m.vw) < 1 && Math.abs(m.h - m.vh) < 1, `${name}: the dialog fills the screen (${m.w}x${m.h} in ${m.vw}x${m.vh})`);
+    assert.equal(m.sticky, "sticky", `${name}: the title bar is sticky`);
+    assert.ok(m.closeW >= 44 && m.closeH >= 44, `${name}: the close button is at least 44px`);
+    assert.ok(m.bodyOverflow <= 0 && m.pageOverflow <= 0, `${name}: no horizontal overflow in the dialog`);
+    assert.ok(m.scrolls, `${name}: the content scrolls inside the dialog`);
+    assert.ok(m.padBottom >= 24, `${name}: room at the bottom for the safe area`);
+    await page.keyboard.press("Escape");
+    await closed();
+
+    // Touch targets on the page and in a form dialog.
+    await openTab("Incidents");
+    await page.waitForSelector('[data-testid="incidents"]');
+    await clickExact("Record an incident");
+    await page.waitForSelector('[data-testid="incident-form"]');
+    await new Promise((r) => setTimeout(r, 450));
+    const small = await page.evaluate(() => [...document.querySelectorAll('button, [role="tab"], select, input:not([type="radio"]):not([type="hidden"]), textarea, summary')]
+      .filter((el) => el.getClientRects().length > 0 && !el.closest("[inert]") || el.closest('[role="dialog"]'))
+      .filter((el) => el.getClientRects().length > 0)
+      .map((el) => ({ el: `${el.tagName}#${el.id || el.getAttribute("data-testid") || el.textContent.trim().slice(0, 20)}`, h: Math.round(el.getBoundingClientRect().height) }))
+      .filter((x) => x.h < 43));
+    assert.deepEqual(small, [], `${name}: touch targets under 44px`);
+    await page.keyboard.press("Escape");
+    await closed();
+    await page.setViewport({ width: 1440, height: 900, hasTouch: false, isMobile: false });
+  }
+
   assert.deepEqual(errors, [], "no page errors");
-  console.log("compliance page, questionnaire, incidents, documents, read-only members and the Starter gate: desktop/390/320 passed");
+  console.log("compliance page, questionnaire, incidents, packs, documents, dialogs, dates, states, keyboard, touch targets, read-only members and the Starter gate: desktop/390/320 passed");
 } finally {
   await browser?.close();
   await server.close();
