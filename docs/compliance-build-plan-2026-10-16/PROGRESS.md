@@ -634,3 +634,31 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 | A-1 | Which source is the headline | Unchanged: present, then gap, then the customer's answer; ties go to the answer. Only the presentation is fixed. |
 | A-2 | Second source in a pack row | Shown on its own "Also:" line with its own status. |
 | A-3 | Pack version label | Stays v1 in this PR; v2 arrives with the branded pack in PR-B. |
+
+## PR-B: branded evidence pack (template v2)
+
+**What.** New packs use `cyphward-ndpa-pack-v2` (HTML and PDF), built from the same snapshot content:
+1. **Cover page:** Cyphward logo (the favicon's shield, an inline SVG in the HTML and vector paths in the PDF, no image library), brand colours from `frontend/src/index.css` (ink, accent `#E5532B` on the dark band, `#C63A14` deep accent), organisation, title, issue date, **pack id**. The pack uuid is generated before rendering and inserted explicitly (`store._insert_pack`).
+2. **Summary page:** scope (domains, assessment dates, snapshot, register version), the two notices, readiness as counts (with evidence, gaps, awaiting input, not assessed, applicable; never a percentage) and the top 6 prioritised gaps. DPO-section packs get their window and three counts.
+3. **"Page X of Y" on every page** of the PDF (two-pass canvas). The HTML has a footer that repeats on every printed page and CSS page counters (`counter(page)` of `counter(pages)`), so a browser's print or save-as-PDF numbers the pages; a scrolling page has none.
+4. **Footer on every page:** the short disclaimer and "Prepared with Cyphward · Pack <first 8 of id>".
+5. **One legend** for "reference pending review"; rows keep a dagger (†) after the clause. The phrase appears exactly once per rendering.
+6. **Last page:** "Frozen record: snapshot <id>, sha256 <content hash>". The pack's own hash cannot be inside itself; the API returns it.
+
+Kept: supporting-evidence and "not a Compliance Audit Return" notices, source labels, honest all-not-assessed text, capped cells (PR-A rule), non-Latin names folded in the PDF, no verdict language. New bounds: organisation name 160 characters, scope domain list 40 names. Page images (v1 before, v2 after; full data, all-not-assessed, 600 findings) and two sample PDFs are in `docs/ux-2026-10-19/pack/`; I looked at every page of those renderings and fixed two layout faults (a heading kept with a table pushed it to a blank page; spacing). Chromium's print of the HTML was checked too (footer and "Page X of Y" on each printed page).
+
+**v1 is untouched for reading.** `document.build` without a pack id still builds the original layout, `render.to_html/to_pdf` take the v1 path for such a document, and stored bytes are served as stored. A test stores a v1 pack and shows the served bytes and hashes are the stored ones and its version stays v1. `render.pdf_extract_text` (a test and integrity helper) now also decodes octal escapes and Windows-1252, so the dagger reads back.
+
+**Tests.** `test_pack_branded.py` (14, pure: three organisations x cover/summary/footer/page-number/legend/frozen-record in HTML and PDF text, last-page check, per-page footer count, counts-not-percent, marker on every unverified row, banned phrases over HTML and extracted PDF text, worst case 600 findings + 500 domains + a 900-character name, markup escaping, DPO section, v1 builds) and 3 in `test_packs_postgres.py` (v2 stored with its own id and the real snapshot id and hash for both kinds; a stored v1 pack served unchanged); two older tests updated to the new marker. Mutation checks (each fails the suite): the phrase repeated per row, no footer on body pages, a wrong page total, a wrong hash on the last page, v1 label stored on new packs. Full backend suite, CI PostgreSQL list and frontend suites: see the PR.
+
+**Limitations.** The PDF uses built-in Helvetica/Times (no embedded brand fonts), so non-Latin names are folded as in v1. The HTML's page numbers exist only when printed. Packs show a long first-page-light summary when little is assessed. The PDF has no bookmarks or tagging for accessibility.
+
+### Decisions for Yusuf (PR-B)
+
+| # | Decision | Default applied |
+|---|---|---|
+| B-1 | Cover content | Logo, organisation, title, issue date, pack id, register version. |
+| B-2 | Marker for unverified references | Dagger (†) plus one legend. |
+| B-3 | Fonts | Built-in PDF fonts; no font embedding or licensing. |
+| B-4 | Pack hash on the pack | Not inside the pack; the snapshot's sha256 is. |
+| B-5 | Top gaps on the summary | 6. |
