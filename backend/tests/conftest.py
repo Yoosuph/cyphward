@@ -429,13 +429,13 @@ class FakeStore:
         # --- own auth: sessions ------------------------------------------
         # get_current_user: profile JOIN its own session (single query).
         # Never creates rows — a deleted profile must stay deleted (P1).
-        if s.startswith("SELECT p.*, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at FROM profiles p"):
+        if s.startswith("SELECT p.*, s.id AS session_id, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at FROM profiles p"):
             sid, uid = params
             prof = self.profiles.get(str(uid))
             sess = next((x for x in self.sessions if x["id"] == sid and str(x["user_id"]) == str(uid)), None)
             if prof is None or sess is None:
                 return []
-            return [{**prof, "session_revoked_at": sess.get("revoked_at"),
+            return [{**prof, "session_id": sess["id"], "session_revoked_at": sess.get("revoked_at"),
                      "session_expires_at": sess.get("expires_at")}]
 
         if s.startswith("INSERT INTO auth_sessions"):
