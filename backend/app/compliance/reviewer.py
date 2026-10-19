@@ -290,10 +290,10 @@ def activity(org_id: str, limit: int = 100) -> List[Dict[str, Any]]:
 
 def audit_trail(org_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     rows = execute_query(
-        "SELECT a.action, a.created_at, a.resource_id, a.metadata, a.user_id, p.full_name FROM audit_log a "
+        "SELECT a.action, a.created_at, a.metadata->>'grant_id' AS grant_id, a.metadata, a.user_id, p.full_name FROM audit_log a "
         "LEFT JOIN profiles p ON p.id = a.user_id WHERE a.org_id = %s AND a.action LIKE 'compliance.reviewer.%%' "
         "ORDER BY a.created_at DESC, a.id LIMIT %s", (str(org_id), limit)) or []
-    return [{"action": r["action"], "at": _iso(r["created_at"]), "grant_id": r["resource_id"],
+    return [{"action": r["action"], "at": _iso(r["created_at"]), "grant_id": r["grant_id"],
              "by": r.get("full_name"), "metadata": r["metadata"]} for r in rows]
 
 
@@ -342,8 +342,8 @@ def _display_name(ctx: Dict[str, Any]) -> str:
         return "Reviewer (name withheld)"
 
 
-def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action: str, meta: Dict[str, Any],
-           key: str) -> Dict[str, Any]:
+def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action: str, resource_type: str,
+           meta: Dict[str, Any], key: str) -> Dict[str, Any]:
     """Insert one record under a SHARE lock on the grant, which makes a concurrent revocation wait, and audit it
     in the same transaction. The table's own trigger re-checks the grant and the writer as the last line."""
     if register_requirement(key) is None:
@@ -366,7 +366,7 @@ def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action:
                 conn.execute(
                     "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
                     "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (org_id, user_id, action, "reviewer_grant", str(row["id"]),
+                    (org_id, user_id, action, resource_type, str(row["id"]),
                      Jsonb({"grant_id": grant_id, "requirement_key": key, **meta})))
     except psycopg.errors.LockNotAvailable as exc:
         raise Busy("The grant is being changed right now. Try again in a moment.") from exc
@@ -380,12 +380,12 @@ def record_review(ctx: Dict[str, Any], key: str, outcome: str, comment: Optional
         raise GrantError("Choose one of the listed outcomes.")
     text = practitioner.clean_text(comment, "Comment")
     row = _write(ctx, "compliance_practitioner_reviews", "outcome, comment", (outcome, text), ACTIONS["review"],
-                 {"outcome": outcome, "has_comment": text is not None}, key)
+                 "practitioner_review", {"outcome": outcome, "has_comment": text is not None}, key)
     return practitioner.review_view(row)
 
 
 def record_clause(ctx: Dict[str, Any], key: str, verified: bool, note: Optional[str]) -> Dict[str, Any]:
     text = practitioner.clean_text(note, "Note")
     row = _write(ctx, "compliance_clause_verifications", "verified, note", (bool(verified), text), ACTIONS["clause"],
-                 {"verified": bool(verified), "has_note": text is not None}, key)
+                 "clause_verification", {"verified": bool(verified), "has_note": text is not None}, key)
     return practitioner.clause_view(row)

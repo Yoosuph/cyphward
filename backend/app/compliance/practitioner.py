@@ -44,7 +44,8 @@ def clean_text(value: Optional[str], field: str, limit: int = MAX_TEXT, required
         raise TextError(f"{field} must be at most {limit} characters.")
     lowered = text.lower()
     for word in BANNED_PHRASES:
-        if word in lowered:
+        # Whole words only: "this method" must not trip "is met".
+        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", lowered):
             raise TextError(GUIDANCE.format(word=word))
     return text
 

@@ -860,6 +860,7 @@ def test_every_step_is_audited_without_comment_text_and_visible_to_the_owner(rw)
     listing = rw.listing(a.org, a.owner).json()
     assert {e["action"] for e in listing["audit"]} >= {"compliance.reviewer.granted", "compliance.reviewer.session",
                                                        "compliance.reviewer.revoked", "compliance.reviewer.review_recorded"}
+    assert {e["grant_id"] for e in listing["audit"]} == {a.grant_id}, "every audit event names the real grant"
     assert [e["kind"] for e in listing["activity"]] and {e["kind"] for e in listing["activity"]} == {"review", "clause"}
     assert listing["activity"] == sorted(listing["activity"], key=lambda e: e["at"], reverse=True)
     assert all(e["reviewer_name"] == "Dr Ada Reviewer" for e in listing["activity"])
@@ -918,6 +919,11 @@ def test_the_review_text_validator_refuses_every_banned_phrase_and_control_chara
             practitioner.clean_text(f"We found it {phrase.upper()} today", "Comment")
     assert practitioner.clean_text("  line\x00 one\x07 ", "Comment") == "line one"
     assert practitioner.clean_text("   ", "Comment") is None
+    for fine in ("Checked this method against the Act", "The analysis met my expectations of the draft", "Read s.25 twice"):
+        assert practitioner.clean_text(fine, "Comment") == fine
+    for refused in ("Not compliant yet", "non-compliant", "It is met."):
+        with pytest.raises(practitioner.TextError):
+            practitioner.clean_text(refused, "Comment")
     with pytest.raises(practitioner.TextError):
         practitioner.clean_text("", "Purpose", required=True)
 

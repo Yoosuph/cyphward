@@ -135,7 +135,7 @@ def test_disclaimer_is_the_plan_text_and_is_always_returned(monkeypatch):
 
 def test_compliance_page_copy_has_no_verdict_language():
     pages = ROOT / "frontend" / "src" / "pages"
-    for path in [pages / "Compliance.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
+    for path in [pages / "Compliance.tsx", pages / "Reviews.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
         source = path.read_text()
         # User-visible text: JSX text nodes and string literals.
         texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
