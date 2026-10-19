@@ -118,6 +118,18 @@ def test_zip_with_too_many_entries_is_refused(monkeypatch):
         ef.check("a.docx", docx({f"word/p{i}.xml": b"x" for i in range(30)}))
 
 
+def test_a_zip64_record_is_refused_so_it_cannot_override_the_entry_count():
+    import struct
+    base = docx()
+    eocd = base.rfind(b"PK\x05\x06")
+    # A zip64 end-of-central-directory locator right before the classic record, as zipfile would follow it.
+    locator = b"PK\x06\x07" + struct.pack("<IQI", 0, eocd, 1)
+    forged = base[:eocd] + locator + base[eocd:]
+    with pytest.raises(ef.FileRejected, match="too many parts"):
+        ef.check("a.docx", forged)
+    ef.check("a.docx", base)  # the same file without it is fine
+
+
 def test_zip_with_path_traversal_entries_is_refused():
     with pytest.raises(ef.FileRejected):
         ef.check("a.docx", docx({"../evil.txt": b"x"}))

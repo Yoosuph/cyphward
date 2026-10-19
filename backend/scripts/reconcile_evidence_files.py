@@ -44,12 +44,15 @@ def main(argv=None) -> int:
         print(f"bucket {file_storage.BUCKET}: " + {True: "private", False: "PUBLIC", None: "missing"}[private])
         if private is not True:
             code = 1
+    # The purge queue only deletes the prefixes of organisations that no longer exist, so it runs first and does not
+    # depend on the safety checks of the orphan run below.
+    queue = evidence_file_store.process_purge_queue(storage, delete=args.delete)
     try:
         report = evidence_file_store.reconcile(storage, delete=args.delete, min_age_seconds=args.min_age, max_delete=args.max)
     except evidence_file_store.ReconcileRefused as exc:
+        print(json.dumps({"purge_queue": queue}, indent=2))
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    queue = evidence_file_store.process_purge_queue(storage, delete=args.delete)
     print(json.dumps({"mode": "delete" if args.delete else "report-only", **report, "purge_queue": queue}, indent=2))
     if queue["failed"]:
         code = 1

@@ -992,6 +992,27 @@ def test_the_reconcile_script_needs_yes_delete_as_well(world, team, fake, capsys
     assert mod.main([]) in (0, 1)
 
 
+def test_the_script_clears_the_purge_queue_even_when_the_empty_table_guard_refuses(world, team, fake, monkeypatch, capsys):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("reconcile_script2", pathlib.Path(__file__).resolve().parents[1] / "scripts/reconcile_evidence_files.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    org_id, owner, *_ = team
+    _clear_queue(world)
+    _upload(world, org_id, owner)
+    fake.fail_delete_prefix = True
+    assert _close(world, org_id, owner).status_code == 200  # rows gone, objects and a queue entry left
+    fake.fail_delete_prefix = False
+    assert len(_queue(world, org_id)) == 1 and len(fake.objects) == 1
+
+    def refuse(*a, **k):
+        raise store.ReconcileRefused("The database has no evidence-file rows but storage has objects")
+
+    monkeypatch.setattr(store, "reconcile", refuse)  # as when the table is empty and storage is not
+    assert mod.main(["--delete", "--yes-delete"]) == 2
+    assert fake.objects == {} and _queue(world, org_id) == []  # the queue was still processed
+
+
 def test_the_api_roles_hold_no_privileges_on_the_new_tables(world):
     rows = world.rows("SELECT grantee, table_name FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated') "
                       "AND table_name IN ('compliance_evidence_files', 'compliance_evidence_purge_queue')")

@@ -103,6 +103,10 @@ def _directory_problem(data: bytes) -> Optional[str]:
     at = tail.rfind(b"PK\x05\x06")
     if at < 0 or len(tail) - at < 22:
         return "This is not a valid DOCX file."
+    # A zip64 record (its locator sits right before this record) overrides the numbers below, and a Word file under
+    # 10 MB never needs one: refuse it.
+    if at >= 20 and tail[at - 20:at - 16] == b"PK\x06\x07":
+        return "This DOCX file has too many parts to accept."
     entries, size = struct.unpack("<HI", tail[at + 10:at + 10 + 2] + tail[at + 12:at + 16])
     if entries == 0xFFFF or size == 0xFFFFFFFF or entries > DOCX_MAX_ENTRIES:
         return "This DOCX file has too many parts to accept."
