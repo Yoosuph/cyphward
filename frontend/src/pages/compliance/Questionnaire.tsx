@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../../components/StatusChip';
+import DateTimeField from '../../components/ui/DateTimeField';
 import { useToast } from '../../components/Toast';
+import { addDays, endOfDayUtc, resolveZone, todayIn } from '../../lib/datetime';
 import { useAuth } from '../../lib/auth';
 import {
   listEvidenceFiles, listOrgMembers, recordAttestation,
@@ -17,12 +19,13 @@ import { FIELD_BOX, FIELD_LABEL, ReadOnlyNote, errorText, fmtDayZone } from './s
 
 const MAX_EXPIRY_DAYS = 730; // the API's cap; the longest option sends 729 days to stay inside it
 const EXPIRY_CHOICES = [
-  { label: '12 months (default)', days: null },
+  { label: '12 months (usual)', days: null },
   { label: '3 months', days: 90 },
   { label: '6 months', days: 180 },
   { label: '18 months', days: 545 },
   { label: '24 months (longest)', days: MAX_EXPIRY_DAYS - 1 },
 ] as const;
+const CUSTOM_EXPIRY = 'custom';
 const LONG_DIGITS = /\d{7,}/;
 const HTTPS_LINK = /^https:\/\/\S+$/;
 
@@ -40,7 +43,6 @@ function valueLabel(q: QuestionnaireQuestion, a: QuestionnaireAnswer, zone: stri
   const parts = [base];
   if (a.date && q.allows_date) parts.push(fmtDayZone(`${a.date}T12:00:00Z`, 'UTC'));
   if (a.text) parts.push(a.text);
-  void zone;
   return parts.join(' · ');
 }
 
@@ -58,17 +60,9 @@ export function ToldUs({ q, zone }: { q: QuestionnaireQuestion; zone: string }) 
   );
 }
 
-function todayIn(zone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
-}
-
 function valueOptions(q: QuestionnaireQuestion): { value: string; label: string }[] {
   let opts: { value: string; label: string }[];
-  if (q.type === 'date') opts = [{ value: 'date', label: 'I have the date' }];
+  if (q.type === 'date') opts = [{ value: 'date', label: 'I know the date' }];
   else if (q.type === 'choice') opts = q.options.map(o => ({ value: o, label: o.toUpperCase() }));
   else opts = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
   if (q.allow_not_applicable) opts.push({ value: 'not_applicable', label: 'Not applicable' });
@@ -86,7 +80,8 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
   const [date, setDate] = useState(prior?.date || '');
   const [text, setText] = useState(prior?.text || '');
   const [owner, setOwner] = useState(prior?.owner_user_id || user?.id || '');
-  const [expiry, setExpiry] = useState<number | null>(null);
+  const [expiry, setExpiry] = useState<number | typeof CUSTOM_EXPIRY | null>(null);
+  const [expiryDate, setExpiryDate] = useState('');
   const [link, setLink] = useState(prior?.evidence_link || '');
   const [notes, setNotes] = useState(prior?.notes || '');
   const [busy, setBusy] = useState(false);
@@ -96,14 +91,19 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
   const takesDate = value === 'date' || (q.allows_date && q.type !== 'date' && (value === 'yes' || value === 'no'));
   const idBase = `q-${q.key.replace(/[^a-z0-9]/gi, '-')}`;
 
+  const today = todayIn(zone);
   const validate = (): string | null => {
     if (!value) return 'Choose an answer.';
-    if (value === 'date' && !date) return 'Give the date.';
-    if (date && date > todayIn(zone)) return 'A date cannot be in the future.';
+    if (value === 'date' && !date) return 'Choose the date.';
+    if (date && date > today) return 'The date cannot be in the future.';
     if (q.allows_text && text && LONG_DIGITS.test(text)) return 'Do not enter personal ID numbers.';
-    if (!owner) return 'Choose an owner.';
+    if (!owner) return 'Choose who owns this answer.';
+    if (!followsDate && expiry === CUSTOM_EXPIRY) {
+      if (!expiryDate) return 'Choose the date to ask you again.';
+      if (expiryDate < addDays(today, 1) || expiryDate > addDays(today, MAX_EXPIRY_DAYS - 1)) return 'Choose a date between tomorrow and 24 months from now.';
+    }
     if (link.trim() && (!HTTPS_LINK.test(link.trim()) || link.trim().length > 500)) return 'The evidence link must be an https:// address.';
-    if (notes.length > 1000) return 'Notes must be at most 1000 characters.';
+    if (notes.length > 1000) return 'Notes can be up to 1000 characters.';
     return null;
   };
 
@@ -115,9 +115,18 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
     const answer: { value: string; date?: string; text?: string } = { value };
     if (takesDate && date) answer.date = date;
     if (q.allows_text && text.trim() && value !== 'not_sure') answer.text = text.trim();
+    let expiresAt: string | undefined;
+    if (!followsDate && expiry === CUSTOM_EXPIRY) {
+      const end = endOfDayUtc(expiryDate, zone);
+      if (!end.ok) { setError(end.message); setBusy(false); return; }
+      // Stay inside the API's cap even where a clock change makes the last day a little longer.
+      expiresAt = new Date(Math.min(Date.parse(end.utc), Date.now() + MAX_EXPIRY_DAYS * 86400000 - 60000)).toISOString();
+    } else if (!followsDate && typeof expiry === 'number') {
+      expiresAt = new Date(Date.now() + expiry * 86400000).toISOString();
+    }
     const body = {
       question_key: q.key, answer, owner_user_id: owner,
-      ...(!followsDate && expiry ? { expires_at: new Date(Date.now() + expiry * 86400000).toISOString() } : {}),
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
       ...(link.trim() ? { evidence_link: link.trim() } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
     };
@@ -127,8 +136,9 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
       onDone();
     } catch (e) {
       const status = (e as { status?: number }).status;
-      setError(status === 409 ? 'This answer changed while you were editing. Reload the questions and try again.'
-        : errorText(e, 'Could not save the answer.'));
+      setError(status === 409 ? 'Someone else changed this answer while you were editing. Reload the questions and try again.'
+        : errorText(e, 'We could not save the answer. Try again in a moment.'));
+      toast('The answer was not saved.');
     } finally {
       setBusy(false);
     }
@@ -140,7 +150,7 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
         <legend className={FIELD_LABEL}>Your answer</legend>
         <div className="flex flex-wrap gap-2">
           {valueOptions(q).map(o => (
-            <label key={o.value} className={`flex items-center gap-2 px-3 py-2 rounded border text-xs mono cursor-pointer ${value === o.value ? 'border-ink text-ink' : 'border-line text-soft'}`}>
+            <label key={o.value} className={`flex items-center gap-2 px-3 py-2 min-h-[44px] rounded border text-xs mono cursor-pointer ${value === o.value ? 'border-ink text-ink' : 'border-line text-soft'}`}>
               <input type="radio" name={`${idBase}-value`} value={o.value} checked={value === o.value}
                      onChange={() => setValue(o.value)} className="accent-[var(--accent)]" />
               {o.label}
@@ -150,10 +160,8 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
       </fieldset>
 
       {takesDate && (
-        <div>
-          <label htmlFor={`${idBase}-date`} className={FIELD_LABEL}>{q.date_label || 'Date'}{value !== 'date' ? ' (optional)' : ''}</label>
-          <input id={`${idBase}-date`} type="date" className={FIELD_BOX} value={date} max={todayIn(zone)} onChange={e => setDate(e.target.value)} />
-        </div>
+        <DateTimeField mode="date" id={`${idBase}-date`} label={q.date_label || 'Date'} optional={value !== 'date'} zone={zone}
+                       value={date} max={today} onChange={setDate} />
       )}
       {q.allows_text && value && value !== 'not_sure' && (
         <div>
@@ -164,7 +172,7 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
 
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="min-w-0">
-          <label htmlFor={`${idBase}-owner`} className={FIELD_LABEL}>Owner</label>
+          <label htmlFor={`${idBase}-owner`} className={FIELD_LABEL}>Who owns this answer?</label>
           <select id={`${idBase}-owner`} className={FIELD_BOX} value={owner} onChange={e => setOwner(e.target.value)}>
             <option value="" disabled>Choose a member</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
@@ -175,36 +183,43 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
             <>
               <span className={FIELD_LABEL}>Renews</span>
               <p className="text-xs text-soft leading-relaxed" data-testid="expiry-follows-date">
-                {q.expiry_days_from_date} days after the date you give. No expiry to set.
+                {q.expiry_days_from_date} days after the date you give. You do not need to set a renewal date.
               </p>
             </>
           ) : (
             <>
-              <label htmlFor={`${idBase}-expiry`} className={FIELD_LABEL}>Renew after</label>
+              <label htmlFor={`${idBase}-expiry`} className={FIELD_LABEL}>Ask me to confirm again after</label>
               <select id={`${idBase}-expiry`} className={FIELD_BOX} value={expiry ?? ''}
-                      onChange={e => setExpiry(e.target.value ? Number(e.target.value) : null)}>
+                      onChange={e => setExpiry(e.target.value === CUSTOM_EXPIRY ? CUSTOM_EXPIRY : e.target.value ? Number(e.target.value) : null)}>
                 {EXPIRY_CHOICES.map(c => <option key={c.label} value={c.days ?? ''}>{c.label}</option>)}
+                <option value={CUSTOM_EXPIRY}>A date I choose</option>
               </select>
             </>
           )}
         </div>
       </div>
 
+      {!followsDate && expiry === CUSTOM_EXPIRY && (
+        <DateTimeField mode="date" id={`${idBase}-expiry-date`} label="Ask me again on" zone={zone} value={expiryDate}
+                       min={addDays(today, 1)} max={addDays(today, MAX_EXPIRY_DAYS - 1)} onChange={setExpiryDate}
+                       hint="Up to 24 months from today" />
+      )}
+
       <div>
-        <label htmlFor={`${idBase}-link`} className={FIELD_LABEL}>Evidence link (https only, optional)</label>
+        <label htmlFor={`${idBase}-link`} className={FIELD_LABEL}>Link to proof (optional)</label>
         <input id={`${idBase}-link`} type="url" inputMode="url" className={FIELD_BOX} value={link} maxLength={500}
                placeholder="https://" onChange={e => setLink(e.target.value)} />
-        <p className="text-[11px] text-soft mt-1.5">Cyphward does not open this link.</p>
+        <p className="text-[11px] text-soft mt-1.5">The link must start with https://. Cyphward does not open it.</p>
       </div>
       <div>
         <label htmlFor={`${idBase}-notes`} className={FIELD_LABEL}>Notes (optional)</label>
         <textarea id={`${idBase}-notes`} className={FIELD_BOX} rows={2} maxLength={1000} value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
 
-      {error && <p role="alert" className="text-xs mono text-accent break-words" data-testid="form-error">{error}</p>}
+      {error && <p role="alert" className="text-xs text-accent break-words" data-testid="form-error">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className="btn btn-solid btn-mini" disabled={busy}>{busy ? 'SAVING…' : 'SAVE ANSWER'}</button>
-        <button type="button" className="btn-mini" onClick={onCancel} disabled={busy}>CANCEL</button>
+        <button type="submit" className="btn btn-solid btn-mini touch-target" disabled={busy}>{busy ? 'Saving…' : 'Save answer'}</button>
+        <button type="button" className="btn-mini touch-target" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
     </form>
   );
@@ -226,8 +241,8 @@ function QuestionCard({ q, zone, canEdit, members, onSaved, fileInfo, onFilesCha
       <ToldUs q={q} zone={zone} />
       {fileInfo && <EvidenceFiles questionKey={q.key} info={fileInfo} zone={zone} canEdit={canEdit} onChanged={onFilesChanged} />}
       {canEdit && !editing && (
-        <button type="button" className="btn-mini" onClick={() => setEditing(true)}>
-          <Pencil size={12} /> {q.current ? 'UPDATE ANSWER' : 'ANSWER'}
+        <button type="button" className="btn-mini touch-target" onClick={() => setEditing(true)}>
+          <Pencil size={12} /> {q.current ? 'Update answer' : 'Answer'}
         </button>
       )}
       {canEdit && editing && (
@@ -262,13 +277,13 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
   const [stepKey, setStepKey] = useState('applicability');
   const [fileInfo, setFileInfo] = useState<EvidenceFileList | null>(null);
   const steps = useMemo(() => buildSteps(data), [data]);
-  const zone = data.display_timezone;
+  const zone = resolveZone(data.display_timezone);
 
   useEffect(() => {
     if (!canEdit) return;
     let live = true;
     listOrgMembers().then(m => { if (live) setMembers(m || []); })
-      .catch(e => { if (live) setMembersError(errorText(e, 'Could not load the members list.')); });
+      .catch(e => { if (live) setMembersError(errorText(e, 'We could not load your team members, so the owner list is empty. Reload the page to try again.')); });
     return () => { live = false; };
   }, [canEdit]);
 
@@ -280,13 +295,13 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
 
   const index = Math.max(0, steps.findIndex(s => s.key === stepKey));
   const step = steps[index];
-  if (!step) return <p className="text-sm text-soft">There are no questions to show.</p>;
+  if (!step) return <p className="text-sm text-soft">There are no questions to show yet.</p>;
 
   return (
     <div className="space-y-4" data-testid="questionnaire">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs mono text-soft">
-          {data.answered} of {data.questions.filter(q => q.shown).length} questions answered · times shown in {zone}
+        <p className="text-xs text-soft">
+          {data.answered} of {data.questions.filter(q => q.shown).length} questions answered · dates are in {zone}
         </p>
         {!canEdit && <ReadOnlyNote />}
       </div>
@@ -294,21 +309,21 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
       <nav aria-label="Question groups" className="flex flex-wrap gap-2">
         {steps.map((s, i) => (
           <button key={s.key} type="button" onClick={() => setStepKey(s.key)} aria-current={i === index ? 'step' : undefined}
-                  className={`btn-mini ${i === index ? '!border-ink !text-ink' : ''}`}>
+                  className={`btn-mini touch-target ${i === index ? '!border-ink !text-ink' : ''}`}>
             {i + 1}. {s.title}
           </button>
         ))}
       </nav>
 
-      {membersError && <p role="alert" className="text-xs mono text-accent">{membersError}</p>}
+      {membersError && <p role="alert" className="text-xs text-accent">{membersError}</p>}
 
       <section className="rounded-lg border border-line bg-raised" aria-label={step.title}>
         <div className="px-4 sm:px-5 py-3.5 border-b border-line">
           <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">{step.title}</h2>
           {step.key === 'applicability' && (
             <p className="text-xs text-soft mt-1.5 leading-relaxed">
-              These answers decide which requirements apply to you. A requirement that does not apply is listed
-              under Excluded, with the reason.
+              These answers decide which requirements apply to you. If a requirement does not apply, it moves to
+              the Excluded list with the reason.
             </p>
           )}
         </div>
@@ -319,11 +334,11 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
       </section>
 
       <div className="flex justify-between gap-2">
-        <button type="button" className="btn-mini" disabled={index === 0} onClick={() => setStepKey(steps[index - 1].key)}>
-          <ChevronLeft size={12} /> BACK
+        <button type="button" className="btn-mini touch-target" disabled={index === 0} onClick={() => setStepKey(steps[index - 1].key)}>
+          <ChevronLeft size={12} /> Back
         </button>
-        <button type="button" className="btn-mini" disabled={index === steps.length - 1} onClick={() => setStepKey(steps[index + 1].key)}>
-          NEXT <ChevronRight size={12} />
+        <button type="button" className="btn-mini touch-target" disabled={index === steps.length - 1} onClick={() => setStepKey(steps[index + 1].key)}>
+          Next <ChevronRight size={12} />
         </button>
       </div>
     </div>

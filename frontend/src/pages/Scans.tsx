@@ -26,8 +26,7 @@ import type { Scan, Domain, StageInfo, ScanCoverage } from "../types";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../lib/auth";
 import { Skeleton, ScanDrawerSkeleton } from "../components/Skeleton";
-import Modal from "../components/Modal";
-import Drawer from "../components/Drawer";
+import Dialog from "../components/ui/Dialog";
 import "./Scans.css";
 
 type Observation = { stage: string; raw_data: any };
@@ -781,63 +780,6 @@ export default function Scans() {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.pathname, location.state, navigate, scans]);
-  useEffect(() => {
-    if (!drawerOpen && !launchOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const selector = launchOpen ? ".modal-backdrop" : ".drawer.open";
-    const focusable = () => {
-      const root = document.querySelector<HTMLElement>(selector);
-      return root
-        ? [
-            ...root.querySelectorAll<HTMLElement>(
-              'button:not([disabled]), select:not([disabled]), a[href], summary, [tabindex="0"]',
-            ),
-          ].filter((element) => element.getClientRects().length > 0)
-        : [];
-    };
-    const focusDialog = () => {
-      document
-        .querySelector(selector)
-        ?.setAttribute(
-          "aria-label",
-          launchOpen ? "Start security scan" : "Scan details",
-        );
-      const first = focusable()[0];
-      first?.focus();
-      return !!first;
-    };
-    const observer = new MutationObserver(() => {
-      if (focusDialog()) observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    const frame = requestAnimationFrame(() => {
-      if (focusDialog()) observer.disconnect();
-    });
-    const trap = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (!items.length) return;
-      const first = items[0],
-        last = items[items.length - 1];
-      const root = document.querySelector(selector);
-      if (
-        !root?.contains(document.activeElement) ||
-        (event.shiftKey
-          ? document.activeElement === first
-          : document.activeElement === last)
-      ) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      }
-    };
-    document.addEventListener("keydown", trap);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      document.removeEventListener("keydown", trap);
-      if (previous?.isConnected) previous.focus({ preventScroll: true });
-    };
-  }, [drawerOpen, launchOpen]);
   const loadScans = useCallback(async () => {
     if (workspace.current !== orgId) return;
     const request = ++listRequest.current;
@@ -1068,7 +1010,7 @@ export default function Scans() {
           <span>
             {scans.length
               ? "Refresh failed. Showing the last available scans."
-              : "Scans could not be loaded. Please try again."}
+              : "We could not load your scans. Try again in a moment."}
           </span>
           <button className="scan-button" onClick={() => void loadScans()}>
             Retry
@@ -1312,13 +1254,11 @@ export default function Scans() {
           </div>
         </>
       )}
-      {drawerOpen && (
-        <Drawer
+      <Dialog
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          size="2xl"
-          eyebrow="SCAN DETAILS"
-          title={activeScan?.domain || "Scan details"}
+          maxWidth="max-w-4xl"
+          title={activeScan?.domain ? `Scan details: ${activeScan.domain}` : "Scan details"}
           icon={<Radar size={17} />}
         >
           {!activeScan ||
@@ -1374,9 +1314,8 @@ export default function Scans() {
               )}
             </div>
           )}
-        </Drawer>
-      )}
-      <Modal
+        </Dialog>
+      <Dialog
         open={launchOpen}
         onClose={() => {
           if (!launching) setLaunchOpen(false);
@@ -1434,7 +1373,7 @@ export default function Scans() {
             </button>
           </div>
         </div>
-      </Modal>
+      </Dialog>
     </div>
   );
 }

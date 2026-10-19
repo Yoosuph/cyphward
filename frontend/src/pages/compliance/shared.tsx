@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { ErrorPanel, humanError } from '../../components/ui/StatePanels';
+import { FIELD_CONTROL, FIELD_LABEL_CLASS } from '../../components/ui/DateTimeField';
 
 /** Times on the compliance pages are shown in the organisation's display zone, never the viewer's. */
 
@@ -37,24 +39,15 @@ export function fmtLocal(value: string | null | undefined): string {
   return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]} ${m[4]}:${m[5]}`;
 }
 
-/** Value for a datetime-local input from an API `local` string. Wall time in the organisation's zone. */
-export function toInputValue(value: string | null | undefined): string {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value || '') ? (value as string).slice(0, 16) : '';
-}
-
-/** A datetime-local value sent as naive wall time; the server reads it in the organisation's zone. */
-export function naiveTime(value: string): string {
-  return value.length === 16 ? `${value}:00` : value;
-}
-
+/** A message that is safe to show people: short server text for 4xx, the fallback for anything technical. */
 export function errorText(e: unknown, fallback: string): string {
-  return (e as Error)?.message || fallback;
+  return humanError(e, fallback);
 }
 
 export const isGrowthGate = (e: unknown) => (e as { status?: number })?.status === 403;
 
-export const FIELD_BOX = 'w-full font-mono text-[12.5px] bg-inset border border-line rounded-[3px] px-3 py-3 text-ink outline-none focus:border-ink min-w-0';
-export const FIELD_LABEL = 'block mono text-[10px] tracking-[.18em] text-soft mb-2 uppercase';
+export const FIELD_BOX = FIELD_CONTROL;
+export const FIELD_LABEL = FIELD_LABEL_CLASS;
 
 export function GrowthGate({ what }: { what: string }) {
   return (
@@ -68,21 +61,14 @@ export function GrowthGate({ what }: { what: string }) {
   );
 }
 
-export function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="bg-inset border border-line rounded p-8 text-center space-y-3">
-      <AlertTriangle size={20} className="mx-auto text-accent" />
-      <p className="text-sm mono">We couldn't load this section.</p>
-      <p className="text-xs mono text-soft max-w-md mx-auto">{message}</p>
-      <button type="button" className="btn btn-solid btn-mini" onClick={onRetry}>RETRY</button>
-    </div>
-  );
+export function LoadError({ title = 'We could not load this section', message, onRetry }: { title?: string; message: string; onRetry: () => void }) {
+  return <ErrorPanel title={title} message={message} onRetry={onRetry} />;
 }
 
 export function ReadOnlyNote() {
   return (
     <p className="text-xs mono text-soft" data-testid="read-only-note">
-      You can view this section. Owners and admins can change it.
+      You can look at this page. Only owners and admins can make changes.
     </p>
   );
 }

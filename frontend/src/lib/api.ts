@@ -111,6 +111,11 @@ export async function getDomains(): Promise<Domain[]> {
   return data ?? [];
 }
 
+/** Like getDomains, but a failed request throws so a page can show an error state instead of "no domains". */
+export async function getDomainsStrict(): Promise<Domain[]> {
+  return (await apiFetch<Domain[]>('/domains', undefined, true)) ?? [];
+}
+
 export async function addDomain(domain: string): Promise<{ domain: Domain; dns_instructions: any }> {
   const data = await apiFetch<{ domain: Domain; dns_instructions: any }>('/domains', {
     method: 'POST',
@@ -454,6 +459,11 @@ export async function listReports(): Promise<{ reports: ReportRow[]; total: numb
   const data = await apiFetch<{ reports: ReportRow[]; total: number }>('/reports');
   if (data) return data;
   return { reports: [], total: 0 };
+}
+
+/** Like listReports, but a failed request throws so a page can show an error state instead of "no reports". */
+export async function listReportsStrict(): Promise<{ reports: ReportRow[]; total: number }> {
+  return (await apiFetch<{ reports: ReportRow[]; total: number }>('/reports', undefined, true)) ?? { reports: [], total: 0 };
 }
 
 export async function createReport(payload?: { domain_id?: string; title?: string; request_key?: string }): Promise<{ report: ReportRow } | null> {
