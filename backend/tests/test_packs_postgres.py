@@ -565,6 +565,8 @@ def test_a_requirement_with_hundreds_of_linked_findings_still_renders_a_pdf_and_
     row = world.rows("SELECT * FROM assessment_snapshots WHERE id = %s", (snap["id"],))[0]
     content = row["content"]
     target = next(r for r in content["compliance"]["requirements"] if r["group"] == "security")
+    # Findings only exist on a requirement that has a source (the view derives one from them).
+    target.update(source="tool_observed", source_label="Tool observed", sources=[])
     target["findings"] = [{"id": str(i), "title": f"Header finding number {i} on a long host name example.snapshot.test",
                            "severity": "high", "status": "open"} for i in range(600)]
     doc = document.build("readiness_pack", row, content, datetime.now(timezone.utc), None)
@@ -624,3 +626,28 @@ def test_the_worst_case_cell_still_fits_a_pdf_row(world):
         doc = document.build("readiness_pack", row, content, datetime.now(timezone.utc), None)
         assert render.to_pdf(doc).startswith(b"%PDF"), kind
         assert render.to_html(doc), kind
+
+
+def test_dpo_contact_row_shows_one_source_first_and_the_other_on_an_also_line(world):
+    """The production mix: an observed (externally observed, not assessed) result and no customer answer."""
+    org, owner, domain, scan, _ = _assessed_org(world)
+    world.setup.execute(
+        "INSERT INTO compliance_evidence (org_id, domain_id, requirement_key, register_version, source, status, "
+        "observed_at, scan_id, details) VALUES (%s, %s, 'gaid.dpo.contact_published', %s, 'externally_observed', "
+        "'not_assessed', now(), %s, '{}')", (org, domain, REGISTER["version"], scan))
+    world.setup.commit()
+    pack = _pack(world, org, owner)
+    assert pack["pack_version"] == "cyphward-ndpa-pack-v1.1"  # the row rule is its own template version
+    html, pdf_text, _ = _texts(world, org, owner, pack)
+    snap = world.rows("SELECT content FROM assessment_snapshots WHERE id = %s", (pack["snapshot_id"],))[0]["content"]
+    req = next(r for r in snap["compliance"]["requirements"] if r["key"] == "gaid.dpo.contact_published")
+    assert (req["status"], req["source"]) == ("awaiting_input", "customer_attested")
+    assert req["sources"][0]["headline"] is True and req["sources"][0]["source"] == req["source"]
+    assert {s["source"] for s in req["sources"]} == {"externally_observed", "customer_attested"}
+    headline = "Customer attested: Awaiting your input; no answer recorded yet"
+    other = "Also: Externally observed: Awaiting your input; assessed.snapshot.test: Not assessed, observed"
+    flat = _collapse(re.sub(r"<[^>]+>", " ", html))
+    for text in (pdf_text, flat):
+        assert headline in text and other in text
+        assert text.index(headline) < text.index(other)
+        assert f"scan {scan[:8]}" in text
