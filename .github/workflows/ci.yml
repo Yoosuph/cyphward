@@ -51,6 +51,9 @@ jobs:
       - name: Build (tsc + vite)
         run: npm run build
 
+      - name: Time-zone helper tests
+        run: npm run test:datetime
+
   postgres-races:
     name: PostgreSQL admission and execution races
     runs-on: ubuntu-latest
