@@ -376,7 +376,7 @@ try {
           .find((b) => b.getAttribute("aria-label") === "Start scan")
           .click(),
       );
-      await page.waitForSelector('.modal-backdrop[role="dialog"]', {
+      await page.waitForSelector('.dialog-panel[role="dialog"]', {
         timeout: 5000,
       });
       if (capture)
@@ -515,11 +515,10 @@ try {
       "Older response does not replace selected scan",
     );
     await page.keyboard.press("Escape");
-    assert.equal(
-      await page.$(".drawer.open"),
-      null,
-      "Escape closes scan details",
-    );
+    await page.waitForFunction(
+      () => !document.querySelector('.dialog-panel[role="dialog"]'),
+      { timeout: 3000 },
+    ).catch(() => assert.fail("Escape closes scan details"));
     listUnavailable = true;
     await page.evaluate(() =>
       document.querySelector('button[aria-label="Refresh scans"]').click(),
@@ -643,7 +642,7 @@ try {
         .click(),
     );
     await existingDetailRequest;
-    await page.waitForSelector(".drawer.open");
+    await page.waitForSelector('.dialog-panel[role="dialog"]');
     assert.equal(launchRequests, 5);
     // Declared-scope (version 2) coverage: the payload decides the label, detail lists and Known-CVE line.
     const nucleiLine = "Known-CVE templates: matches reported; clean results not proven.";
@@ -705,7 +704,7 @@ try {
     ];
     scans.push(...declaredScans);
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+    await page.waitForFunction(() => !document.querySelector('.dialog-panel[role="dialog"]'));
     for (const [width, height] of [
       [1440, 1000],
       [390, 844],
@@ -733,7 +732,7 @@ try {
       assert.ok(complete.nuclei, "Known-CVE line is shown separately");
       assert.ok(complete.overflow, `No horizontal overflow on complete v2 scan at ${width}px`);
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+      await page.waitForFunction(() => !document.querySelector('.dialog-panel[role="dialog"]'));
 
       await page.evaluate(() =>
         document.querySelector('button[aria-label="View scan v2-partial"]').click(),
@@ -757,7 +756,7 @@ try {
       assert.ok(partial.label, "Partial v2 coverage shows its label line");
       assert.ok(partial.overflow, `No horizontal overflow on partial v2 scan at ${width}px`);
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+      await page.waitForFunction(() => !document.querySelector('.dialog-panel[role="dialog"]'));
     }
     // Return to the monitored scan so the polling check below still covers it.
     await page.goto(`${origin}/scans`);
@@ -769,7 +768,7 @@ try {
       document.querySelector(".scan-summary .scan-section-label")?.textContent === "Selected scan",
     );
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => !document.querySelector(".drawer.open"));
+    await page.waitForFunction(() => !document.querySelector('.dialog-panel[role="dialog"]'));
     slowResponses = true;
     const monitoredScan = scans.find((scan) => scan.id === "demo-scan-002");
     monitoredScan.status = "completed";

@@ -11,6 +11,8 @@
     "test:score-ui": "node scripts/check-score-refresh.mjs",
     "test:onboarding-ui": "node scripts/check-onboarding-flow.mjs",
     "test:compliance-ui": "node scripts/check-compliance-page.mjs",
+    "test:datetime": "node scripts/test-datetime.mjs",
+    "test:ux-ui": "node scripts/check-ux-screens.mjs",
     "test:reviewer-ui": "node scripts/check-reviewer-ui.mjs"
   },
   "dependencies": {
