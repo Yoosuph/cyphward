@@ -440,3 +440,61 @@ def test_the_migration_is_one_transaction_with_timeouts():
     body = [line.strip() for line in sql.splitlines() if line.strip() and not line.strip().startswith("--")]
     assert body[0] == "BEGIN;" and body[-1] == "COMMIT;"
     assert "SET LOCAL lock_timeout" in sql and "SET LOCAL statement_timeout" in sql
+
+
+# ── C5b: the structural check, through the real pipeline with a stub provider (flag on) ──────────────────────
+
+
+@pytest.mark.parametrize("claim", [
+    "We fulfil every legal obligation that applies to us.",
+    "We handle personal data in accordance with applicable data protection law.",
+    "We encrypt all personal data and never share it with third parties.",
+    "We delete data within 30 days.",
+])
+def test_a_paraphrased_claim_or_invented_commitment_is_rejected_and_the_template_is_stored(world, team, stub, claim):
+    org_id, owner, *_ = team
+    stub.output = lambda t: t.replace("You may also complain", claim + "\n\nYou may also complain")
+    res = _generate(world, org_id, owner).json()
+    assert res["generator"] == "template" and res["fallback_reason"].startswith("rejected:")
+    text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (res["id"],))[0]["text"]
+    assert claim not in text and "You may also complain" in text
+
+
+def test_a_flipped_negation_a_dropped_sentence_and_a_disguised_word_are_rejected(world, team, stub):
+    org_id, owner, *_ = team
+    _answer(org_id, owner, "transfers.outside_nigeria", "no")
+    for bad in (lambda t: t.replace("We do not store", "We store"),
+                lambda t: t.replace("You may also complain to the Nigeria Data Protection Commission.", ""),
+                lambda t: t.replace("explains how", "explains how c\u043empliant")):
+        stub.output = bad
+        res = _generate(world, org_id, owner).json()
+        assert res["generator"] == "template" and res["fallback_reason"].startswith("rejected:")
+        text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (res["id"],))[0]["text"]
+        assert "We do not store or send personal data outside Nigeria." in text
+        assert "You may also complain to the Nigeria Data Protection Commission." in text
+
+
+def test_a_faithful_reordering_is_stored_with_the_provider_name_for_every_kind(world, team, stub):
+    org_id, owner, *_ = team
+    stub.output = lambda t: (t.replace("explains how", "describes how").replace("lists how", "shows how")
+                             .replace("Contact:", "The contact:"))
+    for kind in docs.KINDS:
+        res = _generate(world, org_id, owner, kind).json()
+        assert res["generator"] == "Stub" and res["fallback_reason"] is None, kind
+        text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (res["id"],))[0]["text"]
+        assert text.startswith(docs.LABEL) and "{{" not in text
+
+
+def test_with_the_flag_off_a_rewording_is_never_requested_even_when_it_would_pass(world, team, spy):
+    org_id, owner, *_ = team
+    res = _generate(world, org_id, owner).json()
+    assert res["generator"] == "template" and spy.prompts == []
+
+
+def test_a_name_with_banned_wording_is_stored_as_a_placeholder_with_a_note(world, team, spy):
+    org_id, owner, *_ = team
+    _answer(org_id, owner, "dpo.designated", "yes", text="Certified DPO")
+    res = _generate(world, org_id, owner).json()
+    text = world.rows("SELECT text FROM compliance_documents WHERE id = %s", (res["id"],))[0]["text"]
+    assert docs.WORDING_NOTE in text and "Certified DPO" not in text
+    assert res["placeholder_count"] >= 1
