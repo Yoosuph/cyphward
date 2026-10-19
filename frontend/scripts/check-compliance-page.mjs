@@ -997,6 +997,14 @@ try {
     assert.deepEqual(small, [], `${name}: touch targets under 44px`);
     await page.keyboard.press("Escape");
     await closed();
+    // The answer form: radio choices are 44px tall too.
+    await openTab("Answer questions");
+    await page.waitForSelector('[data-testid="questionnaire"]');
+    assert.ok(await clickExact("Answer", qsel("registration.major_importance")));
+    await page.waitForSelector('[data-testid="form-registration.major_importance"]');
+    const answerSmall = await page.evaluate(() => [...document.querySelectorAll('[data-testid="form-registration.major_importance"] label, [data-testid="form-registration.major_importance"] button, [data-testid="form-registration.major_importance"] select, [data-testid="form-registration.major_importance"] input:not([type="radio"])')]
+      .filter((el) => el.getClientRects().length > 0).map((el) => ({ el: `${el.tagName}#${el.id || el.textContent.trim().slice(0, 20)}`, h: Math.round(el.getBoundingClientRect().height) })).filter((x) => x.h < 43 && !/^LABEL#(Your answer|Who|Ask|Link|Notes)/i.test(x.el)));
+    assert.deepEqual(answerSmall, [], `${name}: answer form touch targets under 44px`);
     await page.setViewport({ width: 1440, height: 900, hasTouch: false, isMobile: false });
   }
 

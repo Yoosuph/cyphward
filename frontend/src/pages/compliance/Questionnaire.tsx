@@ -148,7 +148,7 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
         <legend className={FIELD_LABEL}>Your answer</legend>
         <div className="flex flex-wrap gap-2">
           {valueOptions(q).map(o => (
-            <label key={o.value} className={`flex items-center gap-2 px-3 py-2 rounded border text-xs mono cursor-pointer ${value === o.value ? 'border-ink text-ink' : 'border-line text-soft'}`}>
+            <label key={o.value} className={`flex items-center gap-2 px-3 py-2 min-h-[44px] rounded border text-xs mono cursor-pointer ${value === o.value ? 'border-ink text-ink' : 'border-line text-soft'}`}>
               <input type="radio" name={`${idBase}-value`} value={o.value} checked={value === o.value}
                      onChange={() => setValue(o.value)} className="accent-[var(--accent)]" />
               {o.label}
