@@ -621,11 +621,11 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 - `snapshots/builder.py`: copies `headline`; `schema_version` stays 1; no stored snapshot is rewritten.
 - `packs/document.py`: `evidence_items` / `evidence_references` follow the rule. They also read snapshots frozen before this change (they work from `source`, `sources` and `domains`, not from the new flag). The cell stays capped: 8 references of 200 characters in all (5 for the headline source plus 2 for the other, each with a "more" line).
 - `packs/render.py`: a newline in a cell becomes `<br>` in HTML and a line break in the PDF.
-- Issued packs are stored bytes and are served as stored; nothing re-renders them. The pack version string is still `cyphward-ndpa-pack-v1` in this PR; PR-B introduces v2.
+- Issued packs are stored bytes and are served as stored; nothing re-renders them. New packs are stored with the template version `cyphward-ndpa-pack-v1.1` (same layout, the row rule above); stored `cyphward-ndpa-pack-v1` packs keep their label and bytes. PR-B introduces v2.
 
 **Tests.** Full backend suite on the local database: 1410 passed, 16 skipped (after review round 1); the CI PostgreSQL list (packs test file extended) passes; frontend build and the four browser suites pass. `test_pack_row_consistency.py` (pure, 30 tests): every requirement of the real register through 5 observed results x 5 customer-answer states (present, gap, not assessed, expired, none; yes, no, not sure, expired, none), asserting on the /comply view, the snapshot content, the pack document, the HTML and the text extracted from the PDF that the row's pair is in `sources`, `sources[0]` is the single headline item, the evidence text starts with the headline source label, other sources follow as `Also:` lines, and no banned phrase appears (HTML and PDF text). Regression test built from the production combination; a snapshot frozen before this rule; a bounded cell with 400 domains and 600 findings. Postgres test `test_dpo_contact_row_shows_...also_line` issues a real pack. Mutation checks: unsorted `sources` in either layer (16-17 of 30 combinations fail), observed-first evidence (17 fail). One existing fixture in `test_packs_postgres.py` (600 findings) now also sets the requirement's source, as real data always does.
 
-**Limitations.** The "Also:" line for the observed side uses the domain's own status (for example "Not assessed") while the requirement-level observed status in `sources` can read "Awaiting your input" (the privacy mapping turns "nothing found yet" into awaiting when the customer can attest). Both are true at their level; the pack shows the domain level. The frontend line is plain text and has no browser assertion of its own.
+**Limitations.** Each pack line leads with the source-level status that /comply shows for that source (for the observed side of the DPO contact that can read "Awaiting your input", because the privacy mapping turns "nothing found yet" into awaiting when the customer can attest); the domain's own status ("Not assessed") follows as detail on the same line. The frontend line is plain text and has no browser assertion of its own.
 
 ### Decisions for Yusuf (PR-A)
 
@@ -643,3 +643,48 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 4. **Same wording on both surfaces.** Every evidence line leads `<source>: <status shown on /comply for that source>`; the observed domain detail follows (`Also: Externally observed: Awaiting your input; cyphward.com: Not assessed, observed ...`). A test compares each pack `Also:` line with the `/comply` secondary line for every combination.
 5. **Wider property test:** 126 combinations (nine observed pairs including two domains with different statuses x seven answer patterns including mixed and partial x live findings on or off, including evidence only from linked findings): 272 tests in the file.
 6. **PROGRESS wording** on ties now matches the code.
+## UX overhaul of /comply and related screens (branch `claude/determined-gauss-e6701d`, base `main`)
+
+Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after from this branch; desktop and 390 wide) and the "how to use the shared components" guide are in `docs/ux-2026-10-19/` (`README.md`, `before/`, `after/`).
+
+- **One dialog.** `frontend/src/components/ui/Dialog.tsx` (`components/Modal.tsx` re-exports it, so every old caller keeps working): `role="dialog"`, `aria-modal`, named by its title, focus moves in on open (to `[data-autofocus]`, else the first field), Tab and Shift+Tab cycle, Esc closes, the page behind is `inert` and scroll-locked, focus returns to the opener, a click on the backdrop closes unless the dialog is `dirty` (then it asks "Discard your changes?"), full screen on phones with a sticky title bar, a 44px close button, safe-area padding, content scrolling inside, nested dialogs (only the top one reacts to keys). Used for: incident record, edit and details; pack details; document view; report preview and email; add domain and how to verify; scan details and start scan; every confirmation.
+- **Confirmations** (`components/ConfirmDialog.tsx`, `useConfirm`; `confirmLabel` is now required and names the action, `irreversible` is the one sentence on what cannot be undone, `danger` puts focus on Cancel): issue a pack, approve a document, record the Commission notification time, remove a domain, remove a monitored host, shorten retention.
+- **Dates and times.** `lib/datetime.ts` (Intl.DateTimeFormat only) converts between the organisation's wall clock and UTC and refuses, with a plain message, a time the clocks skip or repeat. `ui/DateTimeField.tsx` is the native `datetime-local` / `date` field with the zone shown beside it. Incident times, the questionnaire date answers and a new "A date I choose" renewal date use it; incident times and the renewal date are sent as UTC. Documents, packs, reports and domains now read in the organisation's zone (`lib/orgZone.ts`, from `organizations.display_timezone`, which the sign-in response already carries; no backend change).
+- **States.** `ui/StatePanels.tsx`: `LoadingPanel`, `EmptyPanel`, `ErrorPanel` (Try again) and `humanError` (never a status line or a server error for a 5xx). Used on every compliance tab, Reports and Domains. Reports and Domains used to show "No reports yet" / no domains when the request failed; they now throw (`listReportsStrict`, `getDomainsStrict`) and show the error state. Scans already had these states; only copy changed.
+- **Toasts** for every completed or failed action; the toast stack is drawn on `<body>` above dialogs and announced (`role="status"`).
+- **Copy** rewritten in plain English on these screens; "reference pending review", "not legal advice" and "not a Compliance Audit Return" are kept.
+- **Responsive and keyboard.** 44px targets on phones, visible focus ring everywhere (including native pickers), arrow keys / Home / End on the Compliance tab bar (roving tabindex), tab list is now a data array so other sessions can append a tab.
+
+### Tests (real counts)
+
+- Backend, full suite on the owned local database (port 55452): **1139 passed, 16 skipped** (1137 before plus the 2 new copy tests in `backend/tests/test_ux_copy_claims.py`). No backend code changed.
+- `npm run test:datetime`: 17 tests (clock gaps and overlaps in New York, London and Lord Howe, half-hour zones, round trips). Added to the CI frontend job.
+- `npm run test:compliance-ui` (extended): the old flows updated for the new copy, plus dialog focus/trap/Esc/focus-return/inert/scroll lock, backdrop click and the discard prompt, full screen on 390 and 320, native pickers sending UTC, clock-change messages with nothing sent, a chosen renewal date sent as 23:59 in the zone, confirmations (default focus, wording, cancel sends nothing), empty / loading / error states, failed saves with plain messages and toasts, a keyboard-only flow (arrow keys, Enter, typing into the pickers, Tab to Save), touch targets and focus rings, banned phrases on all rendered text (full list).
+- `npm run test:ux-ui` (new): Reports and Domains at desktop, 390 and 320.
+- `test:scans-ui` (selectors moved from the drawer to the dialog), `test:score-ui`, `test:onboarding-ui` (its confirm assertions made case-insensitive): green. `npm run build` green.
+
+### Limitations
+
+- Requirement rows on the Readiness tab stay inline expanders, not popups.
+- The questionnaire answer form stays inline in its card (it is a form, not a view); it has the native date picker and 44px targets but not the discard prompt.
+- Other screens that already used `Modal` (Findings, Overview, Remediation, Settings, owner console, board report) now get the new dialog (full screen on phones, focus trap). They were not restyled or re-tested beyond the existing suites.
+- `env(safe-area-inset-*)` is only non-zero when the page uses `viewport-fit=cover`; `index.html` was not changed (the browser itself keeps the dialog out of the notch).
+- No "revoke access" screen exists yet; the reviewer-access session should use `useConfirm({ danger: true, irreversible: … })`.
+- Keyboard typing into `datetime-local` is tested in Chromium only.
+
+### Decisions for Yusuf (UX)
+
+1. **Organisation zone comes from the sign-in response, with Africa/Lagos as the fallback.** Nothing sends the zone separately; the owner setting for it is still unbuilt (C3c).
+2. **Times are sent as UTC; calendar days are not.** Incident times and the new renewal date are UTC ISO strings. Questionnaire date answers stay `YYYY-MM-DD` because the API treats them as days, and converting them would move the day.
+3. **Renewal presets kept, plus "A date I choose".** The date must fall between tomorrow and 24 months, and means 23:59 that day in the organisation's zone.
+4. **Default focus on every confirmation is Cancel** (review fix: a held Enter must not issue a pack). Tested for issue pack, approve, Commission time, remove domain, remove host, shorten retention.
+5. **Small confirmations stay centred cards on phones;** everything else is full screen.
+6. **Scan details moved from the side drawer to the shared dialog** so every "view" behaves the same. Say if you would rather keep the drawer for scans.
+7. **Retention: only shortening asks for confirmation.** Lengthening is harmless.
+8. **The Commission-time confirmation says** "the 72-hour countdown stops and the time becomes part of the incident record". It does not say the time cannot be corrected later, because the API still allows an edit.
+
+### Review fixes (round 1)
+
+- Initial focus is Cancel for all confirmations; each irreversible confirm has a browser assertion that Enter does not confirm.
+- Focus after a dialog closes: the opener, else the dialog still open, else the tab panel/main (tests: failed save after the Commission confirm, approving a document, issuing a pack).
+- Nits: error id in `aria-describedby`; `Scans.tsx` in the copy test; zone shown beside Documents times; "detected" used throughout the incident screens; the chosen renewal date is clamped to the API's 730-day cap; dead selector removed. Browser suites are not added to CI (they need Chromium and take minutes); the date helper test is.
