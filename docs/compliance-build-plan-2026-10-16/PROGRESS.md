@@ -706,3 +706,11 @@ The reviewer showed that the first version accepted meaning-changing rewrites us
 | C5b-11 | How much rewording is possible | Very little: articles, "also", neutral-verb swaps and moving "for example / including / when" clauses. A model that rewrites more is rejected and the standard wording is stored. That makes the rewording path close to a no-op in practice; if the accept rate in staging is near zero, drop the feature rather than loosen the check. The flag stays off. |
 
 Validation for this round (fresh cluster, port 55454): full backend suite **2253 passed, 16 skipped** (139 s). CI PostgreSQL list: 259 on the earlier head; on this head one run showed 2 failures and an immediate rerun passed with none (I did not capture the first run's names; the two known flaky scan-execution tests are the likely cause, not confirmed).
+
+### C5b review round 2 (head `3a8302b`: APPROVE with two should-fix items, done)
+
+- A `when ...` clause now moves only if it already opens the template sentence (so breach step 1 cannot lose "write down what happened" to the front); "for example" and "including" clauses still move.
+- A carriage return is read as a space (it was deleted, which let `no\rt` and `with\rin 72 hours` through); any other control character (`\x0b \x0c \x1c-\x1f \x00 \x7f \x85`) is rejected by a new `control_chars` rule.
+- The redundant end-mark comparison was removed (the punctuation multiset already covers it); a test pins the sentence splitter (ends at every `.`, `!`, `?`).
+- Corpus: **528** adversarial, **24** faithful. Mutation: `control_chars` 6 cases, `non_ascii` 11, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 7.
+- Validation: full backend suite **2303 passed, 16 skipped**; CI PostgreSQL list **259 passed** (fresh cluster, port 55454).

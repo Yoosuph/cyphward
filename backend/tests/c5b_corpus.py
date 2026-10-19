@@ -371,6 +371,16 @@ case("separator-7", "policy", ("sub", "Personal data may be stored or sent outsi
 case("separator-8", "policy", ("sub", "Personal data may be stored or sent outside Nigeria, for example through cloud hosting.", "For example, through cloud hosting, personal data may be stored or sent outside Nigeria."))
 case("separator-9", "policy", ("sub", POL_COMPLAIN, "You may also complain, to the Nigeria Data Protection Commission."))
 
+# Review round 2: a "when" clause that is not the opening of its sentence, and control characters.
+case("when-moved-1", "breach", ("sub", "Write down what happened, when it was found and when we became aware of it.",
+                                "When it was found and when we became aware of it, write down what happened."))
+case("when-moved-2", "breach", ("sub", BR_TELL, "5. When the breach is likely to put them at high risk, tell the people affected without undue delay."))
+case("cr-in-word-1", "policy_no", ("sub", "We do not store", "We do no\rt store"))
+case("cr-in-word-2", "breach", ("sub", "within 72 hours", "with\rin 72 hours"))
+for _n, _ch in enumerate(["\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x1f", "\x00", "\x7f", "\x85"]):
+    case(f"control-char-{_n}", "policy_no", ("sub", "We do not store", f"We do no{_ch}t store"))
+    case(f"control-char-space-{_n}", "policy_no", ("sub", "We do not store", f"We do not{_ch}store"))
+
 # A word borrowed from the template written with a look-alike character (not the same word to a reader's eye).
 for n, (old, new) in enumerate([
         ("not", "n\u043et"), ("not", "n\u03bft"), ("not", "n\u0585t"), ("not", "\uff4e\uff4f\uff54"),
@@ -432,3 +442,5 @@ ok("article-swapped", "breach", ("sub", "of a breach", "of the breach"))
 ok("also-added", "breach", ("sub", "Stop further loss", "Also stop further loss"))
 ok("also-removed", "policy", ("sub", "You may also complain", "You may complain"))
 ok("neutral-verb-cover", "retention", ("sub", "lists how long", "covers how long"))
+ok("when-opening-moved", "cookie", ("sub", CK_BANNER, "A banner lets you accept or reject cookies that are not strictly necessary, when you first visit."))
+ok("cr-as-space", "policy_no", ("sub", "We do not store", "We do not\rstore"))

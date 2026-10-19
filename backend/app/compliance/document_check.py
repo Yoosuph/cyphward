@@ -18,7 +18,7 @@ neutral verb may be swapped for another ("explains" for "describes"), and framin
    `{{TOKENS}}` and `[MISSING: ...]` placeholders, and it also stops a content word being dropped (dropping
    "outside Nigeria" from a negation would widen what it covers).
 6. Each clause of the output (the pieces between commas, semicolons and colons) is a clause of the template,
-   word for word. Only framing clauses ("for example ...", "including ...", "when ...") may move; the rest keep
+   word for word. Only framing clauses ("for example ...", "including ...", and a "when ..." that opens the sentence) may move; the rest keep
    their order.
 7. For every negation, modal, quantifier, conjunction and condition word, the next content word must be the
    same as in the template, so a "not" cannot end up pointing at another verb.
@@ -157,7 +157,7 @@ class Parsed:
     """A text split into non-empty lines; each prose line into (prefix, sentences of normalised words)."""
 
     def __init__(self, text: str):
-        atomised = TOKEN.sub(_atom, text.replace("\r", ""))
+        atomised = TOKEN.sub(_atom, text.replace("\r", " "))
         self.lines: List[Tuple[str, str, List[str]]] = []  # (kind, prefix, sentences)
         for raw in atomised.split("\n"):
             line = raw.strip()
@@ -214,6 +214,12 @@ def _outside_placeholders(text: str) -> str:
     return TOKEN.sub(" ", text)
 
 
+def rule_control_chars(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
+    """No control character other than newline, carriage return and tab (they would be read as breaks or dropped)."""
+    bad = [ch for ch in output if unicodedata.category(ch) == "Cc" and ch not in "\n\r\t"]
+    return "control_char_added" if bad else None
+
+
 def rule_non_ascii(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
     extra = {ch for ch in _outside_placeholders(output) if ord(ch) > 127} - {
         ch for ch in _outside_placeholders(template) if ord(ch) > 127}
@@ -249,7 +255,7 @@ def rule_punctuation(output: str, template: str, o: Parsed, t: Parsed) -> Option
         if kind != "prose":
             continue
         for out_s, tpl_s in zip(os_, ts):
-            if _marks(out_s) != _marks(tpl_s) or out_s[-1:] != tpl_s[-1:]:
+            if _marks(out_s) != _marks(tpl_s) :
                 return "punctuation_changed"
     return None
 
@@ -291,11 +297,14 @@ def _clause_sequences(sentence: str) -> List[Tuple[str, ...]]:
 
 
 # Clauses that frame a sentence and may move to the other end of it: "for example ...", "including ...", "when ...".
-MOVABLE_OPENERS = (("for", "example"), ("including",), ("when",))
+MOVABLE_OPENERS = (("for", "example"), ("including",))
+# A "when ..." clause may move only when it already opens the template sentence ("When you first visit, ...").
+OPENING_MOVABLE = (("when",),)
 
 
-def _movable(clause: Tuple[str, ...]) -> bool:
-    return any(clause[:len(opener)] == opener for opener in MOVABLE_OPENERS)
+def _movable(clause: Tuple[str, ...], first: bool) -> bool:
+    openers = MOVABLE_OPENERS + (OPENING_MOVABLE if first else ())
+    return any(clause[:len(opener)] == opener for opener in openers)
 
 
 def rule_clause_order(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
@@ -307,7 +316,12 @@ def rule_clause_order(output: str, template: str, o: Parsed, t: Parsed) -> Optio
         have, want = _clause_sequences(out_s), _clause_sequences(tpl_s)
         if sorted(have) != sorted(want):
             return "order_changed"
-        if [c for c in have if not _movable(c)] != [c for c in want if not _movable(c)]:
+        free = [c for i, c in enumerate(want) if _movable(c, i == 0)]
+        fixed = [c for i, c in enumerate(want) if not _movable(c, i == 0)]
+        rest = list(have)
+        for clause in free:
+            rest.remove(clause)
+        if rest != fixed:
             return "order_changed"
     return None
 
@@ -328,6 +342,7 @@ def rule_claim_shape(output: str, template: str, o: Parsed, t: Parsed) -> Option
 
 
 RULES: List[Tuple[str, Rule]] = [
+    ("control_chars", rule_control_chars),
     ("non_ascii", rule_non_ascii),
     ("lines", rule_lines),
     ("sentence_count", rule_sentence_count),

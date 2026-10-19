@@ -525,3 +525,26 @@ def test_a_check_that_raises_is_a_rejection(monkeypatch):
     monkeypatch.setattr(check, "RULES", [("boom", boom)])
     assert check.structural_problem(template, template) == "check_failed"
     assert docs.validate_model_text(template, template) == "check_failed"
+
+
+def test_a_carriage_return_is_a_space_and_other_control_characters_are_rejected():
+    template = corpus.template_for("policy_no")
+    assert docs.validate_model_text(template.replace("\n\n", "\r\n\r\n"), template) is None
+    for ch in ("\x0b", "\x0c", "\x1c", "\x1f", "\x85"):
+        out = template.replace("We do not store", f"We do not{ch}store")
+        assert docs.validate_model_text(out, template) is not None
+    out = template.replace("We do not store", "We do no\rt store")
+    assert check.structural_problem(out, template) is not None
+
+
+def test_the_sentence_splitter_ends_a_sentence_at_every_end_mark():
+    sentences = check.Parsed("We do not store.) Or send. Third!Fourth?").lines[0][2]
+    assert len(sentences) == 4 and sentences[0] == "we do not store."
+    assert len(check.Parsed("a.b!c?d").lines[0][2]) == 4
+
+
+def test_a_when_clause_moves_only_if_it_opens_the_template_sentence():
+    breach = corpus.template_for("breach")
+    moved = breach.replace("Write down what happened, when it was found and when we became aware of it.",
+                           "When it was found and when we became aware of it, write down what happened.")
+    assert docs.validate_model_text(moved, breach) == "order_changed"
