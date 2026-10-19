@@ -33,6 +33,13 @@ IDLE_SECONDS = 30
 _HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$")
 
 
+# Hosts Chromium itself contacts in the background (component updates, extension and account
+# services), outside anything the page asked for. No page needs them, so the proxy refuses them:
+# they would only leak the worker's address to a third party and add noise to the observation.
+BROWSER_INTERNAL_HOSTS = ("clients2.google.com", "update.googleapis.com", "android.clients.google.com",
+                          "clients1.google.com", "optimizationguide-pa.googleapis.com", "safebrowsing.googleapis.com")
+
+
 class Refused(Exception):
     """A URL or address the worker will not touch. `reason` is a short stable code."""
 
@@ -230,6 +237,8 @@ class ConnectProxy:
                                          + [b"Connection: close"]) + b"\r\n\r\n"
             if port not in self.policy.allowed_ports:
                 raise Refused("bad_port", str(port))
+            if host.lower().rstrip(".") in BROWSER_INTERNAL_HOSTS:
+                raise Refused("browser_internal", host)
             ips = await self.policy.resolve(host)
         except Refused as refusal:
             return await self._deny(writer, refusal)

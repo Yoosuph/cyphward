@@ -380,3 +380,21 @@ def test_config_requires_https_core_and_a_key(monkeypatch):
     assert load_config().chromium_sandbox is False
     monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
     assert load_config().core_url == "https://core.example"
+
+
+def test_cookies_left_by_the_browsers_own_background_services_are_not_reported():
+    raw = [{"name": "NID", "domain": ".google.com"}, {"name": "_ga", "domain": ".acme.test"},
+           {"name": "id", "domain": "ads.example"}]
+    cookies, _ = summarise_cookies(raw, ["acme.test"], contacted={"acme.test", "ads.example"})
+    assert [c["name"] for c in cookies] == ["_ga", "id"]
+    # A page that really talks to google.com keeps those cookies.
+    cookies, _ = summarise_cookies(raw, ["acme.test"], contacted={"www.google.com"})
+    assert "NID" in [c["name"] for c in cookies]
+
+
+@pytest.mark.parametrize("host", ["clients2.google.com", "update.googleapis.com", "android.clients.google.com"])
+def test_proxy_refuses_browser_internal_services(host):
+    async def resolver(h):
+        return ["8.8.8.8"]
+    head, proxy = _proxy_request(EgressPolicy(resolver=resolver), f"CONNECT {host}:443 HTTP/1.1\r\n\r\n".encode())
+    assert head.startswith(b"HTTP/1.1 403") and proxy.refused[0].reason == "browser_internal" and proxy.connected == []

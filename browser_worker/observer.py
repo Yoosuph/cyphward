@@ -10,7 +10,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import urlsplit
 
 from browser_worker.netguard import Budget, ConnectProxy, EgressPolicy, Refused, check_url, host_in_scope
@@ -82,14 +82,23 @@ def same_site(value: Optional[str]) -> str:
     return {"strict": "strict", "lax": "lax", "none": "none"}.get((value or "").lower(), "unset")
 
 
-def summarise_cookies(raw: Sequence[Dict[str, Any]], scope: Sequence[str], now: Optional[float] = None):
-    """Names, flags and lifetime bucket only. Cookie values never leave the browser."""
+def summarise_cookies(raw: Sequence[Dict[str, Any]], scope: Sequence[str], now: Optional[float] = None,
+                      contacted: Optional[Iterable[str]] = None):
+    """Names, flags and lifetime bucket only. Cookie values never leave the browser.
+
+    When `contacted` is given, a cookie counts only if it belongs to the verified domain or to a host
+    the page itself talked to. Cookies the browser's own background services leave in the profile are
+    not something the website did, so they are left out.
+    """
     out: List[Dict[str, Any]] = []
     capped = False
+    heard = {h.lower().rstrip(".") for h in contacted} if contacted is not None else None
     for c in raw:
         name = _CONTROL.sub("", str(c.get("name") or ""))[:128]
         domain = str(c.get("domain") or "").lower().lstrip(".")
         if not name or not _COOKIE_DOMAIN.match(domain):
+            continue
+        if heard is not None and not host_in_scope(domain, scope) and not any(h == domain or h.endswith("." + domain) for h in heard):
             continue
         if len(out) >= MAX_COOKIES:
             capped = True
@@ -185,7 +194,13 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
                 await context.route("**/*", on_route)
                 page = await context.new_page()
                 context.on("page", lambda popup: asyncio.ensure_future(popup.close()) if popup != page else None)
+                contacted = set()
+
                 def on_request(request):
+                    try:
+                        contacted.add((urlsplit(request.url).hostname or "").lower())
+                    except ValueError:
+                        pass
                     # Redirect hops of the main frame are announced here before the next one is followed:
                     # leaving the verified scope stops the visit at once instead of after the page loaded.
                     if request.is_navigation_request() and request.frame.parent_frame is None:
@@ -237,7 +252,7 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
     finally:
         await proxy.stop()
 
-    cookies, cookies_capped = summarise_cookies(raw_cookies, scope)
+    cookies, cookies_capped = summarise_cookies(raw_cookies, scope, contacted=contacted)
     caps["requests"], caps["bytes"], caps["cookies"] = requests_capped, budget.bytes_capped, cookies_capped
     return {
         "version": 1, "final_url": safe_final_url(final_url), "browser_version": version[:64], "cookies": cookies,

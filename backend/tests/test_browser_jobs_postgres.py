@@ -368,7 +368,6 @@ def test_flag_off_leaves_the_compliance_page_byte_identical(api, world, monkeypa
     _growth(api)
     monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", False)
     before = _overview(api, world, headers_)
-    detail_before = api.get(f"/api/v1/compliance/requirements/{bo.BANNER_KEY}", headers=headers_).text
     # Browser rows exist in the table (for example from an earlier period with the flag on)...
     monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", True)
     job_id = queue(api)
@@ -379,9 +378,6 @@ def test_flag_off_leaves_the_compliance_page_byte_identical(api, world, monkeypa
     # ...but the page reads exactly as before, including the C1 note and the "Upcoming check" labels.
     assert after == before
     assert "Upcoming check" in after and "browser worker" not in after
-    # The requirement history is the only place those rows would show, and it is also unchanged in the overview.
-    assert api.get(f"/api/v1/compliance/requirements/{bo.BANNER_KEY}", headers=headers_).status_code == 200
-    del detail_before
 
 
 def test_flag_on_shows_tool_observed_browser_evidence_with_plain_labels(api, world):
@@ -423,3 +419,28 @@ def test_a_static_tracker_gap_still_stands_over_a_clean_browser_visit(api, world
     api.conn.commit()
     body = api.get("/api/v1/compliance/overview", headers=headers_).json()
     assert _req(body, bo.TRACKERS_KEY)["domains"][0]["reason"] == "tracker_before_consent"
+
+
+# ── the real scan-completion hook ────────────────────────────────────────
+def test_finishing_a_scan_queues_one_observation_only_when_the_feature_is_on(api, world, monkeypatch):
+    from backend.tests.test_compliance_postgres import _finalize
+    monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", False)
+    scan_off = _finalize(world, monkeypatch, domain_index=0)
+    assert api.conn.execute("SELECT count(*) AS n FROM privacy_browser_jobs").fetchone()["n"] == 0
+    monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", True)
+    scan_on = _finalize(world, monkeypatch, domain_index=1)
+    jobs = api.conn.execute("SELECT domain_id, scan_id, status FROM privacy_browser_jobs").fetchall()
+    assert [(str(j["domain_id"]), str(j["scan_id"]), j["status"]) for j in jobs] == [(api.domains[1], scan_on, "queued")]
+    assert scan_off != scan_on
+
+
+def test_a_failing_queue_never_changes_the_completed_scan(api, world, monkeypatch):
+    import psycopg
+    from backend.tests.test_compliance_postgres import _finalize
+
+    def boom(scan_id):
+        raise psycopg.OperationalError("queue unavailable")
+
+    monkeypatch.setattr(browser_jobs, "enqueue_after_scan", boom)
+    scan_id = _finalize(world, monkeypatch, domain_index=0)  # asserts status == completed
+    assert api.conn.execute("SELECT status FROM scans WHERE id = %s", (scan_id,)).fetchone()["status"] == "completed"

@@ -20,17 +20,22 @@ from shared.browser_contracts import ConsentObservation  # noqa: E402
 
 
 def _chromium():
-    for candidate in (os.environ.get("CYPHWARD_TEST_CHROMIUM"), shutil.which("chromium"), "/usr/sbin/chromium",
-                      shutil.which("chromium-browser"), shutil.which("google-chrome")):
-        if candidate and os.path.exists(candidate):
-            return candidate
+    """CYPHWARD_TEST_CHROMIUM, then Playwright's own download, then a system Chromium."""
+    explicit = os.environ.get("CYPHWARD_TEST_CHROMIUM")
+    if explicit:
+        return explicit if os.path.exists(explicit) else None
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            path = p.chromium.executable_path
-            return path if os.path.exists(path) else None
-    except Exception:  # noqa: BLE001 - any failure here only means "no browser available"
-        return None
+            bundled = p.chromium.executable_path
+        if os.path.exists(bundled):
+            return bundled
+    except Exception:  # noqa: BLE001 - any failure here only means "no bundled browser"
+        pass
+    for candidate in (shutil.which("chromium"), "/usr/sbin/chromium", shutil.which("google-chrome")):
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
 
 
 CHROMIUM = _chromium()

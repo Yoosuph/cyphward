@@ -1,0 +1,13 @@
+**/node_modules
+frontend
+.git
+.claude
+docs
+supabase
+backend/tests
+backend/app/api
+backend/app/core
+backend/app/compliance
+backend/app/workflows
+**/__pycache__
+**/*.whl

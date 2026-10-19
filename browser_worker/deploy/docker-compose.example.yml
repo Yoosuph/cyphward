@@ -1,0 +1,24 @@
+# Example only. Nothing in the repository runs or deploys this.
+# Hardened settings the runbook explains: read-only root, tmpfs for /tmp, 256 MiB /dev/shm,
+# 768 MiB memory limit, one CPU, no capabilities, no privilege escalation, small process limit.
+services:
+  browser-worker:
+    image: cyphward-browser:local          # built on the VM: docker build -f Dockerfile.browser -t cyphward-browser:local .
+    restart: unless-stopped
+    env_file: /etc/cyphward-browser/env    # names in browser_worker/.env.example; mode 0600
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777,noexec,nosuid
+    shm_size: 256m                          # Chromium shared memory; do not pass --disable-dev-shm-usage
+    mem_limit: 768m
+    memswap_limit: 768m                     # no swap: an over-limit browser is killed and restarted, not slowed
+    cpus: 1.0
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
