@@ -11,7 +11,8 @@
     "test:score-ui": "node scripts/check-score-refresh.mjs",
     "test:onboarding-ui": "node scripts/check-onboarding-flow.mjs",
     "test:compliance-ui": "node scripts/check-compliance-page.mjs",
-    "test:datetime": "node scripts/test-datetime.mjs"
+    "test:datetime": "node scripts/test-datetime.mjs",
+    "test:ux-ui": "node scripts/check-ux-screens.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",
