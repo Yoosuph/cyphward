@@ -641,7 +641,14 @@ How a request is judged (every request, one query, database clock): the grant na
 
 Writes add three layers: a `FOR SHARE` lock on the grant row (a concurrent revoke waits, bounded by `lock_timeout`, 503 with `Retry-After`), the audit row in the same transaction (a failed audit rolls the note back), and a database trigger that re-checks grant live, grant for this organisation, writer is the verified email owner, writer not a member.
 
-What a reviewer sees: the same readiness overview and requirement detail the organisation sees (status, sources, labels, evidence references, finding id/title/severity/status, domain names, history), plus each answer's value, date, owner name and expiry. Never: free text, notes, evidence links, uploaded files, members, billing, scans, finding descriptions or evidence, settings, packs, snapshots, incidents, documents.
+What a reviewer sees (an **allow-list projection** in `reviewer._project`, so a field added to the compliance API later reaches no reviewer until added on purpose): per requirement the title, summary, clause reference and its verification state, status, status and source labels, reason text, freshness, remediation hint, per-source status, per-domain status with numbered labels ("Domain 1", no host names) and observation dates, each answer's value, date, owner name and expiry, the practitioner notes, and a **count** of open findings. Never: finding titles or details, raw evidence details (URLs, cookies, ports, unfinished-check hostnames), evidence history and scan ids, domain names, the plan, free text, notes, evidence links, files, members, billing, scans, settings, packs, snapshots, incidents, documents. A test plants markers in evidence details, a finding title, a host name and ids and asserts none appear in any reviewer response.
+
+**Review round 1 fixes (independent security review of `6e35058`):**
+- *Pre-registration takeover (blocker).* Signing in with Google used to verify an existing unverified password account but leave its password and live sessions. It now clears the password, any second-factor secret, all sessions, reset links, remembered browsers and pending codes in the same transaction that verifies the email, and takes the name from Google. Tested: the attacker's token, password and refresh token are dead after the takeover, and the grant activates for the real person only. The real sign-up and email-code flow is tested end to end. I did **not** add "session must be newer than the verification", because the legitimate code flow verifies inside the session that registered; the takeover paths (this one was the only code that verifies an email other than the code flow) are closed at their source instead.
+- *Wording filter bypass.* Text is folded (compatibility forms, invisible characters, look-alike letters) with the product's existing `documents.fold`, then checked as whole-word phrases and per-token stems (compl*, conform*, approv*, certif*, satisf*, adequa*, guarante*, fulfil*, "meets") at write time for the comment, the note, the purpose and the display name, and again when printed in a pack (stored text that fails today prints as "Comment withheld").
+- *Revoker rewrite.* The guard trigger refuses any change to `revoked_by` once revoked and requires the revoker to be an owner of the organisation.
+- *Self-declared identity.* Labels read "recorded by NAME (email domain), a reviewer named by this organisation"; nothing implies a licence was checked; the owner screen says so.
+- *Nits.* Triggers refuse UPDATE and DELETE on the two record tables for any role (referential cascades pass); optional `request_key` on both writes makes a retry one record and one audit row; the session audit row is written before the day is marked seen.
 
 ### Database
 
@@ -678,12 +685,14 @@ What a reviewer sees: the same readiness overview and requirement detail the org
 | C6-3 | Extension | None. A new grant replaces the old one and is audited. |
 | C6-4 | Reminders to the owner before expiry | Skipped (not trivial: no per-grant reminder state without adding a mutable column). |
 | C6-5 | Pack summaries for reviewers | Not given. The requirement detail already carries what a review needs, and a pack is a customer artefact. |
-| C6-6 | Findings shown to a reviewer | Exactly as the compliance API shows them (id, title, severity, status), because the brief says "exactly as the compliance API shows them"; finding descriptions and evidence blobs are never sent. Say if titles should be hidden too. |
+| C6-6 | Findings and evidence shown to a reviewer | Counts and labels only (revised after review): no finding titles, no evidence details, no host names, no scan ids; see the allow-list above. |
 | C6-7 | Platform-wide clause verification | Remains a founder/DPCO decision made in the register file (`clause_verified`). The overlay is per organisation only and never edits the register. |
 | C6-8 | Schema version of snapshots | Stays 1: new fields are optional and omitted when empty, so old readers and old snapshots are unaffected. |
 | C6-9 | Overlay in packs made from an old snapshot | Frozen: they show what the snapshot froze. Issue a new snapshot to include later notes. |
 | C6-10 | Reviewers who are also members | Refused (grant refused; an existing grant stops working), to keep the two authorities separate. |
 | C6-11 | Text screening | Comments, notes, purpose and the reviewer's display name are refused or replaced if they contain the banned phrases (whole-word match, so "this method" is fine and "not compliant" is refused). |
+| C6-13 | Reviewer identity | Self-declared: nothing verifies a DPCO licence; the name is whatever the account says (screened for conclusions) and the label adds the email domain and "named by this organisation". Residual risk: an owner can grant a second mailbox and have a chosen name printed. A licence check would need a DPCO register to check against. |
+| C6-14 | Session after verification | Not required (see the takeover fix above); revisit if another path that verifies an email is added. |
 | C6-12 | Reviewer without a workspace | `/reviews` sits outside the app shell so the setup gate does not bounce them; a link appears in the setup layout and, for members, in the header. |
 
 ### Limitations

@@ -12,6 +12,7 @@ Wording rule (plan section 0): evidence is labelled and organised, never judged.
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from backend.app.compliance import practitioner
 from backend.app.compliance.register import DISCLAIMER
 
 PACK_VERSION = "cyphward-ndpa-pack-v1"
@@ -37,13 +38,20 @@ def day(value: Optional[str]) -> str:
     return datetime.fromisoformat(value).strftime("%Y-%m-%d") if value else "not recorded"
 
 
+def _note(text: Optional[str]) -> str:
+    """A practitioner's words as printed: wording that states a conclusion is withheld, whatever was stored."""
+    if text is None:
+        return ""
+    return practitioner.WITHHELD if practitioner.violation(text) else text
+
+
 def clause_label(req: Dict[str, Any]) -> str:
     """The clause as frozen in the snapshot, including its practitioner overlay (C6). Never reads live tables."""
     if req["clause_verified"]:
         return req["clause"]
     overlay = req.get("clause_review")
     if overlay and overlay.get("verified"):
-        return f"{req['clause']} · {overlay['label']}"
+        return f"{req['clause']} · {_note(overlay['label'])}"
     return f"{req['clause']} · {PENDING}"
 
 
@@ -163,7 +171,7 @@ def build(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], iss
                                                 "requirement. It does not change any status above and is not a statement about "
                                                 "your obligations."},
                        {"type": "table", "head": ["Requirement", "Note", "Comment"], "rows": [
-                           [r["title"], r["practitioner_review"]["label"], r["practitioner_review"].get("comment") or "No comment"]
+                           [r["title"], _note(r["practitioner_review"]["label"]), _note(r["practitioner_review"].get("comment")) or "No comment"]
                            for r in reviewed]}]
         blocks.append({"type": "heading", "text": "Prioritised gaps and open items"})
         gaps = prioritised_gaps(reqs)

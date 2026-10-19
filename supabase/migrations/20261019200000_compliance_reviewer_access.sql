@@ -58,8 +58,13 @@ CREATE TABLE IF NOT EXISTS compliance_practitioner_reviews (
   reviewed_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
   outcome           text NOT NULL CHECK (outcome IN ('reviewed', 'reviewed_with_comments')),
   comment           text CHECK (comment IS NULL OR char_length(comment) BETWEEN 1 AND 500),
+  reviewer_domain   text NOT NULL CHECK (char_length(reviewer_domain) BETWEEN 1 AND 253),
+  request_key       text CHECK (request_key IS NULL OR request_key ~ '^[A-Za-z0-9._:-]{8,80}$'),
   FOREIGN KEY (grant_id, org_id) REFERENCES compliance_reviewer_grants (id, org_id) ON DELETE CASCADE
 );
+-- A retried write with the same key is the same write.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_practitioner_reviews_key
+  ON compliance_practitioner_reviews (org_id, request_key) WHERE request_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_practitioner_reviews_req
   ON compliance_practitioner_reviews (org_id, requirement_key, reviewed_at DESC);
 
@@ -73,8 +78,12 @@ CREATE TABLE IF NOT EXISTS compliance_clause_verifications (
   reviewer_name     text NOT NULL CHECK (char_length(reviewer_name) BETWEEN 1 AND 200),
   verified_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
   note              text CHECK (note IS NULL OR char_length(note) BETWEEN 1 AND 500),
+  reviewer_domain   text NOT NULL CHECK (char_length(reviewer_domain) BETWEEN 1 AND 253),
+  request_key       text CHECK (request_key IS NULL OR request_key ~ '^[A-Za-z0-9._:-]{8,80}$'),
   FOREIGN KEY (grant_id, org_id) REFERENCES compliance_reviewer_grants (id, org_id) ON DELETE CASCADE
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clause_verifications_key
+  ON compliance_clause_verifications (org_id, request_key) WHERE request_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_clause_verifications_req
   ON compliance_clause_verifications (org_id, requirement_key, verified_at DESC);
 
@@ -106,6 +115,15 @@ BEGIN
   END IF;
   IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
     RAISE EXCEPTION 'a revocation cannot be changed or cleared' USING ERRCODE = 'check_violation';
+  END IF;
+  -- Once revoked, who revoked it cannot be rewritten; only a deleted profile may null it (referential action).
+  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_by IS DISTINCT FROM OLD.revoked_by AND NEW.revoked_by IS NOT NULL THEN
+    RAISE EXCEPTION 'a revocation cannot be changed or cleared' USING ERRCODE = 'check_violation';
+  END IF;
+  IF OLD.revoked_at IS NULL AND NEW.revoked_at IS NOT NULL AND (NEW.revoked_by IS NULL OR NOT EXISTS (
+       SELECT 1 FROM organization_members m
+       WHERE m.org_id = NEW.org_id AND m.user_id = NEW.revoked_by AND m.role = 'owner')) THEN
+    RAISE EXCEPTION 'only an owner of the organisation can revoke reviewer access' USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.revoked_at IS NULL AND NEW.revoked_by IS NOT NULL AND NEW.revoked_at IS NULL THEN
     RAISE EXCEPTION 'revoked_by needs revoked_at' USING ERRCODE = 'check_violation';
@@ -146,6 +164,24 @@ CREATE TRIGGER trg_practitioner_reviews_guard BEFORE INSERT ON compliance_practi
 DROP TRIGGER IF EXISTS trg_clause_verifications_guard ON compliance_clause_verifications;
 CREATE TRIGGER trg_clause_verifications_guard BEFORE INSERT ON compliance_clause_verifications
   FOR EACH ROW EXECUTE FUNCTION compliance_reviewer_write_guard();
+
+-- Append-only in the database itself, for any role: a direct UPDATE or DELETE is refused. Referential actions
+-- (a deleted organisation, grant or profile) run one trigger level deeper and are let through.
+CREATE OR REPLACE FUNCTION compliance_reviewer_records_immutable() RETURNS trigger AS $$
+BEGIN
+  IF pg_trigger_depth() <= 1 THEN
+    RAISE EXCEPTION 'reviewer records are append-only' USING ERRCODE = 'check_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_practitioner_reviews_immutable ON compliance_practitioner_reviews;
+CREATE TRIGGER trg_practitioner_reviews_immutable BEFORE UPDATE OR DELETE ON compliance_practitioner_reviews
+  FOR EACH ROW EXECUTE FUNCTION compliance_reviewer_records_immutable();
+DROP TRIGGER IF EXISTS trg_clause_verifications_immutable ON compliance_clause_verifications;
+CREATE TRIGGER trg_clause_verifications_immutable BEFORE UPDATE OR DELETE ON compliance_clause_verifications
+  FOR EACH ROW EXECUTE FUNCTION compliance_reviewer_records_immutable();
 
 -- ── Row level security and grants ─────────────────────────────────────────
 

@@ -25,6 +25,8 @@ from backend.app.compliance import practitioner, reviewer
 from backend.app.compliance.register import REGISTER
 from backend.app.core.rate_limit import reset_bucket
 from backend.app.core.security import hash_password
+from backend.app.api import auth as auth_mod
+from backend.app.api import auth_google as google_mod
 from backend.tests.test_scan_admission_postgres import disposable_postgres_url  # noqa: F401 (fixture)
 from backend.tests.test_snapshots_postgres import _assessed_org, world  # noqa: F401 (fixtures)
 
@@ -85,11 +87,16 @@ def rw(world):  # noqa: F811
         owner = world.make_person(org, "owner")
         return org, owner
 
+    def extra_profile(email):
+        row = world.setup.execute("SELECT id FROM profiles WHERE email = %s", (email,)).fetchone()
+        world.setup.commit()
+        extra.append(str(row["id"]))
+
     def reset_limits(org, owner):
         reset_bucket(f"reviewer-grant:{org}")
         reset_bucket(f"reviewer-grant-user:{owner}")
 
-    yield SimpleNamespace(w=world, make_user=make_user, grant=grant, listing=listing, age=age, setup_org=setup_org,
+    yield SimpleNamespace(w=world, make_user=make_user, grant=grant, listing=listing, age=age, setup_org=setup_org, extra_profile=extra_profile,
                           reset_limits=reset_limits)
     world.setup.rollback()
     for uid in extra:
@@ -543,7 +550,7 @@ def test_a_review_note_appears_next_to_the_requirement_with_name_date_and_commen
     resp = _review(rw, a, outcome="reviewed_with_comments", comment="Checked against the published text of the Act.")
     assert resp.status_code == 201
     note = resp.json()["practitioner_review"]
-    assert note["label"].startswith("Practitioner review recorded by Dr Ada Reviewer on 20")
+    assert note["label"].startswith("Practitioner review recorded by Dr Ada Reviewer (dpco.test), a reviewer named by this organisation, on 20")
     seen = rw.w.client.get(f"/api/v1/compliance/requirements/{KEY}", headers=_h(rw, a.owner, a.org)).json()
     assert seen["practitioner_review"]["comment"] == "Checked against the published text of the Act."
     assert seen["practitioner_review"]["outcome_label"] == "Reviewed, with comments"
@@ -594,7 +601,7 @@ def test_the_overlay_replaces_pending_for_this_organisation_only_and_newest_wins
     before = rw.w.client.get("/api/v1/compliance/overview", headers=_h(rw, a.owner, a.org)).json()["register"]
     assert _clause(rw, a, key, verified=True, note="Checked against the Act").status_code == 201
     label = _label(rw, a.owner, a.org, key)
-    assert "reference reviewed by Dr Ada Reviewer, 20" in label and "pending" not in label
+    assert "reference reviewed by Dr Ada Reviewer (dpco.test), a reviewer named by this organisation, 20" in label and "pending" not in label
     assert "reference pending review" in _label(rw, other_owner, other_org, key)  # another organisation is untouched
     after = rw.w.client.get("/api/v1/compliance/overview", headers=_h(rw, a.owner, a.org)).json()["register"]
     assert after["references_pending_review"] == before["references_pending_review"] - 1
@@ -643,7 +650,7 @@ def test_the_overlay_is_in_new_snapshots_and_packs_but_old_ones_never_change(rw)
     assert snap["schema_version"] == 1
     html = rw.w.client.get(f"/api/v1/packs/{new['id']}/html", headers=_h(rw, owner, org)).text
     flat = " ".join(re.sub(r"<[^>]+>", " ", html).split())
-    assert "reference reviewed by Dr Ada Reviewer" in flat and "Practitioner review recorded by Dr Ada Reviewer" in flat
+    assert "reference reviewed by Dr Ada Reviewer (dpco.test)" in flat and "Practitioner review recorded by Dr Ada Reviewer (dpco.test)" in flat
     assert "Read with the explanatory notes" in flat and "Practitioner review notes" in flat
     lowered = flat.lower()
     for phrase in BANNED:
@@ -724,7 +731,7 @@ def test_the_database_refuses_a_grant_not_made_by_an_owner(rw):
 def test_the_write_trigger_refuses_what_the_api_check_could_miss(rw):
     a = _active(rw)
     insert = ("INSERT INTO compliance_practitioner_reviews (org_id, requirement_key, grant_id, reviewer_user_id, "
-              "reviewer_name, outcome) VALUES (%s, %s, %s, %s, 'N', 'reviewed')")
+              "reviewer_name, reviewer_domain, outcome) VALUES (%s, %s, %s, %s, 'N', 'dpco.test', 'reviewed')")
     other, _ = rw.make_user(email="intruder@dpco.test")
     unverified, _ = rw.make_user(email=a.email.replace("rev-", "rev-x"), verified=False)
     org2, owner2 = rw.setup_org()
@@ -756,13 +763,13 @@ def test_the_write_trigger_refuses_what_the_api_check_could_miss(rw):
 def test_the_check_constraints_bound_the_texts_and_outcomes(rw):
     a = _active(rw)
     insert = ("INSERT INTO compliance_practitioner_reviews (org_id, requirement_key, grant_id, reviewer_user_id, "
-              "reviewer_name, outcome, comment) VALUES (%s, %s, %s, %s, 'N', %s, %s)")
+              "reviewer_name, reviewer_domain, outcome, comment) VALUES (%s, %s, %s, %s, 'N', 'dpco.test', %s, %s)")
     for outcome, comment in (("approved", None), ("reviewed", "x" * 501), ("reviewed", "")):
         with pytest.raises(psycopg.errors.CheckViolation):
             rw.w.as_app(insert, (a.org, KEY, a.grant_id, a.uid, outcome, comment))
     with pytest.raises(psycopg.errors.CheckViolation):
         rw.w.as_app("INSERT INTO compliance_clause_verifications (org_id, requirement_key, verified, grant_id, reviewer_user_id, "
-                    "reviewer_name, note) VALUES (%s, %s, true, %s, %s, 'N', %s)", (a.org, KEY, a.grant_id, a.uid, "y" * 501))
+                    "reviewer_name, reviewer_domain, note) VALUES (%s, %s, true, %s, %s, 'N', 'dpco.test', %s)", (a.org, KEY, a.grant_id, a.uid, "y" * 501))
     with pytest.raises(psycopg.errors.CheckViolation):
         rw.w.as_app("INSERT INTO compliance_reviewer_grants (org_id, reviewer_email, purpose, granted_by, expires_at) "
                     "VALUES (%s, 'Upper@Case.test', 'p', %s, now() + interval '5 days')", (a.org, a.owner))
@@ -942,3 +949,226 @@ def test_a_reviewer_name_that_states_a_conclusion_is_never_copied_into_the_recor
     shown = rw.w.client.get(f"/api/v1/compliance/requirements/{KEY}", headers=_h(rw, owner, org)).json()
     lowered = json.dumps(shown).lower()
     assert "certified" not in lowered and "adequate" not in lowered
+
+
+# ── Review round 1 (independent security review): takeover, projection, wording, triggers ──
+
+
+def _bearer(tokens):
+    return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+
+def test_the_real_signup_and_email_code_flow_activates_a_pending_grant(rw, monkeypatch):
+    org, owner = rw.setup_org()
+    email = f"real-{uuid4().hex[:6]}@dpco.test"
+    assert rw.grant(org, owner, email).status_code == 201
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: None)
+    tokens = rw.w.client.post("/api/v1/auth/register", json={"email": email, "password": "a-long-password-1", "full_name": "Dr Real"}).json()
+    rw.extra_profile(email)
+    headers = {**_bearer(tokens), "X-Organization-Id": org}
+    assert rw.w.client.get(f"{RB}/overview", headers=headers).status_code == 403  # signed up, email not verified
+    rw.w.setup.execute("INSERT INTO email_otps (user_id, code_hash, expires_at, purpose) "
+                       "SELECT id, %s, now() + interval '10 minutes', 'verify' FROM profiles WHERE email = %s",
+                       (auth_mod._hash_code(email, "123456"), email))
+    rw.w.setup.commit()
+    assert rw.w.client.post("/api/v1/auth/otp/verify", json={"code": "123456"}, headers=_bearer(tokens)).status_code == 200
+    # The same session that verified the address now holds the grant: the mailbox owner did both.
+    assert rw.w.client.get(f"{RB}/overview", headers=headers).status_code == 200
+    assert [g["status"] for g in rw.listing(org, owner).json()["grants"]] == ["active"]
+
+
+def test_a_pre_registered_unverified_account_cannot_ride_a_later_google_verification(rw, monkeypatch):
+    org, owner = rw.setup_org()
+    victim = f"victim-{uuid4().hex[:6]}@dpco.test"
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: None)
+    attacker = rw.w.client.post("/api/v1/auth/register", json={"email": victim, "password": "attacker-password-1", "full_name": "Mallory"}).json()
+    rw.extra_profile(victim)
+    uid = rw.w.rows("SELECT id FROM profiles WHERE email = %s", (victim,))[0]["id"]
+    rw.w.setup.execute("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (%s, 'x', now() + interval '1 hour')", (uid,))
+    rw.w.setup.execute("INSERT INTO trusted_browsers (user_id, token_hash, expires_at) VALUES (%s, 'x', now() + interval '1 hour')", (uid,))
+    rw.w.setup.commit()
+    assert rw.grant(org, owner, victim).status_code == 201
+    headers = {**_bearer(attacker), "X-Organization-Id": org}
+    assert rw.w.client.get(f"{RB}/overview", headers=headers).status_code == 403  # unverified: nothing yet
+    # The real practitioner signs in with Google (the mailbox is proven there).
+    taken = google_mod._upsert_google_profile(victim, "Dr Real Practitioner")
+    assert taken["email_verified_at"] is not None and taken["password_hash"] is None and taken["provider"] == "google"
+    # Everything the pre-registration held is dead.
+    assert rw.w.client.get(f"{RB}/overview", headers=headers).status_code == 401
+    assert rw.w.client.get("/api/v1/auth/bootstrap", headers=_bearer(attacker)).status_code == 401
+    assert rw.w.client.post("/api/v1/auth/login", json={"email": victim, "password": "attacker-password-1"}).status_code == 401
+    assert rw.w.client.post("/api/v1/auth/refresh", json={"refresh_token": attacker["refresh_token"]}).status_code in (400, 401)
+    for table in ("password_reset_tokens", "trusted_browsers", "email_otps"):
+        assert rw.w.rows(f"SELECT 1 FROM {table} WHERE user_id = %s", (uid,)) == []
+    # The grant works for the real person, with a session issued after the takeover.
+    from backend.app.core.sessions import issue_session
+    real = issue_session(taken)
+    assert rw.w.client.get(f"{RB}/overview", headers={**_bearer(real), "X-Organization-Id": org}).status_code == 200
+    resp = rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed"}, headers={**_bearer(real), "X-Organization-Id": org})
+    assert resp.status_code == 201 and "Dr Real Practitioner" in resp.json()["practitioner_review"]["label"]
+    assert len(_audit(rw, org, "auth.unverified_account_taken_over_by_google")) == 0  # audited on the user, not the organisation
+    assert rw.w.rows("SELECT 1 FROM audit_log WHERE action = 'auth.unverified_account_taken_over_by_google' AND user_id = %s", (uid,))
+
+
+def test_a_verified_account_signing_in_with_google_keeps_its_password_and_sessions(rw, monkeypatch):
+    monkeypatch.setattr(auth_mod, "send_email_async", lambda *a, **k: None)
+    uid, email = rw.make_user()
+    from backend.app.core.sessions import issue_session
+    before = issue_session(rw.w.rows("SELECT * FROM profiles WHERE id = %s", (uid,))[0])
+    rw.w.setup.execute("UPDATE profiles SET provider = 'email' WHERE id = %s", (uid,))
+    rw.w.setup.commit()
+    row = google_mod._upsert_google_profile(email, "Whoever")
+    assert row["password_hash"] and row["provider"] == "both"
+    assert rw.w.client.get("/api/v1/auth/verification", headers=_bearer(before)).status_code == 200
+
+
+MARKERS = ("EVIDENCE-URL-MARKER", "COOKIE-MARKER", "SCAN-HOST-MARKER", "FINDING-TITLE-MARKER", "PLAN-MARKER")
+
+
+def test_a_reviewer_gets_an_allow_listed_view_with_no_raw_evidence_hosts_titles_or_plan(rw):
+    org, owner, domain, scan, finding = _assessed_org(rw.w)
+    uid, email = rw.make_user()
+    rw.grant(org, owner, email)
+    a = SimpleNamespace(uid=uid, org=org)
+    host = rw.w.rows("SELECT domain FROM domains WHERE id = %s", (domain,))[0]["domain"]
+    rw.w.setup.execute("UPDATE findings SET title = 'FINDING-TITLE-MARKER' WHERE id = %s", (finding,))
+    rw.w.setup.execute("INSERT INTO compliance_evidence (org_id, requirement_key, domain_id, status, source, observed_at, expires_at, "
+                       "scan_id, finding_ids, details, register_version) VALUES (%s, 'gaid.notice.privacy_policy', %s, 'present', "
+                       "'externally_observed', now(), now() + interval '30 days', %s, '{}', %s, 'ndpa-gaid-v1')",
+                       (org, domain, scan, json.dumps({"url": "https://EVIDENCE-URL-MARKER.example/privacy",
+                                                       "cookies": [{"name": "COOKIE-MARKER", "category": "tracker"}],
+                                                       "missing": [{"hostname": "SCAN-HOST-MARKER.example", "check": "tls"}]})))
+    rw.w.setup.commit()
+    rw.w.setup.execute("UPDATE organizations SET plan = 'growth', name = 'Reviewed Org' WHERE id = %s", (org,))
+    rw.w.setup.commit()
+    texts = []
+    for path in ("/overview", "/requirements/gaid.notice.privacy_policy", f"/requirements/{KEY}", "/requirements/ndpa.s39.encryption_in_transit"):
+        resp = rw.w.client.get(f"{RB}{path}", headers=_h(rw, uid, org))
+        assert resp.status_code == 200, path
+        texts.append(resp.text)
+    blob = " ".join(texts)
+    for marker in MARKERS[:4] + (host, scan, finding, domain):
+        assert marker not in blob, marker
+    shown = rw.w.client.get(f"{RB}/requirements/gaid.notice.privacy_policy", headers=_h(rw, uid, org)).json()
+    assert "history" not in shown and "plan" not in rw.w.client.get(f"{RB}/overview", headers=_h(rw, uid, org)).json()
+    assert shown["domains"][0]["domain"] == "Domain 1" and shown["domains"][0]["status"] == "present"
+    assert set(shown) <= set(reviewer.REQUIREMENT_KEYS) | {"sources", "answers", "domains", "open_finding_count", "findings",
+                                                         "informational_findings", "locked", "disclaimer"}
+    # The organisation's own view still shows its own detail.
+    own = rw.w.client.get("/api/v1/compliance/requirements/gaid.notice.privacy_policy", headers=_h(rw, owner, org)).text
+    assert "EVIDENCE-URL-MARKER" in own
+
+
+ADVERSARIAL = [
+    "The organisation complies with section 25", "Meets s.25 in full; conforms to the NDPA; approved",
+    "\uff43\uff4f\uff4d\uff50\uff4c\uff49\uff41\uff4e\uff54", "\U0001d41c\U0001d428\U0001d426\U0001d429\U0001d425\U0001d422\U0001d41a\U0001d427\U0001d42d",
+    "com\u200bpliant", "c\u043empliant", "com-pliant", "c.o.m.p.l.i.a.n.t", "Certif\u00ADied", "It satisfies the Act", "fully meets it",
+    "This is adequate", "we guarantee it", "Fulfils s.25",
+]
+
+
+@pytest.mark.parametrize("text", ADVERSARIAL)
+def test_disguised_conclusions_are_refused_in_every_free_text_field(rw, text):
+    org, owner = rw.setup_org()
+    uid, email = rw.make_user()
+    assert rw.grant(org, owner, email, purpose=text).status_code == 422
+    assert rw.grant(org, owner, email).status_code == 201
+    a = SimpleNamespace(uid=uid, org=org)
+    assert _review(rw, a, outcome="reviewed_with_comments", comment=text).status_code == 422
+    assert _clause(rw, a, note=text).status_code == 422
+    assert rw.w.rows("SELECT 1 FROM compliance_practitioner_reviews WHERE org_id = %s", (org,)) == []
+    assert practitioner.violation(text)
+    assert practitioner.safe_text(text) == practitioner.WITHHELD
+
+
+def test_a_disguised_display_name_is_withheld_and_stored_text_that_fails_today_is_withheld_in_the_pack(rw):
+    org, owner, *_ = _assessed_org(rw.w)
+    uid, email = rw.make_user(name="\uff43\uff4f\uff4d\uff50\uff4c\uff49\uff41\uff4e\uff54 Practitioner")
+    rw.grant(org, owner, email)
+    a = SimpleNamespace(uid=uid, org=org)
+    assert _review(rw, a).status_code == 201
+    assert rw.w.rows("SELECT reviewer_name FROM compliance_practitioner_reviews WHERE org_id = %s", (org,))[0]["reviewer_name"] == "Reviewer (name withheld)"
+    # A comment stored before the rule existed (inserted as a superuser) is withheld when printed.
+    with _admin() as conn:
+        conn.execute("INSERT INTO compliance_practitioner_reviews (org_id, requirement_key, grant_id, reviewer_user_id, reviewer_name, "
+                     "reviewer_domain, outcome, comment) VALUES (%s, %s, %s, %s, 'Dr Old', 'dpco.test', 'reviewed_with_comments', "
+                     "'Fully compliant, approved')", (org, KEY, a.grant_id if hasattr(a, 'grant_id') else rw.w.rows(
+                         "SELECT id FROM compliance_reviewer_grants WHERE org_id = %s", (org,))[0]["id"], uid))
+    pack = rw.w.client.post("/api/v1/packs", json={}, headers=_h(rw, owner, org)).json()["pack"]
+    html = rw.w.client.get(f"/api/v1/packs/{pack['id']}/html", headers=_h(rw, owner, org)).text.lower()
+    assert "fully compliant" not in html and "approved" not in html and "comment withheld" in html
+    shown = rw.w.client.get(f"/api/v1/compliance/requirements/{KEY}", headers=_h(rw, owner, org)).json()
+    assert shown["practitioner_review"]["comment"] == practitioner.WITHHELD
+
+
+def test_labels_name_the_email_domain_and_never_imply_a_licence_was_checked(rw):
+    a = _active(rw)
+    label = _review(rw, a).json()["practitioner_review"]["label"]
+    assert "(dpco.test)" in label and "a reviewer named by this organisation" in label
+    for word in ("licensed", "verified practitioner", "accredited", "registered"):
+        assert word not in label.lower() and word not in _clause(rw, a).json()["clause_review"]["label"].lower()
+
+
+def test_who_revoked_cannot_be_rewritten_and_only_an_owner_can_revoke(rw):
+    a = _active(rw)
+    other_owner = rw.w.make_person(a.org, "owner")
+    member = rw.w.make_person(a.org, "member")
+    with pytest.raises(psycopg.errors.CheckViolation):  # a member cannot be recorded as the revoker
+        rw.w.as_app("UPDATE compliance_reviewer_grants SET revoked_at = now(), revoked_by = %s WHERE id = %s", (member, a.grant_id))
+    with pytest.raises(psycopg.errors.CheckViolation):  # nor can revoked_at be set without a revoker
+        rw.w.as_app("UPDATE compliance_reviewer_grants SET revoked_at = now() WHERE id = %s", (a.grant_id,))
+    rw.w.as_app("UPDATE compliance_reviewer_grants SET revoked_at = now(), revoked_by = %s WHERE id = %s", (a.owner, a.grant_id))
+    with pytest.raises(psycopg.errors.CheckViolation):
+        rw.w.as_app("UPDATE compliance_reviewer_grants SET revoked_by = %s WHERE id = %s", (other_owner, a.grant_id))
+    assert str(rw.w.rows("SELECT revoked_by FROM compliance_reviewer_grants WHERE id = %s", (a.grant_id,))[0]["revoked_by"]) == a.owner
+
+
+@pytest.mark.parametrize("table,change", [
+    ("compliance_practitioner_reviews", "UPDATE compliance_practitioner_reviews SET comment = 'x'"),
+    ("compliance_practitioner_reviews", "DELETE FROM compliance_practitioner_reviews"),
+    ("compliance_clause_verifications", "UPDATE compliance_clause_verifications SET verified = NOT verified"),
+    ("compliance_clause_verifications", "DELETE FROM compliance_clause_verifications"),
+])
+def test_the_records_are_append_only_even_for_a_superuser(rw, table, change):
+    a = _active(rw)
+    assert _review(rw, a, comment="Kept").status_code == 201 and _clause(rw, a).status_code == 201
+    with _admin() as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(f"{change} WHERE org_id = %s", (a.org,))
+        assert conn.execute(f"SELECT count(*) AS n FROM {table} WHERE org_id = %s", (a.org,)).fetchone()["n"] == 1
+
+
+def test_a_retry_with_the_same_request_key_is_one_record_and_one_audit_row(rw):
+    a = _active(rw)
+    first = rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed", "request_key": "retry-key-0001"}, headers=_h(rw, a.uid, a.org))
+    again = rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed", "request_key": "retry-key-0001"}, headers=_h(rw, a.uid, a.org))
+    assert first.status_code == again.status_code == 201
+    assert first.json() == again.json()
+    assert len(rw.w.rows("SELECT 1 FROM compliance_practitioner_reviews WHERE org_id = %s", (a.org,))) == 1
+    assert len(_audit(rw, a.org, "compliance.reviewer.review_recorded")) == 1
+    other = rw.w.client.post(f"{RB}/requirements/ndpa.part6.rights_process/review", json={"outcome": "reviewed", "request_key": "retry-key-0001"}, headers=_h(rw, a.uid, a.org))
+    assert other.status_code == 422
+    assert rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed", "request_key": "bad key!"}, headers=_h(rw, a.uid, a.org)).status_code == 422
+    clause = [rw.w.client.post(f"{RB}/requirements/{KEY}/clause-reference", json={"verified": True, "request_key": "retry-key-0002"}, headers=_h(rw, a.uid, a.org)).status_code for _ in range(2)]
+    assert clause == [201, 201] and len(rw.w.rows("SELECT 1 FROM compliance_clause_verifications WHERE org_id = %s", (a.org,))) == 1
+    # After revocation even a retry is refused.
+    rw.w.client.post(f"{BASE}/{a.grant_id}/revoke", headers=_h(rw, a.owner, a.org))
+    assert rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed", "request_key": "retry-key-0001"}, headers=_h(rw, a.uid, a.org)).status_code == 403
+
+
+def test_a_failed_session_audit_is_tried_again_on_the_next_request(rw):
+    a = _active(rw)
+    reviewer._seen.clear()
+    with _admin() as conn:
+        conn.execute("CREATE OR REPLACE FUNCTION c6_fail_session() RETURNS trigger AS $$ BEGIN "
+                     "IF NEW.action = 'compliance.reviewer.session' THEN RAISE EXCEPTION 'boom'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql")
+        conn.execute("CREATE TRIGGER c6_fail_session BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION c6_fail_session()")
+    try:
+        assert rw.w.client.get(f"{RB}/overview", headers=_h(rw, a.uid, a.org)).status_code == 200
+        assert _audit(rw, a.org, "compliance.reviewer.session") == []
+    finally:
+        with _admin() as conn:
+            conn.execute("DROP TRIGGER c6_fail_session ON audit_log")
+            conn.execute("DROP FUNCTION c6_fail_session()")
+    assert rw.w.client.get(f"{RB}/overview", headers=_h(rw, a.uid, a.org)).status_code == 200
+    assert len(_audit(rw, a.org, "compliance.reviewer.session")) == 1

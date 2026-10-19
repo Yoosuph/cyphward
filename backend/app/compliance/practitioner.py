@@ -28,10 +28,45 @@ BANNED_PHRASES = (
 GUIDANCE = ("Describe what you reviewed (the clause reference, the documents seen), not whether the organisation "
             "complies. Words that state a conclusion, such as '{word}', are not accepted.")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Beyond the phrases above, a conclusion can be worded many ways ("complies with", "meets s.25 in full",
+# "conforms to", "approved"), so the stems are matched too, on text folded the way a reader sees it
+# (compatibility forms, invisible characters and look-alike letters), token by token.
+STEMS = ("complian", "complie", "comply", "conform", "approv", "certif", "satisf", "adequa", "guarante", "fulfil")
+EXACT_WORDS = ("meets", "met")  # "met" only counts as part of the banned phrase "is met"
+WITHHELD = "Comment withheld: the wording was not accepted"
 
 
 class TextError(ValueError):
     """Free text the review notes cannot accept. The API maps it to 422."""
+
+
+def _fold(text: str) -> str:
+    from backend.app.compliance.documents import fold  # one folding for every text check in the product
+    return fold(text)
+
+
+def violation(text: str) -> Optional[str]:
+    """The banned word or stem in this text, or None. Used when text is written and again when it is rendered."""
+    lowered = _fold(text)
+    flat = " ".join(lowered.split())
+    for word in BANNED_PHRASES:
+        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", flat):
+            return word
+    for token in lowered.split():
+        letters = re.sub(r"[^a-z]", "", token)  # "com-pliant" and "c.o.m.p.l.i.a.n.t" are still the word
+        for stem in STEMS:
+            if stem in letters:
+                return stem
+        if letters == "meets":
+            return "meets"
+    return None
+
+
+def safe_text(text: Optional[str]) -> Optional[str]:
+    """Text for display in a pack: stored text that fails the check today is replaced, never printed."""
+    if text is None:
+        return None
+    return WITHHELD if violation(text) else text
 
 
 def clean_text(value: Optional[str], field: str, limit: int = MAX_TEXT, required: bool = False) -> Optional[str]:
@@ -42,11 +77,9 @@ def clean_text(value: Optional[str], field: str, limit: int = MAX_TEXT, required
         return None
     if len(text) > limit:
         raise TextError(f"{field} must be at most {limit} characters.")
-    lowered = text.lower()
-    for word in BANNED_PHRASES:
-        # Whole words only: "this method" must not trip "is met".
-        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", lowered):
-            raise TextError(GUIDANCE.format(word=word))
+    word = violation(text)
+    if word:
+        raise TextError(GUIDANCE.format(word=word))
     return text
 
 
@@ -60,26 +93,34 @@ def _day(value: Optional[datetime]) -> str:
     return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _who(row: Dict[str, Any]) -> str:
+    """The name as the account gave it, with the email domain, never implying a licence was checked."""
+    name = "Reviewer (name withheld)" if violation(row["reviewer_name"]) else row["reviewer_name"]
+    return f"{name} ({row.get('reviewer_domain') or 'email domain not recorded'}), a reviewer named by this organisation,"
+
+
 def review_view(row: Dict[str, Any]) -> Dict[str, Any]:
     name = row["reviewer_name"]
     return {"outcome": row["outcome"], "outcome_label": OUTCOMES[row["outcome"]], "reviewer_name": name,
-            "reviewed_at": _iso(row["reviewed_at"]), "comment": row.get("comment"),
-            "label": f"Practitioner review recorded by {name} on {_day(row['reviewed_at'])}"}
+            "reviewer_domain": row.get("reviewer_domain"),
+            "reviewed_at": _iso(row["reviewed_at"]), "comment": safe_text(row.get("comment")),
+            "label": f"Practitioner review recorded by {_who(row)} on {_day(row['reviewed_at'])}"}
 
 
 def clause_view(row: Dict[str, Any]) -> Dict[str, Any]:
     name = row["reviewer_name"]
     day = _day(row["verified_at"])
-    return {"verified": bool(row["verified"]), "reviewer_name": name, "at": _iso(row["verified_at"]),
-            "note": row.get("note"),
-            "label": (f"reference reviewed by {name}, {day}" if row["verified"]
-                      else f"reference marked as not confirmed by {name}, {day}")}
+    who = _who(row)
+    return {"verified": bool(row["verified"]), "reviewer_name": name, "reviewer_domain": row.get("reviewer_domain"),
+            "at": _iso(row["verified_at"]), "note": safe_text(row.get("note")),
+            "label": (f"reference reviewed by {who} {day}" if row["verified"]
+                      else f"reference marked as not confirmed by {who} {day}")}
 
 
 def latest_reviews(org_id: str) -> Dict[str, Dict[str, Any]]:
     """Newest practitioner review per requirement key, as shown."""
     rows = execute_query(
-        "SELECT DISTINCT ON (requirement_key) requirement_key, outcome, reviewer_name, reviewed_at, comment "
+        "SELECT DISTINCT ON (requirement_key) requirement_key, outcome, reviewer_name, reviewer_domain, reviewed_at, comment "
         "FROM compliance_practitioner_reviews WHERE org_id = %s "
         "ORDER BY requirement_key, reviewed_at DESC, id DESC", (str(org_id),)) or []
     return {r["requirement_key"]: review_view(r) for r in rows}
@@ -88,7 +129,7 @@ def latest_reviews(org_id: str) -> Dict[str, Dict[str, Any]]:
 def latest_clauses(org_id: str) -> Dict[str, Dict[str, Any]]:
     """Newest clause verification per requirement key (the overlay: newest row wins)."""
     rows = execute_query(
-        "SELECT DISTINCT ON (requirement_key) requirement_key, verified, reviewer_name, verified_at, note "
+        "SELECT DISTINCT ON (requirement_key) requirement_key, verified, reviewer_name, reviewer_domain, verified_at, note "
         "FROM compliance_clause_verifications WHERE org_id = %s "
         "ORDER BY requirement_key, verified_at DESC, id DESC", (str(org_id),)) or []
     return {r["requirement_key"]: clause_view(r) for r in rows}

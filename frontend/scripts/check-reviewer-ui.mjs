@@ -96,14 +96,14 @@ try {
       assert.equal(request.headers()["x-organization-id"], org.id);
       writes.push({ path, body });
       reqState.practitioner_review = { outcome: body.outcome, outcome_label: body.outcome === "reviewed" ? "Reviewed" : "Reviewed, with comments", reviewer_name: "Dr Ada Reviewer",
-        reviewed_at: new Date().toISOString(), comment: body.comment, label: "Practitioner review recorded by Dr Ada Reviewer on 2026-10-19" };
+        reviewed_at: new Date().toISOString(), comment: body.comment, label: "Practitioner review recorded by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, on 2026-10-19" };
       return json(request, 201, { practitioner_review: reqState.practitioner_review });
     }
     if (/\/compliance\/reviewer\/requirements\/[^/]+\/clause-reference$/.test(path)) {
       const body = JSON.parse(request.postData() || "{}");
       writes.push({ path, body });
       reqState.clause_review = { verified: body.verified, reviewer_name: "Dr Ada Reviewer", at: new Date().toISOString(), note: body.note,
-        label: body.verified ? "reference reviewed by Dr Ada Reviewer, 2026-10-19" : "reference marked as not confirmed by Dr Ada Reviewer, 2026-10-19" };
+        label: body.verified ? "reference reviewed by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, 2026-10-19" : "reference marked as not confirmed by Dr Ada Reviewer (practice.test), 2026-10-19" };
       reqState.clause_label = body.verified ? `NDPA 2023 s.25 · ${reqState.clause_review.label}` : reqState.clause_label;
       return json(request, 201, { clause_review: reqState.clause_review });
     }
@@ -246,17 +246,17 @@ try {
     // Owners see a practitioner note beside the requirement.
     memberships = [{ org: { ...org }, role: "owner", domains: [domain] }];
     reqState = requirement({ practitioner_review: { outcome: "reviewed_with_comments", outcome_label: "Reviewed, with comments", reviewer_name: "Dr Ada Reviewer",
-      reviewed_at: "2026-10-19T10:00:00Z", comment: "Read with the guidance", label: "Practitioner review recorded by Dr Ada Reviewer on 2026-10-19" },
-      clause_review: { verified: true, reviewer_name: "Dr Ada Reviewer", at: "2026-10-19T10:00:00Z", note: null, label: "reference reviewed by Dr Ada Reviewer, 2026-10-19" },
-      clause_label: "NDPA 2023 s.25 · reference reviewed by Dr Ada Reviewer, 2026-10-19", clause_verified: false });
+      reviewed_at: "2026-10-19T10:00:00Z", comment: "Read with the guidance", label: "Practitioner review recorded by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, on 2026-10-19" },
+      clause_review: { verified: true, reviewer_name: "Dr Ada Reviewer", at: "2026-10-19T10:00:00Z", note: null, label: "reference reviewed by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, 2026-10-19" },
+      clause_label: "NDPA 2023 s.25 · reference reviewed by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, 2026-10-19", clause_verified: false });
     await page.goto(`${origin}/comply`, { waitUntil: "networkidle0" });
     await page.waitForSelector('[data-testid="compliance-disclaimer"]', { timeout: 10000 });
-    assert.ok((await bodyText()).includes("reference reviewed by Dr Ada Reviewer, 2026-10-19"), `${name}: overlay replaces pending`);
+    assert.ok((await bodyText()).includes("reference reviewed by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, 2026-10-19"), `${name}: overlay replaces pending`);
     assert.ok(!(await bodyText()).includes("reference pending review"), `${name}: no pending label left`);
     assert.ok(await clickText("Lawful basis documented"));
     await page.waitForSelector('[data-testid="practitioner-note"]');
     const note = await page.evaluate(() => document.querySelector('[data-testid="practitioner-note"]').innerText);
-    assert.ok(note.includes("Practitioner review recorded by Dr Ada Reviewer on 2026-10-19") && note.includes("Read with the guidance") && /does not change the status/i.test(note), `${name}: note shown with its label`);
+    assert.ok(note.includes("Practitioner review recorded by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, on 2026-10-19") && note.includes("Read with the guidance") && /does not change the status/i.test(note), `${name}: note shown with its label`);
     assert.ok(await overflowOf() <= 0, `${name}: overflow with the note`);
     await noVerdicts(`${name} note`);
 
@@ -296,7 +296,7 @@ try {
     await waitDialogGone();
     assert.deepEqual(writes[0].body, { outcome: "reviewed_with_comments", comment: "Read the clause and the guidance" }, `${name}: review body`);
     await page.waitForSelector('[data-testid="existing-note"]');
-    assert.ok((await page.evaluate(() => document.querySelector('[data-testid="existing-note"]').innerText)).includes("Practitioner review recorded by Dr Ada Reviewer on 2026-10-19"), `${name}: note on file`);
+    assert.ok((await page.evaluate(() => document.querySelector('[data-testid="existing-note"]').innerText)).includes("Practitioner review recorded by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, on 2026-10-19"), `${name}: note on file`);
 
     // Verify clause reference.
     assert.ok(await clickText("VERIFY CLAUSE REFERENCE"));
@@ -307,7 +307,7 @@ try {
     await clickExact("RECORD REFERENCE", '[role="dialog"]');
     await waitDialogGone();
     assert.deepEqual(writes[1].body, { verified: true, note: null }, `${name}: clause body`);
-    await page.waitForFunction(() => document.body.innerText.includes("reference reviewed by Dr Ada Reviewer, 2026-10-19"), { timeout: 5000 });
+    await page.waitForFunction(() => document.body.innerText.includes("reference reviewed by Dr Ada Reviewer (practice.test), a reviewer named by this organisation, 2026-10-19"), { timeout: 5000 });
     assert.ok(await overflowOf() <= 0, `${name}: overflow after recording`);
     await noVerdicts(`${name} reviewer page`);
 

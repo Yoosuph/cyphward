@@ -155,8 +155,8 @@ function Row({ req, onAct }: { req: ComplianceRequirement; onAct: (d: NonNullabl
               ))}
             </ul>
           )}
-          {req.findings.length > 0 && (
-            <p className="text-xs text-soft">Open findings linked: {req.findings.map(f => `${f.title} (${f.severity})`).join(' · ')}</p>
+          {(req.open_finding_count ?? 0) > 0 && (
+            <p className="text-xs text-soft">Open findings linked to this requirement: {req.open_finding_count}. Their details are not shared with reviewers.</p>
           )}
           {(req.practitioner_review || req.clause_review) && (
             <div className="p-3 rounded border border-line bg-inset/50 space-y-1.5" data-testid="existing-note">

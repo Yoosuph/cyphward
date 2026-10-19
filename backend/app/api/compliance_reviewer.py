@@ -41,6 +41,7 @@ class ReviewIn(BaseModel):
 
     outcome: Literal["reviewed", "reviewed_with_comments"]
     comment: Optional[str] = Field(default=None, max_length=500)
+    request_key: Optional[str] = Field(default=None, max_length=80)
 
 
 class ClauseIn(BaseModel):
@@ -48,6 +49,7 @@ class ClauseIn(BaseModel):
 
     verified: bool
     note: Optional[str] = Field(default=None, max_length=500)
+    request_key: Optional[str] = Field(default=None, max_length=80)
 
 
 # ── Owner ─────────────────────────────────────────────────────────────────
@@ -140,9 +142,9 @@ def _write(ctx: Dict[str, Any], call) -> Dict[str, Any]:
 
 @router.post("/requirements/{key}/review", status_code=201)
 def record_review(key: str, body: ReviewIn, ctx: Dict[str, Any] = Depends(reviewer.require_reviewer)) -> Dict[str, Any]:
-    return {"practitioner_review": _write(ctx, lambda: reviewer.record_review(ctx, key[:120], body.outcome, body.comment))}
+    return {"practitioner_review": _write(ctx, lambda: reviewer.record_review(ctx, key[:120], body.outcome, body.comment, body.request_key))}
 
 
 @router.post("/requirements/{key}/clause-reference", status_code=201)
 def record_clause(key: str, body: ClauseIn, ctx: Dict[str, Any] = Depends(reviewer.require_reviewer)) -> Dict[str, Any]:
-    return {"clause_review": _write(ctx, lambda: reviewer.record_clause(ctx, key[:120], body.verified, body.note))}
+    return {"clause_review": _write(ctx, lambda: reviewer.record_clause(ctx, key[:120], body.verified, body.note, body.request_key))}

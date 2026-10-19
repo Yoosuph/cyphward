@@ -131,7 +131,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
         <Info size={14} className="text-accent flex-none mt-0.5" />
         <span>
           Give a licensed Data Protection Compliance Organisation practitioner read-only access to these compliance pages for a
-          limited time. {data.note}
+          limited time. {data.note} Cyphward does not check anyone's licence: a reviewer is whoever you name here, and their notes say so.
         </span>
       </div>
 

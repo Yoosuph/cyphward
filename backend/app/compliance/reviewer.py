@@ -28,7 +28,7 @@ from psycopg.types.json import Jsonb
 from backend.app.compliance import practitioner, status
 from backend.app.compliance.register import requirement as register_requirement
 from backend.app.core import database
-from backend.app.core.auth import get_current_user, log_audit
+from backend.app.core.auth import get_current_user
 from backend.app.core.database import execute_one, execute_query
 
 logger = logging.getLogger("cyphward.reviewer")
@@ -110,23 +110,28 @@ _SEEN_MAX = 5000
 
 def _note_session(ctx: Dict[str, Any]) -> None:
     """Audit the first request of a grant per UTC day. A process-local cache keeps the per-request cost at zero;
-    a restart or another replica may write a second row for the same day, which is harmless."""
+    a restart or another replica may write a second row for the same day, which is harmless. The day is marked
+    seen only after the row exists (or already did), so a failed write is tried again on the next request."""
     day = datetime.now(timezone.utc).date()
     key = (str(ctx["grant_id"]), day)
     with _seen_lock:
         if key in _seen:
             return
-        if len(_seen) >= _SEEN_MAX:
-            _seen.clear()
-        _seen[key] = True
     try:
         start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
         done = execute_one(
             "SELECT 1 AS x FROM audit_log WHERE org_id = %s AND created_at >= %s AND action = %s AND resource_id = %s "
             "LIMIT 1", (ctx["org_id"], start, ACTIONS["session"], str(ctx["grant_id"])))
         if not done:
-            log_audit(str(ctx["org_id"]), str(ctx["user_id"]), ACTIONS["session"], "reviewer_grant",
-                      str(ctx["grant_id"]), {"grant_id": str(ctx["grant_id"])})
+            execute_one(
+                "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
+                "VALUES (%s, %s, %s, 'reviewer_grant', %s, %s) RETURNING id",
+                (ctx["org_id"], ctx["user_id"], ACTIONS["session"], str(ctx["grant_id"]),
+                 Jsonb({"grant_id": str(ctx["grant_id"])})))
+        with _seen_lock:
+            if len(_seen) >= _SEEN_MAX:
+                _seen.clear()
+            _seen[key] = True
     except Exception as exc:  # the audit of a view must never break the view
         logger.warning("reviewer session audit failed: %s", exc)
 
@@ -306,30 +311,49 @@ def _answer_values(org_id: str) -> Dict[str, Dict[str, Any]]:
             for k, r in attestation_store.current_rows(org_id).items()}
 
 
-def _shape(view: Dict[str, Any], values: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """An answer shows its value, date, owner name and expiry. Free text, notes and links never leave the org."""
-    for answer in view.get("answers") or []:
-        answer.update(values.get(answer["question_key"], {"value": None, "date": None}))
-    return view
+# What a reviewer receives is an ALLOW-LIST projection of the compliance view, not the view with things removed:
+# a field added to the compliance API later reaches no reviewer until it is added here on purpose. Domains are
+# numbered (no host names), findings are counted (no titles), and raw scan evidence details, evidence history,
+# scan ids, the plan and free-text answers never appear.
+REQUIREMENT_KEYS = ("key", "group", "title", "summary", "clause", "clause_verified", "clause_label", "clause_review",
+                    "practitioner_review", "evidence_type_labels", "checks_performed", "not_checked", "freshness_days",
+                    "remediation_hint", "status", "status_label", "reason", "reason_text", "source", "source_label")
+SOURCE_KEYS = ("source", "source_label", "status", "status_label", "reason", "reason_text")
+DOMAIN_KEYS = ("status", "status_label", "source", "source_label", "reason", "reason_text", "observed_at", "expires_at")
+ANSWER_KEYS = ("question_key", "status", "status_label", "reason", "reason_text", "answered", "owner_name", "expires_at")
+
+
+def _project(view: Dict[str, Any], values: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    out = {k: view.get(k) for k in REQUIREMENT_KEYS if k in view}
+    out["sources"] = [{k: x.get(k) for k in SOURCE_KEYS} for x in view.get("sources") or []]
+    out["answers"] = [{**{k: a.get(k) for k in ANSWER_KEYS}, **values.get(a["question_key"], {"value": None, "date": None})}
+                      for a in view.get("answers") or []]
+    out["domains"] = [{"domain": f"Domain {i}", "domain_id": str(i), **{k: d.get(k) for k in DOMAIN_KEYS}}
+                      for i, d in enumerate(view.get("domains") or [], 1)]
+    out["open_finding_count"] = len(view.get("findings") or []) + len(view.get("unlinked_finding_ids") or [])
+    out["findings"] = []
+    out["informational_findings"] = []
+    return out
 
 
 def overview(ctx: Dict[str, Any]) -> Dict[str, Any]:
     org = ctx["org"]
     data = status.overview(org)
     values = _answer_values(str(org["id"]))
-    for group in data["groups"]:
-        for view in group["requirements"]:
-            _shape(view, values)
-    data["organisation"] = {"id": str(org["id"]), "name": org["name"]}
-    data["grant"] = {"id": str(ctx["grant_id"]), "purpose": ctx["purpose"], "expires_at": _iso(ctx["expires_at"])}
-    return data
+    groups = [{"key": g["key"], "title": g["title"], "locked": g["locked"], "counts": g["counts"],
+               "requirement_count": g["requirement_count"],
+               "requirements": [_project(v, values) for v in g["requirements"]]} for g in data["groups"]]
+    return {"disclaimer": data["disclaimer"], "note": data["note"], "register": data["register"],
+            "readiness": data["readiness"], "groups": groups, "domain_count": len(data["domains"]),
+            "organisation": {"id": str(org["id"]), "name": org["name"]},
+            "grant": {"id": str(ctx["grant_id"]), "purpose": ctx["purpose"], "expires_at": _iso(ctx["expires_at"])}}
 
 
 def requirement_detail(ctx: Dict[str, Any], key: str) -> Optional[Dict[str, Any]]:
     detail = status.requirement_detail(ctx["org"], key[:120])
     if detail is None or detail.get("locked"):
         return None
-    return _shape(detail, _answer_values(str(ctx["org"]["id"])))
+    return {**_project(detail, _answer_values(str(ctx["org"]["id"]))), "locked": False, "disclaimer": detail["disclaimer"]}
 
 
 def _display_name(ctx: Dict[str, Any]) -> str:
@@ -342,13 +366,20 @@ def _display_name(ctx: Dict[str, Any]) -> str:
         return "Reviewer (name withheld)"
 
 
+KEY = re.compile(r"^[A-Za-z0-9._:-]{8,80}$")
+
+
 def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action: str, resource_type: str,
-           meta: Dict[str, Any], key: str) -> Dict[str, Any]:
+           meta: Dict[str, Any], key: str, request_key: Optional[str]) -> Dict[str, Any]:
     """Insert one record under a SHARE lock on the grant, which makes a concurrent revocation wait, and audit it
-    in the same transaction. The table's own trigger re-checks the grant and the writer as the last line."""
+    in the same transaction. The table's own trigger re-checks the grant and the writer as the last line. A retry
+    with the same request key returns the record already written (and writes and audits nothing again)."""
     if register_requirement(key) is None:
         raise NotFound()
+    if request_key is not None and not KEY.match(request_key):
+        raise GrantError("request_key must be 8-80 letters, digits or . _ : -")
     org_id, grant_id, user_id = str(ctx["org_id"]), str(ctx["grant_id"]), str(ctx["user_id"])
+    domain = (ctx["email"].rsplit("@", 1)[-1].lower() or "unknown")[:253]
     try:
         with database.get_db() as conn:
             with conn.transaction():
@@ -358,11 +389,18 @@ def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action:
                     "AND expires_at > clock_timestamp() FOR SHARE", (grant_id, org_id)).fetchone()
                 if not live:
                     raise NoAccess()
-                placeholders = ", ".join(["%s"] * (len(values) + 5))
+                if request_key:
+                    again = conn.execute(f"SELECT * FROM {table} WHERE org_id = %s AND request_key = %s",
+                                         (org_id, request_key)).fetchone()
+                    if again:
+                        if str(again["grant_id"]) != grant_id or again["requirement_key"] != key:
+                            raise GrantError("That request_key was already used for a different request.")
+                        return again
+                placeholders = ", ".join(["%s"] * (len(values) + 7))
                 row = conn.execute(
-                    f"INSERT INTO {table} (org_id, requirement_key, grant_id, reviewer_user_id, reviewer_name, {columns}) "
-                    f"VALUES ({placeholders}) RETURNING *",
-                    (org_id, key, grant_id, user_id, _display_name(ctx)) + values).fetchone()
+                    f"INSERT INTO {table} (org_id, requirement_key, grant_id, reviewer_user_id, reviewer_name, "
+                    f"reviewer_domain, request_key, {columns}) VALUES ({placeholders}) RETURNING *",
+                    (org_id, key, grant_id, user_id, _display_name(ctx), domain, request_key) + values).fetchone()
                 conn.execute(
                     "INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, metadata) "
                     "VALUES (%s, %s, %s, %s, %s, %s)",
@@ -375,17 +413,19 @@ def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action:
     return row
 
 
-def record_review(ctx: Dict[str, Any], key: str, outcome: str, comment: Optional[str]) -> Dict[str, Any]:
+def record_review(ctx: Dict[str, Any], key: str, outcome: str, comment: Optional[str],
+                  request_key: Optional[str] = None) -> Dict[str, Any]:
     if outcome not in practitioner.OUTCOMES:
         raise GrantError("Choose one of the listed outcomes.")
     text = practitioner.clean_text(comment, "Comment")
     row = _write(ctx, "compliance_practitioner_reviews", "outcome, comment", (outcome, text), ACTIONS["review"],
-                 "practitioner_review", {"outcome": outcome, "has_comment": text is not None}, key)
+                 "practitioner_review", {"outcome": outcome, "has_comment": text is not None}, key, request_key)
     return practitioner.review_view(row)
 
 
-def record_clause(ctx: Dict[str, Any], key: str, verified: bool, note: Optional[str]) -> Dict[str, Any]:
+def record_clause(ctx: Dict[str, Any], key: str, verified: bool, note: Optional[str],
+                  request_key: Optional[str] = None) -> Dict[str, Any]:
     text = practitioner.clean_text(note, "Note")
     row = _write(ctx, "compliance_clause_verifications", "verified, note", (bool(verified), text), ACTIONS["clause"],
-                 "clause_verification", {"verified": bool(verified), "has_note": text is not None}, key)
+                 "clause_verification", {"verified": bool(verified), "has_note": text is not None}, key, request_key)
     return practitioner.clause_view(row)

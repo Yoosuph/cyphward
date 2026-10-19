@@ -1029,6 +1029,8 @@ export interface ComplianceRequirement {
   answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
               owner_name: string | null; expires_at: string | null; value?: string | null; date?: string | null }[];
   /** A practitioner's note that they reviewed this requirement (C6). Never changes the status. */
+  /** Reviewers receive a count instead of finding details. */
+  open_finding_count?: number;
   practitioner_review?: PractitionerReview | null;
   /** This organisation's practitioner overlay on the clause reference (C6). */
   clause_review?: ClauseReview | null;
@@ -1038,6 +1040,7 @@ export interface PractitionerReview {
   outcome: 'reviewed' | 'reviewed_with_comments';
   outcome_label: string;
   reviewer_name: string;
+  reviewer_domain?: string | null;
   reviewed_at: string;
   comment: string | null;
   label: string;
