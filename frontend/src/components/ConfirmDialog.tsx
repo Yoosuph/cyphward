@@ -11,7 +11,7 @@ import Dialog from './ui/Dialog';
  *
  * - `confirmLabel` names the action ("Issue pack", never "OK").
  * - `irreversible` is the one sentence saying what cannot be undone. It is shown in bold.
- * - `danger` (delete, remove, revoke): focus starts on Cancel. Otherwise it starts on the confirm button.
+ * - Focus always starts on Cancel, so a stray Enter or a key held down never confirms. `danger` only adds the warning icon.
  */
 export type ConfirmOptions = {
   title: string;
@@ -20,7 +20,7 @@ export type ConfirmOptions = {
   cancelLabel?: string;
   /** What cannot be undone, in one sentence. */
   irreversible?: string;
-  /** Destructive: Cancel is the default focus and the dialog carries a warning icon. */
+  /** Destructive: the dialog carries a warning icon. Focus starts on Cancel for every confirmation. */
   danger?: boolean;
 };
 
@@ -73,12 +73,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {shown?.irreversible && <p className="text-ink font-medium" data-testid="confirm-irreversible">{shown.irreversible}</p>}
           </div>
           <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-            <button type="button" className="btn btn-ghost justify-center touch-target" data-autofocus={danger ? '' : undefined}
+            <button type="button" className="btn btn-ghost justify-center touch-target" data-autofocus
                     data-testid="confirm-cancel" onClick={() => settle(false)}>
               {shown?.cancelLabel || 'Cancel'}
             </button>
-            <button type="button" className="btn btn-solid justify-center touch-target" data-autofocus={danger ? undefined : ''}
-                    data-testid="confirm-ok" onClick={() => settle(true)}>
+            <button type="button" className="btn btn-solid justify-center touch-target"                     data-testid="confirm-ok" onClick={() => settle(true)}>
               {shown?.confirmLabel}
             </button>
           </div>

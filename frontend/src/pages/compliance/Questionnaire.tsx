@@ -118,7 +118,8 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
     if (!followsDate && expiry === CUSTOM_EXPIRY) {
       const end = endOfDayUtc(expiryDate, zone);
       if (!end.ok) { setError(end.message); setBusy(false); return; }
-      expiresAt = end.utc;
+      // Stay inside the API's cap even where a clock change makes the last day a little longer.
+      expiresAt = new Date(Math.min(Date.parse(end.utc), Date.now() + MAX_EXPIRY_DAYS * 86400000 - 60000)).toISOString();
     } else if (!followsDate && typeof expiry === 'number') {
       expiresAt = new Date(Date.now() + expiry * 86400000).toISOString();
     }

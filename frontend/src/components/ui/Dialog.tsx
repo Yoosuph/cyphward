@@ -154,11 +154,20 @@ export default function Dialog({
         const current = document.activeElement;
         // A page control already has focus (the user moved on): leave it there.
         if (current && current !== document.body && current.isConnected && !current.closest('.dialog-panel')) return;
-        let back: HTMLElement | null = opener && opener !== document.body && opener.isConnected ? opener : null;
-        if (!back && opener !== document.body) back = latest.current.returnFocusTo?.() ?? document.querySelector<HTMLElement>('[role="tabpanel"], main');
-        if (!back || back.closest('[inert]')) return;
-        if (!back.matches(FOCUSABLE)) back.setAttribute('tabindex', '-1');
-        back.focus({ preventScroll: true });
+        const usable = (el: HTMLElement | null): el is HTMLElement =>
+          !!el && el !== document.body && el.isConnected && !el.closest('[inert]') && !(el as HTMLButtonElement).disabled;
+        const give = (el: HTMLElement) => {
+          if (!el.matches(FOCUSABLE)) el.setAttribute('tabindex', '-1');
+          el.focus({ preventScroll: true });
+          return document.activeElement === el;
+        };
+        // The opener, else (if it is gone or disabled) the dialog still open, else the page's tab panel or main area.
+        if (usable(opener) && give(opener)) return;
+        const topId = stack[stack.length - 1];
+        const top = topId ? nodes.get(topId)?.querySelector<HTMLElement>('.dialog-panel') : null;
+        if (usable(top ?? null) && give(top as HTMLElement)) return;
+        const page = latest.current.returnFocusTo?.() ?? document.querySelector<HTMLElement>('[role="tabpanel"], main');
+        if (usable(page)) give(page);
       });
     };
   }, [open, mounted, id]);

@@ -52,14 +52,14 @@ export default function DateTimeField({
         max={max}
         disabled={disabled}
         aria-invalid={problem ? true : undefined}
-        aria-describedby={noteId}
+        aria-describedby={problem ? `${noteId} ${noteId}-problem` : noteId}
         data-testid={testId}
         onChange={e => onChange(e.target.value)}
       />
       <p id={noteId} className="text-[11px] text-soft mt-1.5 normal-case tracking-normal" data-testid="zone-note">
         {zoneNote}{hint ? <> · {hint}</> : null}
       </p>
-      {problem && <p role="alert" className="text-xs text-accent mt-1 break-words" data-testid="datetime-problem">{problem}</p>}
+      {problem && <p id={`${noteId}-problem`} role="alert" className="text-xs text-accent mt-1 break-words" data-testid="datetime-problem">{problem}</p>}
     </div>
   );
 }

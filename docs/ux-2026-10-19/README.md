@@ -55,12 +55,12 @@ if (!(await confirm({
   body: 'The reviewer will no longer be able to open your pack.',
   irreversible: 'A revoked link cannot be switched back on. You would need to invite them again.',
   confirmLabel: 'Revoke access',   // names the action. Never "OK".
-  danger: true,                    // delete / remove / revoke: Cancel is the default focus
+  danger: true,                    // delete / remove / revoke: adds the warning icon
 }))) return;
 ```
 
-Use it for anything that cannot be undone: issuing, approving, recording a notification time, removing, deleting, revoking. Non-destructive confirmations
-(issue, approve) leave focus on the confirm button.
+Use it for anything that cannot be undone: issuing, approving, recording a notification time, removing, deleting, revoking. Focus always starts on
+Cancel, so a stray Enter or a held key never confirms; `danger` only adds the warning icon.
 
 ### Dates and times: `frontend/src/lib/datetime.ts` and `frontend/src/components/ui/DateTimeField.tsx`
 

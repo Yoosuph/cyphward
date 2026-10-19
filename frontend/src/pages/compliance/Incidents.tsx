@@ -92,7 +92,7 @@ function IncidentForm({ zone, incident, onDone, onClose }: {
   const save = async () => {
     setError(null);
     if (!editing && (!f.title.trim() || !f.detected_at || !f.became_aware_at)) {
-      setError('Give it a short title, when it was found and when you became aware of it.');
+      setError('Give it a short title, when it was detected and when you became aware of it.');
       return;
     }
     const utc: Partial<Record<(typeof timeFields)[number], string>> = {};
@@ -158,7 +158,7 @@ function IncidentForm({ zone, incident, onDone, onClose }: {
         {editing ? (
           <div className="space-y-1 text-xs">
             <p className="text-sm text-ink break-words">{incident.title}</p>
-            <p className="text-soft">Found {fmtLocal(incident.local.detected_at)} and you became aware {fmtLocal(incident.local.became_aware_at)} ({zone}). These two times cannot be changed.</p>
+            <p className="text-soft">Detected {fmtLocal(incident.local.detected_at)} and you became aware {fmtLocal(incident.local.became_aware_at)} ({zone}). These two times cannot be changed.</p>
           </div>
         ) : (
           <div>
@@ -181,7 +181,7 @@ function IncidentForm({ zone, incident, onDone, onClose }: {
           </div>
           {!editing && (
             <>
-              <DateTimeField id="inc-detected" label="When it was found" zone={zone} value={f.detected_at} onChange={v => set('detected_at', v)} />
+              <DateTimeField id="inc-detected" label="When it was detected" zone={zone} value={f.detected_at} onChange={v => set('detected_at', v)} />
               <DateTimeField id="inc-aware" label="When you became aware" zone={zone} value={f.became_aware_at} onChange={v => set('became_aware_at', v)}
                              hint="The 72 hours count from here" />
             </>
@@ -227,7 +227,7 @@ function IncidentDetails({ i, zone, nowMs, canEdit, onEdit, onClose }: {
         </div>
         <p className="text-xs text-soft">All times are in {zone}.</p>
         <dl className="grid sm:grid-cols-2 gap-4">
-          <Detail label="Found">{fmtLocal(i.local.detected_at)}</Detail>
+          <Detail label="Detected">{fmtLocal(i.local.detected_at)}</Detail>
           <Detail label="You became aware">{fmtLocal(i.local.became_aware_at)}</Detail>
           <Detail label="72-hour mark">{fmtLocal(i.local.deadline_at)}</Detail>
           <Detail label="Commission told">{i.local.notified_commission_at ? fmtLocal(i.local.notified_commission_at) : none}</Detail>

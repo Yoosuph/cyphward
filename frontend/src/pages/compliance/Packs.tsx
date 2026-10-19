@@ -97,6 +97,8 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
       toast(errorText(e, 'The pack was not issued. Try again in a moment.'));
     } finally {
       setBusy(null);
+      // The button was disabled while the pack was issued, which drops its focus: put it back.
+      window.setTimeout(() => document.querySelector<HTMLElement>(`[data-testid="issue-${kind}"]`)?.focus(), 0);
     }
   };
 

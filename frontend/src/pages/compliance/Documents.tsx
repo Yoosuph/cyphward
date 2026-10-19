@@ -108,7 +108,7 @@ function Viewer({ doc, zone, canEdit, onApproved, onClose }: { doc: DocumentFull
           <span><strong>{LABEL}.</strong> Written from your own answers. Ask a qualified practitioner to read it before you rely on it.</span>
         </div>
         <p className="text-xs text-soft leading-relaxed">
-          Generated {whenText(doc.generated_at, zone)}{doc.generated_by ? ` by ${doc.generated_by}` : ''} · {doc.generator === 'template' ? 'standard wording' : 'reworded by AI'} · {doc.open_placeholders} to fill in
+          Generated {whenText(doc.generated_at, zone)} ({zone}){doc.generated_by ? ` by ${doc.generated_by}` : ''} · {doc.generator === 'template' ? 'standard wording' : 'reworded by AI'} · {doc.open_placeholders} to fill in
           {!doc.is_latest ? ' · an older version' : ''}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -121,7 +121,7 @@ function Viewer({ doc, zone, canEdit, onApproved, onClose }: { doc: DocumentFull
              data-testid="doc-text"><Highlighted text={doc.text} /></pre>
         {doc.approval ? (
           <p className="text-xs text-ink leading-relaxed" data-testid="doc-approval">
-            Approved by {doc.approval.approved_by || 'a former member'} on {whenText(doc.approval.approved_at, zone)}. This is their own record of reading the draft. Cyphward did not check it.
+            Approved by {doc.approval.approved_by || 'a former member'} on {whenText(doc.approval.approved_at, zone)} ({zone}). This is their own record of reading the draft. Cyphward did not check it.
             {doc.approval.open_placeholders > 0 ? ` ${doc.approval.open_placeholders} items were still to fill in.` : ''}
           </p>
         ) : !canEdit ? <ReadOnlyNote /> : null}

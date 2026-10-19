@@ -644,8 +644,14 @@ Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after 
 1. **Organisation zone comes from the sign-in response, with Africa/Lagos as the fallback.** Nothing sends the zone separately; the owner setting for it is still unbuilt (C3c).
 2. **Times are sent as UTC; calendar days are not.** Incident times and the new renewal date are UTC ISO strings. Questionnaire date answers stay `YYYY-MM-DD` because the API treats them as days, and converting them would move the day.
 3. **Renewal presets kept, plus "A date I choose".** The date must fall between tomorrow and 24 months, and means 23:59 that day in the organisation's zone.
-4. **Default focus on confirmations.** Cancel for remove, delete, revoke and shortening retention; the named action for issue pack, approve and record Commission time (they are deliberate, not destructive).
+4. **Default focus on every confirmation is Cancel** (review fix: a held Enter must not issue a pack). Tested for issue pack, approve, Commission time, remove domain, remove host, shorten retention.
 5. **Small confirmations stay centred cards on phones;** everything else is full screen.
 6. **Scan details moved from the side drawer to the shared dialog** so every "view" behaves the same. Say if you would rather keep the drawer for scans.
 7. **Retention: only shortening asks for confirmation.** Lengthening is harmless.
 8. **The Commission-time confirmation says** "the 72-hour countdown stops and the time becomes part of the incident record". It does not say the time cannot be corrected later, because the API still allows an edit.
+
+### Review fixes (round 1)
+
+- Initial focus is Cancel for all confirmations; each irreversible confirm has a browser assertion that Enter does not confirm.
+- Focus after a dialog closes: the opener, else the dialog still open, else the tab panel/main (tests: failed save after the Commission confirm, approving a document, issuing a pack).
+- Nits: error id in `aria-describedby`; `Scans.tsx` in the copy test; zone shown beside Documents times; "detected" used throughout the incident screens; the chosen renewal date is clamped to the API's 730-day cap; dead selector removed. Browser suites are not added to CI (they need Chromium and take minutes); the date helper test is.

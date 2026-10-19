@@ -22,6 +22,7 @@ FILES = (
     "pages/compliance/Questionnaire.tsx",
     "pages/compliance/shared.tsx",
     "pages/Reports.tsx",
+    "pages/Scans.tsx",
     "pages/Domains.tsx",
     "components/Toast.tsx",
     "components/ConfirmDialog.tsx",

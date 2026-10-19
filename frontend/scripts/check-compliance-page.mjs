@@ -213,6 +213,10 @@ try {
   }, scope, label);
   const bodyText = () => page.evaluate(() => document.body.innerText);
   const overflowOf = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const activeInfo = () => page.evaluate(() => {
+    const a = document.activeElement;
+    return { id: a?.id || "", testid: a?.getAttribute?.("data-testid") || "", tag: a?.tagName || "", inDialog: !!a?.closest?.('[role="dialog"]') };
+  });
   const openTab = async (label) => {
     assert.ok(await clickExact(label, '[role="tablist"]'), `tab ${label}`);
   };
@@ -461,13 +465,28 @@ try {
     const before = writes.length;
     await page.click('[data-testid="incident-save"]');
     await page.waitForSelector('[data-testid="confirm-dialog"]', { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: the named action is the default focus for a non-destructive confirmation`);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-cancel", `${name}: Cancel is the default focus, even for a deliberate action`);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
+    assert.equal(writes.length, before, `${name}: Enter on the default focus does not confirm`);
+    await page.click('[data-testid="incident-save"]');
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
     const ask = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
     assert.ok(/record notification time/i.test(ask) && /countdown stops/.test(ask), `${name}: confirmation names the action and what cannot be undone (${ask})`);
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
     assert.ok(await page.evaluate(() => !!document.querySelector('[data-testid="incident-form"]')), `${name}: Esc closes only the top dialog`);
     assert.equal(writes.length, before, `${name}: cancelling the confirmation sends nothing`);
+    // A failed save after confirming: the confirmation's opener is disabled, so focus must land inside the form dialog, not on the page.
+    flags.failWrites = true;
+    await page.click('[data-testid="incident-save"]');
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
+    await page.click('[data-testid="confirm-ok"]');
+    await page.waitForFunction(() => document.querySelector('[data-testid="incident-error"]'), { timeout: 5000 });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.ok((await activeInfo()).inDialog, `${name}: focus stays in the dialog after a failed save`);
+    flags.failWrites = false;
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
     await page.click('[data-testid="incident-save"]');
     await page.waitForSelector('[data-testid="confirm-dialog"]');
     await page.click('[data-testid="confirm-ok"]');
@@ -497,8 +516,8 @@ try {
     await page.waitForSelector('[data-testid="confirm-dialog"]', { timeout: 5000 });
     const packAsk = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
     assert.ok(/issue pack/i.test(packAsk) && /cannot be edited or taken back/.test(packAsk), `${name}: issuing a pack asks, names the action and says what cannot be undone`);
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: Issue pack is the default focus`);
-    await page.click('[data-testid="confirm-cancel"]');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-cancel", `${name}: Cancel is the default focus for issuing a pack`);
+    await page.keyboard.press("Enter");
     await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
     assert.equal(writes.length, beforePack, `${name}: cancelling sends nothing`);
     await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());
@@ -506,6 +525,8 @@ try {
     await page.click('[data-testid="confirm-ok"]');
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="pack-list"] li').length === 2, { timeout: 5000 });
     assert.ok((await page.evaluate(() => document.querySelector(".toasts")?.innerText || "")).includes("Pack issued."), `${name}: a toast confirms the pack`);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "issue-dpo_section", `${name}: focus is back on the issue button, not lost`);
     assert.equal(writes[beforePack].body.kind, "dpo_section", `${name}: issue sends the kind`);
     assert.ok(/^ui-/.test(writes[beforePack].body.request_key || ""), `${name}: each click carries its own request key`);
     assert.deepEqual(Object.keys(writes[beforePack].body).sort(), ["kind", "request_key"], `${name}: issue sends only the kind and the key`);
@@ -629,8 +650,8 @@ try {
     const approveAsk = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
     assert.ok(approveAsk.includes("does not mean the document is published or in force"), `${name}: approval wording`);
     assert.ok(approveAsk.includes("cannot be taken back") && /approve version/i.test(approveAsk), `${name}: approval names the action and what cannot be undone`);
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: Approve version is the default focus`);
-    await page.click('[data-testid="confirm-cancel"]');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-cancel", `${name}: Cancel is the default focus for approving`);
+    await page.keyboard.press("Enter");
     await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
     assert.equal(writes.filter((w) => w.path.endsWith("/approve")).length, 0, `${name}: cancelling approves nothing`);
     assert.ok(await clickExact("Approve this version", '[role="dialog"]'));
@@ -638,6 +659,8 @@ try {
     await page.click('[data-testid="confirm-ok"]');
     await page.waitForSelector('[data-testid="doc-approval"]', { timeout: 5000 });
     assert.match(await page.evaluate(() => document.querySelector('[data-testid="doc-approval"]').textContent), /^Approved by Compliance Review on \d/, `${name}: approver shown`);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.ok((await activeInfo()).inDialog, `${name}: after approving, focus is inside the reopened document, not on the page`);
     assert.equal(writes.filter((w) => w.path.endsWith("/approve")).length, 1, `${name}: one approval sent`);
     assert.ok((await page.evaluate(() => document.querySelector(".toasts")?.innerText || "")).includes("Approval recorded."), `${name}: a toast confirms the approval`);
     await page.keyboard.press("Escape");
@@ -716,10 +739,6 @@ try {
   assert.equal(writes.length, 0);
 
   // ---------------- UX: dialogs, states, dates, keyboard, touch targets ----------------
-  const activeInfo = () => page.evaluate(() => {
-    const a = document.activeElement;
-    return { id: a?.id || "", testid: a?.getAttribute?.("data-testid") || "", tag: a?.tagName || "", inDialog: !!a?.closest?.('[role="dialog"]') };
-  });
   const dialogOpen = () => page.evaluate(() => !!document.querySelector('[role="dialog"]'));
   const closed = () => page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
   const tabUntil = async (match, max = 40) => {
@@ -990,8 +1009,7 @@ try {
     await page.waitForSelector('[data-testid="incident-form"]');
     await new Promise((r) => setTimeout(r, 450));
     const small = await page.evaluate(() => [...document.querySelectorAll('button, [role="tab"], select, input:not([type="radio"]):not([type="hidden"]), textarea, summary')]
-      .filter((el) => el.getClientRects().length > 0 && !el.closest("[inert]") || el.closest('[role="dialog"]'))
-      .filter((el) => el.getClientRects().length > 0)
+      .filter((el) => el.getClientRects().length > 0 && !el.closest("[inert]"))
       .map((el) => ({ el: `${el.tagName}#${el.id || el.getAttribute("data-testid") || el.textContent.trim().slice(0, 20)}`, h: Math.round(el.getBoundingClientRect().height) }))
       .filter((x) => x.h < 43));
     assert.deepEqual(small, [], `${name}: touch targets under 44px`);
