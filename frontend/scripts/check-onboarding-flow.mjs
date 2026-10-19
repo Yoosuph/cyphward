@@ -166,13 +166,13 @@ try {
   await page.waitForSelector('button[aria-label="Remove kansadco.example"]');
   await page.click('button[aria-label="Remove kansadco.example"]');
   await page.waitForFunction(() => document.body.textContent.includes('Remove kansadco.example?'));
-  await page.waitForFunction(() => document.activeElement?.textContent === 'CANCEL', { timeout: 3000 }); // destructive confirm focuses Cancel
+  await page.waitForFunction(() => document.activeElement?.textContent.trim().toUpperCase() === 'CANCEL', { timeout: 3000 }); // destructive confirm focuses Cancel
   await page.keyboard.press('Enter');
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.deepEqual(deleteCalls, []);
   await page.click('button[aria-label="Remove kansadco.example"]');
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'REMOVE DOMAIN'));
-  await page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent === 'REMOVE DOMAIN').click());
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim().toUpperCase() === 'REMOVE DOMAIN'));
+  await page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.trim().toUpperCase() === 'REMOVE DOMAIN').click());
   await page.waitForFunction(() => document.body.textContent.includes('kansadco.example removed'));
   assert.deepEqual(deleteCalls, ['pending-b']);
   domains = previousDomains;
