@@ -637,6 +637,7 @@ def test_dpo_contact_row_shows_one_source_first_and_the_other_on_an_also_line(wo
         "'not_assessed', now(), %s, '{}')", (org, domain, REGISTER["version"], scan))
     world.setup.commit()
     pack = _pack(world, org, owner)
+    assert pack["pack_version"] == "cyphward-ndpa-pack-v1.1"  # the row rule is its own template version
     html, pdf_text, _ = _texts(world, org, owner, pack)
     snap = world.rows("SELECT content FROM assessment_snapshots WHERE id = %s", (pack["snapshot_id"],))[0]["content"]
     req = next(r for r in snap["compliance"]["requirements"] if r["key"] == "gaid.dpo.contact_published")
@@ -644,7 +645,7 @@ def test_dpo_contact_row_shows_one_source_first_and_the_other_on_an_also_line(wo
     assert req["sources"][0]["headline"] is True and req["sources"][0]["source"] == req["source"]
     assert {s["source"] for s in req["sources"]} == {"externally_observed", "customer_attested"}
     headline = "Customer attested: Awaiting your input; no answer recorded yet"
-    other = f"Also: Externally observed: assessed.snapshot.test: Not assessed, observed"
+    other = "Also: Externally observed: Awaiting your input; assessed.snapshot.test: Not assessed, observed"
     flat = _collapse(re.sub(r"<[^>]+>", " ", html))
     for text in (pdf_text, flat):
         assert headline in text and other in text
