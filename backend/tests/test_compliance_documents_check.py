@@ -82,8 +82,9 @@ def test_rejection_reasons_name_the_kind_of_change():
     expect = {
         "neg-dropped-1": "negation_changed", "neg-added-1": "negation_changed", "modal-0": "commitment_changed",
         "number-0": "number_changed", "split-1": "sentences_changed", "add-glue-only-line": "lines_changed",
-        "heading-reworded": "structure_changed", "neg-moved-2": "order_changed", "order-1": "order_changed", "synonym-2": "words_added",
-        "drop-clause-1": "words_dropped", "homoglyph-template-word-0": "non_ascii_added",
+        "heading-reworded": "structure_changed", "neg-moved-2": "order_changed", "order-4": "order_changed", "order-1": "words_added", "sym-strike-1": "punctuation_changed",
+        "mood-question-1": "punctuation_changed", "tense-1": "words_added", "synonym-2": "words_added",
+        "drop-clause-1": "punctuation_changed", "homoglyph-template-word-0": "non_ascii_added",
     }
     for cid, reason in expect.items():
         template, out = reworded(*ADVERSARIAL[cid])
@@ -108,7 +109,7 @@ def test_every_rule_rejects_something_on_its_own():
     own = {
         "non_ascii": "homoglyph-template-word-0", "lines": "add-glue-only-line", "sentence_count": "split-1",
         "negations": "neg-dropped-1", "commitments": "modal-0", "numbers": "number-0",
-        "content_words": "synonym-2", "clause_order": "order-1", "scope": "neg-moved-2",
+        "content_words": "synonym-2", "punctuation": "sym-strike-1", "clause_order": "order-4", "scope": "neg-moved-2",
     }
     for name, cid in own.items():
         template, out = reworded(*ADVERSARIAL[cid])
@@ -142,8 +143,8 @@ def test_removing_a_rule_lets_part_of_the_corpus_through(name):
 
 def test_without_the_clause_order_rule_a_reshuffle_inside_a_clause_gets_through():
     # The word rules alone cannot see this; it is why the clause-order rule exists.
-    template, out = reworded(*ADVERSARIAL["order-1"])
-    assert "We do not store personal data or send it outside Nigeria." in out
+    template, out = reworded(*ADVERSARIAL["order-4"])
+    assert "Outside Nigeria we do not store or send personal data." in out
     rest = [(n, r) for n, r in check.RULES if n != "clause_order"]
     assert check.structural_problem(out, template, rest) is None
     assert check.structural_problem(out, template) == "order_changed"
@@ -477,3 +478,50 @@ def test_stored_drafts_from_an_accepted_rewording_pass_the_final_checks():
         assert docs.validate_model_text(out, template) is None
         text = docs.compose(docs.fill_slots(out, inputs), inputs, version=1, generated_at=corpus.NOW)
         assert docs.final_problems(text, inputs) == []
+
+
+# ── Review round: symbols, mood, hedges, tense, separators ──────────────────
+
+
+def test_the_glue_list_is_only_articles_and_also():
+    assert check.GLUE == {"a", "an", "the", "also"}
+    for word in ("example", "for", "it", "did", "has", "been", "was", "were", "do", "is", "out", "then", "that"):
+        assert word not in check.FREE, word
+
+
+def test_strikethrough_entities_and_symbols_are_rejected_by_the_punctuation_rule_alone():
+    for cid in [c for c in ADVERSARIAL if c.startswith(("sym-", "mood-", "boundary-", "separator-3", "separator-4",
+                                                        "separator-5", "separator-6", "separator-7", "separator-9"))]:
+        template, out = reworded(*ADVERSARIAL[cid])
+        assert check.structural_problem(out, template, [("sentence_count", check.rule_sentence_count),
+                                                         ("punctuation", check.rule_punctuation)]) is not None, cid
+
+
+def test_a_neutral_verb_counts_as_one_word():
+    template = corpus.template_for("policy")
+    swapped = template.replace("explains how", "describes how")
+    assert docs.validate_model_text(swapped, template) is None
+    assert docs.validate_model_text(swapped.replace("describes how", "describes and explains how"), template) is not None
+    assert docs.validate_model_text(template.replace("explains how", "how"), template) is not None
+
+
+def test_framing_clauses_may_move_but_list_items_may_not():
+    template = corpus.template_for("policy")
+    moved = template.replace(corpus.POL_XFER, "For example through cloud hosting, personal data may be stored or sent outside Nigeria.")
+    assert docs.validate_model_text(moved, template) is None
+    shuffled = template.replace("see, correct, move", "correct, see, move")
+    assert docs.validate_model_text(shuffled, template) is not None
+
+
+def test_a_check_that_raises_is_a_rejection(monkeypatch):
+    template = corpus.template_for("policy")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(docs, "_validate", boom)
+    assert docs.validate_model_text(template, template) == "check_failed"
+    monkeypatch.undo()
+    monkeypatch.setattr(check, "RULES", [("boom", boom)])
+    assert check.structural_problem(template, template) == "check_failed"
+    assert docs.validate_model_text(template, template) == "check_failed"

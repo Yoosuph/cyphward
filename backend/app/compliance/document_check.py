@@ -2,29 +2,31 @@
 
 A draft is built from a fixed template. A model may reword it, and this module decides whether the reworded
 text may be stored. The decision is structural. Reworded text is accepted only when it is the template, line for
-line and sentence for sentence, with the same words in a possibly different order, plus a short fixed list of
-glue words that cannot carry a claim.
+line and sentence for sentence, word for word and mark for mark, except that articles and "also" are free, one
+neutral verb may be swapped for another ("explains" for "describes"), and framing clauses may move.
 
 1. Both texts go through one normaliser (`fold`): compatibility forms, invisible characters, combining marks,
    look-alike letters, hyphen splits and case. Every comparison below uses it.
 2. Output may not contain a non-ASCII character that the template (outside its placeholders) does not contain.
 3. The reworded text has the same lines in the same order, with the same heading, list number and table rows.
-4. Each line has the same number of sentences, and sentence N of the output is compared with sentence N of the
-   template. Nothing is dropped, merged, split or added.
-5. In each pair of sentences, every word that is not on the glue list (`FREE`) must appear exactly as often as in
-   the template. This holds for negations, modals, quantifiers, commitment verbs, numbers, dates, units, names,
+4. Each line has the same number of sentences (a sentence ends at every ., ! or ?, whatever follows), and
+   sentence N of the output is compared with sentence N of the template. Nothing is dropped, merged, split or
+   added. Each sentence has exactly the template sentence's punctuation and end mark: no ?, !, ~, *, &, quotes,
+   brackets or extra commas.
+5. In each pair of sentences, every word that is not an article or "also" (`FREE`) must appear exactly as often as
+   in the template, including prepositions, pronouns, auxiliaries (is, has, did, been ...), "for example", "may". This holds for negations, modals, quantifiers, commitment verbs, numbers, dates, units, names,
    `{{TOKENS}}` and `[MISSING: ...]` placeholders, and it also stops a content word being dropped (dropping
    "outside Nigeria" from a negation would widen what it covers).
-6. Content words keep the template's order inside each clause (the pieces between commas, semicolons and
-   colons); only whole clauses may change places.
+6. Each clause of the output (the pieces between commas, semicolons and colons) is a clause of the template,
+   word for word. Only framing clauses ("for example ...", "including ...", "when ...") may move; the rest keep
+   their order.
 7. For every negation, modal, quantifier, conjunction and condition word, the next content word must be the
    same as in the template, so a "not" cannot end up pointing at another verb.
 8. A defence-in-depth detector rejects a sentence that has the shape of an obligation or assurance that the
    template sentence lacks.
 
-What this does not do: it does not read meaning. Glue words are free and whole clauses may change places, so a
-rewording can still be clumsy, and moving a clause can change how a sentence reads (the words and their order
-inside each clause cannot change). The draft carries the "not legal advice" label and a practitioner is told to review it.
+What this does not do: it does not read meaning. Articles and "also" are free and framing clauses may move, so a
+rewording can still be clumsy, and moving a clause can change how a sentence reads. The draft carries the "not legal advice" label and a practitioner is told to review it.
 """
 import re
 import unicodedata
@@ -102,13 +104,12 @@ def banned_hits(text: str) -> List[str]:
 
 # Words that cannot carry a claim. Output may use any of them any number of times, and need not keep the ones the
 # template has. Everything else must match the template exactly (see the module note).
-GLUE = frozenset("""
-    a an the of to in on at by for with from as that this these those it its which who whom is are be been being was
-    were am do does did has have had also then there here example out
-""".split())
-# Verbs that describe the document itself. "explains how" may become "describes how".
-NEUTRAL = frozenset("explain explains describe describes outline outlines show shows list lists cover covers sets".split())
-FREE = GLUE | NEUTRAL
+GLUE = frozenset("a an the also".split())
+# Verbs that describe the document itself. "explains how" may become "describes how". They count as one word,
+# so one cannot be added or dropped.
+NEUTRAL = frozenset("explain explains describe describes outline outlines show shows list lists cover covers".split())
+NEUTRAL_WORD = "neutralverb"
+FREE = GLUE
 
 NEGATIONS = frozenset("not no never none cannot without nor neither nothing nobody nowhere nt".split())
 MODALS = frozenset("will shall must may can could should would might cannot".split())
@@ -149,7 +150,7 @@ def _atom(match: "re.Match") -> str:
 # ── Structure ────────────────────────────────────────────────────────────────
 
 LINE_PREFIX = re.compile(r"^(?:#{1,6}\s+|\d{1,2}[.)]\s+|[-*+]\s+)")
-SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+SENTENCE = re.compile(r"[^.!?]*[.!?]|[^.!?]+$")
 
 
 class Parsed:
@@ -168,12 +169,13 @@ class Parsed:
             prefix = LINE_PREFIX.match(line)
             head = prefix.group(0).strip() if prefix else ""
             body = line[prefix.end():] if prefix else line
-            sentences = [s.strip(" \t.!?") for s in SENTENCE_END.split(body)]
-            self.lines.append(("prose", head, [_squash(s) for s in sentences if s.strip(" \t.!?")]))
+            # A sentence ends at every ., ! or ? (whatever follows it), and keeps its end mark.
+            sentences = [m.group(0).strip() for m in SENTENCE.finditer(body)]
+            self.lines.append(("prose", head, [_squash(s) for s in sentences if s]))
 
 
 def _words(sentence: str) -> List[str]:
-    return WORD.findall(sentence)
+    return [NEUTRAL_WORD if w in NEUTRAL else w for w in WORD.findall(sentence)]
 
 
 def _content(words: List[str]) -> List[str]:
@@ -236,6 +238,22 @@ def rule_sentence_count(output: str, template: str, o: Parsed, t: Parsed) -> Opt
     return None
 
 
+def _marks(sentence: str) -> Counter:
+    return Counter(ch for ch in sentence if not ch.isalnum() and not ch.isspace())
+
+
+def rule_punctuation(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
+    """Each sentence has exactly the template sentence's punctuation and end mark: no ?, !, ~, *, &, quotes,
+    brackets or extra commas, and no markup or entity syntax built from symbols."""
+    for (kind, _, os_), (_, _, ts) in zip(o.lines, t.lines):
+        if kind != "prose":
+            continue
+        for out_s, tpl_s in zip(os_, ts):
+            if _marks(out_s) != _marks(tpl_s) or out_s[-1:] != tpl_s[-1:]:
+                return "punctuation_changed"
+    return None
+
+
 def _pairs(o: Parsed, t: Parsed):
     for (kind, _, os_), (_, _, ts) in zip(o.lines, t.lines):
         if kind == "prose":
@@ -272,25 +290,24 @@ def _clause_sequences(sentence: str) -> List[Tuple[str, ...]]:
     return [part for part in parts if part]
 
 
-def _is_clause_permutation(sequence: Tuple[str, ...], clauses: List[Tuple[str, ...]]) -> bool:
-    """True when `sequence` is the clauses laid end to end in some order."""
-    def go(pos: int, remaining: List[Tuple[str, ...]]) -> bool:
-        if pos == len(sequence):
-            return not remaining
-        for i, clause in enumerate(remaining):
-            if (i == 0 or remaining[i - 1] != clause) and sequence[pos:pos + len(clause)] == clause:
-                if go(pos + len(clause), remaining[:i] + remaining[i + 1:]):
-                    return True
-        return False
-    return go(0, clauses)
+# Clauses that frame a sentence and may move to the other end of it: "for example ...", "including ...", "when ...".
+MOVABLE_OPENERS = (("for", "example"), ("including",), ("when",))
+
+
+def _movable(clause: Tuple[str, ...]) -> bool:
+    return any(clause[:len(opener)] == opener for opener in MOVABLE_OPENERS)
 
 
 def rule_clause_order(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
-    """Only whole clauses (the pieces between commas, semicolons and colons) may change places. The content
-    words inside a clause keep the template's order, so "do not store personal data or send it" cannot be made
-    out of "do not store or send personal data"."""
+    """Each clause of the output (the pieces between commas, semicolons and colons) is one of the template's
+    clauses, word for word. Clauses that frame the sentence ("for example ...", "including ...", "when ...") may
+    move; the others keep their order. So "do not store or send personal data" cannot become "do not store it,
+    or send personal data", and "see, correct, move" cannot become "correct, see, move"."""
     for out_s, tpl_s in _pairs(o, t):
-        if not _is_clause_permutation(tuple(_content(_words(out_s))), _clause_sequences(tpl_s)):
+        have, want = _clause_sequences(out_s), _clause_sequences(tpl_s)
+        if sorted(have) != sorted(want):
+            return "order_changed"
+        if [c for c in have if not _movable(c)] != [c for c in want if not _movable(c)]:
             return "order_changed"
     return None
 
@@ -314,6 +331,7 @@ RULES: List[Tuple[str, Rule]] = [
     ("non_ascii", rule_non_ascii),
     ("lines", rule_lines),
     ("sentence_count", rule_sentence_count),
+    ("punctuation", rule_punctuation),
     ("negations", rule_negations),
     ("commitments", rule_commitments),
     ("numbers", rule_numbers),

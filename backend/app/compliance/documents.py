@@ -143,9 +143,6 @@ def _strip_tokens(text: str) -> str:
     return PLACEHOLDER.sub(" ", SLOT.sub(" ", text))
 
 
-PHONE = re.compile(r"\+?\d[\d\s().-]{5,}\d")
-
-
 def validate_model_text(output: Any, template: str) -> Optional[str]:
     """None when the model's text may be used, otherwise a short reason. Never raises; any doubt is a rejection.
 
@@ -175,7 +172,7 @@ def _validate(output: Any, template: str) -> Optional[str]:
     known = _vocabulary(fixed)
     if (_vocabulary(bare) & FACT_WORDS) - known:
         return "number_added"
-    if (URLISH.search(bare) and not URLISH.search(fixed)) or (PHONE.search(bare) and not PHONE.search(fixed)):
+    if URLISH.search(bare) and not URLISH.search(fixed):
         return "address_added"
     if banned_hits(output):
         return "banned_phrase"

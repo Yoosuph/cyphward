@@ -686,3 +686,23 @@ Owned loopback PostgreSQL on 127.0.0.1:55454 (own cluster in `/tmp/pg-c5b`, boot
 | C5b-8 | Flag | Still off by default, still one environment variable, plus a startup warning. No second acknowledgement was added. |
 | C5b-9 | Migration | None. |
 | C5b-10 | Turning rewording on | Not done anywhere. Needs your decision after the staging sample in the checklist above. |
+
+### C5b review round 1 (independent review of head `822801e`: REJECT) and the fix
+
+The reviewer showed that the first version accepted meaning-changing rewrites using only the template's words: strikethrough or entity syntax around "not" (`~~not~~`, `&not;`), questions and sentence-splitting quotes or brackets (`Did we not store ...?`, `store.) Or send ...`), removing "for example" (glue), tense changes (`has been written`, `did not`), and extra or moved commas (`store it, or send ...`, `Correct, you can ask ...`). All are now corpus cases and are rejected. The rule is now strict, as the reviewer recommended:
+
+- **Glue shrank to articles (`a`, `an`, `the`) and `also`.** Prepositions, pronouns, auxiliaries, `example`, `for`, `out`, `then`, `that` and the rest are counted words: none can be added, dropped or swapped. The neutral verbs (explain/describe/outline/show/list/cover, singular and plural) count as one word, so one can replace another but not be added or dropped. `sets out` no longer works.
+- **New rule `punctuation`:** each sentence has exactly the template sentence's punctuation multiset and end mark. A sentence now ends at every `.`, `!` or `?` whatever follows, so a quote or bracket after a full stop cannot hide a split.
+- **`clause_order` is stricter:** each output clause must be a template clause word for word; only framing clauses (opening with "for example", "including" or "when") may move, the others keep their order. Added or moved commas change the clause set or the punctuation and are rejected.
+- **Removed the `PHONE` check** (redundant with the digit check: an extra digit run is already `number_added`).
+- **Fail-safe is tested:** a test makes the checker raise (`_validate`, and a rule) and asserts `check_failed`, so changing that guard to return `None` fails a test.
+- Corpus now **506** adversarial and **22** faithful cases. Mutation (structural check alone, one rule removed): `non_ascii` 11 cases let through, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 6; `negations`, `commitments`, `numbers`, `content_words`, `scope` and `claim_shape` flip none (redundant by design, kept for reasons and as defence in depth).
+- **What is still accepted** (and cannot be told apart without reading meaning): adding or removing `a`/`the`/`also`, swapping one neutral verb for another, and moving a framing clause to the other end of its sentence. Everything else must equal the template token for token.
+
+#### Decisions for Yusuf (C5b, review round)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C5b-11 | How much rewording is possible | Very little: articles, "also", neutral-verb swaps and moving "for example / including / when" clauses. A model that rewrites more is rejected and the standard wording is stored. That makes the rewording path close to a no-op in practice; if the accept rate in staging is near zero, drop the feature rather than loosen the check. The flag stays off. |
+
+Validation for this round (fresh cluster, port 55454): full backend suite **2253 passed, 16 skipped** (139 s). CI PostgreSQL list: 259 on the earlier head; on this head one run showed 2 failures and an immediate rerun passed with none (I did not capture the first run's names; the two known flaky scan-execution tests are the likely cause, not confirmed).
