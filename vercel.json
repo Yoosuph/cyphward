@@ -165,7 +165,7 @@
       "permanent": false
     },
     {
-      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|dashboard|copilot|detect|score|academy|sso|platform)",
+      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|reviews|dashboard|copilot|detect|score|academy|sso|platform)",
       "has": [
         {
           "type": "host",
@@ -187,7 +187,7 @@
       "permanent": false
     },
     {
-      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|dashboard|copilot|detect|score|academy|sso|platform)",
+      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|analytics|comply|reviews|dashboard|copilot|detect|score|academy|sso|platform)",
       "has": [
         {
           "type": "host",
@@ -263,7 +263,7 @@
       "destination": "https://cyphward-core.onrender.com/api/$1"
     },
     {
-      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|login|signup|forgot-password|reset-password|analytics|comply|dashboard|copilot|detect|score|academy|sso|platform)",
+      "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|login|signup|forgot-password|reset-password|analytics|comply|reviews|dashboard|copilot|detect|score|academy|sso|platform)",
       "destination": "/app.html"
     },
     {

@@ -21,6 +21,7 @@ import QuestionnaireTab, { ToldUs } from './compliance/Questionnaire';
 import IncidentsTab from './compliance/Incidents';
 import PacksTab from './compliance/Packs';
 import DocumentsTab from './compliance/Documents';
+import ReviewerAccessTab from './compliance/ReviewerAccess';
 import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
 
 /**
@@ -34,13 +35,14 @@ const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', n
 const CARD = 'rounded-lg border border-line bg-raised';
 
 const DEFAULT_ZONE = 'Africa/Lagos';
-type Tab = 'readiness' | 'questions' | 'incidents' | 'packs' | 'documents';
+type Tab = 'readiness' | 'questions' | 'incidents' | 'packs' | 'documents' | 'reviewers';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'readiness', label: 'Readiness' },
   { key: 'questions', label: 'Answer questions' },
   { key: 'incidents', label: 'Incidents' },
   { key: 'packs', label: 'Packs' },
   { key: 'documents', label: 'Documents' },
+  { key: 'reviewers', label: 'Reviewer access' },
 ];
 
 function Chip({ status, label }: { status: ComplianceStatus; label: string }) {
@@ -97,7 +99,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
               className="w-full text-left px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 hover:bg-inset/60 transition-colors">
         <div className="min-w-0 flex-1">
           <p className="text-sm text-ink font-medium">{req.title}</p>
-          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
+          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified || req.clause_review?.verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end shrink-0">
           <Chip status={req.status} label={req.status_label} />
@@ -111,6 +113,23 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
         <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
+          {(req.practitioner_review || req.clause_review) && (
+            <div className="p-3 rounded border border-line bg-inset/50 space-y-1.5" data-testid="practitioner-note">
+              <p className="mono text-[10px] tracking-[.16em] text-soft">PRACTITIONER NOTE · DOES NOT CHANGE THE STATUS</p>
+              {req.practitioner_review && (
+                <p className="text-xs text-ink break-words">
+                  {req.practitioner_review.label}: {req.practitioner_review.outcome_label}.
+                  {req.practitioner_review.comment && <> “{req.practitioner_review.comment}”</>}
+                </p>
+              )}
+              {req.clause_review && (
+                <p className="text-xs text-ink break-words">
+                  Clause reference {req.clause_review.verified ? 'reviewed' : 'not confirmed'} by {req.clause_review.reviewer_name} on {fmtDay(req.clause_review.at)}.
+                  {req.clause_review.note && <> “{req.clause_review.note}”</>}
+                </p>
+              )}
+            </div>
+          )}
           {told.some(q => q.current) && (
             <div className="p-3 rounded border border-line bg-inset/50 space-y-2">
               <p className="mono text-[10px] tracking-[.16em] text-soft">YOUR ANSWER · CUSTOMER ATTESTED</p>
@@ -231,6 +250,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
 export default function Compliance() {
   const { organization } = useAuth();
   const canEdit = ['owner', 'admin'].includes(organization?.membership_role || 'member');
+  const isOwner = organization?.membership_role === 'owner';
   const [tab, setTab] = useState<Tab>('readiness');
   const [data, setData] = useState<ComplianceOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +326,7 @@ export default function Compliance() {
       </div>
 
       <div role="tablist" aria-label="Compliance sections" className="flex flex-wrap gap-2">
-        {TABS.map(t => (
+        {TABS.filter(t => t.key !== 'reviewers' || isOwner).map(t => (
           <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
                   onClick={() => setTab(t.key)}
                   className={`btn-mini ${tab === t.key ? '!border-ink !text-ink' : ''}`}>
@@ -330,6 +350,9 @@ export default function Compliance() {
 
       {tab === 'packs' && (
         <div role="tabpanel" aria-labelledby="tab-packs"><PacksTab canEdit={canEdit} zone={zone} /></div>
+      )}
+      {tab === 'reviewers' && isOwner && (
+        <div role="tabpanel" aria-labelledby="tab-reviewers"><ReviewerAccessTab zone={zone} /></div>
       )}
       {tab === 'documents' && (
         <div role="tabpanel" aria-labelledby="tab-documents"><DocumentsTab canEdit={canEdit} /></div>

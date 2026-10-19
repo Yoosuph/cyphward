@@ -216,7 +216,7 @@ def _compliance(org_id: str, now: datetime) -> Dict[str, Any]:
     return {
         "disclaimer": DISCLAIMER,
         "register": {"version": REGISTER["version"], "title": REGISTER["title"],
-                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx["clauses"])},
+                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx.get("clauses", {}))},
         "questionnaire_version": qn.QUESTIONNAIRE["version"],
         "readiness": mapping.readiness(v["status"] for v in views),
         "groups": [{"key": g["key"], "title": g["title"]} for g in REGISTER["groups"]],

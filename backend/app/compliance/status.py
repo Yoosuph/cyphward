@@ -216,7 +216,7 @@ def overview(org: Dict[str, Any]) -> Dict[str, Any]:
         "disclaimer": DISCLAIMER,
         "note": C1_NOTE,
         "register": {"version": REGISTER["version"], "title": REGISTER["title"],
-                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx["clauses"])},
+                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx.get("clauses", {}))},
         "plan": plan,
         "readiness": mapping.readiness(v["status"] for v in views),
         "domains": [{"id": str(d["id"]), "domain": d["domain"]} for d in ctx["domains"]],
