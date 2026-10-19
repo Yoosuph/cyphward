@@ -159,9 +159,9 @@ def test_v1_documents_still_build_and_render_in_the_original_layout():
     snap = {"generated_at": base.NOW.isoformat(), "scope": {"org_name": "Old Co", "domains": []},
             "dates": {"earliest_observation": None, "latest_observation": None}, "compliance": comp}
     doc = document.build("readiness_pack", {"seq": 1, "content_sha256": SHA}, snap, ISSUED, None)
-    assert "version" not in doc and ("Pack version", document.PACK_VERSION_V1) in doc["meta"]
+    assert "version" not in doc and ("Pack version", document.PACK_VERSION_V1_1) in doc["meta"]
     html = render.to_html(doc)
-    assert "cyphward-ndpa-pack-v1" in html and "Prepared with Cyphward" not in html and "runfoot" not in html
+    assert "cyphward-ndpa-pack-v1.1" in html and "Prepared with Cyphward" not in html and "runfoot" not in html
     assert document.PACK_VERSION == "cyphward-ndpa-pack-v2" and document.PACK_VERSION_V1 == "cyphward-ndpa-pack-v1"
     assert render.to_pdf(doc).startswith(b"%PDF")
 
@@ -171,3 +171,10 @@ def test_the_logo_shapes_are_the_favicons():
     for points in (branded.OUTER, branded.INNER, branded.DIAMOND):
         first = points[0]
         assert f"M{first[1]:g} {first[2]:g}" in svg
+
+
+def test_line_breaks_in_the_organisation_name_stay_on_one_line():
+    doc, *_ = make(org="Acme\u2028Ltd\nAlso: forged")
+    assert doc["cover"]["org"] == "Acme Ltd Also: forged"
+    html, flat, pdf, pdf_text = texts(doc)
+    assert "<br>" not in html.split('class="org">')[1].split("</p>")[0]

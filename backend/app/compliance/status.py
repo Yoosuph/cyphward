@@ -158,14 +158,12 @@ def _headline_first(raw: List[Dict[str, Any]], result: Dict[str, Any], headline:
     requirement with a single source (an observed one has none in `raw`) gets its own item."""
     items = [{**s, "source_label": SOURCE_LABELS[s["source"]], "status_label": STATUS_LABELS[s["status"]],
               "reason_text": REASON_TEXT.get(s["reason"], ""), "headline": s["source"] == headline} for s in raw]
-    if headline and not any(i["headline"] for i in items):
+    if headline and not any(i["headline"] for i in items):  # a single-source row: its item IS the row
         items.append({"source": headline, "source_label": SOURCE_LABELS[headline], "status": result["status"],
                       "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
                       "status_label": headline_label, "headline": True})
-    for item in items:
-        if item["headline"]:  # the headline item carries the exact headline status, so the pair always matches
-            item["status"], item["status_label"] = result["status"], headline_label
-            item["reason"], item["reason_text"] = result["reason"], REASON_TEXT.get(result["reason"], "")
+    if headline:
+        attestations.check_headline(result["status"], headline, items)
     return sorted(items, key=lambda i: not i["headline"])
 
 

@@ -121,6 +121,22 @@ def _result(status: str, reason: str, entries: List[Dict[str, Any]],
     return {"status": status, "reason": reason, "answers": entries, "expires_at": expires_at}
 
 
+class HeadlineMismatch(AssertionError):
+    """A row's headline status and source do not describe one evidence item. A bug, never a data state."""
+
+
+def check_headline(status: str, source: Optional[str], sources: List[Dict[str, Any]]) -> None:
+    """The headline (status, source) pair must be one of the requirement's own source items.
+
+    Raised, not repaired: presentation code must never rewrite a status to make a row agree (a frozen,
+    hashed snapshot would then hold data that no source produced)."""
+    if source is None:
+        return
+    item = next((s for s in sources if s["source"] == source), None)
+    if item is None or item["status"] != status:
+        raise HeadlineMismatch(f"headline {source}/{status} is not one of {[(s['source'], s['status']) for s in sources]}")
+
+
 def merge(observed: Optional[Dict[str, Any]], attested: Optional[Dict[str, Any]],
           observed_sourced: bool) -> Dict[str, Any]:
     """Combine a requirement's observed result with its customer-answer result.
@@ -134,9 +150,10 @@ def merge(observed: Optional[Dict[str, Any]], attested: Optional[Dict[str, Any]]
         return observed
     if not observed_sourced:
         base = observed or {"domains": [], "unlinked_finding_ids": []}
+        sources = [{"source": "customer_attested", "status": attested["status"], "reason": attested["reason"]}]
+        check_headline(attested["status"], "customer_attested", sources)
         return {**attested, "domains": base["domains"], "unlinked_finding_ids": base["unlinked_finding_ids"],
-                "headline_source": "customer_attested", "sources": [
-            {"source": "customer_attested", "status": attested["status"], "reason": attested["reason"]}]}
+                "headline_source": "customer_attested", "sources": sources}
     sources = [
         {"source": "externally_observed", "status": observed["status"], "reason": observed["reason"]},
         {"source": "customer_attested", "status": attested["status"], "reason": attested["reason"]},
@@ -149,6 +166,7 @@ def merge(observed: Optional[Dict[str, Any]], attested: Optional[Dict[str, Any]]
         head, source = observed, "externally_observed"
     else:
         head, source = attested, "customer_attested"
+    check_headline(head["status"], source, sources)
     return {**observed, "status": head["status"], "reason": head["reason"], "answers": attested["answers"],
             "expires_at": attested.get("expires_at"), "headline_source": source, "sources": sources}
 
