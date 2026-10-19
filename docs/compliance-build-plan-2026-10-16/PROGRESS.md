@@ -669,7 +669,7 @@ Guaranteed (by construction, and by the corpus below): reworded text that is sto
 
 ### Validation
 
-Owned loopback PostgreSQL on 127.0.0.1:55454 (own cluster in `/tmp/pg-c5b`, bootstrap script only: 36 migrations, restricted `cyphward_app`). Full backend suite: **2117 passed, 16 skipped, 0 failed** (the 16 skips are the opt-in `*_INTEGRATION` suites; the two known flaky scan-execution tests were deselected in that run and passed in the CI-list run). CI PostgreSQL list (now with the extended documents file): **259 passed**. New pure file `test_compliance_documents_check.py`: 970 tests; `test_compliance_documents.py` 54 and `test_compliance_documents_postgres.py` 36 (13 new) pass. No frontend change, so no build or browser suite was needed. `backend/tests` already runs whole in the CI pure job, so the new file is picked up.
+Owned loopback PostgreSQL on 127.0.0.1:55454 (own cluster in `/tmp/pg-c5b`, bootstrap script only: 36 migrations, restricted `cyphward_app`). Final run, one `pytest backend/tests -q`, nothing else touching the files, no deselects: **2134 passed, 16 skipped in 183.56 s** (the 16 skips are the opt-in `*_INTEGRATION` suites). CI PostgreSQL list (with the extended documents file): **259 passed**. New pure file `test_compliance_documents_check.py`: 992 tests; `test_compliance_documents.py` 54 and `test_compliance_documents_postgres.py` 36 (13 new). No frontend change, so no build or browser suite was needed. `backend/tests` already runs whole in the CI pure job, so the new file is picked up; the documents postgres file is already in the CI list.
 
 ### Decisions for Yusuf (C5b)
 
