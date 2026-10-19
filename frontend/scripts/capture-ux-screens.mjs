@@ -127,7 +127,7 @@ try {
     ["scans-list", "/scans", async () => true],
     ["domains-list", "/domains", async () => true],
     ["domains-empty", "/domains", async () => true, false, { domainsEmpty: true }],
-    ["domains-add", "/domains", async () => click(/ADD DOMAIN|Add a domain|ADD/i)],
+    ["domains-add", "/domains", async () => click(/^\+?\s*ADD DOMAIN|^ADD A DOMAIN|^ADD$/i, "main")],
   ];
 
   for (const [name, route, act, , flags] of screens) {
