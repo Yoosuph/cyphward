@@ -15,14 +15,16 @@ glue words that cannot carry a claim.
    the template. This holds for negations, modals, quantifiers, commitment verbs, numbers, dates, units, names,
    `{{TOKENS}}` and `[MISSING: ...]` placeholders, and it also stops a content word being dropped (dropping
    "outside Nigeria" from a negation would widen what it covers).
-6. For every negation, modal, quantifier, conjunction and condition word, the next content word must be the same
-   as in the template, so reordering cannot move a "not" onto another verb.
-7. A defence-in-depth detector rejects a sentence that has the shape of an obligation or assurance that the
+6. Content words keep the template's order inside each clause (the pieces between commas, semicolons and
+   colons); only whole clauses may change places.
+7. For every negation, modal, quantifier, conjunction and condition word, the next content word must be the
+   same as in the template, so a "not" cannot end up pointing at another verb.
+8. A defence-in-depth detector rejects a sentence that has the shape of an obligation or assurance that the
    template sentence lacks.
 
-What this does not do: it does not read meaning. Glue words and the order of clauses inside one sentence are free,
-so a rewording can still be clumsy, and a reordering can change who does what to whom in a sentence that has no
-negation or modal. The draft carries the "not legal advice" label and a practitioner is told to review it.
+What this does not do: it does not read meaning. Glue words are free and whole clauses may change places, so a
+rewording can still be clumsy, and moving a clause can change how a sentence reads (the words and their order
+inside each clause cannot change). The draft carries the "not legal advice" label and a practitioner is told to review it.
 """
 import re
 import unicodedata
@@ -262,6 +264,37 @@ def rule_content_words(output: str, template: str, o: Parsed, t: Parsed) -> Opti
     return None
 
 
+CLAUSE_BREAK = re.compile(r"[,;:]")
+
+
+def _clause_sequences(sentence: str) -> List[Tuple[str, ...]]:
+    parts = (tuple(_content(_words(part))) for part in CLAUSE_BREAK.split(sentence))
+    return [part for part in parts if part]
+
+
+def _is_clause_permutation(sequence: Tuple[str, ...], clauses: List[Tuple[str, ...]]) -> bool:
+    """True when `sequence` is the clauses laid end to end in some order."""
+    def go(pos: int, remaining: List[Tuple[str, ...]]) -> bool:
+        if pos == len(sequence):
+            return not remaining
+        for i, clause in enumerate(remaining):
+            if (i == 0 or remaining[i - 1] != clause) and sequence[pos:pos + len(clause)] == clause:
+                if go(pos + len(clause), remaining[:i] + remaining[i + 1:]):
+                    return True
+        return False
+    return go(0, clauses)
+
+
+def rule_clause_order(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
+    """Only whole clauses (the pieces between commas, semicolons and colons) may change places. The content
+    words inside a clause keep the template's order, so "do not store personal data or send it" cannot be made
+    out of "do not store or send personal data"."""
+    for out_s, tpl_s in _pairs(o, t):
+        if not _is_clause_permutation(tuple(_content(_words(out_s))), _clause_sequences(tpl_s)):
+            return "order_changed"
+    return None
+
+
 def rule_scope(output: str, template: str, o: Parsed, t: Parsed) -> Optional[str]:
     for out_s, tpl_s in _pairs(o, t):
         if _scope_pairs(_words(out_s)) != _scope_pairs(_words(tpl_s)):
@@ -285,6 +318,7 @@ RULES: List[Tuple[str, Rule]] = [
     ("commitments", rule_commitments),
     ("numbers", rule_numbers),
     ("content_words", rule_content_words),
+    ("clause_order", rule_clause_order),
     ("scope", rule_scope),
     ("claim_shape", rule_claim_shape),
 ]

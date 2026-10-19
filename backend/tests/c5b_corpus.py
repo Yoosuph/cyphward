@@ -300,6 +300,18 @@ case("condition-3", "breach", ("sub", "when the breach is likely", "whenever the
 case("condition-4", "breach", ("sub", "when the breach is likely to put them at high risk", "even when the breach is likely to put them at high risk"))
 case("condition-moved", "breach", ("sub", BR_TELL, "5. Tell the people affected when without undue delay the breach is likely to put them at high risk."))
 
+# Reordering inside a clause (no comma in the template): the words stay, the meaning can widen.
+case("order-1", "policy_no", ("sub", POL_XFER_NO, "We do not store personal data or send it outside Nigeria."))
+case("order-2", "breach", ("sub", BR_LOG, "Every incident we decide not to report is written in our incident log, including those."))
+case("order-3", "policy", ("sub", POL_XFER, "Personal data may be stored, for example through cloud hosting, or sent outside Nigeria."))
+case("order-4", "policy_no", ("sub", POL_XFER_NO, "Outside Nigeria we do not store or send personal data."))
+case("order-5", "breach", ("sub", BR_TELL, "5. When the breach is likely to put them at high risk tell the people affected without undue delay."))
+case("order-6", "breach", ("sub", "Write down what happened, when it was found and when we became aware of it.",
+                           "Write down what happened, when we became aware of it and when it was found."))
+case("order-8", "cookie", ("sub", CK_CHANGE, "Using the cookie settings on our site, you can change or withdraw your choice at any time."))
+case("order-9", "policy_no", ("sub", POL_XFER_NO, "We do not store personal data outside Nigeria or send it."))
+case("order-10", "breach", ("sub", "likely to put people's rights at risk", "likely to put rights at risk people's"))
+
 # A word borrowed from the template written with a look-alike character (not the same word to a reader's eye).
 for n, (old, new) in enumerate([
         ("not", "n\u043et"), ("not", "n\u03bft"), ("not", "n\u0585t"), ("not", "\uff4e\uff4f\uff54"),
@@ -346,8 +358,6 @@ ok("neutral-verb-3", "retention", ("sub", "lists how long", "shows how long"))
 ok("neutral-verb-4", "retention", ("sub", "lists how long", "outlines how long"))
 ok("clause-reorder-1", "policy", ("sub", POL_XFER, "For example, through cloud hosting, personal data may be stored or sent outside Nigeria."))
 ok("clause-reorder-2", "breach", ("sub", BR_CONTAIN, "For example, by removing access or taking a system offline, stop further loss or exposure."))
-ok("clause-reorder-3", "breach", ("sub", BR_TELL, "5. When the breach is likely to put them at high risk, tell the people affected without undue delay."))
-ok("clause-reorder-4", "cookie", ("sub", CK_CHANGE, "Using the cookie settings on our site, you can change or withdraw your choice at any time."))
 ok("clause-reorder-5", "cookie", ("sub", CK_BANNER, "A banner lets you accept or reject cookies that are not strictly necessary when you first visit."))
 ok("glue-added-1", "policy", ("sub", "We collect:", "We also collect:"))
 ok("glue-added-3", "breach", ("sub", "3. Assess. Decide", "3. Assess. Then decide"))
@@ -361,6 +371,6 @@ ok("crlf", "policy", ("all", "\n\n", "\r\n\r\n"))
 ok("trailing-newline", "cookie", ("sub", CK_CHANGE, CK_CHANGE + "\n\n"))
 ok("no-final-period", "policy", ("sub", POL_COMPLAIN, POL_COMPLAIN[:-1]))
 ok("placeholders-everywhere", "policy_empty", ("sub", "This policy explains how", "This policy describes how"))
-ok("negation-sentence-reorder", "policy_no", ("sub", POL_XFER_NO, "Outside Nigeria we do not store or send personal data."))
-ok("clause-swap", "breach", ("sub", "Write down what happened, when it was found and when we became aware of it.",
-   "Write down what happened, when we became aware of it and when it was found."))
+ok("clause-reorder-comma-4", "breach", ("sub", BR_LOG, "Including those we decide not to report, every incident is written in our incident log."))
+ok("clause-reorder-comma-5", "cookie", ("sub", CK_BANNER, "A banner lets you accept or reject cookies that are not strictly necessary, when you first visit."))
+ok("clause-reorder-colon", "policy", ("sub", "Our address: [MISSING: your registered address].", "[MISSING: your registered address]: our address."))

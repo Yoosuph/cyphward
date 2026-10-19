@@ -82,7 +82,7 @@ def test_rejection_reasons_name_the_kind_of_change():
     expect = {
         "neg-dropped-1": "negation_changed", "neg-added-1": "negation_changed", "modal-0": "commitment_changed",
         "number-0": "number_changed", "split-1": "sentences_changed", "add-glue-only-line": "lines_changed",
-        "heading-reworded": "structure_changed", "neg-moved-2": "scope_changed", "synonym-2": "words_added",
+        "heading-reworded": "structure_changed", "neg-moved-2": "order_changed", "order-1": "order_changed", "synonym-2": "words_added",
         "drop-clause-1": "words_dropped", "homoglyph-template-word-0": "non_ascii_added",
     }
     for cid, reason in expect.items():
@@ -93,9 +93,10 @@ def test_rejection_reasons_name_the_kind_of_change():
 # ── Rules: each on its own, and the corpus with a rule removed ───────────────
 
 RULES = dict(check.RULES)
-# Rules that give a specific reason but that the content-word rule would also catch, and the claim-shape detector
-# (defence in depth). Removing one of these flips nothing in the corpus; they are tested on their own below.
-REDUNDANT = {"negations", "commitments", "numbers", "claim_shape"}
+# Rules that give a specific reason, or are defence in depth, but whose work the clause-order rule (the same words
+# in the same order inside each clause) already does. Removing one of these on its own flips nothing in the
+# corpus; they are tested on their own, and removed together with `clause_order` below.
+REDUNDANT = {"negations", "commitments", "numbers", "content_words", "scope", "claim_shape"}
 LOAD_BEARING = [name for name in RULES if name not in REDUNDANT]
 
 
@@ -107,7 +108,7 @@ def test_every_rule_rejects_something_on_its_own():
     own = {
         "non_ascii": "homoglyph-template-word-0", "lines": "add-glue-only-line", "sentence_count": "split-1",
         "negations": "neg-dropped-1", "commitments": "modal-0", "numbers": "number-0",
-        "content_words": "synonym-2", "scope": "neg-moved-2",
+        "content_words": "synonym-2", "clause_order": "order-1", "scope": "neg-moved-2",
     }
     for name, cid in own.items():
         template, out = reworded(*ADVERSARIAL[cid])
@@ -137,6 +138,15 @@ def test_removing_a_rule_lets_part_of_the_corpus_through(name):
         if check.structural_problem(out, template, rules) is None:
             let_through.append(cid)
     assert let_through, f"no corpus case depends on the {name!r} rule"
+
+
+def test_without_the_clause_order_rule_a_reshuffle_inside_a_clause_gets_through():
+    # The word rules alone cannot see this; it is why the clause-order rule exists.
+    template, out = reworded(*ADVERSARIAL["order-1"])
+    assert "We do not store personal data or send it outside Nigeria." in out
+    rest = [(n, r) for n, r in check.RULES if n != "clause_order"]
+    assert check.structural_problem(out, template, rest) is None
+    assert check.structural_problem(out, template) == "order_changed"
 
 
 def test_with_no_rules_the_whole_corpus_gets_through_the_structural_check():
