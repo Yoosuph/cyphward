@@ -249,4 +249,3 @@ def latest_rows(execute_query, org_id: str, domain_ids: Iterable[str]) -> Dict[s
 # Referenced by tests: every user-visible string this module can produce.
 def all_static_text() -> List[str]:
     return list(REASON_TEXT.values())
-
