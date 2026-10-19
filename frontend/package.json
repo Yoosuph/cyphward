@@ -10,7 +10,8 @@
     "test:scans-ui": "node scripts/check-scans-layout.mjs",
     "test:score-ui": "node scripts/check-score-refresh.mjs",
     "test:onboarding-ui": "node scripts/check-onboarding-flow.mjs",
-    "test:compliance-ui": "node scripts/check-compliance-page.mjs"
+    "test:compliance-ui": "node scripts/check-compliance-page.mjs",
+    "test:reviewer-ui": "node scripts/check-reviewer-ui.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",

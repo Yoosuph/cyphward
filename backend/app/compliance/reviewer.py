@@ -333,7 +333,13 @@ def requirement_detail(ctx: Dict[str, Any], key: str) -> Optional[Dict[str, Any]
 
 
 def _display_name(ctx: Dict[str, Any]) -> str:
-    return ((ctx.get("full_name") or "").strip() or ctx["email"].split("@")[0])[:200]
+    """The name written beside a review, as the account has it at that moment. It appears in packs under Cyphward's
+    name, and anyone may type any name at sign-up, so a name that states a conclusion is replaced, never copied."""
+    raw = ((ctx.get("full_name") or "").strip() or ctx["email"].split("@")[0])[:200]
+    try:
+        return practitioner.clean_text(raw, "Name", 200, required=True) or "Reviewer"
+    except practitioner.TextError:
+        return "Reviewer (name withheld)"
 
 
 def _write(ctx: Dict[str, Any], table: str, columns: str, values: tuple, action: str, meta: Dict[str, Any],

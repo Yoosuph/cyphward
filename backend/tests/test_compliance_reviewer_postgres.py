@@ -921,3 +921,19 @@ def test_the_review_text_validator_refuses_every_banned_phrase_and_control_chara
     assert practitioner.clean_text("   ", "Comment") is None
     with pytest.raises(practitioner.TextError):
         practitioner.clean_text("", "Purpose", required=True)
+
+
+def test_a_reviewer_name_that_states_a_conclusion_is_never_copied_into_the_record(rw):
+    org, owner = rw.setup_org()
+    uid, email = rw.make_user(name="Certified Adequate Practitioner")
+    assert rw.grant(org, owner, email).status_code == 201
+    a = SimpleNamespace(uid=uid, org=org)
+    assert _review(rw, a).status_code == 201
+    assert _clause(rw, a).status_code == 201
+    names = {r["reviewer_name"] for r in rw.w.rows(
+        "SELECT reviewer_name FROM compliance_practitioner_reviews WHERE org_id = %s UNION ALL "
+        "SELECT reviewer_name FROM compliance_clause_verifications WHERE org_id = %s", (org, org))}
+    assert names == {"Reviewer (name withheld)"}
+    shown = rw.w.client.get(f"/api/v1/compliance/requirements/{KEY}", headers=_h(rw, owner, org)).json()
+    lowered = json.dumps(shown).lower()
+    assert "certified" not in lowered and "adequate" not in lowered
