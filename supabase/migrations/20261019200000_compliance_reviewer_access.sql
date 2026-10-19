@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS compliance_practitioner_reviews (
   grant_id          uuid NOT NULL,
   reviewer_user_id  uuid REFERENCES profiles(id) ON DELETE SET NULL,
   reviewer_name     text NOT NULL CHECK (char_length(reviewer_name) BETWEEN 1 AND 200),
-  reviewed_at       timestamptz NOT NULL DEFAULT now(),
+  reviewed_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
   outcome           text NOT NULL CHECK (outcome IN ('reviewed', 'reviewed_with_comments')),
   comment           text CHECK (comment IS NULL OR char_length(comment) BETWEEN 1 AND 500),
   FOREIGN KEY (grant_id, org_id) REFERENCES compliance_reviewer_grants (id, org_id) ON DELETE CASCADE
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS compliance_clause_verifications (
   grant_id          uuid NOT NULL,
   reviewer_user_id  uuid REFERENCES profiles(id) ON DELETE SET NULL,
   reviewer_name     text NOT NULL CHECK (char_length(reviewer_name) BETWEEN 1 AND 200),
-  verified_at       timestamptz NOT NULL DEFAULT now(),
+  verified_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
   note              text CHECK (note IS NULL OR char_length(note) BETWEEN 1 AND 500),
   FOREIGN KEY (grant_id, org_id) REFERENCES compliance_reviewer_grants (id, org_id) ON DELETE CASCADE
 );

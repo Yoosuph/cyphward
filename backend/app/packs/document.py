@@ -38,7 +38,13 @@ def day(value: Optional[str]) -> str:
 
 
 def clause_label(req: Dict[str, Any]) -> str:
-    return req["clause"] if req["clause_verified"] else f"{req['clause']} · {PENDING}"
+    """The clause as frozen in the snapshot, including its practitioner overlay (C6). Never reads live tables."""
+    if req["clause_verified"]:
+        return req["clause"]
+    overlay = req.get("clause_review")
+    if overlay and overlay.get("verified"):
+        return f"{req['clause']} · {overlay['label']}"
+    return f"{req['clause']} · {PENDING}"
 
 
 def evidence_references(req: Dict[str, Any], attestations: Dict[str, Dict[str, Any]]) -> str:
@@ -114,7 +120,8 @@ def build(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], iss
     ready = comp["readiness"]
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
-    pending = sum(1 for r in reqs if not r["clause_verified"])
+    pending = sum(1 for r in reqs if not r["clause_verified"] and not (r.get("clause_review") or {}).get("verified"))
+    reviewed = [r for r in reqs if r.get("practitioner_review")]
     meta = [
         ("Organisation", scope["org_name"]),
         ("Issued", when(issued_at.isoformat())),
@@ -150,6 +157,14 @@ def build(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], iss
             blocks.append({"type": "table", "head": ["Requirement", "Status", "Source", "Evidence reference"], "rows": [
                 [f"{r['title']} ({clause_label(r)})", r["status_label"], r["source_label"] or "No source",
                  evidence_references(r, attestations)] for r in reqs if r["group"] == key]})
+        if reviewed:
+            blocks += [{"type": "heading", "text": "Practitioner review notes"},
+                       {"type": "para", "text": "A practitioner review is the named practitioner's own note that they reviewed a "
+                                                "requirement. It does not change any status above and is not a statement about "
+                                                "your obligations."},
+                       {"type": "table", "head": ["Requirement", "Note", "Comment"], "rows": [
+                           [r["title"], r["practitioner_review"]["label"], r["practitioner_review"].get("comment") or "No comment"]
+                           for r in reviewed]}]
         blocks.append({"type": "heading", "text": "Prioritised gaps and open items"})
         gaps = prioritised_gaps(reqs)
         if gaps:

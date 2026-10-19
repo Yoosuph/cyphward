@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.billing.subscriptions import resolve_plan
-from backend.app.compliance import attestation_store, attestations, mapping
+from backend.app.compliance import attestation_store, attestations, mapping, practitioner
 from backend.app.compliance.register import DISCLAIMER, REGISTER, requirement as register_requirement
 from backend.app.core.database import execute_one, execute_query
 
@@ -100,7 +100,9 @@ def _context(org_id: str) -> Dict[str, Any]:
         "AND ss.assessment_coverage->>'version' = '2'",
         (org_id, HISTORY_DAYS)) or []
     return {"domains": domains, "latest": latest, "live": live, "history": history,
-            "answers": attestation_store.current_rows(org_id)}
+            "answers": attestation_store.current_rows(org_id),
+            # Practitioner notes and the per-organisation clause overlay (C6): labels only, never status.
+            "reviews": practitioner.latest_reviews(org_id), "clauses": practitioner.latest_clauses(org_id)}
 
 
 def _findings(org_id: str, ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -128,10 +130,13 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
                                                    mapping.TOOL_SOURCE)
     sources = [{**s, "source_label": SOURCE_LABELS[s["source"]], "status_label": STATUS_LABELS[s["status"]],
                 "reason_text": REASON_TEXT.get(s["reason"], "")} for s in result.get("sources", [])]
+    overlay = ctx.get("clauses", {}).get(req["key"])
     return {
         "key": req["key"], "group": req["group"], "title": req["title"], "summary": req["summary"],
         "clause": req["clause"], "clause_verified": req["clause_verified"],
-        "clause_label": req["clause"] if req["clause_verified"] else f"{req['clause']} · reference pending review",
+        "clause_label": practitioner.clause_label(req["clause"], req["clause_verified"], overlay),
+        "clause_review": overlay,
+        "practitioner_review": ctx.get("reviews", {}).get(req["key"]),
         "applies_to": req["applies_to"], "evidence_types": req["evidence_types"],
         "evidence_type_labels": [SOURCE_LABELS[e] for e in req["evidence_types"]],
         "checks_performed": req.get("checks_performed"), "not_checked": req.get("not_checked"),
@@ -211,7 +216,7 @@ def overview(org: Dict[str, Any]) -> Dict[str, Any]:
         "disclaimer": DISCLAIMER,
         "note": C1_NOTE,
         "register": {"version": REGISTER["version"], "title": REGISTER["title"],
-                     "references_pending_review": sum(1 for r in REGISTER["requirements"] if not r["clause_verified"])},
+                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx["clauses"])},
         "plan": plan,
         "readiness": mapping.readiness(v["status"] for v in views),
         "domains": [{"id": str(d["id"]), "domain": d["domain"]} for d in ctx["domains"]],
