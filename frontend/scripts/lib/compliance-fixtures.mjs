@@ -2,9 +2,14 @@
 // Plain data builders only: no page or server state lives here.
 export const DISCLAIMER =
   "Readiness evidence, not legal advice or a compliance determination. Filing of Compliance Audit Returns for UHL/EHL organisations must go through a licensed DPCO.";
-export const BANNED = ["compliant", "certified", "satisfies", "satisfied", "passes audit", "pass the audit", "compliance score", "fully meets", "meets the requirement", "is met"];
+// Words copy on these screens must never use (see the build plan). Matched case-insensitively against rendered text.
+export const BANNED = [
+  "compliant", "certified", "certification", "satisfies", "satisfied", "passes audit", "pass the audit", "compliance score",
+  "fully meets", "meets the requirement", "is met", "partial compliance", "fully compliant", "is compliant", "satisfy ndpa",
+  "adequate", "adequacy", "guarantee",
+];
 // Added for the Documents tab (C5): claims a drafting assistant is most tempted to make.
-export const DOC_BANNED = [...BANNED, "guarantee", "adequa", "legally sufficient", "certif", "complies", "in compliance"];
+export const DOC_BANNED = [...BANNED, "adequa", "legally sufficient", "certif", "complies", "in compliance"];
 export const ORG_ZONE = "America/New_York"; // deliberately not Lagos, and not the browser's zone
 export const BROWSER_ZONE = "Asia/Tokyo";
 export const HOUR = 3600000;

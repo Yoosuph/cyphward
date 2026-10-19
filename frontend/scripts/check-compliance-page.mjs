@@ -59,11 +59,12 @@ try {
   let questions = freshQuestions();
   let incidents = freshIncidents(Date.now());
   const downloads = [];
+  const flags = { failReads: new Set(), failWrites: false, delayMs: 0 };
   const freshPacks = () => [{ id: "p-old00000000", snapshot_id: "s-old00000000", kind: "readiness_pack", pack_version: "cyphward-ndpa-pack-v1",
     issued_at: "2026-10-10T09:00:00Z", retain_until: "2029-10-10T09:00:00Z", issued_by: user.id, window_start: null, window_end: null, html_sha256: "a".repeat(64), pdf_sha256: "d".repeat(64) }];
   let packs = freshPacks();
   let documents = freshDocuments();
-  const reset = () => { questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); documents = freshDocuments(); writes.length = 0; posts.length = 0; downloads.length = 0; };
+  const reset = () => { flags.failReads.clear(); flags.failWrites = false; flags.delayMs = 0; questions = freshQuestions(); incidents = freshIncidents(Date.now()); packs = freshPacks(); documents = freshDocuments(); writes.length = 0; posts.length = 0; downloads.length = 0; };
   const json = (request, status, body) => void request.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -73,6 +74,13 @@ try {
     }
     const method = request.method();
     const path = url.pathname;
+    if (flags.delayMs && method === "GET" && !path.endsWith("/auth/bootstrap")) {
+      const realRespond = request.respond.bind(request);
+      request.respond = (r) => new Promise((resolve) => setTimeout(() => resolve(realRespond(r)), flags.delayMs));
+    }
+    if ((flags.failWrites && method !== "GET") || (method === "GET" && [...flags.failReads].some((k) => path.includes(k)))) {
+      return void request.respond({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Internal Server Error" }) });
+    }
     const growth = plan !== "starter";
     if (path.endsWith("/auth/bootstrap")) return json(request, 200, { user, email_verified: true, memberships: [{ org: { ...org, plan }, role, domains: [domain] }] });
     if (path.endsWith("/compliance/overview")) return json(request, 200, overview(plan));
@@ -132,14 +140,14 @@ try {
       const body = JSON.parse(request.postData() || "{}");
       writes.push({ method, path, body });
       if (method === "POST") {
-        const wall = (v) => (v ? new Date(Date.parse(`${v}Z`) + 4 * HOUR).toISOString() : null); // mock zone: UTC-4 on this date
-        const created = { id: `i-new-${writes.length}`, ...body, detected_at: wall(body.detected_at), became_aware_at: wall(body.became_aware_at),
-          notified_commission_at: wall(body.notified_commission_at), notified_subjects_at: wall(body.notified_subjects_at) };
+        const utc = (v) => (v ? new Date(v).toISOString() : null); // the app sends UTC, so the mock stores it as sent
+        const created = { id: `i-new-${writes.length}`, ...body, detected_at: utc(body.detected_at), became_aware_at: utc(body.became_aware_at),
+          notified_commission_at: utc(body.notified_commission_at), notified_subjects_at: utc(body.notified_subjects_at) };
         incidents.unshift(created);
         return json(request, 201, incidentView(created, ORG_ZONE, now));
       }
       const target = incidents.find((i) => path.endsWith(`/${i.id}`));
-      for (const [k, v] of Object.entries(body)) target[k] = k.startsWith("notified_") && v ? new Date(Date.parse(`${v}Z`) + 4 * HOUR).toISOString() : v;
+      for (const [k, v] of Object.entries(body)) target[k] = k.startsWith("notified_") && v ? new Date(v).toISOString() : v;
       return json(request, 200, incidentView(target, ORG_ZONE, now));
     }
     if (path.includes("/api/v1/packs")) {
@@ -186,7 +194,7 @@ try {
 
   const clickExact = (text, within = "body") => page.evaluate((t, scope) => {
     const root = document.querySelector(scope);
-    const el = [...(root || document).querySelectorAll("button, a")].find((b) => b.textContent.replace(/\s+/g, " ").trim() === t);
+    const el = [...(root || document).querySelectorAll("button, a")].find((b) => !b.closest("[inert]") && b.textContent.replace(/\s+/g, " ").trim() === t);
     if (el) el.click();
     return !!el;
   }, text, within);
@@ -206,7 +214,7 @@ try {
   const bodyText = () => page.evaluate(() => document.body.innerText);
   const overflowOf = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   const openTab = async (label) => {
-    assert.ok(await clickExact(label.toUpperCase(), '[role="tablist"]'), `tab ${label}`);
+    assert.ok(await clickExact(label, '[role="tablist"]'), `tab ${label}`);
   };
   const noVerdicts = async (where) => {
     const lowered = (await bodyText()).toLowerCase();
@@ -219,7 +227,7 @@ try {
   };
 
   const clickText = (text) => page.evaluate((t) => {
-    const el = [...document.querySelectorAll("button, a")].find((b) => b.textContent.includes(t));
+    const el = [...document.querySelectorAll("button, a")].find((b) => !b.closest("[inert]") && b.textContent.includes(t));
     if (el) el.click();
     return !!el;
   }, text);
@@ -327,27 +335,27 @@ try {
     let text = await bodyText();
     assert.ok(text.includes("What applies to you") && text.includes("major importance"), `${name}: applicability step first`);
     assert.ok(!text.includes("Which tier"), `${name}: follow-up hidden until shown`);
-    assert.ok(text.includes("times shown in America/New_York"), `${name}: zone named`);
+    assert.ok(text.includes("dates are in America/New_York"), `${name}: zone named`);
     const told2 = await page.evaluate(() => document.querySelector('[data-testid="question-dpia.high_risk_processing"] [data-testid="told-us"]').textContent);
     assert.ok(told2.includes("on 16 Oct 2026") && told2.includes("renews 16 Oct 2027"), `${name}: answered applicability question`);
 
-    assert.ok(await clickExact("ANSWER", qsel("registration.major_importance")));
+    assert.ok(await clickExact("Answer", qsel("registration.major_importance")));
     const form = `[data-testid="form-registration.major_importance"]`;
     await page.waitForSelector(form);
     assert.deepEqual(await page.evaluate((f) => [...document.querySelectorAll(`${f} select`)[0].options].map((o) => o.textContent), form),
       ["Choose a member", "Compliance Review", "Ada Obi", "Tunde Bello"], `${name}: owner picker is the members`);
     assert.equal(await page.evaluate((f) => document.querySelectorAll(`${f} select`)[0].value, form), user.id, `${name}: owner defaults to the viewer`);
     const longest = await page.evaluate((f) => [...document.querySelectorAll(`${f} select`)[1].options].map((o) => o.textContent), form);
-    assert.ok(longest.includes("24 months (longest)") && !longest.some((o) => /36|48/.test(o)), `${name}: expiry capped at 24 months`);
+    assert.ok(longest.includes("24 months (longest)") && longest.includes("A date I choose") && !longest.some((o) => /36|48/.test(o)), `${name}: expiry capped at 24 months`);
     assert.ok(await chooseRadio(form, "Yes"));
     await setVal(`${form} input[type="url"]`, "http://insecure.example");
     assert.ok(await overflowOf() <= 0, `${name}: overflow with the form open`);
-    await clickExact("SAVE ANSWER", form);
+    await clickExact("Save answer", form);
     await page.waitForFunction(() => document.querySelector('[data-testid="form-error"]')?.textContent.includes("https"), { timeout: 5000 });
     assert.equal(writes.length, 0, `${name}: an http link is not sent`);
     await setVal(`${form} input[type="url"]`, "https://example.com/registration-proof");
     await setVal(`${form} textarea`, "Certificate is in the shared drive.");
-    await clickExact("SAVE ANSWER", form);
+    await clickExact("Save answer", form);
     await page.waitForFunction(() => document.body.innerText.includes("Which tier"), { timeout: 5000 });
     assert.equal(writes.length, 1, `${name}: one attestation sent`);
     const sent = writes[0].body;
@@ -359,11 +367,11 @@ try {
     assert.equal(sent.expires_at, undefined, `${name}: default expiry is left to the server`);
 
     // A 24-month expiry stays inside the API's 730-day cap.
-    assert.ok(await clickExact("UPDATE ANSWER", qsel("registration.major_importance")));
+    assert.ok(await clickExact("Update answer", qsel("registration.major_importance")));
     await chooseRadio(form, "Yes");
     const expirySelect = await page.evaluateHandle((f) => [...document.querySelectorAll(`${f} select`)].find((x) => x.id.endsWith("-expiry")), form);
     await page.evaluate((el) => { el.value = "729"; el.dispatchEvent(new Event("change", { bubbles: true })); }, expirySelect);
-    await clickExact("SAVE ANSWER", form);
+    await clickExact("Save answer", form);
     await page.waitForFunction(() => !document.querySelector('[data-testid="form-registration.major_importance"]'), { timeout: 5000 });
     const days = (Date.parse(writes[1].body.expires_at) - Date.now()) / (24 * HOUR);
     assert.ok(days > 700 && days < 730, `${name}: 24-month expiry is ${days} days, inside the cap`);
@@ -371,22 +379,22 @@ try {
     // Digits in a text answer are refused before sending; a date question takes no expiry.
     assert.ok(await clickExact("2. Data protection officer", 'nav[aria-label="Question groups"]'));
     await page.waitForSelector(qsel("dpo.six_monthly_report"));
-    assert.ok(await clickExact("UPDATE ANSWER", qsel("dpo.designated")));
+    assert.ok(await clickExact("Update answer", qsel("dpo.designated")));
     const dform = `[data-testid="form-dpo.designated"]`;
     await setVal(`${dform} input[type="text"]`, "Ada 12345678");
-    await clickExact("SAVE ANSWER", dform);
+    await clickExact("Save answer", dform);
     await page.waitForFunction(() => document.querySelector('[data-testid="form-dpo.designated"] [data-testid="form-error"]')?.textContent.includes("ID numbers"), { timeout: 5000 });
     assert.equal(writes.length, 2, `${name}: digits not sent`);
-    await clickExact("CANCEL", dform);
-    assert.ok(await clickExact("ANSWER", qsel("dpo.six_monthly_report")));
+    await clickExact("Cancel", dform);
+    assert.ok(await clickExact("Answer", qsel("dpo.six_monthly_report")));
     const sform = `[data-testid="form-dpo.six_monthly_report"]`;
     await page.waitForSelector(sform);
-    assert.ok(await chooseRadio(sform, "I have the date"));
+    assert.ok(await chooseRadio(sform, "I know the date"));
     await page.waitForSelector('[data-testid="expiry-follows-date"]');
     assert.ok(!(await page.evaluate((f) => [...document.querySelectorAll(`${f} select`)].some((x) => x.id.endsWith("-expiry")), sform)), `${name}: no expiry control on a date answer`);
     assert.equal(await page.evaluate((f) => document.querySelector(`${f} input[type="date"]`).max.length, sform), 10, `${name}: date capped at today`);
     await setVal(`${sform} input[type="date"]`, "2026-09-30");
-    await clickExact("SAVE ANSWER", sform);
+    await clickExact("Save answer", sform);
     await page.waitForFunction(() => !document.querySelector('[data-testid="form-dpo.six_monthly_report"]'), { timeout: 5000 });
     assert.deepEqual(writes[2].body.answer, { value: "date", date: "2026-09-30" }, `${name}: date answer`);
     assert.equal(writes[2].body.expires_at, undefined, `${name}: date answers send no expiry`);
@@ -411,40 +419,63 @@ try {
     assert.ok(!inc.overdueOnLive, `${name}: a running countdown is not overdue`);
     assert.equal(inc.steps, 6, `${name}: six checklist steps`);
     assert.equal(inc.disclaimer, INCIDENT_DISCLAIMER, `${name}: incident disclaimer`);
-    assert.ok(inc.text.includes("All times shown in America/New_York"), `${name}: zone named`);
-    assert.ok(inc.text.includes("Disk was encrypted."), `${name}: notes shown`);
+    assert.ok(inc.text.includes("All times are in America/New_York"), `${name}: zone named`);
+    assert.ok(await clickExact("Details", '[data-testid="incident-i-live"]'));
+    await page.waitForSelector('[role="dialog"] [data-testid="incident-details"]');
+    assert.ok((await bodyText()).includes("Disk was encrypted."), `${name}: notes shown in the details dialog`);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
 
-    // Create: a time typed without an offset goes out as typed, with the zone beside the field.
-    assert.ok(await clickExact("RECORD AN INCIDENT"));
-    await page.waitForSelector('[data-testid="incident-form"]');
-    assert.ok((await bodyText()).includes("Time in America/New_York"), `${name}: zone beside the time field`);
+    // Create: the form is a dialog with native pickers; a time typed in the organisation's zone goes out as UTC.
+    assert.ok(await clickExact("Record an incident"));
+    await page.waitForSelector('[role="dialog"] [data-testid="incident-form"]');
+    assert.equal(await page.evaluate(() => document.querySelector("#inc-detected").type + "/" + document.querySelector("#inc-aware").type), "datetime-local/datetime-local", `${name}: native pickers`);
+    assert.ok((await bodyText()).includes("Time in America/New_York (UTC-04:00)"), `${name}: zone beside the time field`);
     await setVal("#inc-title", "Shared drive link left public");
     await setVal("#inc-severity", "high");
     await setVal("#inc-detected", "2026-10-15T09:30");
     await setVal("#inc-aware", "2026-10-15T10:45");
-    assert.ok(await overflowOf() <= 0, `${name}: overflow with the incident form open`);
+    assert.ok(await overflowOf() <= 0, `${name}: overflow with the incident dialog open`);
     const writesBefore = writes.length;
-    await clickExact("RECORD INCIDENT", '[data-testid="incident-form"]');
-    await page.waitForFunction(() => document.body.innerText.includes("Shared drive link left public"), { timeout: 5000 });
+    await page.click('[data-testid="incident-save"]');
+    await page.waitForFunction(() => document.body.innerText.includes("Shared drive link left public") && !document.querySelector('[data-testid="incident-form"]'), { timeout: 5000 });
     const created = writes[writesBefore].body;
-    assert.equal(created.detected_at, "2026-10-15T09:30:00", `${name}: sent as typed, no offset`);
-    assert.equal(created.became_aware_at, "2026-10-15T10:45:00");
+    assert.equal(created.detected_at, "2026-10-15T13:30:00.000Z", `${name}: sent as UTC (09:30 in New York is 13:30 UTC)`);
+    assert.equal(created.became_aware_at, "2026-10-15T14:45:00.000Z");
     assert.equal(created.title, "Shared drive link left public");
     assert.ok(!("notified_commission_at" in created), `${name}: unset times are not sent`);
+    assert.ok((await page.evaluate(() => document.querySelector(".toasts")?.innerText || "")).includes("Incident recorded."), `${name}: a toast confirms the save`);
     const shown = await page.evaluate(() => document.querySelector('[data-testid^="incident-i-new"]').innerText);
     assert.ok(shown.includes("15 Oct 2026 10:45"), `${name}: shown in the organisation's zone (${shown})`);
 
-    // Edit: only changed fields go out; title and the awareness times are read-only; clearing sends null.
-    assert.ok(await clickExact("EDIT", '[data-testid="incident-i-live"]'));
+    // Edit: only changed fields go out; title and the awareness times are read-only; clearing sends null;
+    // recording the Commission time asks first and Cancel sends nothing.
+    assert.ok(await clickExact("Edit", '[data-testid="incident-i-live"]'));
     await page.waitForSelector('[data-testid="incident-form"]');
     assert.equal(await page.evaluate(() => !!document.querySelector("#inc-title, #inc-detected, #inc-aware")), false, `${name}: immutable fields are not editable`);
     assert.equal(await page.evaluate(() => document.querySelector("#inc-subjects").value.length), 16, `${name}: prefilled from the zone's wall time`);
     await setVal("#inc-subjects", "");
-    await setVal("#inc-commission", "2026-10-16T08:00");
+    const awareMs = Date.now() - 12.5 * HOUR;
+    const commissionWall = localIso(new Date(awareMs + HOUR).toISOString(), ORG_ZONE).slice(0, 16);
+    await setVal("#inc-commission", commissionWall);
     const before = writes.length;
-    await clickExact("SAVE CHANGES", '[data-testid="incident-form"]');
+    await page.click('[data-testid="incident-save"]');
+    await page.waitForSelector('[data-testid="confirm-dialog"]', { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: the named action is the default focus for a non-destructive confirmation`);
+    const ask = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
+    assert.ok(/record notification time/i.test(ask) && /countdown stops/.test(ask), `${name}: confirmation names the action and what cannot be undone (${ask})`);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
+    assert.ok(await page.evaluate(() => !!document.querySelector('[data-testid="incident-form"]')), `${name}: Esc closes only the top dialog`);
+    assert.equal(writes.length, before, `${name}: cancelling the confirmation sends nothing`);
+    await page.click('[data-testid="incident-save"]');
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
+    await page.click('[data-testid="confirm-ok"]');
     await page.waitForFunction(() => document.querySelector('[data-testid="incident-i-live"] [data-testid="badge-notified"], [data-testid="incident-i-live"] [data-testid="badge-notified-late"]'), { timeout: 5000 });
-    assert.deepEqual(writes[before].body, { notified_commission_at: "2026-10-16T08:00:00", notified_subjects_at: null }, `${name}: PATCH carries only the changes`);
+    const sentCommission = writes[before].body.notified_commission_at;
+    assert.equal(sentCommission, new Date(awareMs + HOUR).toISOString().slice(0, 16) + ":00.000Z", `${name}: the Commission time goes out as UTC`);
+    assert.equal(writes[before].body.notified_subjects_at, null, `${name}: clearing sends null`);
+    assert.deepEqual(Object.keys(writes[before].body).sort(), ["notified_commission_at", "notified_subjects_at"], `${name}: PATCH carries only the changes`);
     assert.match(writes[before].path, /\/compliance\/incidents\/i-live$/);
     assert.ok(await overflowOf() <= 0, `${name}: overflow in incidents`);
     await noVerdicts(`${name} incidents`);
@@ -463,7 +494,18 @@ try {
     assert.ok(/not a compliance audit return/i.test(pk.notice), `${name}: packs say they are not a Compliance Audit Return`);
     const beforePack = writes.length;
     await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());
+    await page.waitForSelector('[data-testid="confirm-dialog"]', { timeout: 5000 });
+    const packAsk = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
+    assert.ok(/issue pack/i.test(packAsk) && /cannot be edited or taken back/.test(packAsk), `${name}: issuing a pack asks, names the action and says what cannot be undone`);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: Issue pack is the default focus`);
+    await page.click('[data-testid="confirm-cancel"]');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
+    assert.equal(writes.length, beforePack, `${name}: cancelling sends nothing`);
+    await page.evaluate(() => document.querySelector('[data-testid="issue-dpo_section"]').click());
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
+    await page.click('[data-testid="confirm-ok"]');
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="pack-list"] li').length === 2, { timeout: 5000 });
+    assert.ok((await page.evaluate(() => document.querySelector(".toasts")?.innerText || "")).includes("Pack issued."), `${name}: a toast confirms the pack`);
     assert.equal(writes[beforePack].body.kind, "dpo_section", `${name}: issue sends the kind`);
     assert.ok(/^ui-/.test(writes[beforePack].body.request_key || ""), `${name}: each click carries its own request key`);
     assert.deepEqual(Object.keys(writes[beforePack].body).sort(), ["kind", "request_key"], `${name}: issue sends only the kind and the key`);
@@ -503,7 +545,7 @@ try {
     }));
     assert.ok(q.note && q.told >= 1, `${name}: members see the answers read-only`);
     assert.equal(q.forms, 0, `${name}: no form controls rendered for a member (questions)`);
-    assert.ok(!q.buttons.some((b) => /^(ANSWER|UPDATE ANSWER|SAVE ANSWER)$/.test(b)), `${name}: no answer buttons`);
+    assert.ok(!q.buttons.some((b) => /^(answer|update answer|save answer)$/i.test(b)), `${name}: no answer buttons`);
     await openTab("Incidents");
     await page.waitForSelector('[data-testid="incidents"]');
     const i = await page.evaluate(() => ({
@@ -515,11 +557,11 @@ try {
     assert.equal(i.rows, 3, `${name}: members see the incidents`);
     assert.ok(i.overdue, `${name}: members see the overdue badge`);
     assert.equal(i.forms, 0, `${name}: no form controls rendered for a member (incidents)`);
-    assert.ok(!i.buttons.some((b) => /EDIT|RECORD/.test(b)), `${name}: no incident write buttons`);
+    assert.ok(!i.buttons.some((b) => /^(edit|record an incident|record incident|update this incident)$/i.test(b)), `${name}: no incident write buttons`);
     await openTab("Packs");
     await page.waitForSelector('[data-testid="packs"]');
     const mp = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="pack-list"] li').length,
-      issue: [...document.querySelectorAll("button")].some((b) => /ISSUE/.test(b.textContent)),
+      issue: [...document.querySelectorAll("button")].some((b) => /^issue /i.test(b.textContent.trim())),
       note: !!document.querySelector('[data-testid="read-only-note"]'),
       download: !!document.querySelector('[data-testid="download-pdf"]') }));
     assert.ok(mp.rows === 1 && mp.download && mp.note && !mp.issue, `${name}: members download packs but cannot issue`);
@@ -553,57 +595,73 @@ try {
     }));
     assert.ok(d.disclaimer.startsWith(DOC_LABEL), `${name}: documents disclaimer leads with the label`);
     assert.ok(d.disclaimer.includes("does not change your readiness page"), `${name}: approval does not touch readiness`);
-    assert.equal(d.quota, "3 of 10 drafts used today", `${name}: quota line`);
+    assert.equal(d.quota, "3 of 10 drafts used today · times are in America/New_York", `${name}: quota line`);
     assert.equal(d.cards, 4, `${name}: four documents`);
     assert.deepEqual(await Promise.all(docKinds.map(statusOf)), ["DRAFT", "NOT GENERATED", "APPROVED", "DRAFT"], `${name}: statuses`);
     assert.ok((await bodyText()).includes("Your answers have changed since this version"), `${name}: stale note`);
     assert.ok(await overflowOf() <= 0, `${name}: documents overflow`);
 
-    // View: banner, highlighted placeholders, label as the first line, copy and download.
-    assert.ok(await clickExact("VIEW", docCard("privacy_policy")));
-    await page.waitForSelector('[data-testid="doc-viewer"]');
+    // View: opens in a dialog with the banner, highlighted placeholders, label as the first line, copy and download.
+    assert.ok(await clickExact("View", docCard("privacy_policy")));
+    await page.waitForSelector('[role="dialog"] [data-testid="doc-viewer"]');
     const v = await page.evaluate(() => ({
       banner: document.querySelector('[data-testid="doc-banner"]').textContent,
       text: document.querySelector('[data-testid="doc-text"]').textContent,
       marks: [...document.querySelectorAll('[data-testid="placeholder"]')].map((m) => m.textContent),
-      buttons: [...document.querySelectorAll('[data-testid="doc-viewer"] button')].map((b) => b.textContent.trim()),
+      buttons: [...document.querySelectorAll('[role="dialog"] button')].map((b) => b.textContent.trim()),
     }));
     assert.ok(v.banner.startsWith(DOC_LABEL), `${name}: banner`);
     assert.ok(v.text.startsWith(DOC_LABEL), `${name}: label is the first line of the text`);
     assert.deepEqual(v.marks, ["[MISSING: name of your data protection officer]", "[MISSING: how long you keep each kind of personal data]"], `${name}: placeholders highlighted`);
-    for (const b of ["COPY TEXT", "COPY MARKDOWN", "DOWNLOAD TEXT", "DOWNLOAD MARKDOWN", "APPROVE THIS VERSION"]) assert.ok(v.buttons.includes(b), `${name}: ${b}`);
+    for (const b of ["Copy text", "Copy Markdown", "Download text", "Download Markdown", "Approve this version"]) assert.ok(v.buttons.includes(b), `${name}: ${b}`);
     await stubClipboard();
-    await clickExact("COPY TEXT", '[data-testid="doc-viewer"]');
-    await clickExact("COPY MARKDOWN", '[data-testid="doc-viewer"]');
+    await clickExact("Copy text", '[data-testid="doc-viewer"]');
+    await clickExact("Copy Markdown", '[data-testid="doc-viewer"]');
     const copied = await page.evaluate(() => window.__copied);
     assert.ok(copied[0].startsWith(DOC_LABEL) && !copied[0].includes("# "), `${name}: text copy keeps the label, drops heading marks`);
     assert.ok(copied[1].startsWith(DOC_LABEL) && copied[1].includes("# Privacy policy of Acme Traders"), `${name}: markdown copy`);
     assert.ok(await overflowOf() <= 0, `${name}: viewer overflow`);
     await noVerdicts(`${name} documents`);
 
-    // Approve: confirmation says what it does not mean, then the approver and date show.
-    assert.ok(await clickExact("APPROVE THIS VERSION", '[data-testid="doc-viewer"]'));
-    await page.waitForSelector('[data-testid="approve-confirm"]');
-    assert.ok((await bodyText()).includes("does not mean the document is published or in force"), `${name}: approval wording`);
-    assert.ok(await clickExact("CONFIRM APPROVAL"));
+    // Approve: a confirmation (over the document) says what it does not mean and what cannot be undone, then the approver and date show.
+    assert.ok(await clickExact("Approve this version", '[role="dialog"]'));
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
+    const approveAsk = await page.evaluate(() => document.querySelector('[data-testid="confirm-dialog"]').innerText);
+    assert.ok(approveAsk.includes("does not mean the document is published or in force"), `${name}: approval wording`);
+    assert.ok(approveAsk.includes("cannot be taken back") && /approve version/i.test(approveAsk), `${name}: approval names the action and what cannot be undone`);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "confirm-ok", `${name}: Approve version is the default focus`);
+    await page.click('[data-testid="confirm-cancel"]');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="confirm-dialog"]'), { timeout: 3000 });
+    assert.equal(writes.filter((w) => w.path.endsWith("/approve")).length, 0, `${name}: cancelling approves nothing`);
+    assert.ok(await clickExact("Approve this version", '[role="dialog"]'));
+    await page.waitForSelector('[data-testid="confirm-dialog"]');
+    await page.click('[data-testid="confirm-ok"]');
     await page.waitForSelector('[data-testid="doc-approval"]', { timeout: 5000 });
     assert.match(await page.evaluate(() => document.querySelector('[data-testid="doc-approval"]').textContent), /^Approved by Compliance Review on \d/, `${name}: approver shown`);
     assert.equal(writes.filter((w) => w.path.endsWith("/approve")).length, 1, `${name}: one approval sent`);
+    assert.ok((await page.evaluate(() => document.querySelector(".toasts")?.innerText || "")).includes("Approval recorded."), `${name}: a toast confirms the approval`);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
     assert.equal(await statusOf("privacy_policy"), "APPROVED", `${name}: status moves to approved`);
 
-    // Version history keeps the older approved version, which has no approve button.
+    // Earlier versions stay listed; the older approved one opens without an approve button.
     await page.evaluate(() => document.querySelector('[data-testid="doc-history-privacy_policy"]').setAttribute("open", ""));
     const history = await page.evaluate(() => document.querySelector('[data-testid="doc-history-privacy_policy"]').innerText);
     assert.ok(history.includes("Version 2") && history.includes("Version 1") && history.includes("approved by Ada Obi"), `${name}: history`);
-    assert.ok(await clickExact("VIEW", '[data-testid="doc-history-privacy_policy"] li:last-child'));
+    assert.ok(await clickExact("View", '[data-testid="doc-history-privacy_policy"] li:last-child'));
     await page.waitForFunction(() => document.querySelector('[data-testid="doc-viewer"]')?.innerText.includes("an older version"), { timeout: 5000 });
-    assert.ok(!(await page.evaluate(() => [...document.querySelectorAll('[data-testid="doc-viewer"] button')].some((b) => /APPROVE/.test(b.textContent)))), `${name}: no approve on an older version`);
+    assert.ok(!(await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] button')].some((b) => /approve/i.test(b.textContent)))), `${name}: no approve on an older version`);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
 
     // Generate a new document: it appears as a draft and opens.
-    assert.ok(await clickExact("GENERATE", docCard("cookie_notice")));
+    assert.ok(await clickExact("Generate", docCard("cookie_notice")));
     await page.waitForFunction(() => document.querySelector('[data-testid="doc-status-cookie_notice"]')?.textContent.trim().toUpperCase() === "DRAFT", { timeout: 5000 });
+    await page.waitForSelector('[role="dialog"] [data-testid="doc-viewer"]', { timeout: 5000 });
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
     assert.equal(writes.filter((w) => w.path.endsWith("/generate")).length, 1, `${name}: one generate sent`);
-    assert.equal(await page.evaluate(() => document.querySelector('[data-testid="doc-quota"]').textContent), "4 of 10 drafts used today", `${name}: quota moves`);
+    assert.ok((await page.evaluate(() => document.querySelector('[data-testid="doc-quota"]').textContent)).startsWith("4 of 10 drafts used today"), `${name}: quota moves`);
     assert.ok(await overflowOf() <= 0, `${name}: overflow after generating`);
     await noVerdicts(`${name} documents after actions`);
   }
@@ -615,7 +673,7 @@ try {
     await gotoComply();
     await openTab("Documents");
     await page.waitForSelector('[data-testid="documents"]');
-    assert.ok(await clickExact("VIEW", docCard("privacy_policy")));
+    assert.ok(await clickExact("View", docCard("privacy_policy")));
     await page.waitForSelector('[data-testid="doc-viewer"]');
     const m = await page.evaluate(() => ({
       buttons: [...document.querySelectorAll("button")].map((b) => b.textContent.trim()),
@@ -623,8 +681,8 @@ try {
       banner: !!document.querySelector('[data-testid="doc-banner"]'),
     }));
     assert.ok(m.note && m.banner, `${name}: members see the banner and the read-only note`);
-    assert.ok(!m.buttons.some((b) => /^(GENERATE|GENERATE NEW VERSION|APPROVE THIS VERSION|CONFIRM APPROVAL)$/.test(b)), `${name}: no generate or approve buttons for a member`);
-    assert.ok(m.buttons.includes("COPY TEXT") && m.buttons.includes("DOWNLOAD MARKDOWN"), `${name}: members can copy and download`);
+    assert.ok(!m.buttons.some((b) => /^(generate|generate new version|approve this version|approve version)$/i.test(b)), `${name}: no generate or approve buttons for a member`);
+    assert.ok(m.buttons.includes("Copy text") && m.buttons.includes("Download Markdown"), `${name}: members can copy and download`);
     assert.equal(writes.length, 0, `${name}: members send no writes`);
     assert.ok(await overflowOf() <= 0, `${name}: member documents overflow`);
     await noVerdicts(`${name} member documents`);

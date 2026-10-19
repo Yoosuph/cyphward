@@ -58,6 +58,8 @@ interface Organization {
   plan: string;
   created_at: string;
   membership_role?: string;
+  /** IANA zone the organisation reads times in (organizations.display_timezone). Default Africa/Lagos. */
+  display_timezone?: string;
 }
 
 interface Domain {

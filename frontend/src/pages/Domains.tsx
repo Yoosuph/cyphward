@@ -17,12 +17,15 @@ import {
   Server,
   X,
 } from 'lucide-react';
-import { getDomains, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
+import { getDomainsStrict, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
 import { readPageCache, writePageCache } from '../lib/pageCache';
 import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
-import Modal from '../components/Modal';
+import Dialog, { useDialogClose } from '../components/ui/Dialog';
+import { EmptyPanel, ErrorPanel, humanError } from '../components/ui/StatePanels';
+import { useOrgZone } from '../lib/orgZone';
+import { fmtDayZone } from './compliance/shared';
 import DomainDnsInstructions from '../components/DomainDnsInstructions';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -37,6 +40,8 @@ const statusLabel = (status: string) => STATUS_LABEL[status] || status;
 
 export default function Domains() {
   const confirmAction = useConfirm();
+  const zone = useOrgZone();
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Last-seen list paints at once on a revisit; loadDomains refreshes it.
   const [domains, setDomains] = useState<Domain[]>(() => readPageCache<Domain[]>('domains') ?? []);
   const [loading, setLoading] = useState(() => readPageCache('domains') === undefined);
@@ -60,11 +65,13 @@ export default function Domains() {
   const loadDomains = async () => {
     // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
-      const list = await getDomains();
+      const list = await getDomainsStrict();
       setDomains(list);
       writePageCache('domains', list);
+      setLoadError(null);
     } catch (e) {
-      toast('Failed to load domains');
+      setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
+      toast('The domain list was not refreshed.');
     } finally {
       setLoading(false);
     }
@@ -87,8 +94,8 @@ export default function Domains() {
       setModalCheck('idle');
       setInstructionModal(res.domain);
       await loadDomains();
-    } catch (err: any) {
-      toast(err.message || 'Failed to add domain');
+    } catch (err) {
+      toast(humanError(err, 'The domain was not added. Check the name and try again.'));
     } finally {
       setAdding(false);
     }
@@ -126,8 +133,8 @@ export default function Domains() {
         }
         await loadDomains();
       }
-    } catch (err: any) {
-      toast(err.message || 'Could not check right now. Please try again.');
+    } catch (err) {
+      toast(humanError(err, 'We could not check right now. Try again in a moment.'));
       if (fromModal) setModalCheck('failed');
     } finally {
       setVerifyingId(null);
@@ -137,15 +144,16 @@ export default function Domains() {
   const handleDelete = async (domainId: string, name: string) => {
     if (!(await confirmAction({
       title: `Remove ${name}?`,
-      body: 'Scans of this domain stop. Its past scans and findings stay in your history. You can add it again later, but it will need to be verified again.',
-      confirmLabel: 'REMOVE DOMAIN', danger: true,
+      body: 'Its past scans and findings stay in your history. You can add it again later, but you will need to verify it again.',
+      irreversible: 'Removing it cannot be undone. Scans of this domain stop straight away.',
+      confirmLabel: 'Remove domain', danger: true,
     }))) return;
     try {
       await deleteDomain(domainId);
       toast(`${name} removed.`);
       await loadDomains();
-    } catch (e: any) {
-      toast(e?.message || 'Failed to delete domain');
+    } catch (e) {
+      toast(humanError(e, 'The domain was not removed. Try again in a moment.'));
       await loadDomains();
     }
   };
@@ -161,7 +169,7 @@ export default function Domains() {
       const res = await listMonitoredHosts(domainId);
       setHostsByDomain(prev => ({ ...prev, [domainId]: res?.hosts || [] }));
     } catch {
-      toast('Could not load monitored hosts');
+      toast('We could not load the extra hosts. Try again.');
     }
   };
 
@@ -179,14 +187,20 @@ export default function Domains() {
         setNewHost('');
         toast(`${res.host.hostname} will be probed on every scan of ${domain}.`);
       }
-    } catch (err: any) {
-      toast(err?.message || 'Could not add host');
+    } catch (err) {
+      toast(humanError(err, 'The host was not added. Check the name and try again.'));
     } finally {
       setHostsBusy(false);
     }
   };
 
   const handleRemoveHost = async (domainId: string, hostId: string, hostname: string) => {
+    if (!(await confirmAction({
+      title: `Stop checking ${hostname}?`,
+      body: 'It will no longer be checked on every scan. Discovery may still find it.',
+      irreversible: 'Removing it cannot be undone. You would need to add it again.',
+      confirmLabel: 'Remove host', danger: true,
+    }))) return;
     try {
       await removeMonitoredHost(domainId, hostId);
       setHostsByDomain(prev => ({
@@ -195,7 +209,7 @@ export default function Domains() {
       }));
       toast(`${hostname} removed from monitoring.`);
     } catch {
-      toast('Could not remove host');
+      toast('The host was not removed. Try again in a moment.');
     }
   };
 
@@ -206,12 +220,20 @@ export default function Domains() {
       setTimeout(() => setCopiedToken(null), 2000);
       toast(id === 'modal-host' ? 'Record host copied.' : 'Record value copied.');
     } catch {
-      toast('Could not copy. Please select and copy the text.');
+      toast('Could not copy. Select the text and copy it yourself.');
     }
   };
 
   if (loading && domains.length === 0) {
     return <DomainsSkeleton />;
+  }
+  if (loadError && domains.length === 0) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto pb-12">
+        <PageHead title="Domains" note="Add a domain, prove you own it with one DNS record, and it is scanned every day." />
+        <ErrorPanel title="We could not load your domains" message={loadError} onRetry={() => { setLoading(true); void loadDomains(); }} retrying={loading} />
+      </div>
+    );
   }
 
   return (
@@ -222,17 +244,17 @@ export default function Domains() {
         actions={<>
           <button
             onClick={loadDomains}
-            className="btn-tactile flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors min-h-[38px]"
+            className="btn-tactile flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong text-ink transition-colors min-h-[44px] sm:min-h-[38px]"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
           <button
             onClick={() => setAddModalOpen(true)}
-            className="btn-tactile flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px]"
+            className="btn-tactile flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[44px] sm:min-h-[38px]"
           >
             <Plus size={14} />
-            <span>ADD DOMAIN</span>
+            <span>Add domain</span>
           </button>
         </>}
       />
@@ -252,7 +274,7 @@ export default function Domains() {
                 <th className="py-3 px-4 font-medium">DOMAIN NAME</th>
                 <th className="py-3 px-4 font-medium">STATUS</th>
                 <th className="py-3 px-4 font-medium">VERIFICATION RECORD</th>
-                <th className="py-3 px-4 font-medium">VERIFIED ON</th>
+                <th className="py-3 px-4 font-medium">VERIFIED ON ({zone})</th>
                 <th className="py-3 px-4 font-medium">ASSETS FOUND</th>
                 <th className="py-3 px-4 font-medium text-right">ACTIONS</th>
               </tr>
@@ -267,8 +289,10 @@ export default function Domains() {
                 ))
               ) : domains.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-soft mono">
-                    No domains yet. Click 'Add domain' to get started.
+                  <td colSpan={6} className="p-4">
+                    <EmptyPanel icon={<Globe size={26} />} title="No domains yet"
+                                help="Add the domain you want scanned. You will prove you own it with one DNS record."
+                                action={<button type="button" onClick={() => setAddModalOpen(true)} className="btn-tactile flex items-center gap-2 px-4 py-2 rounded text-xs mono bg-accent text-white min-h-[44px]"><Plus size={14} /> Add your first domain</button>} />
                   </td>
                 </tr>
               ) : (
@@ -315,8 +339,9 @@ export default function Domains() {
                         </code>
                         <button
                           onClick={() => copyText(`cyphward-verification=${dom.verification_token}`, dom.id)}
-                          className="btn-tactile p-1 hover:text-accent text-soft shrink-0"
+                          className="btn-tactile p-1 hover:text-accent text-soft shrink-0 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
                           title="Copy verification TXT value"
+                          aria-label="Copy verification record"
                         >
                           {copiedToken === dom.id ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
                         </button>
@@ -325,13 +350,7 @@ export default function Domains() {
                     </td>
 
                     <td data-label="Verified" className="py-3 px-4 text-soft text-[11px]">
-                      {dom.verified_at
-                        ? new Date(dom.verified_at).toLocaleDateString([], {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })
-                        : 'Not yet'}
+                      {dom.verified_at ? fmtDayZone(dom.verified_at, zone) : 'Not yet'}
                     </td>
 
                     <td data-label="Assets" className="py-3 px-4 font-semibold text-ink">
@@ -342,7 +361,7 @@ export default function Domains() {
                       <button
                         disabled={verifyingId === dom.id}
                         onClick={() => handleVerify(dom)}
-                        className={`btn-tactile px-2.5 py-1 rounded text-[11px] border font-medium transition-colors ${
+                        className={`btn-tactile px-2.5 py-1 rounded text-[11px] border font-medium transition-colors min-h-[44px] sm:min-h-0 ${
                           dom.verification_status === 'verified'
                             ? 'border-line bg-raised hover:bg-inset text-soft'
                             : 'bg-ok/20 border-ok text-ok hover:bg-ok/30'
@@ -361,15 +380,16 @@ export default function Domains() {
 
                       <button
                         onClick={() => openInstructions(dom)}
-                        className="btn-tactile p-1 rounded hover:bg-inset text-soft hover:text-ink"
+                        className="btn-tactile p-1 rounded hover:bg-inset text-soft hover:text-ink min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
                         title="How to verify"
+                        aria-label={`How to verify ${dom.domain}`}
                       >
                         <ExternalLink size={13} />
                       </button>
 
                       <button
                         onClick={() => handleDelete(dom.id, dom.domain)}
-                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent"
+                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
                         aria-label={`Remove ${dom.domain}`}
                         title="Remove domain"
                       >
@@ -378,10 +398,10 @@ export default function Domains() {
                       {dom.verification_status === 'verified' && (
                         <button
                           onClick={() => toggleHosts(dom.id)}
-                          className="btn-tactile px-2 py-1 rounded hover:bg-inset text-soft hover:text-ink text-[10px] mono"
+                          className="btn-tactile px-2 py-1 rounded hover:bg-inset text-soft hover:text-ink text-[10px] mono min-h-[44px] sm:min-h-0"
                           title="Hosts probed on every scan"
                         >
-                          {expandedId === dom.id ? 'HIDE HOSTS' : 'HOSTS'}
+                          {expandedId === dom.id ? 'Hide hosts' : 'Extra hosts'}
                         </button>
                       )}
                     </td>
@@ -390,7 +410,7 @@ export default function Domains() {
                     <tr key={`${dom.id}-hosts`}>
                       <td colSpan={6} className="py-3 px-4 bg-inset/40">
                         <p className="text-[11px] mono text-soft mb-2">
-                          Hosts under {dom.domain} probed on every scan — even when passive discovery misses them.
+                          Extra hosts under {dom.domain} that are checked on every scan, even if discovery misses them.
                         </p>
                         <div className="flex flex-wrap gap-1.5 mb-2">
                           {(hostsByDomain[dom.id] || []).map(h => (
@@ -398,15 +418,16 @@ export default function Domains() {
                               {h.hostname}
                               <button
                                 onClick={() => handleRemoveHost(dom.id, h.id, h.hostname)}
-                                className="text-soft hover:text-accent"
+                                className="text-soft hover:text-accent min-w-[44px] min-h-[44px]"
                                 title="Stop monitoring"
+                                aria-label={`Stop monitoring ${h.hostname}`}
                               >
                                 ×
                               </button>
                             </span>
                           ))}
                           {(hostsByDomain[dom.id] || []).length === 0 && (
-                            <span className="text-[11px] mono text-soft">No extra hosts — discovery only.</span>
+                            <span className="text-[11px] mono text-soft">No extra hosts. Cyphward uses discovery only.</span>
                           )}
                         </div>
                         <form onSubmit={e => handleAddHost(e, dom.id, dom.domain)} className="flex items-center gap-2">
@@ -415,14 +436,15 @@ export default function Domains() {
                             placeholder={`e.g. portal.${dom.domain}`}
                             value={expandedId === dom.id ? newHost : ''}
                             onChange={e => setNewHost(e.target.value)}
-                            className="w-64 max-w-full bg-raised border border-line rounded px-2.5 py-1 text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
+                            aria-label={`Extra host under ${dom.domain}`}
+                            className="w-64 max-w-full bg-raised border border-line rounded px-2.5 py-1 min-h-[44px] sm:min-h-0 text-xs mono text-ink placeholder:text-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus:border-accent"
                           />
                           <button
                             type="submit"
                             disabled={hostsBusy || !newHost.trim()}
-                            className="btn-tactile px-2.5 py-1 rounded text-[11px] mono bg-accent text-white disabled:opacity-50"
+                            className="btn-tactile px-2.5 py-1 rounded text-[11px] mono bg-accent text-white disabled:opacity-50 min-h-[44px] sm:min-h-0"
                           >
-                            {hostsBusy ? 'ADDING…' : 'ADD HOST'}
+                            {hostsBusy ? 'Adding…' : 'Add host'}
                           </button>
                         </form>
                       </td>
@@ -436,118 +458,108 @@ export default function Domains() {
         </div>
       </div>
 
-      {/* Add Domain Modal */}
-      <Modal
+      {/* Add domain */}
+      <Dialog
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        title="ADD A DOMAIN"
+        title="Add a domain"
         icon={<Globe size={16} className="text-accent" />}
         maxWidth="max-w-md"
+        dirty={!!newDomainInput.trim()}
+        footer={<AddDomainActions adding={adding} disabled={!newDomainInput.trim()} />}
       >
-        <form onSubmit={handleAddDomain} className="space-y-4">
+        <form id="add-domain-form" onSubmit={handleAddDomain} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs mono text-soft">DOMAIN NAME</label>
+            <label htmlFor="add-domain-name" className="text-xs mono text-soft block">Domain name</label>
             <input
+              id="add-domain-name"
               type="text"
               placeholder="e.g. acmetraders.ng or corp.company.com"
               value={newDomainInput}
               onChange={e => setNewDomainInput(e.target.value)}
-              autoFocus
               required
-              className="w-full bg-inset border border-line rounded px-3 py-2 text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
+              className="w-full bg-inset border border-line rounded px-3 py-2 min-h-[44px] text-xs mono text-ink placeholder:text-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus:border-accent"
             />
           </div>
 
           <div className="p-3 bg-inset/50 rounded border border-line text-[11px] mono text-soft space-y-1">
-            <span className="font-semibold text-ink block">You'll verify it next</span>
+            <span className="font-semibold text-ink block">You will verify it next</span>
             <p>
-              After adding the domain, we'll show you a one-time DNS record to publish. This proves the domain is yours before scanning starts.
+              After you add the domain, we show you a one-time DNS record to publish. This proves the domain is yours before any scanning starts.
             </p>
           </div>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setAddModalOpen(false)}
-              className="btn-tactile px-3.5 py-1.5 rounded text-xs mono border border-line hover:bg-inset text-soft"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={adding || !newDomainInput.trim()}
-              className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
-            >
-              {adding ? (
-                <>
-                  <RefreshCw size={13} className="animate-spin" /> Adding...
-                </>
-              ) : (
-                'Add domain'
-              )}
-            </button>
-          </div>
         </form>
-      </Modal>
+      </Dialog>
 
-      {/* How to verify — DNS steps + inline check */}
-      <Modal
+      {/* How to verify: DNS steps and an inline check */}
+      <Dialog
         open={Boolean(instructionModal)}
         onClose={() => setInstructionModal(null)}
-        title="HOW TO VERIFY YOUR DOMAIN"
+        title="How to verify your domain"
         icon={<ShieldCheck size={16} className="text-ok" />}
         maxWidth="max-w-lg"
+        footer={instructionModal ? (
+          <VerifyActions
+            checking={modalCheck === 'checking'}
+            disabled={!instructionModal.verification_token || modalCheck === 'checking' || modalCheck === 'verified'}
+            onCheck={() => handleVerify(instructionModal, true)}
+          />
+        ) : undefined}
       >
         {instructionModal && (
           <div className="space-y-4">
             <p className="text-xs text-soft leading-relaxed">
               Prove you own <strong className="text-ink">{instructionModal.domain}</strong> by adding
-              a TXT record in your DNS settings (Cloudflare, GoDaddy, Namecheap, etc.):
+              a TXT record in your DNS settings (Cloudflare, GoDaddy, Namecheap and so on):
             </p>
 
             <DomainDnsInstructions key={instructionModal.id} domain={instructionModal.domain} token={instructionModal.verification_token} />
 
             {modalCheck === 'failed' && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-500 flex items-start gap-2">
+              <div role="alert" className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-500 flex items-start gap-2">
                 <AlertTriangle size={14} className="flex-none mt-0.5" />
                 <span>
-                  We can't see the record yet. If you just added it, wait a few minutes and check
-                  again — DNS changes sometimes take up to an hour.
+                  We cannot see the record yet. If you just added it, wait a few minutes and check
+                  again. DNS changes can take up to an hour.
                 </span>
               </div>
             )}
 
             {modalCheck === 'verified' && (
-              <div className="p-3 bg-ok/10 border border-ok/30 rounded text-xs text-ok flex items-center gap-2">
+              <div role="status" className="p-3 bg-ok/10 border border-ok/30 rounded text-xs text-ok flex items-center gap-2">
                 <CheckCircle2 size={14} className="flex-none" />
-                <span>Domain verified! Updating your dashboard…</span>
+                <span>Domain verified. Updating your dashboard…</span>
               </div>
             )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => setInstructionModal(null)}
-                className="btn-tactile px-4 py-1.5 rounded text-xs mono border border-line hover:bg-inset text-soft"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => handleVerify(instructionModal, true)}
-                disabled={!instructionModal.verification_token || modalCheck === 'checking' || modalCheck === 'verified'}
-                className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
-              >
-                {modalCheck === 'checking' ? (
-                  <>
-                    <RefreshCw size={13} className="animate-spin" /> Checking…
-                  </>
-                ) : (
-                  'Check now'
-                )}
-              </button>
-            </div>
           </div>
         )}
-      </Modal>
+      </Dialog>
     </div>
+  );
+}
+
+function AddDomainActions({ adding, disabled }: { adding: boolean; disabled: boolean }) {
+  const close = useDialogClose();
+  return (
+    <>
+      <button type="button" onClick={close} className="btn-tactile px-3.5 py-1.5 rounded text-xs mono border border-line hover:bg-inset text-soft min-h-[44px]">Cancel</button>
+      <button type="submit" form="add-domain-form" disabled={adding || disabled}
+              className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 min-h-[44px]">
+        {adding ? (<><RefreshCw size={13} className="animate-spin" /> Adding…</>) : 'Add domain'}
+      </button>
+    </>
+  );
+}
+
+function VerifyActions({ checking, disabled, onCheck }: { checking: boolean; disabled: boolean; onCheck: () => void }) {
+  const close = useDialogClose();
+  return (
+    <>
+      <button type="button" onClick={close} className="btn-tactile px-4 py-1.5 rounded text-xs mono border border-line hover:bg-inset text-soft min-h-[44px]">Close</button>
+      <button type="button" onClick={onCheck} disabled={disabled}
+              className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 min-h-[44px]">
+        {checking ? (<><RefreshCw size={13} className="animate-spin" /> Checking…</>) : 'Check now'}
+      </button>
+    </>
   );
 }

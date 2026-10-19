@@ -787,7 +787,7 @@ body.drawer-open {
 .rem-mini{font-size:13.5px; line-height:1.7; padding:12px 14px; border:1px solid var(--line); border-radius:3px; background:var(--inset)}
 .drawer-body .btn{margin-top:20px}
 
-.toasts{position:fixed; left:24px; bottom:24px; z-index:120; display:flex; flex-direction:column; gap:8px}
+.toasts{position:fixed; left:24px; bottom:24px; z-index:1200; display:flex; flex-direction:column; gap:8px}
 .toast{background:var(--inv-bg); color:var(--inv-fg); border-left:3px solid var(--accent); font-family:var(--font-mono); font-size:11.5px; letter-spacing:.05em; padding:12px 16px; border-radius:3px; max-width:360px; animation:rise .25s cubic-bezier(.2,.8,.2,1)}
 @media (max-width:900px){ .toasts{left:16px; right:16px; bottom:calc(76px + env(safe-area-inset-bottom, 0px))} .toast{max-width:none} }
 
@@ -1913,4 +1913,31 @@ body.drawer-open {
   }
   .chip-row::-webkit-scrollbar { display: none; }
   .chip-row > * { flex-shrink: 0; white-space: nowrap; }
+}
+
+/* ============ Shared dialog (components/ui/Dialog.tsx) ============ */
+.dialog-panel{display:flex; flex-direction:column; max-height:85vh; max-height:85dvh; overflow:hidden; outline:none}
+.dialog-bar{display:flex; align-items:center; justify-content:space-between; gap:8px; flex:none; padding:12px 16px 12px 20px; min-height:56px; border-bottom:1px solid var(--line); background:var(--raised)}
+.dialog-body{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; padding:16px 20px 20px; -webkit-overflow-scrolling:touch}
+.dialog-footer{flex:none; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; padding:12px 20px calc(12px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line); background:var(--raised)}
+.dialog-close{display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:44px; min-height:44px; margin:-6px -6px -6px 0; border-radius:4px; color:var(--soft)}
+.dialog-close:hover{color:var(--ink); background:var(--inset)}
+.touch-target{min-height:44px}
+@media (max-width:640px){
+  .dialog-backdrop{padding:0; align-items:stretch; background:var(--raised); backdrop-filter:none; -webkit-backdrop-filter:none}
+  .dialog-panel{max-width:none !important; width:100%; height:100vh; height:100dvh; max-height:none; margin:0; border:0; border-radius:0; box-shadow:none}
+  .dialog-bar{position:sticky; top:0; z-index:2; padding:calc(8px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px))}
+  .dialog-body{padding:16px calc(16px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px))}
+  .dialog-footer{padding-left:calc(16px + env(safe-area-inset-left, 0px)); padding-right:calc(16px + env(safe-area-inset-right, 0px))}
+  .dialog-footer > *{flex:1 1 auto; justify-content:center}
+}
+/* A smaller dialog (confirmation, discard prompt) stays a centred card on phones instead of going full screen. */
+@media (max-width:640px){
+  .dialog-backdrop:has(.dialog-panel.dialog-card){padding:16px; align-items:center; background:rgba(10,9,7,.75); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px)}
+  .dialog-panel.dialog-card{height:auto; max-height:calc(100dvh - 32px); border:1px solid var(--line-strong); border-radius:8px; box-shadow:0 24px 60px -12px rgba(0,0,0,.6)}
+}
+/* Buttons and fields reach 44px on touch screens. */
+@media (max-width:900px){
+  .btn-mini, .btn.btn-mini{min-height:44px}
+  .app-form-control{min-height:44px}
 }
