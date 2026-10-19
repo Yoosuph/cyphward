@@ -7,6 +7,7 @@ Nothing here says a file proves anything: an attachment is something the custome
 """
 import io
 import re
+import struct
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ DOCX_MAX_ENTRIES = 1000
 DOCX_MAX_UNCOMPRESSED = 50 * 1024 * 1024
 DOCX_MAX_RATIO = 100
 DOCX_CONTENT_TYPES_MAX = 1024 * 1024
+DOCX_MAX_DIRECTORY_BYTES = 256 * 1024  # the zip's central directory; bounds the work of reading it
 
 ALLOWED_TEXT = "PDF, PNG, JPG/JPEG or DOCX files up to 10 MB"
 
@@ -94,7 +96,25 @@ def check_name(raw: str) -> Tuple[str, str]:
     return name, kind
 
 
+def _directory_problem(data: bytes) -> Optional[str]:
+    """Refuse a zip whose directory is too big BEFORE it is parsed: the entry count and directory size come from
+    the end-of-central-directory record, so the work done on a hostile file is bounded."""
+    tail = data[-(65535 + 22):]
+    at = tail.rfind(b"PK\x05\x06")
+    if at < 0 or len(tail) - at < 22:
+        return "This is not a valid DOCX file."
+    entries, size = struct.unpack("<HI", tail[at + 10:at + 10 + 2] + tail[at + 12:at + 16])
+    if entries == 0xFFFF or size == 0xFFFFFFFF or entries > DOCX_MAX_ENTRIES:
+        return "This DOCX file has too many parts to accept."
+    if size > DOCX_MAX_DIRECTORY_BYTES:
+        return "This DOCX file has too many parts to accept."
+    return None
+
+
 def _docx_problem(data: bytes) -> Optional[str]:
+    problem = _directory_problem(data)
+    if problem:
+        return problem
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except (zipfile.BadZipFile, ValueError, OSError):

@@ -102,8 +102,11 @@ class SupabaseStorage:
                     "sortBy": {"column": "name", "order": "asc"}})
                 if response.status_code == 404:
                     break
-                items = response.json()
-                if not isinstance(items, list):
+                try:
+                    items = response.json()
+                except ValueError:
+                    raise StorageError("The storage service returned an unexpected listing.") from None
+                if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
                     raise StorageError("The storage service returned an unexpected listing.")
                 for item in items:
                     name = str(item.get("name") or "")
@@ -139,7 +142,10 @@ class SupabaseStorage:
         response = self._request("GET", f"/bucket/{self._bucket}", ok_missing=True)
         if response.status_code == 404:
             return None
-        return not bool(response.json().get("public"))
+        try:
+            return not bool(response.json().get("public"))
+        except (ValueError, AttributeError):
+            raise StorageError("The storage service returned an unexpected answer.") from None
 
 
 def _epoch(value: Any) -> Optional[float]:

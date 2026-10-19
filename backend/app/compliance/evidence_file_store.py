@@ -29,6 +29,7 @@ logger = logging.getLogger("cyphward.evidence_files")
 
 LOCK_WAIT_MS = 5000
 RECONCILE_MIN_AGE_SECONDS = 900
+RECONCILE_MAX_DELETE = 50
 
 
 class QuotaExceeded(RuntimeError):
@@ -162,21 +163,21 @@ def listing(org_id: str, question_key: Optional[str] = None) -> Dict[str, Any]:
 # ── Download link ─────────────────────────────────────────────────────────────
 
 
-def authorize_download(org_id: str, actor: str, file_id: str) -> Optional[Dict[str, Any]]:
-    """The file's row if it is this organisation's and not removed, and audit that a link is being issued, in one
-    transaction. None when there is no such active file. The link itself is made afterwards, outside the transaction."""
+def find_for_download(org_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+    """The file's row if it is this organisation's and not removed, else None. Read only."""
+    return (execute_query(
+        "SELECT id, question_key, display_name, content_type, size_bytes, storage_path "
+        "FROM compliance_evidence_files WHERE id = %s AND org_id = %s AND removed_at IS NULL",
+        (file_id, org_id)) or [None])[0]
+
+
+def audit_download_link(org_id: str, actor: str, row: Dict[str, Any]) -> None:
+    """Record that a link was issued. Called only after the link exists: a failed signing leaves no row."""
     with database.get_db() as conn:
         with conn.transaction():
-            row = conn.execute(
-                "SELECT id, question_key, display_name, content_type, size_bytes, storage_path "
-                "FROM compliance_evidence_files WHERE id = %s AND org_id = %s AND removed_at IS NULL",
-                (file_id, org_id)).fetchone()
-            if row is None:
-                return None
-            _audit(conn, org_id, actor, "compliance.evidence_file.download_link_issued", file_id,
-                   {"file_id": file_id, "question_key": row["question_key"], "size_bytes": int(row["size_bytes"]),
+            _audit(conn, org_id, actor, "compliance.evidence_file.download_link_issued", str(row["id"]),
+                   {"file_id": str(row["id"]), "question_key": row["question_key"], "size_bytes": int(row["size_bytes"]),
                     "content_type": row["content_type"], "expires_in": ef.SIGNED_URL_SECONDS})
-    return row
 
 
 # ── Removal ───────────────────────────────────────────────────────────────────
@@ -211,28 +212,70 @@ def delete_object(storage: Storage, path: str) -> bool:
 # ── Organisation deletion ─────────────────────────────────────────────────────
 
 
-def purge_organization(storage: Storage, org_id: str) -> int:
-    """Delete every stored object of an organisation. Raises StorageError when it cannot: the caller must not
-    delete the organisation's rows then, or objects would be left with nothing pointing at them."""
-    return storage.delete_prefix(ef.org_prefix(str(org_id)))
-
-
 def has_any_rows(org_id: str) -> bool:
     return bool(execute_query("SELECT 1 FROM compliance_evidence_files WHERE org_id = %s LIMIT 1", (org_id,)))
+
+
+def queue_purge(org_id: str) -> bool:
+    """Queue the organisation's stored objects for deletion, before its rows go. Only when it has file rows.
+    True when queued."""
+    row = execute_query(
+        "INSERT INTO compliance_evidence_purge_queue (org_id) SELECT %s WHERE EXISTS "
+        "(SELECT 1 FROM compliance_evidence_files WHERE org_id = %s) ON CONFLICT (org_id) DO NOTHING RETURNING org_id",
+        (org_id, org_id))
+    return bool(row)
+
+
+def purge_organization(storage: Storage, org_id: str) -> int:
+    """Delete every stored object of an organisation, then its queue entry. Raises StorageError when storage fails;
+    the entry stays queued and `process_purge_queue` retries."""
+    removed = storage.delete_prefix(ef.org_prefix(str(org_id)))
+    execute_query("DELETE FROM compliance_evidence_purge_queue WHERE org_id = %s", (str(org_id),))
+    return removed
+
+
+def process_purge_queue(storage: Storage, *, delete: bool = False) -> Dict[str, Any]:
+    """Retry queued purges. An entry whose organisation still exists (the closing failed) is dropped unused."""
+    rows = execute_query("SELECT org_id FROM compliance_evidence_purge_queue ORDER BY queued_at LIMIT 1000") or []
+    done, dropped, failed = 0, 0, 0
+    for row in rows:
+        org_id = str(row["org_id"])
+        if not delete:
+            continue
+        if execute_query("SELECT 1 FROM organizations WHERE id = %s", (org_id,)):
+            execute_query("DELETE FROM compliance_evidence_purge_queue WHERE org_id = %s", (org_id,))
+            dropped += 1
+            continue
+        try:
+            purge_organization(storage, org_id)
+            done += 1
+        except StorageError as exc:
+            logger.warning("evidence purge retry failed (%s)", exc)
+            failed += 1
+    return {"queued": len(rows), "purged": done, "dropped": dropped, "failed": failed}
 
 
 # ── Reconcile ─────────────────────────────────────────────────────────────────
 
 
+class ReconcileRefused(RuntimeError):
+    """A delete run that looks unsafe (for example the database table is empty but storage is not)."""
+
+
 def reconcile(storage: Storage, *, delete: bool = False, min_age_seconds: int = RECONCILE_MIN_AGE_SECONDS,
-              now: Optional[float] = None) -> Dict[str, Any]:
-    """Compare storage with the rows. Orphans are objects with no row, or whose row is marked removed. Objects with
-    no row younger than `min_age_seconds` are skipped: an upload may be between its put and its insert. Report only
-    unless `delete` is true. Also lists active rows whose object is missing (never changed here)."""
+              max_delete: int = RECONCILE_MAX_DELETE, now: Optional[float] = None) -> Dict[str, Any]:
+    """Compare storage with the rows. Orphans are objects with no row, or whose row is marked removed. An object with
+    no row that is younger than `min_age_seconds`, or whose age is unknown, is left alone: an upload may be between
+    its put and its insert. Report only unless `delete` is true. A delete run refuses when the table has no rows at
+    all but storage has objects (a wrong database would make everything look orphaned) and removes at most
+    `max_delete` objects per run. Also lists active rows whose object is missing (never changed here)."""
     import time
     now = time.time() if now is None else now
     objects = storage.list_objects("org/")
     paths = [o.path for o in objects]
+    if delete and objects and not execute_query("SELECT 1 FROM compliance_evidence_files LIMIT 1"):
+        raise ReconcileRefused("The database has no evidence-file rows but storage has objects: refusing to delete. "
+                               "Check that DATABASE_URL points at the right database.")
     rows: Dict[str, Optional[datetime]] = {}
     for i in range(0, len(paths), 1000):
         for r in execute_query(
@@ -245,7 +288,7 @@ def reconcile(storage: Storage, *, delete: bool = False, min_age_seconds: int = 
             if rows[obj.path] is not None:
                 removed_pending.append(obj.path)
             continue
-        if obj.created_at is not None and now - obj.created_at < min_age_seconds:
+        if obj.created_at is None or now - obj.created_at < min_age_seconds:
             young += 1
             continue
         orphans.append(obj.path)
@@ -254,11 +297,13 @@ def reconcile(storage: Storage, *, delete: bool = False, min_age_seconds: int = 
         "SELECT storage_path FROM compliance_evidence_files WHERE removed_at IS NULL ORDER BY uploaded_at LIMIT 10000") or []
         if r["storage_path"] not in have]
     deleted, failed = 0, 0
+    candidates = removed_pending + orphans
     if delete:
-        for path in orphans + removed_pending:
+        for path in candidates[:max_delete]:
             if delete_object(storage, path):
                 deleted += 1
             else:
                 failed += 1
     return {"objects": len(objects), "orphans": orphans, "removed_but_present": removed_pending,
-            "too_new_to_judge": young, "rows_missing_object": missing, "deleted": deleted, "failed": failed}
+            "too_new_to_judge": young, "rows_missing_object": missing, "deleted": deleted, "failed": failed,
+            "left_for_next_run": max(0, len(candidates) - max_delete) if delete else 0}

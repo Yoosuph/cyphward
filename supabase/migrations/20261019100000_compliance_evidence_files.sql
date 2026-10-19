@@ -9,6 +9,8 @@
 --                              (the plain local test database has none). No policy is created on storage.objects:
 --                              anon and authenticated roles get nothing; only the backend's service role touches it.
 --
+-- compliance_evidence_purge_queue  organisations whose stored objects still have to be deleted (see below).
+--
 -- Additive. The app role gets SELECT, INSERT and UPDATE (removed_at, removed_by) only: no DELETE. A guard trigger
 -- lets nothing else change (the only other change is a deleted profile clearing uploaded_by or removed_by).
 BEGIN;
@@ -84,6 +86,32 @@ CREATE POLICY cyphward_app_all ON compliance_evidence_files FOR ALL TO cyphward_
 REVOKE ALL ON compliance_evidence_files FROM cyphward_app;
 GRANT SELECT, INSERT ON compliance_evidence_files TO cyphward_app;
 GRANT UPDATE (removed_at, removed_by) ON compliance_evidence_files TO cyphward_app;
+
+-- Closing a workspace never waits for storage. Before the organisation row goes, its id is queued here (no foreign
+-- key: the organisation will be gone); the API then deletes the objects and removes the entry, and the reconcile
+-- script retries any entry left behind. An entry for an organisation that still exists is dropped unused.
+CREATE TABLE IF NOT EXISTS compliance_evidence_purge_queue (
+  org_id     uuid PRIMARY KEY,
+  queued_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE compliance_evidence_purge_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS cyphward_app_all ON compliance_evidence_purge_queue;
+CREATE POLICY cyphward_app_all ON compliance_evidence_purge_queue FOR ALL TO cyphward_app USING (true) WITH CHECK (true);
+REVOKE ALL ON compliance_evidence_purge_queue FROM cyphward_app;
+GRANT SELECT, INSERT, DELETE ON compliance_evidence_purge_queue TO cyphward_app;
+
+-- Supabase's default privileges can hand the API roles access to new public tables. RLS (no policy for them) already
+-- denies every row; take the privileges away as well, where those roles exist.
+DO $$
+DECLARE r text;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+      EXECUTE format('REVOKE ALL ON compliance_evidence_files FROM %I', r);
+      EXECUTE format('REVOKE ALL ON compliance_evidence_purge_queue FROM %I', r);
+    END IF;
+  END LOOP;
+END $$;
 
 -- The private bucket, where the Supabase storage schema exists. Re-running re-asserts that it is private.
 DO $$

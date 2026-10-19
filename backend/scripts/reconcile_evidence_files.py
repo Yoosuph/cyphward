@@ -1,7 +1,7 @@
 """Report (and optionally delete) evidence-file objects that nothing points at.
 
   python backend/scripts/reconcile_evidence_files.py            # read-only report (default)
-  python backend/scripts/reconcile_evidence_files.py --delete   # also delete the orphans listed
+  python backend/scripts/reconcile_evidence_files.py --delete --yes-delete   # also delete the orphans listed (at most --max, default 50, per run)
 
 Needs DATABASE_URL, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment (nothing is read from a file other
 than backend/.env, which the app already loads). Orphans are storage objects with no database row (an organisation
@@ -23,10 +23,16 @@ from backend.app.compliance import evidence_file_store  # noqa: E402
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--delete", action="store_true", help="delete the orphans (default: report only)")
+    parser.add_argument("--yes-delete", action="store_true", help="required together with --delete")
+    parser.add_argument("--max", type=int, default=evidence_file_store.RECONCILE_MAX_DELETE,
+                        help="most objects one run deletes (default %(default)s)")
     parser.add_argument("--min-age", type=int, default=evidence_file_store.RECONCILE_MIN_AGE_SECONDS,
                         help="seconds an object with no row must have existed before it is judged an orphan")
     parser.add_argument("--check-bucket", action="store_true", help="also check that the bucket exists and is private")
     args = parser.parse_args(argv)
+    if args.delete and not args.yes_delete:
+        print("error: --delete also needs --yes-delete. Read the report-only output first.", file=sys.stderr)
+        return 2
     try:
         storage = file_storage.get_storage()
     except file_storage.StorageNotConfigured as exc:
@@ -38,9 +44,16 @@ def main(argv=None) -> int:
         print(f"bucket {file_storage.BUCKET}: " + {True: "private", False: "PUBLIC", None: "missing"}[private])
         if private is not True:
             code = 1
-    report = evidence_file_store.reconcile(storage, delete=args.delete, min_age_seconds=args.min_age)
-    print(json.dumps({"mode": "delete" if args.delete else "report-only", **report}, indent=2))
-    return code or (1 if (report["failed"] or (report["orphans"] or report["removed_but_present"]) and not args.delete) else 0)
+    try:
+        report = evidence_file_store.reconcile(storage, delete=args.delete, min_age_seconds=args.min_age, max_delete=args.max)
+    except evidence_file_store.ReconcileRefused as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    queue = evidence_file_store.process_purge_queue(storage, delete=args.delete)
+    print(json.dumps({"mode": "delete" if args.delete else "report-only", **report, "purge_queue": queue}, indent=2))
+    if queue["failed"]:
+        code = 1
+    return code or (1 if (report["failed"] or (report["orphans"] or report["removed_but_present"] or queue["queued"]) and not args.delete) else 0)
 
 
 if __name__ == "__main__":

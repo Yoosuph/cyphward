@@ -257,31 +257,22 @@ def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONRes
     )
 
 
-def _purge_evidence_files(org_id: str, after_delete: bool = False) -> None:
-    """Delete the organisation's evidence-file objects BEFORE its rows go (packet C6), so nothing is orphaned.
+def _queue_evidence_purge(org_id: str) -> None:
+    """Before the organisation's rows go, queue its stored evidence files for deletion (packet C6). Closing never
+    waits for storage and never fails because of it: the objects are deleted right after the rows, and an entry left
+    in the queue is retried by `backend/scripts/reconcile_evidence_files.py`."""
+    from backend.app.compliance import evidence_file_store
+    evidence_file_store.queue_purge(org_id)
 
-    Fails closed: if the objects of a workspace that has file rows cannot be deleted it is not closed (503) and can
-    be closed again.
-    Storage that is not configured is fine only when the organisation never stored a file. A second sweep after
-    the rows are gone (best effort) catches an upload that committed in between; reconcile covers the rest.
-    """
+
+def _purge_evidence_files(org_id: str) -> None:
     from backend.app import storage as file_storage
     from backend.app.compliance import evidence_file_store
+    import logging
     try:
-        store = file_storage.get_storage()
-    except file_storage.StorageNotConfigured:
-        if not after_delete and evidence_file_store.has_any_rows(org_id):
-            raise HTTPException(status_code=503, detail="This workspace has stored files and file storage is not "
-                                "reachable, so it was not closed. Try again shortly.", headers={"Retry-After": "30"})
-        return
-    try:
-        evidence_file_store.purge_organization(store, org_id)
-    except file_storage.StorageError:
-        # An organisation that never stored a file is not held up by a storage outage (reconcile covers strays).
-        if after_delete or not evidence_file_store.has_any_rows(org_id):
-            return
-        raise HTTPException(status_code=503, detail="The stored evidence files could not be deleted, so the "
-                            "workspace was not closed. Try again shortly.", headers={"Retry-After": "30"})
+        evidence_file_store.purge_organization(file_storage.get_storage(), org_id)
+    except Exception as exc:  # the entry stays queued; the closing already succeeded
+        logging.getLogger("cyphward.evidence_files").warning("evidence purge deferred (%s)", type(exc).__name__)
 
 
 @router.post("/close")
@@ -303,7 +294,7 @@ def close_organization(
             status_code=400,
             detail=f"Type the workspace slug '{org['slug']}' to confirm closure.",
         )
-    _purge_evidence_files(str(org["id"]))
+    _queue_evidence_purge(str(org["id"]))
     log_audit(None, org.get("current_user_id"), "org.closed", "organization", str(org["id"]),
               {"slug": org["slug"], "name": org["name"]})
     deleted = execute_one(
@@ -311,5 +302,5 @@ def close_organization(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Organization not found.")
-    _purge_evidence_files(str(org["id"]), after_delete=True)
+    _purge_evidence_files(str(org["id"]))
     return {"closed": True, "org_id": str(org["id"])}

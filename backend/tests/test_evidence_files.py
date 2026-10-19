@@ -291,6 +291,15 @@ def test_a_plain_http_remote_url_is_refused(monkeypatch):
     assert SupabaseStorage.from_env() is not None
 
 
+def test_odd_listings_and_answers_become_storage_errors():
+    with pytest.raises(StorageError):
+        _client(lambda r: httpx.Response(200, text="<html>not json</html>")).list_objects("org/a/")
+    with pytest.raises(StorageError):
+        _client(lambda r: httpx.Response(200, json=["x", 1])).list_objects("org/a/")
+    with pytest.raises(StorageError):
+        _client(lambda r: httpx.Response(200, text="nope")).bucket_is_private()
+
+
 def test_bucket_privacy_check():
     assert _client(lambda r: httpx.Response(200, json={"public": False})).bucket_is_private() is True
     assert _client(lambda r: httpx.Response(200, json={"public": True})).bucket_is_private() is False

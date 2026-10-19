@@ -2074,6 +2074,7 @@ def fake_file_storage(monkeypatch):
 
     for name in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EVIDENCE_UPLOADS_ENABLED", "true")
     fake = MemoryStorage()
     file_storage.set_storage(fake)
     yield fake

@@ -34,6 +34,7 @@ from backend.app.compliance import evidence_files as ef
 from backend.app.core import database
 from backend.app.main import app
 from backend.app.storage import StorageError, SupabaseStorage
+from backend.app.storage.base import StoredObject  # noqa: F401
 from backend.app.storage.memory import MemoryStorage
 from backend.tests.evidence_samples import DOCX, JPEG, PDF, PNG
 from backend.tests.test_compliance_attestations_postgres import _record, world  # noqa: F401 (fixture)
@@ -687,10 +688,11 @@ def test_a_slow_sender_cannot_hold_an_upload_slot_forever(world, team, fake, mon
     async def slow(request):
         await asyncio.sleep(5)
 
+    real = api._read_body
     monkeypatch.setattr(api, "_read_body", slow)
     resp = _upload(world, org_id, owner)
     assert resp.status_code == 408 and fake.objects == {}
-    monkeypatch.undo()
+    monkeypatch.setattr(api, "_read_body", real)
     assert _upload(world, org_id, owner).status_code == 201  # the slot was released
 
 
@@ -755,7 +757,17 @@ def _close(world, org_id, uid):
     return world.client.post("/api/v1/organizations/close", json={"slug": slug}, headers=world.headers(uid, org_id))
 
 
-def test_closing_an_organisation_deletes_its_objects_first_and_only_its_own(world, team, fake):
+def _clear_queue(world):
+    """Other tests leave entries behind; the queue is global, so tests that count it start from empty."""
+    world.setup.execute("DELETE FROM compliance_evidence_purge_queue")
+    world.setup.commit()
+
+
+def _queue(world, org_id):
+    return world.rows("SELECT org_id FROM compliance_evidence_purge_queue WHERE org_id = %s", (org_id,))
+
+
+def test_closing_queues_the_purge_then_deletes_the_objects_and_only_its_own(world, team, fake):
     org_id, owner, *_ = team
     other = world.make_org()
     other_owner = world.make_person(other, "owner")
@@ -764,54 +776,229 @@ def test_closing_an_organisation_deletes_its_objects_first_and_only_its_own(worl
     removed = _upload(world, org_id, owner).json()["id"]
     _remove(world, org_id, owner, removed)
     _upload(world, other, other_owner)
-    order = []
+    seen = []
     original = fake.delete_prefix
-    fake.delete_prefix = lambda p: (order.append((p, len(world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,))))), original(p))[1]
+    fake.delete_prefix = lambda p: (seen.append((p, len(_queue(world, org_id)),
+                                                 len(world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,))))),
+                                    original(p))[1]
     resp = _close(world, org_id, owner)
     assert resp.status_code == 200, resp.text
-    assert order[0] == (f"org/{org_id}/", 1)  # the organisation row still existed when the objects went
+    assert seen == [(f"org/{org_id}/", 1, 0)]  # queued, and the rows were already gone when the objects went
+    assert _queue(world, org_id) == []  # done: the entry is cleared
     assert [p for p in fake.objects if p.startswith(f"org/{org_id}/")] == []
     assert len([p for p in fake.objects if p.startswith(f"org/{other}/")]) == 1
-    assert world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,)) == []
     assert world.rows("SELECT 1 FROM compliance_evidence_files WHERE org_id = %s", (org_id,)) == []
 
 
-def test_closing_fails_closed_when_storage_cannot_delete_and_can_be_retried(world, team, fake):
+def test_a_storage_failure_does_not_block_closing_and_the_queue_finishes_the_job(world, team, fake):
     org_id, owner, *_ = team
+    _clear_queue(world)
     _upload(world, org_id, owner)
     fake.fail_delete_prefix = True
-    resp = _close(world, org_id, owner)
-    assert resp.status_code == 503 and resp.headers["retry-after"]
-    assert len(world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,))) == 1
-    assert len(_rows(world, org_id)) == 1 and len(fake.objects) == 1
-    assert not world.rows("SELECT 1 FROM audit_log WHERE action = 'org.closed' AND resource_id = %s", (org_id,))
+    assert _close(world, org_id, owner).status_code == 200
+    assert world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,)) == []
+    assert len(_queue(world, org_id)) == 1 and len(fake.objects) == 1  # recorded, not silently orphaned
+    report = store.process_purge_queue(fake, delete=True)
+    assert report["failed"] == 1 and len(_queue(world, org_id)) == 1
     fake.fail_delete_prefix = False
-    assert _close(world, org_id, owner).status_code == 200 and fake.objects == {}
+    assert store.process_purge_queue(fake, delete=True)["purged"] == 1
+    assert fake.objects == {} and _queue(world, org_id) == []
+
+
+def test_a_failed_database_delete_leaves_the_files_and_the_stale_queue_entry_is_dropped(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    _clear_queue(world)
+    _upload(world, org_id, owner)
+    from backend.app.api import organizations as orgs
+
+    def broken(sql, params=()):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(orgs, "execute_one", broken)
+    with pytest.raises(RuntimeError):
+        _close(world, org_id, owner)
+    assert len(fake.objects) == 1 and len(_rows(world, org_id)) == 1  # nothing was deleted before the rows
+    assert len(_queue(world, org_id)) == 1
+    assert store.process_purge_queue(fake, delete=True)["dropped"] == 1  # the organisation still exists
+    assert len(fake.objects) == 1 and _queue(world, org_id) == []
+
+
+def test_closing_works_with_storage_unset_and_leaves_a_queue_entry(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    _clear_queue(world)
+    _upload(world, org_id, owner)
+    file_storage.set_storage(None)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    assert _close(world, org_id, owner).status_code == 200
+    assert len(_queue(world, org_id)) == 1 and len(fake.objects) == 1
+    file_storage.set_storage(fake)
+    assert store.process_purge_queue(fake, delete=True)["purged"] == 1 and fake.objects == {}
 
 
 def test_a_storage_outage_does_not_block_closing_an_organisation_with_no_files(world, team, fake):
     org_id, owner, *_ = team
     fake.fail_delete_prefix = True
     assert _close(world, org_id, owner).status_code == 200
-    assert world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,)) == []
+    assert world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,)) == [] and _queue(world, org_id) == []
 
 
-def test_closing_without_storage_configured_is_blocked_only_when_files_exist(world, monkeypatch):
-    file_storage.set_storage(None)
-    monkeypatch.delenv("SUPABASE_URL", raising=False)
-    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
-    plain = world.make_org()
-    plain_owner = world.make_person(plain, "owner")
-    assert _close(world, plain, plain_owner).status_code == 200  # never stored a file
-    org_id = world.make_org()
-    owner = world.make_person(org_id, "owner")
-    fid = str(uuid4())
-    world.setup.execute(
-        "INSERT INTO compliance_evidence_files (id, org_id, question_key, display_name, content_type, size_bytes, sha256, "
-        "storage_path) VALUES (%s, %s, 'k', 'a.pdf', 'application/pdf', 1, %s, %s)", (fid, org_id, "a" * 64, f"org/{org_id}/{fid}"))
-    world.setup.commit()
-    assert _close(world, org_id, owner).status_code == 503
-    assert len(world.rows("SELECT 1 FROM organizations WHERE id = %s", (org_id,))) == 1
+# ── Review round 1: bounded work, attempts, switch, reconcile safety, download audit ──
+
+
+def test_uploads_are_off_unless_the_operator_turns_them_on_but_downloads_still_work(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    file_id = _upload(world, org_id, owner).json()["id"]
+    monkeypatch.delenv("EVIDENCE_UPLOADS_ENABLED")
+    assert _upload(world, org_id, owner).status_code == 503
+    listing = world.client.get(BASE, headers=world.headers(owner, org_id)).json()
+    assert listing["uploads_available"] is False and len(listing["files"]) == 1
+    assert _download(world, org_id, owner, file_id).status_code == 200
+    assert _remove(world, org_id, owner, file_id).status_code == 200
+
+
+def test_a_many_entry_docx_is_refused_from_the_directory_record_without_parsing_it(world, team, fake, monkeypatch):
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for i in range(30000):
+            z.writestr(f"word/{i}", b"")
+    data = buf.getvalue()
+
+    def boom(*a, **k):
+        raise AssertionError("the zip directory must not be parsed")
+
+    monkeypatch.setattr(ef.zipfile, "ZipFile", boom)
+    started = time.perf_counter()
+    with pytest.raises(ef.FileRejected, match="too many parts"):
+        ef.check_content("docx", data)
+    assert time.perf_counter() - started < 0.05  # constant work, not proportional to the entry count
+    org_id, owner, *_ = team
+    assert _upload(world, org_id, owner, name="a.docx", data=data).status_code == 422 and fake.objects == {}
+
+
+def test_refused_attempts_count_toward_the_hourly_attempt_limit(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    monkeypatch.setattr(api, "ATTEMPTS_PER_HOUR", 3)
+    for _i in range(3):
+        assert _upload(world, org_id, owner, name="a.pdf", data=PNG).status_code == 422
+    limited = _upload(world, org_id, owner)
+    assert limited.status_code == 429 and limited.headers["retry-after"]
+    assert fake.objects == {}
+    other = world.make_org()
+    assert _upload(world, other, world.make_person(other, "owner")).status_code == 201
+
+
+def test_one_organisation_cannot_take_more_than_its_share_of_upload_slots(world, team, fake, monkeypatch):
+    org_id, owner, *_ = team
+    monkeypatch.setattr(api, "MAX_UPLOADS_PER_ORG", 1)
+    monkeypatch.setattr("backend.app.main.SCHEDULER_ENABLED", False)
+    started = threading.Event()
+    real_put = fake.put
+
+    def slow_put(*a, **k):
+        started.set()
+        time.sleep(1.2)
+        return real_put(*a, **k)
+
+    monkeypatch.setattr(fake, "put", slow_put)
+    headers = lambda: {**world.headers(owner, org_id), "X-File-Name": "a.pdf"}  # noqa: E731
+    with TestClient(app) as client, ThreadPoolExecutor(2) as pool:
+        post = lambda: client.post(f"{BASE}?question_key={KEY}", content=PDF, headers=headers())  # noqa: E731
+        first = pool.submit(post)
+        assert started.wait(20)
+        second = post()
+        assert second.status_code == 503 and second.headers["retry-after"]
+        assert first.result().status_code == 201
+        other = world.make_org()
+        other_owner = world.make_person(other, "owner")
+        monkeypatch.setattr(fake, "put", real_put)
+        third = client.post(f"{BASE}?question_key={KEY}", content=PDF,
+                            headers={**world.headers(other_owner, other), "X-File-Name": "a.pdf"})
+        assert third.status_code == 201  # another organisation is not held up
+
+
+def test_a_database_outage_is_a_503_with_retry_after_and_the_object_is_cleaned_up(world, team, fake, monkeypatch):
+    from psycopg_pool import PoolTimeout
+    org_id, owner, *_ = team
+
+    def timeout(*a, **k):
+        raise PoolTimeout("pool busy")
+
+    monkeypatch.setattr(api.evidence_file_store, "register", timeout)
+    resp = _upload(world, org_id, owner)
+    assert resp.status_code == 503 and resp.headers["retry-after"] and fake.objects == {}
+    monkeypatch.setattr(api.evidence_file_store, "precheck", timeout)
+    assert _upload(world, org_id, owner).status_code == 503
+
+
+def test_the_download_audit_row_is_written_only_after_a_link_exists(world, team, fake):
+    org_id, owner, *_ = team
+    file_id = _upload(world, org_id, owner).json()["id"]
+    fake.fail_sign = True
+    assert _download(world, org_id, owner, file_id).status_code == 502
+    assert _audit(world, org_id, "compliance.evidence_file.download_link_issued") == []
+    fake.fail_sign = False
+    assert _download(world, org_id, owner, file_id).status_code == 200
+    assert len(_audit(world, org_id, "compliance.evidence_file.download_link_issued")) == 1
+
+
+def test_download_links_are_rate_limited_per_user(world, team, fake, monkeypatch):
+    org_id, owner, admin, member = team
+    file_id = _upload(world, org_id, owner).json()["id"]
+    monkeypatch.setattr(api, "DOWNLOADS_PER_MINUTE", 2)
+    assert [_download(world, org_id, member, file_id).status_code for _i in range(3)] == [200, 200, 429]
+    assert _download(world, org_id, admin, file_id).status_code == 200  # another user has their own allowance
+    assert len(fake.signed) == 3
+
+
+def test_reconcile_delete_refuses_when_the_table_is_empty_but_storage_is_not(world, team, fake):
+    org_id, *_ = team
+    for i in range(3):
+        path = f"org/{org_id}/{uuid4()}"
+        fake.put(path, b"x", "application/pdf")
+        fake.age(path, 7200)
+    assert len(store.reconcile(fake)["orphans"]) == 3  # report mode still reports
+    with pytest.raises(store.ReconcileRefused):
+        store.reconcile(fake, delete=True)
+    assert len(fake.objects) == 3
+
+
+def test_reconcile_deletes_at_most_the_cap_per_run_and_unknown_age_is_too_new(world, team, fake):
+    org_id, owner, *_ = team
+    _upload(world, org_id, owner)  # one real row, so the table is not empty
+    for i in range(5):
+        path = f"org/{org_id}/{uuid4()}"
+        fake.put(path, b"x", "application/pdf")
+        fake.age(path, 7200)
+    unknown = f"org/{org_id}/{uuid4()}"
+    fake.put(unknown, b"x", "application/pdf")
+    real_list = fake.list_objects
+    fake.list_objects = lambda prefix: [StoredObject(o.path, None if o.path == unknown else o.created_at)
+                                         for o in real_list(prefix)]
+    run = store.reconcile(fake, delete=True, max_delete=2)
+    assert run["deleted"] == 2 and run["left_for_next_run"] == 3 and unknown in fake.objects
+    assert unknown not in run["orphans"] and run["too_new_to_judge"] >= 1
+
+
+def test_the_reconcile_script_needs_yes_delete_as_well(world, team, fake, capsys):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("reconcile_script", pathlib.Path(__file__).resolve().parents[1] / "scripts/reconcile_evidence_files.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(["--delete"]) == 2
+    assert "--yes-delete" in capsys.readouterr().err
+    assert mod.main([]) in (0, 1)
+
+
+def test_the_api_roles_hold_no_privileges_on_the_new_tables(world):
+    rows = world.rows("SELECT grantee, table_name FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated') "
+                      "AND table_name IN ('compliance_evidence_files', 'compliance_evidence_purge_queue')")
+    assert rows == []
+    grants = world.rows("SELECT privilege_type FROM information_schema.role_table_grants WHERE grantee = 'cyphward_app' "
+                        "AND table_name = 'compliance_evidence_purge_queue' ORDER BY 1")
+    assert [g["privilege_type"] for g in grants] == ["DELETE", "INSERT", "SELECT"]
 
 
 # ── Snapshots and packs ───────────────────────────────────────────────────────
