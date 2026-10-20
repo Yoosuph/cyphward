@@ -4,6 +4,7 @@ Evidence First, AI Second: Explanations, Step-by-step Remediation, and Executive
 """
 import json
 import asyncio
+from backend.app.api.demo_login import limit_demo_ai
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -14,7 +15,7 @@ from backend.app.ai.factory import get_ai_provider
 from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.core.auth import get_current_org
 
-router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"])
+router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"], dependencies=[Depends(limit_demo_ai)])
 
 
 class ExplainRequest(BaseModel):
