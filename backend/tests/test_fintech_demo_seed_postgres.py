@@ -89,16 +89,14 @@ def _code_from(outbox):
 
 
 def _sign_in(outbox, client=None):
-    """The normal login: password, then the owner's emailed step-up code. Returns (client, access token)."""
+    """The normal password login. The demo owner is a member, so no emailed step-up code is needed."""
     client = client or TestClient(_app())
     resp = client.post("/api/v1/auth/login", json={"email": demo.DEMO_EMAIL, "password": PASSWORD})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body.get("mfa_required") is True  # the owner role always takes the emailed code
-    code = _code_from(outbox)
-    done = client.post("/api/v1/auth/mfa/verify", json={"mfa_token": body["mfa_token"], "code": code})
-    assert done.status_code == 200, done.text
-    return client, done.json()["access_token"]
+    assert "mfa_required" not in body and body.get("access_token")
+    assert outbox == []  # nothing was emailed
+    return client, body["access_token"]
 
 
 def _app():
@@ -286,17 +284,14 @@ def test_the_demo_owner_signs_in_through_the_existing_login_route(demo_db, outbo
     client, token = _sign_in(outbox)
     me = client.get("/api/v1/organizations/current", headers=_headers(token))
     assert me.status_code == 200, me.text
-    assert me.json()["name"] == demo.DEMO_ORG_NAME and me.json()["role"] == "owner"
-    assert len(outbox) == 1 and outbox[0]["args"][0] == demo.DEMO_EMAIL  # one code, to the demo address only
+    assert me.json()["name"] == demo.DEMO_ORG_NAME and me.json()["role"] == "member"
 
 
-def test_a_wrong_step_up_code_gives_no_session(demo_db, outbox):
+def test_a_wrong_password_gives_no_session(demo_db, outbox):
     _seed(demo_db)
     client = TestClient(_app())
-    body = client.post("/api/v1/auth/login", json={"email": demo.DEMO_EMAIL, "password": PASSWORD}).json()
-    wrong = "000000" if _code_from(outbox) != "000000" else "111111"
-    resp = client.post("/api/v1/auth/mfa/verify", json={"mfa_token": body["mfa_token"], "code": wrong})
-    assert resp.status_code in (400, 401) and "access_token" not in resp.json()
+    resp = client.post("/api/v1/auth/login", json={"email": demo.DEMO_EMAIL, "password": "not-the-demo-password"})
+    assert resp.status_code == 401 and "access_token" not in resp.json()
 
 
 def test_the_password_is_hashed_and_never_stored_in_plain_text(demo_db):

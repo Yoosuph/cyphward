@@ -311,14 +311,15 @@ def _insert_identity(cur, password_hash: str) -> None:
 
 
 def _insert_organisation(cur, now: datetime) -> None:
-    # Mirrors api/organizations.py: owner membership and a 30-day manual trial. The trial is extended to
+    # Member role: password sign-in needs no emailed step-up code (owners and admins always get one).
+    # Mirrors api/organizations.py for the trial: a manual trialing subscription. The trial is extended to
     # 90 days so a walkthrough a few weeks later still has full quotas.
     cur.execute(
         "INSERT INTO organizations (id, name, slug, sector, plan, created_at, updated_at) "
         "VALUES (%s, %s, %s, 'Fintech & Digital Commerce', 'growth', %s, %s)",
         (DEMO_ORG_ID, DEMO_ORG_NAME, DEMO_SLUG, _days(now, 62), now),
     )
-    cur.execute("INSERT INTO organization_members (user_id, org_id, role) VALUES (%s, %s, 'owner')",
+    cur.execute("INSERT INTO organization_members (user_id, org_id, role) VALUES (%s, %s, 'member')",
                 (DEMO_USER_ID, DEMO_ORG_ID))
     cur.execute(
         "INSERT INTO subscriptions (org_id, plan, status, provider, current_period_start, current_period_end, "
