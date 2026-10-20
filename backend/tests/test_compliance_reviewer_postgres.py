@@ -1285,3 +1285,27 @@ def test_the_branded_v2_pack_shows_the_overlay_instead_of_the_marker_and_counts_
     assert rw.w.client.get(f"/api/v1/packs/{after['id']}/pdf", headers=_h(rw, owner, org)).content.startswith(b"%PDF")
     # The earlier pack is untouched.
     assert flat_of(before["id"]).count("reference reviewed by") == 0
+
+
+TABLES = ("compliance_reviewer_grants", "compliance_practitioner_reviews", "compliance_clause_verifications")
+
+
+def test_the_api_roles_hold_nothing_and_the_app_role_only_its_minimal_grants_and_the_fix_is_idempotent(rw):
+    import pathlib
+    sql = (pathlib.Path(__file__).resolve().parents[2] / "supabase/migrations/20261019200001_compliance_reviewer_revoke.sql").read_text()
+    with _admin() as conn:
+        for table in TABLES:  # what Supabase's default privileges would have handed out
+            conn.execute(f"GRANT ALL ON {table} TO anon, authenticated")
+        conn.execute(sql)
+        conn.execute(sql)  # applying it twice changes nothing
+    api = rw.w.rows("SELECT grantee, table_name FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated') "
+                    "AND table_name = ANY(%s)", (list(TABLES),))
+    assert api == []
+    held = {t: [g["privilege_type"] for g in rw.w.rows(
+        "SELECT privilege_type FROM information_schema.role_table_grants WHERE grantee = 'cyphward_app' AND table_name = %s "
+        "ORDER BY 1", (t,))] for t in TABLES}
+    assert held == {"compliance_reviewer_grants": ["INSERT", "SELECT"], "compliance_practitioner_reviews": ["INSERT", "SELECT"],
+                    "compliance_clause_verifications": ["INSERT", "SELECT"]}
+    cols = rw.w.rows("SELECT column_name FROM information_schema.column_privileges WHERE grantee = 'cyphward_app' "
+                     "AND table_name = 'compliance_reviewer_grants' AND privilege_type = 'UPDATE' ORDER BY 1")
+    assert [c["column_name"] for c in cols] == ["revoked_at", "revoked_by"]
