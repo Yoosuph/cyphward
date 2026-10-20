@@ -7,6 +7,11 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
+-- service_role is deliberately left alone. It is Supabase's admin credential (it bypasses RLS and holds ALL on every
+-- table by default), is never given to the API, and is the same on every other table in this schema; it is not an
+-- exposure of these tables to customers. Decision recorded in PROGRESS.md (C6-16).
+REVOKE ALL ON compliance_reviewer_grants, compliance_practitioner_reviews, compliance_clause_verifications FROM PUBLIC;
+
 DO $$
 DECLARE r text;
 BEGIN

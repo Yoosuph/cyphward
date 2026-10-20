@@ -1290,22 +1290,45 @@ def test_the_branded_v2_pack_shows_the_overlay_instead_of_the_marker_and_counts_
 TABLES = ("compliance_reviewer_grants", "compliance_practitioner_reviews", "compliance_clause_verifications")
 
 
+def _acl(conn):
+    """Every table-level and column-level privilege on the three tables, as (table, column or None, role, privilege)."""
+    table_rows = conn.execute(
+        "SELECT c.relname AS t, NULL::text AS col, CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE r.rolname END AS role, "
+        "a.privilege_type AS priv FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a "
+        "LEFT JOIN pg_roles r ON r.oid = a.grantee WHERE c.relnamespace = 'public'::regnamespace AND c.relname = ANY(%s)",
+        (list(TABLES),)).fetchall()
+    column_rows = conn.execute(
+        "SELECT c.relname AS t, att.attname AS col, CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE r.rolname END AS role, "
+        "a.privilege_type AS priv FROM pg_class c JOIN pg_attribute att ON att.attrelid = c.oid AND att.attacl IS NOT NULL "
+        "CROSS JOIN LATERAL aclexplode(att.attacl) a LEFT JOIN pg_roles r ON r.oid = a.grantee "
+        "WHERE c.relnamespace = 'public'::regnamespace AND c.relname = ANY(%s)", (list(TABLES),)).fetchall()
+    return [(r["t"], r["col"], r["role"], r["priv"]) for r in table_rows + column_rows]
+
+
 def test_the_api_roles_hold_nothing_and_the_app_role_only_its_minimal_grants_and_the_fix_is_idempotent(rw):
     import pathlib
     sql = (pathlib.Path(__file__).resolve().parents[2] / "supabase/migrations/20261019200001_compliance_reviewer_revoke.sql").read_text()
     with _admin() as conn:
-        for table in TABLES:  # what Supabase's default privileges would have handed out
-            conn.execute(f"GRANT ALL ON {table} TO anon, authenticated")
+        for table in TABLES:
+            # What Supabase's default privileges would have handed out to the API roles, and more than the app role may keep.
+            conn.execute(f"GRANT ALL ON {table} TO anon, authenticated, PUBLIC, cyphward_app")
+        conn.execute("GRANT UPDATE (purpose, expires_at) ON compliance_reviewer_grants TO anon, authenticated, cyphward_app")
+        before = _acl(conn)
+        assert any(r[2] == "anon" and r[3] == "DELETE" for r in before) and any(r[2] == "cyphward_app" and r[3] == "DELETE" for r in before)
         conn.execute(sql)
         conn.execute(sql)  # applying it twice changes nothing
-    api = rw.w.rows("SELECT grantee, table_name FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated') "
-                    "AND table_name = ANY(%s)", (list(TABLES),))
-    assert api == []
-    held = {t: [g["privilege_type"] for g in rw.w.rows(
-        "SELECT privilege_type FROM information_schema.role_table_grants WHERE grantee = 'cyphward_app' AND table_name = %s "
-        "ORDER BY 1", (t,))] for t in TABLES}
-    assert held == {"compliance_reviewer_grants": ["INSERT", "SELECT"], "compliance_practitioner_reviews": ["INSERT", "SELECT"],
-                    "compliance_clause_verifications": ["INSERT", "SELECT"]}
-    cols = rw.w.rows("SELECT column_name FROM information_schema.column_privileges WHERE grantee = 'cyphward_app' "
-                     "AND table_name = 'compliance_reviewer_grants' AND privilege_type = 'UPDATE' ORDER BY 1")
-    assert [c["column_name"] for c in cols] == ["revoked_at", "revoked_by"]
+        after = _acl(conn)
+        for role in ("anon", "authenticated", "PUBLIC"):
+            assert [r for r in after if r[2] == role] == [], role
+        for table in TABLES:  # has_table_privilege agrees, for every privilege
+            for role in ("anon", "authenticated", "public"):
+                for priv in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                    assert not conn.execute("SELECT has_table_privilege(%s, %s, %s) AS ok", (role, table, priv)).fetchone()["ok"], (role, table, priv)
+        app = [r for r in after if r[2] == "cyphward_app"]
+        expected = sorted([
+            ("compliance_reviewer_grants", None, "cyphward_app", "INSERT"), ("compliance_reviewer_grants", None, "cyphward_app", "SELECT"),
+            ("compliance_reviewer_grants", "revoked_at", "cyphward_app", "UPDATE"), ("compliance_reviewer_grants", "revoked_by", "cyphward_app", "UPDATE"),
+            ("compliance_practitioner_reviews", None, "cyphward_app", "INSERT"), ("compliance_practitioner_reviews", None, "cyphward_app", "SELECT"),
+            ("compliance_clause_verifications", None, "cyphward_app", "INSERT"), ("compliance_clause_verifications", None, "cyphward_app", "SELECT"),
+        ], key=str)
+        assert sorted(app, key=str) == expected
