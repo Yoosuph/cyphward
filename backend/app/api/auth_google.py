@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
+from backend.app.core import database
 from backend.app.core.auth import log_audit
 from backend.app.core.config import (
     AUTH_JWT_SECRET,
@@ -166,17 +167,47 @@ async def _google_step_up(user: Dict[str, Any]) -> Optional[str]:
     return _issue_mfa_token(uid)
 
 
+def _take_over_unverified(existing: Dict[str, Any], name: str) -> Dict[str, Any]:
+    """Google proves the mailbox, so an account that was registered with this address but never verified it
+    becomes the mailbox owner's. Whoever registered it could not prove the address, so everything they hold is
+    removed in the SAME transaction that verifies the email: the password and any second-factor secret, every
+    session, reset link, remembered browser and pending code. Otherwise a pre-registration (password or session
+    token) would stay valid after the real owner signs in, and a grant or invitation waiting on the verified
+    address (for example reviewer access) would activate for the person who registered it."""
+    uid = existing["id"]
+    with database.get_db() as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                UPDATE profiles
+                SET full_name = %s,  -- the name the registrant typed is not the mailbox owner's
+                    email_verified_at = now(), provider = 'google', password_hash = NULL,
+                    totp_secret_enc = NULL, totp_enrolled_at = NULL, mfa_enrolled_at = NULL, updated_at = now()
+                WHERE id = %s AND email_verified_at IS NULL
+                RETURNING *
+                """, (name, uid)).fetchone()
+            if row is None:  # verified by someone else in the meantime: plain sign-in
+                return conn.execute("SELECT * FROM profiles WHERE id = %s", (uid,)).fetchone()
+            conn.execute("UPDATE auth_sessions SET revoked_at = now() WHERE user_id = %s AND revoked_at IS NULL", (uid,))
+            conn.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (uid,))
+            conn.execute("DELETE FROM trusted_browsers WHERE user_id = %s", (uid,))
+            conn.execute("DELETE FROM email_otps WHERE user_id = %s", (uid,))
+    log_audit(None, str(uid), "auth.unverified_account_taken_over_by_google", "user", str(uid))
+    return row
+
+
 def _upsert_google_profile(email: str, name: str) -> Optional[Dict[str, Any]]:
     """Load-or-create the local profile for a verified Google account."""
     existing = execute_one("SELECT * FROM profiles WHERE email = %s", (email,))
     if existing and is_console_only(str(existing["id"])):
         return None  # owner-console logins never sign in with Google
+    if existing and not existing.get("email_verified_at"):
+        return _take_over_unverified(existing, name)
     if existing:
         return execute_one(
             """
             UPDATE profiles
             SET full_name = CASE WHEN full_name IS NULL OR full_name = '' THEN %s ELSE full_name END,
-                email_verified_at = COALESCE(email_verified_at, now()),
                 provider = CASE WHEN provider = 'email' THEN 'both' ELSE provider END,
                 updated_at = now()
             WHERE id = %s

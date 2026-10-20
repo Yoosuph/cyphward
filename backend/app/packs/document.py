@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from backend.app.compliance import practitioner
 from backend.app.compliance import attestations
 from backend.app.compliance.register import DISCLAIMER
 
@@ -24,6 +25,24 @@ LEGEND_TEXT = f"{MARK} = reference pending review: a qualified reviewer has not 
 LEGEND_ROWS = (" Each row's Status and Source describe one evidence item (the first line of its evidence); "
                "another source, if any, follows on an 'Also:' line.")
 LEGEND = LEGEND_TEXT + LEGEND_ROWS
+# C6: when an organisation has notes from a reviewer it named, the wording that implies a "qualified reviewer"
+# confirmed an unmarked reference changes, because Cyphward does not check that person's licence.
+LEGEND_NAMED = (" A reference without this marker is either confirmed in the register or was marked as reviewed by a "
+                "reviewer named by this organisation, whose licence Cyphward does not check.")
+SOURCE_BULLET = ("Source labels: Tool observed and Externally observed come from Cyphward's checks; Customer attested is an "
+                 "answer given by your team; Practitioner reviewed is reserved for a qualified reviewer.")
+SOURCE_BULLET_NAMED = ("Source labels: Tool observed and Externally observed come from Cyphward's checks; Customer attested is "
+                       "an answer given by your team. Practitioner notes in this pack come from a reviewer named by this "
+                       "organisation; Cyphward does not check any licence or qualification.")
+NOTES_PARA = ("A practitioner review is a note from a reviewer named by this organisation, whose licence Cyphward does not "
+              "check, that they reviewed a requirement. It does not change any status above and is not a statement about "
+              "your obligations.")
+
+
+def _has_named_notes(reqs: List[Dict[str, Any]]) -> bool:
+    return any(r.get("practitioner_review") or (r.get("clause_review") or {}).get("verified") for r in reqs)
+
+
 SHORT_DISCLAIMER = "Readiness evidence, not legal advice or a compliance determination."
 MAX_DOMAINS_CHARS = 1200   # a table cell cannot split across PDF pages, so the scope line is capped by characters
 MAX_NAME_CHARS = 160
@@ -63,8 +82,21 @@ def day(value: Optional[str]) -> str:
     return datetime.fromisoformat(value).strftime("%Y-%m-%d") if value else "not recorded"
 
 
+def _note(text: Optional[str]) -> str:
+    """A practitioner's words as printed: wording that states a conclusion is withheld, whatever was stored."""
+    if text is None:
+        return ""
+    return practitioner.WITHHELD if practitioner.violation(text) else text
+
+
 def clause_label(req: Dict[str, Any]) -> str:
-    return req["clause"] if req["clause_verified"] else f"{req['clause']} · {PENDING}"
+    """The clause as frozen in the snapshot, including its practitioner overlay (C6). Never reads live tables."""
+    if req["clause_verified"]:
+        return req["clause"]
+    overlay = req.get("clause_review")
+    if overlay and overlay.get("verified"):
+        return f"{req['clause']} · {_note(overlay['label'])}"
+    return f"{req['clause']} · {PENDING}"
 
 
 OBSERVED_SOURCES = ("tool_observed", "externally_observed")
@@ -187,7 +219,8 @@ def build_v1(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
     ready = comp["readiness"]
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
-    pending = sum(1 for r in reqs if not r["clause_verified"])
+    pending = sum(1 for r in reqs if not r["clause_verified"] and not (r.get("clause_review") or {}).get("verified"))
+    reviewed = [r for r in reqs if r.get("practitioner_review")]
     meta = [
         ("Organisation", scope["org_name"]),
         ("Issued", when(issued_at.isoformat())),
@@ -223,6 +256,12 @@ def build_v1(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
             blocks.append({"type": "table", "head": ["Requirement", "Status", "Source", "Evidence reference"], "rows": [
                 [f"{r['title']} ({clause_label(r)})", r["status_label"], r["source_label"] or "No source",
                  evidence_references(r, attestations)] for r in reqs if r["group"] == key]})
+        if reviewed:
+            blocks += [{"type": "heading", "text": "Practitioner review notes"},
+                       {"type": "para", "text": NOTES_PARA},
+                       {"type": "table", "head": ["Requirement", "Note", "Comment"], "rows": [
+                           [r["title"], _note(r["practitioner_review"]["label"]), _note(r["practitioner_review"].get("comment")) or "No comment"]
+                           for r in reviewed]}]
         blocks.append({"type": "heading", "text": "Prioritised gaps and open items"})
         gaps = prioritised_gaps(reqs)
         if gaps:
@@ -237,8 +276,7 @@ def build_v1(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
         blocks += _dpo_blocks(dpo, snapshot)
     blocks.append({"type": "heading", "text": "About this pack"})
     blocks.append({"type": "bullets", "items": [
-        "Source labels: Tool observed and Externally observed come from Cyphward's checks; Customer attested is an answer "
-        "given by your team; Practitioner reviewed is reserved for a qualified reviewer.",
+        SOURCE_BULLET_NAMED if _has_named_notes(reqs) else SOURCE_BULLET,
         f"Generated from snapshot {snapshot_row['seq']}. Later scans and answers do not change this pack; issue a new "
         "pack to reflect them.",
         "Cyphward organises evidence. It does not give legal advice or decide whether an obligation has been fulfilled.",
@@ -269,14 +307,20 @@ def _requirement_rows(reqs: List[Dict[str, Any]], key: str, attestations: Dict[s
     rows = []
     for r in reqs:
         if r["group"] == key:
-            clause = r["clause"] if r["clause_verified"] else f"{r['clause']} {MARK}"
-            rows.append([f"{r['title']} ({clause})", r["status_label"], r["source_label"] or "No source",
+            rows.append([f"{r['title']} ({_marked(r)})", r["status_label"], r["source_label"] or "No source",
                          evidence_references(r, attestations, True)])
     return rows
 
 
 def _marked(req: Dict[str, Any]) -> str:
-    return req["clause"] if req["clause_verified"] else f"{req['clause']} {MARK}"
+    """The clause in the branded pack: plain when the register verified it, the practitioner's wording instead of the
+    marker when this organisation's frozen overlay says it was reviewed (C6), the marker otherwise."""
+    if req["clause_verified"]:
+        return req["clause"]
+    overlay = req.get("clause_review")
+    if overlay and overlay.get("verified"):
+        return f"{req['clause']} · {_note(overlay['label'])}"
+    return f"{req['clause']} {MARK}"
 
 
 def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], issued_at: datetime,
@@ -289,7 +333,8 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
     ready = comp["readiness"]
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
-    pending = sum(1 for r in reqs if not r["clause_verified"])
+    pending = sum(1 for r in reqs if not r["clause_verified"] and not (r.get("clause_review") or {}).get("verified"))
+    reviewed = [r for r in reqs if r.get("practitioner_review")]
     org = _short(flat(scope["org_name"], True) or "Organisation", MAX_NAME_CHARS)
     issued = when(issued_at.isoformat())
     dates = snapshot["dates"]
@@ -335,7 +380,7 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
         else:
             summary.append({"type": "para", "text": "No open items in this snapshot."})
         body += [{"type": "heading", "text": "Requirements, status and sources"},
-                 {"type": "legend", "text": LEGEND}]
+                 {"type": "legend", "text": LEGEND + (LEGEND_NAMED if _has_named_notes(reqs) else "")}]
         if pending:
             body.append({"type": "para", "text": f"{pending} of {len(reqs)} requirements below carry the {MARK} marker."})
         groups = {g["key"]: g["title"] for g in comp["groups"]}
@@ -343,6 +388,12 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
             body.append({"type": "heading", "text": groups.get(key, key), "level": 3})
             body.append({"type": "table", "head": ["Requirement", "Status", "Source", "Evidence reference"],
                          "rows": _requirement_rows(reqs, key, attestations)})
+        if reviewed:
+            body += [{"type": "heading", "text": "Practitioner review notes"},
+                     {"type": "para", "text": NOTES_PARA},
+                     {"type": "table", "head": ["Requirement", "Note", "Comment"], "rows": [
+                         [r["title"], _note(r["practitioner_review"]["label"]),
+                          _note(r["practitioner_review"].get("comment")) or "No comment"] for r in reviewed]}]
         body.append({"type": "heading", "text": "Prioritised gaps and open items"})
         if gaps:
             body.append({"type": "table", "head": ["Priority", "Requirement", "Status", "Why", "Suggested next step"],
@@ -359,11 +410,10 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
                                                 ("Incidents logged", dpo["incidents"]["logged"])]},
                     {"type": "para", "text": f"Window: {when(w['start'])} to {when(w['end'])}. Counts only; no incident "
                                              "titles or notes appear in this pack."}]
-        body += [{"type": "legend", "text": LEGEND_TEXT}] + _dpo_blocks(dpo, snapshot, _marked)
+        body += [{"type": "legend", "text": LEGEND_TEXT + (LEGEND_NAMED if _has_named_notes(reqs) else "")}] + _dpo_blocks(dpo, snapshot, _marked)
     closing = [{"type": "heading", "text": "About this pack"},
                {"type": "bullets", "items": [
-                   "Source labels: Tool observed and Externally observed come from Cyphward's checks; Customer attested "
-                   "is an answer given by your team; Practitioner reviewed is reserved for a qualified reviewer.",
+                   SOURCE_BULLET_NAMED if _has_named_notes(reqs) else SOURCE_BULLET,
                    f"Generated from snapshot no. {snapshot_row['seq']}. Later scans and answers do not change this pack; "
                    "issue a new pack to reflect them.",
                    "Cyphward organises evidence. It does not give legal advice or decide whether an obligation has been "

@@ -58,6 +58,7 @@ const Remediation = lazy(appPageLoaders['/remediation']);
 const Reports = lazy(appPageLoaders['/reports']);
 const Platform = lazy(appPageLoaders['/platform']);
 const Compliance = lazy(appPageLoaders['/comply']);
+const Reviews = lazy(() => import('./pages/Reviews'));
 import CyphBotDrawer from './components/CyphBotDrawer';
 import CyphBotFloatingButton from './components/CyphBotFloatingButton';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -381,6 +382,9 @@ export default function App() {
               <Route path="verify-domain" element={<VerifyDomain />} />
               <Route path="complete" element={<OnboardingComplete />} />
             </Route>
+
+            {/* Reviewer area (C6): outside AppShell, whose onboarding gate would send a reviewer without a workspace to setup. */}
+            <Route path="/reviews" element={<Reviews />} />
 
             {/* Authenticated App Routes — Protected inside AppShell */}
             <Route element={<AppShell />}>

@@ -98,7 +98,7 @@ def get_current_user(
 
     profile = execute_one(
         """
-        SELECT p.*, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at
+        SELECT p.*, s.id AS session_id, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at
         FROM profiles p
         JOIN auth_sessions s ON s.id = %s::uuid AND s.user_id = p.id
         WHERE p.id = %s
