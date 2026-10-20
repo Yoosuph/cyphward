@@ -62,9 +62,7 @@ def pdf_text(value: str) -> str:
     """Fold to what Helvetica can print: Latin-1 as is; other letters to their base ASCII; marks dropped; the rest '?'."""
     out = []
     for ch in value:
-        if ch == "\u2020":  # the dagger marker is in Windows-1252, which reportlab's Helvetica encodes
-            out.append(ch)
-        elif ch in PUNCTUATION:
+        if ch in PUNCTUATION:
             out.append(PUNCTUATION[ch])
         elif unicodedata.combining(ch):
             continue

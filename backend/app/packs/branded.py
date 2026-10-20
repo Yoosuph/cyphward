@@ -26,7 +26,19 @@ from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Frame, KeepTogether, NextPageTemplate, PageBreak,
                                 PageTemplate, Paragraph, Spacer, Table, TableStyle)
 
-from backend.app.packs.render import pdf_text
+from backend.app.packs import render
+
+DAGGER = "\u2020"  # in Windows-1252, so Helvetica prints it; the shared v1 folding (render.pdf_text) is left exactly as it was
+
+
+def pdf_text(value: str) -> str:
+    """render.pdf_text, except that the legend's dagger survives (branded PDFs only)."""
+    return DAGGER.join(render.pdf_text(part) for part in value.split(DAGGER))
+
+
+def unprintable(value: str) -> bool:
+    """True when the PDF font cannot show some of the letters (they would print as '?')."""
+    return any(ch != "?" and render.pdf_text(ch) == "?" for ch in value if ch != DAGGER)
 
 # Product tokens (frontend/src/index.css, light theme) and the brighter accent used on the dark band.
 INK, SOFT, LINE, INSET, BG = "#12110D", "#575244", "#E2DCCE", "#EFEBE0", "#F8F6F0"
@@ -58,7 +70,12 @@ LOGO_SVG = (f'<svg class="logo" viewBox="0 0 36 36" width="64" height="64" role=
 
 # ── HTML ─────────────────────────────────────────────────────────────────
 
-CSS = f"""
+def _css(footer: str) -> str:
+    quoted = '"' + footer.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
+    return _CSS.replace("@FOOTER@", quoted)
+
+
+_CSS = f"""
 :root{{--ink:{INK};--soft:{SOFT};--line:{LINE};--inset:{INSET};--bg:{BG};--accent:{ACCENT};--deep:{ACCENT_DEEP}}}
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#fff;margin:0;
@@ -73,6 +90,7 @@ line-height:1.5;font-size:14px}}
 .cover dl{{margin:14px 32px 0}}
 h2{{font-family:Georgia,'Times New Roman',serif;font-size:21px;margin:26px 0 8px;padding-bottom:4px;
 border-bottom:2px solid var(--accent)}}
+h2,h3{{break-after:avoid}}
 h3{{font-size:14px;color:var(--deep);margin:20px 0 6px}}
 table{{border-collapse:collapse;width:100%;margin:8px 0}}
 th,td{{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;font-size:12.5px}}
@@ -92,13 +110,12 @@ margin:8px 0}}
 .pagebreak{{break-before:page}}
 .pagefoot{{margin:36px auto 0;max-width:980px;border-top:1px solid var(--line);padding:8px 20px;font-size:11px;
 color:var(--soft)}}
-.runfoot{{display:none}}
-@page{{size:A4;margin:16mm 14mm 22mm;@bottom-right{{content:"Page " counter(page) " of " counter(pages);
-font-size:8pt;color:{SOFT}}}}}
+@page{{size:A4;margin:16mm 14mm 24mm;
+@bottom-left{{content:@FOOTER@;font-size:7.5pt;color:{SOFT};vertical-align:top;padding-top:4mm;width:78%}}
+@bottom-right{{content:"Page " counter(page) " of " counter(pages);font-size:7.5pt;color:{SOFT};vertical-align:top;
+padding-top:4mm}}}}
 @media print{{
 .pagefoot{{display:none}}
-.runfoot{{display:block;position:fixed;left:0;right:0;bottom:0;font-size:8pt;color:{SOFT};
-border-top:1px solid {LINE};padding-top:3px;background:#fff}}
 .band,.stat,th,.notice,.legend{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 }}
 @media (max-width:640px){{.band h1{{font-size:26px}}.cover .org{{font-size:21px}}}}
@@ -148,8 +165,7 @@ def to_html(doc: Dict[str, Any]) -> str:
     footer = f'{escape(doc["footer"])} {escape(doc["prepared"])}'
     out = ["<!doctype html>", '<html lang="en">', '<head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
-           f'<title>{escape(doc["title"])} - {escape(cover["org"])}</title><style>{CSS}</style></head><body>',
-           f'<div class="runfoot" role="contentinfo">{footer}</div>',
+           f'<title>{escape(doc["title"])} - {escape(cover["org"])}</title><style>{_css(doc['footer'] + ' ' + doc['prepared'])}</style></head><body>',
            '<section class="cover"><div class="band">',
            f'<div class="brand">{LOGO_SVG}<span>Cyphward</span></div>',
            f'<h1>{escape(doc["title"])}</h1></div>',
@@ -357,10 +373,19 @@ def to_pdf(doc: Dict[str, Any]) -> bytes:
     pdf.addPageTemplates([PageTemplate("cover", [cover_frame], onPage=on_cover),
                           PageTemplate("body", [body_frame], onPage=on_page)])
     facts = [("Issued", cover["issued"]), ("Pack ID", cover["pack_id"]), ("Register version", cover["register"])]
-    story: List[Any] = [Spacer(1, 4 * mm), _p("PREPARED FOR", st["label"]), Spacer(1, 2 * mm), _p(cover["org"], st["org"]),
-                        Spacer(1, 9 * mm), _flowables([{"type": "facts", "rows": facts}], st)[0],
+    lossy = unprintable(cover["org"])
+    org_pdf = "".join(ch for ch in cover["org"] if ch == "?" or not unprintable(ch)) if lossy else cover["org"]
+    org_pdf = " ".join(render.pdf_text(org_pdf).split()) if lossy else org_pdf
+    story: List[Any] = [Spacer(1, 4 * mm), _p("PREPARED FOR", st["label"]), Spacer(1, 2 * mm),
+                        _p(org_pdf or "Organisation (name shown in the HTML version)", st["org"])]
+    if lossy:
+        story += [Spacer(1, 2 * mm), _p("The organisation name contains characters this PDF font cannot show. "
+                                        "The HTML version of this pack shows it in full.", st["label"])]
+    story += [Spacer(1, 9 * mm), _flowables([{"type": "facts", "rows": facts}], st)[0],
                         NextPageTemplate("body"), PageBreak()]
-    story += _flowables(doc["summary"], st) + [PageBreak()] + _flowables(doc["blocks"], st) + [PageBreak()]
+    summary = [dict(b, rows=[(k, org_pdf if k == "Organisation" else v) for k, v in b["rows"]]) if b["type"] == "facts"
+               else b for b in doc["summary"]]
+    story += _flowables(summary, st) + [PageBreak()] + _flowables(doc["blocks"], st) + [PageBreak()]
     story += [KeepTogether(_flowables(doc["closing"], st))]
     pdf.build(story, canvasmaker=NumberedCanvas)
     return buffer.getvalue()

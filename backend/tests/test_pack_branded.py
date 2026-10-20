@@ -3,8 +3,10 @@
 Pure: the documents are built from the real register through the real status view, then rendered to HTML and
 to a real PDF whose text is extracted and scanned. Layout is also run with worst-case content.
 """
+import hashlib
 import re
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 from html import unescape
 from unittest import mock
@@ -23,7 +25,7 @@ ISSUED = datetime(2026, 10, 19, 14, 45, tzinfo=timezone.utc)
 
 
 def make(observed="present", answers="yes", org="INNOVATECH Nigeria Limited", findings=0, domains=1, kind="readiness_pack",
-         dpo=None, v1=False):
+         dpo=None, v1=False, verified=(), domain_len=0):
     ctx = base._ctx(observed, answers)
 
     def attach(org_id, views):
@@ -34,9 +36,12 @@ def make(observed="present", answers="yes", org="INNOVATECH Nigeria Limited", fi
     with mock.patch.object(cstatus, "_context", lambda o: ctx), mock.patch.object(cstatus, "_attach_findings", attach):
         comp = builder._compliance("org", base.NOW)
     snap = {"generated_at": base.NOW.isoformat(), "scope": {"org_name": org, "domains": [
-        {"domain": f"d{i}.example.com"} for i in range(domains)]},
+        {"domain": f"d{i}.example.com" + "x" * domain_len} for i in range(domains)]},
         "dates": {"earliest_observation": base.NOW.isoformat(), "latest_observation": base.NOW.isoformat()},
         "compliance": comp}
+    for r in comp["requirements"]:
+        if r["key"] in verified:
+            r["clause_verified"] = True
     row = {"id": str(uuid.uuid4()), "seq": 3, "content_sha256": SHA}
     pack_id = str(uuid.uuid4())
     return document.build(kind, row, snap, ISSUED, dpo, pack_id=None if v1 else pack_id), row, pack_id
@@ -70,7 +75,7 @@ def test_cover_summary_footer_page_numbers_legend_and_frozen_record_in_both_rend
         assert "Prepared with Cyphward" in text
     assert "Cyphward logo" in html and "<svg" in html
     # HTML footer on every printed page and page counters; PDF: footer and "Page X of Y" on every page.
-    assert "counter(page)" in html and "counter(pages)" in html and 'class="runfoot"' in html
+    assert "counter(page)" in html and "counter(pages)" in html and "@bottom-left" in html and document.SHORT_DISCLAIMER in html.split("</style>")[0]
     assert pdf_text.count("Prepared with Cyphward") == pages
     assert pdf_text.count(f"{document.SHORT_DISCLAIMER} Prepared with Cyphward") == pages
     for n in range(1, pages + 1):
@@ -118,7 +123,7 @@ def test_worst_case_content_lays_out_without_error_and_stays_bounded():
     doc, row, pack_id = make("gap", "no", org="Ọ̀ṣun " + "Very Long Organisation Name " * 30, findings=600, domains=500)
     html, flat, pdf, pdf_text = texts(doc)
     assert pdf.startswith(b"%PDF") and len(pdf) < 3_000_000
-    assert "Osun Very Long" in pdf_text and "and 460 more" in pdf_text  # domains capped at 40 in the scope line
+    assert "Osun Very Long" in pdf_text and re.search(r"and \d+ more", pdf_text)  # the scope line is capped by characters
     assert len(doc["cover"]["org"]) <= document.MAX_NAME_CHARS
     assert f"Frozen record: snapshot {row['id']}" in pdf_text
     assert pdf_text.count("Header finding") == 0 and pdf_text.count("Strict-Transport-Security") <= 12 * 40
@@ -131,8 +136,7 @@ def test_markup_in_names_is_escaped_in_html_and_literal_in_the_pdf():
     assert '<script>alert(1)</script>&"Co"' in pdf_text.replace(" ", "")  # reportlab splits runs at entities
 
 
-def test_dpo_section_pack_has_the_same_frame():
-    dpo = {"window": {"start": "2026-04-19T00:00:00+00:00", "end": "2026-10-19T00:00:00+00:00"},
+DPO = {"window": {"start": "2026-04-19T00:00:00+00:00", "end": "2026-10-19T00:00:00+00:00"},
            "scans": {"run": 4, "by_status": {"completed": 4}, "verified_domains": 1,
                      "coverage": {"complete": 3, "partial": 1, "unassessed": 0, "unknown": 0}},
            "findings": {"opened": dict.fromkeys(("critical", "high", "medium", "low"), 1),
@@ -140,6 +144,10 @@ def test_dpo_section_pack_has_the_same_frame():
                         "open_at_snapshot": {}},
            "incidents": {"logged": 2, "by_status": {"open": 2}, "by_severity": {"high": 2}, "commission_notified": 0},
            "observations": []}
+
+
+def test_dpo_section_pack_has_the_same_frame():
+    dpo = DPO
     doc, row, pack_id = make(kind="dpo_section", dpo=dpo)
     html, flat, pdf, pdf_text = texts(doc)
     pages = len(re.findall(rb"/Type /Page\b", pdf))
@@ -167,7 +175,7 @@ def test_v1_documents_still_build_and_render_in_the_original_layout():
 
 
 def test_the_logo_shapes_are_the_favicons():
-    svg = (open("frontend/public/favicon.svg").read())
+    svg = ((Path(__file__).resolve().parents[2] / "frontend/public/favicon.svg").read_text())
     for points in (branded.OUTER, branded.INNER, branded.DIAMOND):
         first = points[0]
         assert f"M{first[1]:g} {first[2]:g}" in svg
@@ -178,3 +186,63 @@ def test_line_breaks_in_the_organisation_name_stay_on_one_line():
     assert doc["cover"]["org"] == "Acme Ltd Also: forged"
     html, flat, pdf, pdf_text = texts(doc)
     assert "<br>" not in html.split('class="org">')[1].split("</p>")[0]
+
+
+def test_a_verified_clause_has_no_dagger_and_the_others_do_and_the_legend_stays_single():
+    key = REGISTER["requirements"][0]["key"]
+    doc, *_ = make(verified=(key,))
+    rows = {r[0]: r for b in doc["blocks"] if b["type"] == "table" and b["head"][0] == "Requirement" for r in b["rows"]}
+    plain = [r for r in REGISTER["requirements"] if r["key"] == key][0]
+    assert f"{plain['title']} ({plain['clause']})" in rows
+    assert sum(1 for k in rows if k.endswith("\u2020)")) == len(REGISTER["requirements"]) - 1
+    html, flat, pdf, pdf_text = texts(doc)
+    for text in (flat, pdf_text):
+        assert text.count("reference pending review") == 1 and f"{plain['title']} ({plain['clause']})" in text
+
+
+def test_the_dagger_is_kept_in_branded_pdfs_only_and_v1_bytes_are_unchanged():
+    """v1/v1.1 PDFs fold a dagger to '?' exactly as before; the golden hash is the stored-byte rendering on main."""
+    doc = {"title": "Dagger \u2020 Co", "meta": [("Organisation", "Dagger \u2020 Co")],
+           "blocks": [{"type": "para", "text": "Dagger \u2020 Co: caf\u00e9"}]}
+    pdf = render.to_pdf(doc)
+    assert "Dagger ? Co" in render.pdf_extract_text(pdf) and "\u2020" not in render.pdf_extract_text(pdf)
+    assert render.pdf_text("a\u2020b") == "a?b"
+    assert hashlib.sha256(pdf).hexdigest() == V1_DAGGER_GOLDEN
+    assert branded.pdf_text("a\u2020b") == "a\u2020b"
+
+
+@pytest.mark.parametrize("count,length", [(17, 253), (40, 110), (500, 30), (3, 5000)])
+def test_long_domain_lists_never_break_the_layout(count, length):
+    doc, row, pid = make(domains=count, domain_len=length)
+    assert len(doc["summary"][4]["rows"][1][1]) <= document.MAX_DOMAINS_CHARS + 60
+    html, flat, pdf, pdf_text = texts(doc)
+    assert pdf.startswith(b"%PDF") and f"Frozen record: snapshot {row['id']}" in pdf_text
+
+
+def test_a_blank_organisation_name_falls_back_and_a_non_latin_one_gets_a_clear_note():
+    doc, *_ = make(org=" \u200b\n ")
+    assert doc["cover"]["org"] == "Organisation"
+    doc, *_ = make(org="\u0634\u0631\u0643\u0629 \u0627\u0644\u0646\u0648\u0631 Ltd")
+    html, flat, pdf, pdf_text = texts(doc)
+    assert "?" not in pdf_text.split("Page 1 of")[0] and "cannot show" in pdf_text.split("Page 1 of")[0]
+    assert "Ltd" in pdf_text.split("Page 1 of")[0] and "\u0634\u0631\u0643\u0629" in html
+    doc, *_ = make(org="\u0634\u0631\u0643\u0629")
+    assert "name shown in the HTML version" in texts(doc)[3]
+
+
+def test_bidi_and_zero_width_controls_are_stripped_from_user_text():
+    assert document.flat("a\u202eb\u200bc\u2066d\ufeffe") == "a b c d e"
+
+
+def test_dpo_legend_does_not_describe_requirement_rows():
+    doc, *_ = make(kind="dpo_section", dpo=DPO)
+    legend = next(b for b in doc["blocks"] if b["type"] == "legend")["text"]
+    assert "reference pending review" in legend and "Each row" not in legend
+
+
+def test_html_print_footer_is_a_page_margin_box_not_a_fixed_overlay():
+    html = render.to_html(make()[0])
+    assert "position:fixed" not in html and "@bottom-left" in html and "@bottom-right" in html
+
+
+V1_DAGGER_GOLDEN = "a9f8c554652fe9af3d6036d3481b655cb66933100e7d37a934c41dc932a0393a"  # sha256 of the PDF the v1 renderer on main produced for the document above

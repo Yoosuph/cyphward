@@ -17,14 +17,14 @@ from backend.app.compliance import attestation_store as store
 from backend.app.compliance import reminders
 from backend.app.compliance.register import DISCLAIMER, REGISTER
 from backend.app.core.cron_claim import COMPLIANCE_REMINDERS_CRON_NAME
-from backend.app.packs import render
+from backend.app.packs import branded, render
 from backend.tests.test_scan_admission_postgres import disposable_postgres_url  # noqa: F401 (fixture)
 from backend.tests.test_snapshots_postgres import _assessed_org, _create, world  # noqa: F401 (fixtures)
 
 H = lambda world, uid, org: world.headers(uid, org)  # noqa: E731
 BANNED = ("compliant", "certified", "satisfies", "satisfied", "passes audit", "pass the audit", "compliance score",
           "fully meets", "meets the requirement", "is met", "partial compliance", "fully compliant", "is compliant",
-          "satisfy ndpa", "ndpa 2023 compliant", "cbn compliant")
+          "satisfy ndpa", "ndpa 2023 compliant", "cbn compliant", "certification", "adequate", "adequacy", "guarantee")
 NOT_A_CAR = "not a compliance audit return"
 
 
@@ -86,7 +86,7 @@ def test_every_unverified_clause_is_marked_and_one_legend_explains_the_marker(wo
         if not req["clause_verified"]:
             row = f"{req['title']} ({req['clause']} \u2020)"
             assert escape(row) in html, req["key"]
-            assert render.pdf_text(row) in pdf_text, req["key"]
+            assert branded.pdf_text(row) in pdf_text, req["key"]
     assert html.count("reference pending review") == 1 and pdf_text.count("reference pending review") == 1
     assert "\u2020 = reference pending review" in html and "\u2020 = reference pending review" in pdf_text
 

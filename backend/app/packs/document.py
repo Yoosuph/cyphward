@@ -20,11 +20,12 @@ PACK_VERSION_V1 = "cyphward-ndpa-pack-v1"      # packs issued before the one-evi
 PACK_VERSION_V1_1 = "cyphward-ndpa-pack-v1.1"  # the original layout with the row rule (issued by PR-A only)
 PACK_VERSION = "cyphward-ndpa-pack-v2"         # the branded layout, used for every newly issued pack
 MARK = "\u2020"  # dagger: tied to the one legend that explains it
-LEGEND = (f"{MARK} = reference pending review: a qualified reviewer has not yet confirmed the clause text of this "
-          "legal reference. Each row's Status and Source describe one evidence item (the first line of its "
-          "evidence); another source, if any, follows on an 'Also:' line.")
+LEGEND_TEXT = f"{MARK} = reference pending review: a qualified reviewer has not yet confirmed the clause text of this legal reference."
+LEGEND_ROWS = (" Each row's Status and Source describe one evidence item (the first line of its evidence); "
+               "another source, if any, follows on an 'Also:' line.")
+LEGEND = LEGEND_TEXT + LEGEND_ROWS
 SHORT_DISCLAIMER = "Readiness evidence, not legal advice or a compliance determination."
-MAX_DOMAINS_SHOWN = 40
+MAX_DOMAINS_CHARS = 1200   # a table cell cannot split across PDF pages, so the scope line is capped by characters
 MAX_NAME_CHARS = 160
 TOP_GAPS = 6
 PENDING = "reference pending review"
@@ -39,7 +40,7 @@ KIND_TITLES = {"readiness_pack": "NDPA readiness evidence pack",
                "dpo_section": "DPO six-monthly data-security section"}
 
 
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
 def flat(text: Any) -> str:
@@ -249,9 +250,15 @@ def _short(text: str, limit: int) -> str:
 
 
 def _domains_line(scope: Dict[str, Any]) -> str:
-    names = [flat(d["domain"]) for d in scope["domains"]]
-    shown = ", ".join(names[:MAX_DOMAINS_SHOWN]) or "none verified"
-    return shown + (f" and {len(names) - MAX_DOMAINS_SHOWN} more" if len(names) > MAX_DOMAINS_SHOWN else "")
+    names = [_short(flat(d["domain"]), 120) for d in scope["domains"]]
+    shown, used = [], 0
+    for name in names:
+        if used + len(name) + 2 > MAX_DOMAINS_CHARS:
+            break
+        shown.append(name)
+        used += len(name) + 2
+    line = ", ".join(shown) or ("none verified" if not names else "")
+    return line + (f"{', ' if shown else ''}and {len(names) - len(shown)} more" if len(shown) < len(names) else "")
 
 
 def _requirement_rows(reqs: List[Dict[str, Any]], key: str, attestations: Dict[str, Dict[str, Any]]) -> List[List[str]]:
@@ -279,14 +286,14 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
     pending = sum(1 for r in reqs if not r["clause_verified"])
-    org = _short(flat(scope["org_name"] or "Organisation"), MAX_NAME_CHARS)
+    org = _short(flat(scope["org_name"]) or "Organisation", MAX_NAME_CHARS)
     issued = when(issued_at.isoformat())
     dates = snapshot["dates"]
     scope_facts = [
         ("Organisation", org),
         ("Domains in scope", _domains_line(scope)),
         ("Assessment dates", f"observations {when(dates['earliest_observation'])} to {when(dates['latest_observation'])}"),
-        ("Snapshot frozen", f"{when(snapshot['generated_at'])} (snapshot {snapshot_row['seq']})"),
+        ("Snapshot frozen", f"{when(snapshot['generated_at'])} (snapshot no. {snapshot_row['seq']})"),
         ("Register", f"{comp['register']['title']} · version {comp['register']['version']}"),
         ("Issued", issued),
         ("Pack ID", pack_id),
@@ -348,18 +355,18 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
                                                 ("Incidents logged", dpo["incidents"]["logged"])]},
                     {"type": "para", "text": f"Window: {when(w['start'])} to {when(w['end'])}. Counts only; no incident "
                                              "titles or notes appear in this pack."}]
-        body += [{"type": "legend", "text": LEGEND}] + _dpo_blocks(dpo, snapshot, _marked)
+        body += [{"type": "legend", "text": LEGEND_TEXT}] + _dpo_blocks(dpo, snapshot, _marked)
     closing = [{"type": "heading", "text": "About this pack"},
                {"type": "bullets", "items": [
                    "Source labels: Tool observed and Externally observed come from Cyphward's checks; Customer attested "
                    "is an answer given by your team; Practitioner reviewed is reserved for a qualified reviewer.",
-                   f"Generated from snapshot {snapshot_row['seq']}. Later scans and answers do not change this pack; "
+                   f"Generated from snapshot no. {snapshot_row['seq']}. Later scans and answers do not change this pack; "
                    "issue a new pack to reflect them.",
                    "Cyphward organises evidence. It does not give legal advice or decide whether an obligation has been "
                    "fulfilled."]},
-               {"type": "heading", "text": "Frozen record"},
+               {"type": "heading", "text": "Match this pack to its frozen record"},
                {"type": "notice", "text": f"Frozen record: snapshot {snapshot_row['id']}, sha256 {snapshot_row['content_sha256']}"},
-               {"type": "para", "text": "This is the content hash of the frozen snapshot this pack was made from. A "
+               {"type": "para", "text": "The snapshot ID and sha256 above identify the frozen snapshot this pack was made from (its content hash). A "
                                         "document cannot contain its own hash: the pack's own hashes are returned when it "
                                         "is issued and listed with the pack."}]
     return {"version": PACK_VERSION, "kind": kind, "title": KIND_TITLES[kind], "pack_id": pack_id,

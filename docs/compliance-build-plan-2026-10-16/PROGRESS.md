@@ -717,3 +717,13 @@ Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after 
 - Initial focus is Cancel for all confirmations; each irreversible confirm has a browser assertion that Enter does not confirm.
 - Focus after a dialog closes: the opener, else the dialog still open, else the tab panel/main (tests: failed save after the Commission confirm, approving a document, issuing a pack).
 - Nits: error id in `aria-describedby`; `Scans.tsx` in the copy test; zone shown beside Documents times; "detected" used throughout the incident screens; the chosen renewal date is clamped to the API's 730-day cap; dead selector removed. Browser suites are not added to CI (they need Chromium and take minutes); the date helper test is.
+
+### PR-B review round 1 (REJECT) and the fixes
+
+1. **Blocker:** the dagger pass-through had been added to the shared `render.pdf_text`, which changes v1/v1.1 bytes for text containing †. Restored exactly; the branded path has its own `branded.pdf_text`. A test renders a † document through the v1 renderer and compares the sha256 with the one main's renderer produced (it fails if the pass-through is put back).
+2. **Domain list** is capped by characters (1200, each name 120), with "and N more"; tests with 17 x 253, 40 x 110, 500 x 30 and 3 x 5000 characters.
+3. **HTML print footer** is now a page margin box (`@bottom-left`/`@bottom-right`, bottom margin 24 mm), not a fixed overlay; checked with Chromium print to PDF (footer below the content, summary tiles clear).
+4. A requirement with a verified clause has no † while the others do; the legend still appears once.
+5. A blank organisation name falls back to "Organisation"; a name with characters the PDF font cannot show prints what it can plus a clear note (or "name shown in the HTML version"), not "????".
+6. Nits: bidi and zero-width controls stripped by `flat`; banned list in `test_packs_postgres` extended; the DPO legend no longer talks about rows; the closing heading is "Match this pack to its frozen record", "snapshot no. N" versus the "Snapshot ID" line; favicon path is cwd-independent; `reportlab>=4.0,<6`; sample images regenerated with synthetic names (no sample PDFs kept).
+7. **Decision B-6:** the pack is rendered inside the per-organisation advisory-lock transaction (`store._insert_pack`). Rendering is bounded (capped cells, build slot, lock timeout), so it was left as is.
