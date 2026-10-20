@@ -65,6 +65,7 @@ TOKEN_PREFIXES = tuple(_sk(w) for w in ("complian", "complie", "comply", "confor
                                         "sufficien"))
 RUN_STEMS = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "satisf", "adequa", "guarante", "fulfil",
                                    "sufficien", "certified", "certification", "certifies", "approved", "inlinewith"))
+CORE_STEMS = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "certified", "certification", "approved", "satisf"))
 EXTRA_PHRASES = ("in line with", "no gaps", "all good", "aligned with", "in accordance with", "consistent with the ndpa",
                  "consistent with ndpa", "ndpa ready", "ok to go", "is lawful", "are lawful", "was lawful", "fully lawful")
 PHRASES = tuple(sorted({" ".join(re.findall(r"[a-z0-9]+", _sk(w))) for w in BANNED_PHRASES + EXTRA_PHRASES}))
@@ -101,6 +102,12 @@ def violation(text: str) -> Optional[str]:
     for i, token in enumerate(tokens):
         if token in EXACT_TOKENS or TOKEN_FORMS.match(token) or token.startswith(TOKEN_PREFIXES) or _met_claim(tokens, i):
             return token
+    # The core stems are claims wherever they sit inside ONE word ("noncompliant", "fullycompliant", "NDPAcompliant",
+    # "uncertified", "precertified").
+    for token in tokens:
+        for stem in CORE_STEMS:
+            if stem in token:
+                return stem
     # "c o m p l i a n t", "compl iant", "com-pliant": letters split up by spaces or marks. A stem counts only where it
     # BEGINS at the start of a word, so words that merely contain one across a boundary ("Useful file references",
     # "silicon form") are left alone.

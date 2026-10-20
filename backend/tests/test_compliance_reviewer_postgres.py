@@ -1067,7 +1067,8 @@ ADVERSARIAL = [
     "c0mpliant", "compIiant", "c\u00f6mpliant", "\u0441\u043e\u043c\u0440li\u0430nt", "c o m p l i a n t", "compl iant", "Requirement met.",
     "They meet s.25.", "In line with the NDPA; no gaps", "Lawful and sufficient.", "ndpa-compliant", "certification done",
     "Aligned with the NDPA", "In accordance with s.25", "Consistent with the NDPA", "NDPA-ready", "OK to go", "The policy passes",
-    "Obligation met", "They meet the standard",
+    "Obligation met", "They meet the standard", "fullycompliant", "NDPAcompliant", "noncompliant", "uncertified", "precertified",
+    "unapproved by nobody", "disapproved", "unsatisfactory",
 ]
 ORDINARY = ["TLS certificate on the site was reviewed", "Board approval minutes seen", "Checked this method against the Act",
             "Meeting minutes and approval records were seen", "Read the clause and the explanatory notes", "Looked at the DPO appointment letter",

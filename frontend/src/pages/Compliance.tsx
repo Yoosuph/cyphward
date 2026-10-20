@@ -140,7 +140,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
               )}
               {req.clause_review && (
                 <p className="text-xs text-ink break-words">
-                  Clause reference {req.clause_review.verified ? 'reviewed' : 'not confirmed'} by {req.clause_review.reviewer_name} on {fmtDay(req.clause_review.at)}.
+                  Clause reference: {req.clause_review.label}.
                   {req.clause_review.note && <> “{req.clause_review.note}”</>}
                 </p>
               )}
