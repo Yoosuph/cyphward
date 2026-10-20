@@ -361,5 +361,6 @@ def test_cell_stays_bounded_with_two_sources_and_hundreds_of_references():
     assert "more references" in lines[0]
 
 
-def test_new_packs_carry_their_own_template_version():
-    assert document.PACK_VERSION == "cyphward-ndpa-pack-v1.1" and document.PACK_VERSION_V1 == "cyphward-ndpa-pack-v1"
+def test_template_versions_are_distinct():
+    assert document.PACK_VERSION_V1_1 == "cyphward-ndpa-pack-v1.1" and document.PACK_VERSION_V1 == "cyphward-ndpa-pack-v1"
+    assert document.PACK_VERSION == "cyphward-ndpa-pack-v2"  # v2 supersedes both for new packs
