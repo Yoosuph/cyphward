@@ -2061,3 +2061,21 @@ def _no_live_privacy_fetches(request, monkeypatch):
     for target in ("backend.app.workflows.inngest_workflow.run_privacy_batch",
                    "scanner.runner.run_privacy_batch"):
         monkeypatch.setattr(target, stand_in, raising=False)
+
+
+# ---------------------------------------------------------------------------
+# File storage (packet C6): every test uses the in-memory fake. No test can reach Supabase Storage, even on a
+# machine whose environment or .env holds real settings.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def fake_file_storage(monkeypatch):
+    from backend.app import storage as file_storage
+    from backend.app.storage.memory import MemoryStorage
+
+    for name in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EVIDENCE_UPLOADS_ENABLED", "true")
+    fake = MemoryStorage()
+    file_storage.set_storage(fake)
+    yield fake
+    file_storage.set_storage(None)
