@@ -680,6 +680,111 @@ What a reviewer sees (an **allow-list projection** in `reviewer._project`, so a 
 
 **Notes for the PR and the release:** (1) the migration was edited in place during review and has never been applied to any shared or production database. (2) Release note: when a person signs in with Google for an address whose account was registered with a password but never verified, that account's password (and sessions, reset links and remembered browsers) are discarded, because Google has proven the mailbox and the registrant had not.
 
+## C5b — a semantic check on AI rewording (branch `claude/nifty-roentgen-683a19`, base `main`)
+
+The model path for drafts stays **OFF by default** (`COMPLIANCE_DOCS_MODEL`, default off). Nothing in this PR turns it on in any environment. No migration, nothing under `scanner/` or `shared/`, no frontend change (the new note is part of the placeholder text the Documents tab already shows).
+
+### What the check does (`backend/app/compliance/document_check.py`, called from `documents.validate_model_text`)
+
+The older checks (tokens, placeholders, markup, numbers, addresses, banned wording, new capitalised names) still run first and keep their reason strings. Then `structural_problem` runs a list of named rules, in this order:
+
+1. **non_ascii**: output may not contain a non-ASCII character that the template (outside its placeholders) lacks. This closes zero-width, Cyrillic, Greek, Armenian, full-width, combining-mark and curly-quote disguises, including a look-alike spelling of a word the template already has ("n**о**t").
+2. **lines**: same number of non-empty lines, same kind and prefix for each (`#`/`##`, `4.`, table). Headings and table rows must be identical after normalising.
+3. **sentence_count**: each prose line has the same number of sentences as its template line. Nothing is dropped, merged, split or added.
+4. **negations / commitments / numbers**: in each aligned sentence pair, the negations (not, no, never, none, cannot, without, n't ...), the modals and quantifiers (will, shall, must, may, can, all, every, any, only, always ...), the commitment verbs (ensure, guarantee, encrypt, delete, secure, comply, meet, fulfil ...) and numbers, dates, durations and units occur exactly as often as in the template. These give specific reasons; **content_words** below makes them redundant in effect.
+5. **clause_order**: the pieces between commas, semicolons and colons are *clauses*. The content words of the reworded sentence must be the template's clauses laid end to end in some order, so whole clauses may change places but no word moves inside a clause. This stops "we do not store or send personal data" becoming "we do not store personal data or send it" with only the template's own words (found in the advisor review of this PR).
+6. **content_words**: every word that is not on the fixed glue list must occur exactly as often as in the template sentence. That covers names, `{{TOKENS}}` and `[MISSING: ...]` placeholders (each becomes one opaque word), and it also rejects **dropping** a content word (dropping "outside Nigeria" from a negation widens it).
+7. **scope**: for every negation, modal, quantifier, conjunction and condition word, the next content word must be the one in the template. A "not" cannot move onto another verb, and "store or send" cannot become "send or store" next to a "not".
+8. **claim_shape**: defence in depth. A sentence with the shape of an obligation or assurance (we/our ... will/always/never/must; will ... encrypt/delete/protect/secure/comply/meet; all/every ... the same verbs; "in accordance with", "in line with", fulfil, satisfy, "as required by", "applicable law", "legal obligation", "in full", "fully") is rejected unless the aligned template sentence has the same shape.
+
+The glue list (`GLUE`: a an the of to in on at by for with from as that this these those it its which who whom is are be been being was were am do does did has have had also then there here example out) and a few neutral verbs (`NEUTRAL`: explain(s) describe(s) outline(s) show(s) list(s) cover(s) sets) are the only words that may change. A module-level assertion keeps them disjoint from every claim list.
+
+**One normaliser for every comparison** (`fold`): NFKD, strip Cf and Mn, NFKC, lower-case **then** fold look-alike Cyrillic, Greek and Armenian letters (the old order missed upper-case Cyrillic), join hyphen and hyphen+space splits ("com- pliant"). Phrase matching collapses whitespace first (a line break inside "is met" no longer hides it) and also catches letters spelled one at a time ("c o m p l i a n t"). `clean_slot` still keeps legitimate diacritics (names such as "Ọlá Adéwálé" are used as typed); only the check looks at the folded form.
+
+**Fail safe.** The whole check is wrapped: any exception is `check_failed` and counts as a rejection. Two rejected attempts store the deterministic template with `fallback_reason = rejected:<reason>` (unchanged pipeline). Overall model timeout stays 45 s.
+
+**Closed from the release review:** accented Latin ("cómpliant"), Armenian look-alikes and hyphen+space splits are caught by the banned-phrase check; a customer value that contains a banned stem (organisation name, domain or DPO name) now becomes a placeholder **with a visible note** ("that wording cannot be used in drafts, so please rephrase it"), and a blocked domain among good ones is named in the reviewer notes (no silent drop); the note is added only on that path, so `inputs_hash` of every existing draft is unchanged; when the flag is on, the application logs one clear startup warning (`documents.log_model_path_warning`, called from `main.py` at startup).
+
+### What it guarantees, and what it does not
+
+Guaranteed (by construction, and by the corpus below): reworded text that is stored is the template's own lines in the template's order, each with the template's sentences in the template's order; it contains no word that is not in the same template sentence, apart from glue words; no template word is dropped or repeated; every negation, modal, quantifier, commitment verb, number, date, duration, name, token and placeholder keeps its exact count, and the word each one points at; content words keep the template's order inside each clause and only whole clauses change places; no non-ASCII character, link, address, markup or banned wording that the template lacks. So no sentence can be added, merged, dropped or given a new claim, commitment, number or negation.
+
+**Not guaranteed:**
+- It does not read meaning. Glue words are free and whole clauses may change places, so a rewording can be clumsy, and moving a clause can change how a sentence reads (for example a "when ..." clause moved in front of the main clause). Only the template's own commas, semicolons and colons mark clauses, so a template sentence without a comma cannot be reordered at all.
+- Case changes are accepted; upper-case words (names) are compared lower-case.
+- A faithful model will often be rejected (curly quotes, "e.g.", a split sentence, a synonym such as "hold" for "store"). That is the intended failure: the template is stored, so the tab shows "standard wording". The prompt asks for ASCII, same lines and sentences, only the draft's own words; measure the accept rate before relying on this path.
+- It was never run against a live model (stub providers only).
+- The template itself is not judged: it is deterministic and covered by the banned-phrase tests.
+
+### Operator checklist before enabling `COMPLIANCE_DOCS_MODEL=on`
+
+1. Set it **per environment on purpose** (staging first). It is read at process start; a restart is needed. The application logs a warning at startup when it is on.
+2. Provide exactly one provider key you have approved (`GEMINI_API_KEY` or `OPENAI_API_KEY`); the template holds no customer text, but its wording can reveal a yes/no answer.
+3. In staging, generate each of the four kinds for several organisations and **read a sample** of stored drafts next to their templates. Check `generator` and `fallback_reason` counts: if almost every draft falls back, the model is not following the prompt; if most are accepted, read the accepted ones for clumsy or reversed meaning.
+4. Keep the "Draft — not legal advice" label and the practitioner-review step; do not tell customers the wording is checked for meaning.
+5. Roll back by unsetting the variable and restarting; stored drafts keep their `generator`.
+
+### Tests (no network; stub providers only)
+
+- `backend/tests/c5b_corpus.py` (data) and `test_compliance_documents_check.py`: **449** adversarial rewordings that must be rejected, each by `validate_model_text` **and** by the new structural check alone: paraphrased claims put in as a new line, merged onto a sentence, in place of a sentence and in the breach plan; invented commitments; flipped negations in both directions and moved negations; added or changed modals and quantifiers; changed numbers, dates and durations; dropped clauses and sentences; merged and split sentences; added lines, headings, list items and table rows; injected links, emails, phone numbers and markup; instruction text; echoed slot values; duplicated, dropped, swapped and rewritten tokens and placeholders; synonyms, subject swaps, `and`/`or` and condition changes; look-alike spellings of template words; and disguised banned words (zero-width, joiner, soft hyphen, Cyrillic, Greek, Armenian, full-width, combining marks, hyphen+space, dotted, spaced, line-break split). **23** faithful rewordings that must be accepted (reordered clauses, neutral verb swaps, added and removed glue words, whitespace, CRLF, single newlines, missing final period), so the check is not a no-op.
+- Property tests over every document kind and all 243 answer combinations × observed or not (**65** distinct templates): the template is accepted; ~1,000 random single-word claim insertions are rejected, and every claim word at the start and end of a sentence; every deletion of a negation, placeholder, slot token or the number 72 is rejected; dropping, doubling or swapping lines is rejected.
+- Mutation check, automated: each rule alone rejects its own cases; removing `non_ascii`, `lines`, `sentence_count` or `clause_order` lets part of the corpus through (tested); with no rules at all the whole corpus gets through the structural check. **Honest note:** `negations`, `commitments`, `numbers`, `content_words`, `scope` and `claim_shape` are redundant once `clause_order` is on (a clause permutation has exactly the template's content words, in the template's order inside each clause); removing any one of them flips no corpus case. They give specific rejection reasons or are defence in depth, and each is tested on its own. `clause_order` was added after an advisor review showed that `content_words` plus `scope` accepted "We do not store personal data or send it outside Nigeria." (now a corpus case). I also removed, by hand, the Mn strip, the hyphen join, the lower-then-fold order and the whitespace collapse in the normaliser: each makes tests fail.
+- Pipeline, with the flag on and a stub provider: a faithful rewording is stored with `generator = Stub` for all four kinds; paraphrased claims, invented commitments, a flipped negation, a dropped sentence and a disguised word are stored as the template with `fallback_reason = rejected:<reason>`; the flag-off tests are unchanged.
+- Banned-phrase tests extended to everything new (the full list: compliant, certified, certification, satisfies, satisfied, passes audit, pass the audit, compliance score, fully meets, meets the requirement, is met, partial compliance, fully compliant, is compliant, satisfy ndpa, adequate, adequacy, guarantee): `test_compliance_claims.py` (the note, the prompt, the check's own docstring, the template with a blocked name, the reviewer notes), `test_compliance_questionnaire.py`, `test_compliance_documents*.py`.
+- One existing test was edited: `test_ordinary_sentence_openers_are_not_mistaken_for_names` appended a whole new sentence and expected acceptance; an added sentence must now be rejected, so it asserts only that the name check does not take "If" or "please" for a name (see Decision C5b-4).
+
+### Files
+
+`backend/app/compliance/document_check.py` (new), `documents.py`, `backend/app/main.py` (startup warning), `backend/tests/c5b_corpus.py` (new), `test_compliance_documents_check.py` (new), and edits to `test_compliance_documents.py`, `test_compliance_documents_postgres.py`, `test_compliance_claims.py`, `test_compliance_questionnaire.py`, and this file.
+
+### Validation
+
+Owned loopback PostgreSQL on 127.0.0.1:55454 (own cluster in `/tmp/pg-c5b`, bootstrap script only: 36 migrations, restricted `cyphward_app`). Final run, one `pytest backend/tests -q`, nothing else touching the files, no deselects: **2134 passed, 16 skipped in 183.56 s** (the 16 skips are the opt-in `*_INTEGRATION` suites). CI PostgreSQL list (with the extended documents file): **259 passed**. New pure file `test_compliance_documents_check.py`: 992 tests; `test_compliance_documents.py` 54 and `test_compliance_documents_postgres.py` 36 (13 new). No frontend change, so no build or browser suite was needed. `backend/tests` already runs whole in the CI pure job, so the new file is picked up; the documents postgres file is already in the CI list.
+
+### Decisions for Yusuf (C5b)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C5b-1 | Alignment | Positional, not token-overlap: both texts are split into lines and sentences, and sentence N must match template sentence N. The template is deterministic, so a fuzzy match would only add a way to mis-align; a split, merge, drop or added sentence is a rejection. |
+| C5b-2 | Word rule | Stronger than the recommended "subset of the template plus function words": the output's content words must equal the template sentence's content words exactly (reordering and glue words are free). A subset would let a rewording drop "outside Nigeria" from a negation or drop a clause. The price is that synonyms are rejected. |
+| C5b-3 | Reordering | Only whole clauses (between the template's commas, semicolons and colons) may change places; words never move inside a clause. Faithful reorderings are therefore limited to sentences the template already punctuates. |
+| C5b-3b | Free words | A short glue list plus a few neutral verbs (explains/describes/outlines/shows/lists/covers/sets out), so "explains how" can become "describes how". Add words only with a test that shows the word cannot carry a claim. |
+| C5b-4 | Existing test changed | One (see Tests). An added sentence is now rejected by design. |
+| C5b-5 | Headings and table rows | Not reworded: they must match the template. |
+| C5b-6 | Non-ASCII in reworded text | Rejected outright (prompt asks for ASCII). Curly quotes and dashes from a model cause a fallback. |
+| C5b-7 | Value with banned wording | Becomes a placeholder with the note "that wording cannot be used in drafts, so please rephrase it". For a domain that is one of several, the reviewer notes say one entry was left out. |
+| C5b-8 | Flag | Still off by default, still one environment variable, plus a startup warning. No second acknowledgement was added. |
+| C5b-9 | Migration | None. |
+| C5b-10 | Turning rewording on | Not done anywhere. Needs your decision after the staging sample in the checklist above. |
+
+### C5b review round 1 (independent review of head `822801e`: REJECT) and the fix
+
+The reviewer showed that the first version accepted meaning-changing rewrites using only the template's words: strikethrough or entity syntax around "not" (`~~not~~`, `&not;`), questions and sentence-splitting quotes or brackets (`Did we not store ...?`, `store.) Or send ...`), removing "for example" (glue), tense changes (`has been written`, `did not`), and extra or moved commas (`store it, or send ...`, `Correct, you can ask ...`). All are now corpus cases and are rejected. The rule is now strict, as the reviewer recommended:
+
+- **Glue shrank to articles (`a`, `an`, `the`) and `also`.** Prepositions, pronouns, auxiliaries, `example`, `for`, `out`, `then`, `that` and the rest are counted words: none can be added, dropped or swapped. The neutral verbs (explain/describe/outline/show/list/cover, singular and plural) count as one word, so one can replace another but not be added or dropped. `sets out` no longer works.
+- **New rule `punctuation`:** each sentence has exactly the template sentence's punctuation multiset and end mark. A sentence now ends at every `.`, `!` or `?` whatever follows, so a quote or bracket after a full stop cannot hide a split.
+- **`clause_order` is stricter:** each output clause must be a template clause word for word; only framing clauses (opening with "for example", "including" or "when") may move, the others keep their order. Added or moved commas change the clause set or the punctuation and are rejected.
+- **Removed the `PHONE` check** (redundant with the digit check: an extra digit run is already `number_added`).
+- **Fail-safe is tested:** a test makes the checker raise (`_validate`, and a rule) and asserts `check_failed`, so changing that guard to return `None` fails a test.
+- Corpus now **506** adversarial and **22** faithful cases. Mutation (structural check alone, one rule removed): `non_ascii` 11 cases let through, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 6; `negations`, `commitments`, `numbers`, `content_words`, `scope` and `claim_shape` flip none (redundant by design, kept for reasons and as defence in depth).
+- **What is still accepted** (and cannot be told apart without reading meaning): adding or removing `a`/`the`/`also`, swapping one neutral verb for another, and moving a framing clause to the other end of its sentence. Everything else must equal the template token for token.
+
+#### Decisions for Yusuf (C5b, review round)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C5b-11 | How much rewording is possible | Very little: articles, "also", neutral-verb swaps and moving "for example / including / when" clauses. A model that rewrites more is rejected and the standard wording is stored. That makes the rewording path close to a no-op in practice; if the accept rate in staging is near zero, drop the feature rather than loosen the check. The flag stays off. |
+
+Validation for this round (fresh cluster, port 55454): full backend suite **2253 passed, 16 skipped** (139 s). CI PostgreSQL list: 259 on the earlier head; on this head one run showed 2 failures and an immediate rerun passed with none (I did not capture the first run's names; the two known flaky scan-execution tests are the likely cause, not confirmed).
+
+### C5b review round 2 (head `3a8302b`: APPROVE with two should-fix items, done)
+
+- A `when ...` clause now moves only if it already opens the template sentence (so breach step 1 cannot lose "write down what happened" to the front); "for example" and "including" clauses still move.
+- A carriage return is read as a space (it was deleted, which let `no\rt` and `with\rin 72 hours` through); any other control character (`\x0b \x0c \x1c-\x1f \x00 \x7f \x85`) is rejected by a new `control_chars` rule.
+- The redundant end-mark comparison was removed (the punctuation multiset already covers it); a test pins the sentence splitter (ends at every `.`, `!`, `?`).
+- Corpus: **528** adversarial, **24** faithful. Mutation: `control_chars` 6 cases, `non_ascii` 11, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 7.
+- Validation: full backend suite **2303 passed, 16 skipped**; CI PostgreSQL list **259 passed** (fresh cluster, port 55454).
+
 ## C6 — evidence file uploads (branch `claude/infallible-agnesi-011c96`, base `main`)
 
 Customer owners and admins can attach files (PDF, PNG, JPG/JPEG, DOCX, up to 10 MB) to the evidence of a questionnaire answer; every member can see and download them. Growth plan only. The bytes live in a **private** Supabase Storage bucket `evidence-files`; the database holds one row per file. This is plan decision D2 ("file uploads later: private bucket, tenant-scoped signed URLs, size and type limits, retention") built. An attachment is something the customer chose to attach: the screen says Cyphward does not read or review it, and it changes no register status.

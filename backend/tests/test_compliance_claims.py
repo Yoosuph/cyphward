@@ -164,3 +164,24 @@ def test_document_draft_copy_has_no_verdict_language():
     for kind in docs.KINDS:
         inputs = docs.build_inputs(kind, {"org_name": "Acme", "domains": [], "answers": {}, "observed": {}})
         _assert_clean([docs.build_template(inputs), docs.reviewer_notes(inputs)], kind)
+
+
+C5B_BANNED = ("compliant", "certified", "certification", "satisfies", "satisfied", "passes audit", "pass the audit",
+              "compliance score", "fully meets", "meets the requirement", "is met", "partial compliance",
+              "fully compliant", "is compliant", "satisfy ndpa", "adequate", "adequacy", "guarantee")
+
+
+def test_c5b_copy_has_no_verdict_language():
+    """Packet C5b: the note shown when a value cannot be used, the instruction to the model, the startup warning
+    and the fixed rewording check's own explanation. Banned wording appears only in the data of negative tests."""
+    from backend.app.compliance import document_check as check
+    from backend.app.compliance import documents as docs
+    texts = [docs.WORDING_NOTE, docs.SYSTEM_PROMPT, check.__doc__]
+    inputs = docs.build_inputs("privacy_policy", {"org_name": "Customer Satisfaction Ltd", "domains": ["x.example"],
+                                                  "answers": {}, "observed": {}})
+    texts += [docs.build_template(inputs), docs.reviewer_notes(inputs)]
+    for text in texts:
+        lowered = text.lower()
+        for phrase in C5B_BANNED:
+            assert phrase not in lowered, f"C5b copy: {phrase!r}"
+        assert docs.banned_hits(text) == []
