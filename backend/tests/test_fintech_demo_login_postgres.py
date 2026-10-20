@@ -110,6 +110,19 @@ def test_the_demo_account_must_stay_a_plain_member(demo_db, demo_on):
             conn.commit()
 
 
+def test_the_demo_account_may_be_admin_but_not_owner(demo_db, demo_on):
+    demo.seed(demo_db, PASSWORD, apply=True)
+    with psycopg.connect(demo_db) as conn:
+        conn.execute("UPDATE organization_members SET role = 'admin' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+        conn.commit()
+    try:
+        assert _post().status_code == 200
+    finally:
+        with psycopg.connect(demo_db) as conn:
+            conn.execute("UPDATE organization_members SET role = 'member' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+            conn.commit()
+
+
 def test_the_demo_account_is_capped_on_ai_calls_and_nobody_else_is(demo_db, demo_on):
     from fastapi import HTTPException
 
@@ -180,3 +193,35 @@ def test_the_global_ceiling_holds_whatever_addresses_are_claimed(demo_db, monkey
     statuses = [client.post("/api/v1/auth/demo-login", headers={"X-Forwarded-For": f"198.51.100.{i}"}).status_code
                 for i in range(5)]
     assert statuses[:3] == [404] * 3 and statuses[3:] == [429, 429]
+
+
+def test_rotating_a_second_forwarded_header_line_does_not_escape_the_limit():
+    from backend.app.api.demo_login import _client_address
+
+    class Req:
+        def __init__(self, lines):
+            self.headers = {"x-forwarded-for": ", ".join(lines)}
+            self._lines = lines
+            self.client = None
+
+        class _H(dict):
+            pass
+
+    class Hdrs:
+        def __init__(self, lines):
+            self._lines = lines
+
+        def getlist(self, name):
+            return self._lines if name == "x-forwarded-for" else []
+
+        def get(self, name):
+            return ", ".join(self._lines) if name == "x-forwarded-for" else None
+
+    class R:
+        def __init__(self, lines):
+            self.headers = Hdrs(lines)
+            self.client = None
+
+    a = _client_address(R(["10.1.1.1", "9.9.9.8"]))
+    b = _client_address(R(["10.1.2.1", "9.9.9.8"]))
+    assert a == b == "9.9.9.8"
