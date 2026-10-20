@@ -1,8 +1,9 @@
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { ShieldCheck, Building, Globe, CheckCircle2, Radar, MailCheck } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import StrataField from '../../components/StrataField';
 import CyphwardLogo from '../../components/CyphwardLogo';
+import { useReviewGrants } from '../../lib/reviewerGrants';
 
 const STEPS = [
   { key: 'verify_email', label: 'Email', icon: MailCheck },
@@ -15,6 +16,7 @@ const STEPS = [
 export default function OnboardingLayout() {
   const { tenant, user, organization, primaryDomain, onboardingStep, loading } = useAuth();
   const location = useLocation();
+  const reviewGrants = useReviewGrants();
 
   if (loading) {
     return (
@@ -78,6 +80,12 @@ export default function OnboardingLayout() {
             <span className="live-dot" /> SETUP
           </p>
         </div>
+        {reviewGrants.length > 0 && (
+          <p className="text-xs text-soft mb-4" data-testid="reviews-link-onboarding">
+            You have been asked to review {reviewGrants.length === 1 ? 'an organisation' : 'organisations'}.{' '}
+            <Link to="/reviews" className="text-accent underline">Open your reviews</Link>
+          </p>
+        )}
 
         <h1 className="display-h text-center">
           Set up your <em>workspace.</em>
