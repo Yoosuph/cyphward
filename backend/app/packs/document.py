@@ -292,14 +292,20 @@ def _requirement_rows(reqs: List[Dict[str, Any]], key: str, attestations: Dict[s
     rows = []
     for r in reqs:
         if r["group"] == key:
-            clause = r["clause"] if r["clause_verified"] else f"{r['clause']} {MARK}"
-            rows.append([f"{r['title']} ({clause})", r["status_label"], r["source_label"] or "No source",
+            rows.append([f"{r['title']} ({_marked(r)})", r["status_label"], r["source_label"] or "No source",
                          evidence_references(r, attestations, True)])
     return rows
 
 
 def _marked(req: Dict[str, Any]) -> str:
-    return req["clause"] if req["clause_verified"] else f"{req['clause']} {MARK}"
+    """The clause in the branded pack: plain when the register verified it, the practitioner's wording instead of the
+    marker when this organisation's frozen overlay says it was reviewed (C6), the marker otherwise."""
+    if req["clause_verified"]:
+        return req["clause"]
+    overlay = req.get("clause_review")
+    if overlay and overlay.get("verified"):
+        return f"{req['clause']} · {_note(overlay['label'])}"
+    return f"{req['clause']} {MARK}"
 
 
 def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], issued_at: datetime,
@@ -312,7 +318,8 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
     ready = comp["readiness"]
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
-    pending = sum(1 for r in reqs if not r["clause_verified"])
+    pending = sum(1 for r in reqs if not r["clause_verified"] and not (r.get("clause_review") or {}).get("verified"))
+    reviewed = [r for r in reqs if r.get("practitioner_review")]
     org = _short(flat(scope["org_name"], True) or "Organisation", MAX_NAME_CHARS)
     issued = when(issued_at.isoformat())
     dates = snapshot["dates"]
@@ -366,6 +373,14 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
             body.append({"type": "heading", "text": groups.get(key, key), "level": 3})
             body.append({"type": "table", "head": ["Requirement", "Status", "Source", "Evidence reference"],
                          "rows": _requirement_rows(reqs, key, attestations)})
+        if reviewed:
+            body += [{"type": "heading", "text": "Practitioner review notes"},
+                     {"type": "para", "text": "A practitioner review is the named practitioner's own note that they reviewed a "
+                                              "requirement. It does not change any status above and is not a statement about "
+                                              "your obligations."},
+                     {"type": "table", "head": ["Requirement", "Note", "Comment"], "rows": [
+                         [r["title"], _note(r["practitioner_review"]["label"]),
+                          _note(r["practitioner_review"].get("comment")) or "No comment"] for r in reviewed]}]
         body.append({"type": "heading", "text": "Prioritised gaps and open items"})
         if gaps:
             body.append({"type": "table", "head": ["Priority", "Requirement", "Status", "Why", "Suggested next step"],
