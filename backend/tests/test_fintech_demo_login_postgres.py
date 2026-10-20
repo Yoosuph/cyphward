@@ -17,7 +17,7 @@ OTHER_USER = "f1ac0000-0000-4000-8000-0000000000ab"
 def demo_on(monkeypatch):
     monkeypatch.setenv("DEMO_LOGIN_ENABLED", "true")
     monkeypatch.setenv("DEMO_LOGIN_PASSWORD", PASSWORD)
-    reset_bucket("demo-login")
+    reset_bucket("demo-login:testclient")
 
 
 def _post(client=None):
@@ -90,5 +90,38 @@ def test_repeated_attempts_are_rate_limited(demo_db, monkeypatch, demo_on):
     demo.seed(demo_db, PASSWORD, apply=True)
     monkeypatch.setenv("DEMO_LOGIN_PASSWORD", "wrong-on-purpose")
     client = TestClient(app)
+    reset_bucket("demo-login:testclient")
     statuses = [_post(client).status_code for _ in range(11)]
     assert statuses[:10] == [404] * 10 and statuses[10] == 429
+
+
+def test_the_demo_account_must_stay_a_plain_member(demo_db, demo_on):
+    demo.seed(demo_db, PASSWORD, apply=True)
+    with psycopg.connect(demo_db) as conn:
+        conn.execute("UPDATE organization_members SET role = 'owner' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+        conn.commit()
+    try:
+        assert _post().status_code == 404
+    finally:
+        with psycopg.connect(demo_db) as conn:
+            conn.execute("UPDATE organization_members SET role = 'member' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+            conn.commit()
+
+
+def test_the_demo_account_is_capped_on_ai_calls_and_nobody_else_is(demo_db, demo_on):
+    from fastapi import HTTPException
+
+    from backend.app.api.demo_login import DEMO_AI_MAX_CALLS, limit_demo_ai
+
+    demo.seed(demo_db, PASSWORD, apply=True)
+    with psycopg.connect(demo_db) as conn:
+        conn.execute("DELETE FROM rate_limits WHERE bucket_key LIKE 'demo-ai%'")
+        conn.commit()
+    demo_org = {"id": demo.DEMO_ORG_ID, "current_user_id": demo.DEMO_USER_ID}
+    for _ in range(DEMO_AI_MAX_CALLS):
+        limit_demo_ai(demo_org)
+    with pytest.raises(HTTPException) as refused:
+        limit_demo_ai(demo_org)
+    assert refused.value.status_code == 429
+    for _ in range(DEMO_AI_MAX_CALLS + 5):  # any other account is not counted
+        limit_demo_ai({"id": demo.DEMO_ORG_ID, "current_user_id": "00000000-0000-4000-8000-000000000099"})

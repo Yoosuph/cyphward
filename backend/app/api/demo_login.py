@@ -8,10 +8,11 @@ other, and must not be a platform console user. When the flag is off the route a
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.app.core import owner as owner_mod
 from backend.app.core.auth import log_audit
+from backend.app.core.auth import get_current_org
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.demo_org import DEMO_ORG_ID, DEMO_USER_ID
 from backend.app.core.rate_limit import check_rate_limit
@@ -21,8 +22,10 @@ from backend.app.core.sessions import issue_session
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 DEMO_EMAIL = "demo.owner@fintech-org.test"
-DEMO_LOGIN_MAX_ATTEMPTS = 10
+DEMO_LOGIN_MAX_ATTEMPTS = 10  # per client address, so one visitor cannot lock out the others
 DEMO_LOGIN_WINDOW_SECONDS = 600
+DEMO_AI_MAX_CALLS = 30  # per hour for the demo account, which bounds model spend
+DEMO_AI_WINDOW_SECONDS = 3600
 
 
 def is_enabled() -> bool:
@@ -38,16 +41,27 @@ def demo_login_status() -> Dict[str, bool]:
 
 
 @router.post("/demo-login")
-def demo_login() -> Dict[str, Any]:
+def demo_login(request: Request) -> Dict[str, Any]:
     if not is_enabled():
         raise HTTPException(status_code=404, detail="Not found.")
-    check_rate_limit("demo-login", DEMO_LOGIN_MAX_ATTEMPTS, DEMO_LOGIN_WINDOW_SECONDS)
+    client = request.client.host if request.client else "unknown"
+    check_rate_limit(f"demo-login:{client}", DEMO_LOGIN_MAX_ATTEMPTS, DEMO_LOGIN_WINDOW_SECONDS)
     user = execute_one("SELECT * FROM profiles WHERE id = %s AND email = %s", (DEMO_USER_ID, DEMO_EMAIL))
     if not user or not verify_password(user.get("password_hash"), os.environ["DEMO_LOGIN_PASSWORD"]):
         raise HTTPException(status_code=404, detail="Not found.")
-    memberships = [str(row["org_id"]) for row in execute_query(
-        "SELECT org_id FROM organization_members WHERE user_id = %s", (DEMO_USER_ID,)) or []]
-    if memberships != [DEMO_ORG_ID] or owner_mod.is_console_only(DEMO_USER_ID):
+    memberships = execute_query(
+        "SELECT org_id, role FROM organization_members WHERE user_id = %s", (DEMO_USER_ID,)) or []
+    only = memberships[0] if len(memberships) == 1 else None
+    # Member of the demo organisation only: no owner or admin powers, and no second factor enrolled.
+    if (only is None or str(only["org_id"]) != DEMO_ORG_ID or only["role"] != "member"
+            or user.get("mfa_enrolled_at") is not None or user.get("totp_enrolled_at") is not None
+            or owner_mod.is_console_only(DEMO_USER_ID)):
         raise HTTPException(status_code=404, detail="Not found.")
     log_audit(DEMO_ORG_ID, DEMO_USER_ID, "auth.demo_login", "user", DEMO_USER_ID, {"sample": True})
     return issue_session(user)
+
+
+def limit_demo_ai(org: Dict[str, Any] = Depends(get_current_org)) -> None:
+    """Router dependency for the AI endpoints: caps the demo account's calls. Every other account is unaffected."""
+    if str(org.get("current_user_id") or "") == DEMO_USER_ID:
+        check_rate_limit(f"demo-ai:{DEMO_USER_ID}", DEMO_AI_MAX_CALLS, DEMO_AI_WINDOW_SECONDS)
