@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from backend.app.core.database import execute_one, execute_query
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role
 from backend.app.core.plans import (
     DEFAULT_PLAN,
@@ -73,7 +74,7 @@ def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> L
     )
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account)])
 def create_organization(
     req: CreateOrganizationRequest,
     user: Dict[str, Any] = Depends(get_current_user),

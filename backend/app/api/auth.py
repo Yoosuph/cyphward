@@ -30,6 +30,7 @@ import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import execute_query_memberships, get_current_user, log_audit
 from backend.app.core.config import AUTH_JWT_SECRET, FRONTEND_URL, REFRESH_TOKEN_TTL_SECONDS
 from backend.app.core.database import execute_one, execute_query
@@ -659,7 +660,7 @@ async def forget_trusted_browsers(
     return {"forgotten": True}
 
 
-@router.post("/mfa/enroll")
+@router.post("/mfa/enroll", dependencies=[Depends(refuse_demo_account)])
 async def enroll_mfa(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Opt into the login step-up code. Requires a verified email — the
     code has to reach the account, or the next login locks the user out."""
@@ -677,7 +678,7 @@ async def enroll_mfa(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[s
     return {"enrolled": True}
 
 
-@router.post("/mfa/disable/request")
+@router.post("/mfa/disable/request", dependencies=[Depends(refuse_demo_account)])
 async def request_mfa_disable(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Mail a confirmation code for turning the step-up off. Disabling
     needs inbox access — a stolen session alone cannot switch MFA off."""
@@ -698,7 +699,7 @@ class DeleteAccountBody(BaseModel):
     password: str = ""
 
 
-@router.post("/account/delete")
+@router.post("/account/delete", dependencies=[Depends(refuse_demo_account)])
 async def delete_own_account(
     body: DeleteAccountBody,
     user: Dict[str, Any] = Depends(get_current_user),
@@ -743,7 +744,7 @@ async def delete_own_account(
     return {"deleted": True}
 
 
-@router.post("/mfa/disable/confirm")
+@router.post("/mfa/disable/confirm", dependencies=[Depends(refuse_demo_account)])
 async def confirm_mfa_disable(
     body: MfaDisableBody,
     user: Dict[str, Any] = Depends(get_current_user),
@@ -766,7 +767,7 @@ class TotpCodeBody(BaseModel):
     code: str = ""
 
 
-@router.post("/totp/enroll/start")
+@router.post("/totp/enroll/start", dependencies=[Depends(refuse_demo_account)])
 async def start_totp_enroll(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Begin authenticator-app enrollment: store an encrypted pending seed
     and return it (shown once) plus the otpauth URL. Verified email
@@ -795,7 +796,7 @@ async def start_totp_enroll(user: Dict[str, Any] = Depends(get_current_user)) ->
     return {"secret": secret, "otpauth_url": totp_mod.otpauth_url(secret, email)}
 
 
-@router.post("/totp/enroll/confirm")
+@router.post("/totp/enroll/confirm", dependencies=[Depends(refuse_demo_account)])
 async def confirm_totp_enroll(
     body: TotpCodeBody,
     user: Dict[str, Any] = Depends(get_current_user),
@@ -829,7 +830,7 @@ async def confirm_totp_enroll(
     return {"enrolled": True}
 
 
-@router.post("/totp/disable")
+@router.post("/totp/disable", dependencies=[Depends(refuse_demo_account)])
 async def disable_totp(
     body: TotpCodeBody,
     user: Dict[str, Any] = Depends(get_current_user),

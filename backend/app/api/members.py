@@ -24,6 +24,7 @@ from typing import Dict, Any, List, Optional
 from backend.app.core.config import FRONTEND_URL
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.plans import require_quota
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import (
     get_current_org,
     get_current_user,
@@ -181,7 +182,7 @@ async def invite_member(
     }
 
 
-@router.post("/invites/accept")
+@router.post("/invites/accept", dependencies=[Depends(refuse_demo_account)])
 def accept_invite(
     req: AcceptInviteRequest,
     user: Dict[str, Any] = Depends(get_current_user),
