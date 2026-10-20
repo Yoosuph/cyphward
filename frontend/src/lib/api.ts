@@ -111,6 +111,11 @@ export async function getDomains(): Promise<Domain[]> {
   return data ?? [];
 }
 
+/** Like getDomains, but a failed request throws so a page can show an error state instead of "no domains". */
+export async function getDomainsStrict(): Promise<Domain[]> {
+  return (await apiFetch<Domain[]>('/domains', undefined, true)) ?? [];
+}
+
 export async function addDomain(domain: string): Promise<{ domain: Domain; dns_instructions: any }> {
   const data = await apiFetch<{ domain: Domain; dns_instructions: any }>('/domains', {
     method: 'POST',
@@ -454,6 +459,11 @@ export async function listReports(): Promise<{ reports: ReportRow[]; total: numb
   const data = await apiFetch<{ reports: ReportRow[]; total: number }>('/reports');
   if (data) return data;
   return { reports: [], total: 0 };
+}
+
+/** Like listReports, but a failed request throws so a page can show an error state instead of "no reports". */
+export async function listReportsStrict(): Promise<{ reports: ReportRow[]; total: number }> {
+  return (await apiFetch<{ reports: ReportRow[]; total: number }>('/reports', undefined, true)) ?? { reports: [], total: 0 };
 }
 
 export async function createReport(payload?: { domain_id?: string; title?: string; request_key?: string }): Promise<{ report: ReportRow } | null> {
@@ -1025,7 +1035,7 @@ export interface ComplianceRequirement {
   findings: ComplianceFindingRef[];
   informational_findings: ComplianceFindingRef[];
   policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
-  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string }[];
+  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string; headline?: boolean }[];
   answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
               owner_name: string | null; expires_at: string | null }[];
 }
@@ -1278,3 +1288,63 @@ export const generateDocument = (kind: DocumentKind) =>
   apiFetch<{ id: string; version: number }>(`/compliance/documents/${kind}/generate`, { method: 'POST' }, true) as Promise<{ id: string; version: number }>;
 export const approveDocument = (id: string) =>
   apiFetch<{ id: string; approved_at: string }>(`/compliance/documents/${encodeURIComponent(id)}/approve`, { method: 'POST' }, true) as Promise<{ id: string; approved_at: string }>;
+
+// ---- Evidence files attached to questionnaire answers (C6) ----
+export interface EvidenceFile {
+  id: string;
+  question_key: string;
+  display_name: string;
+  content_type: string;
+  type_label: string;
+  size_bytes: number;
+  uploaded_at: string | null;
+  uploaded_by: string | null;
+}
+export interface EvidenceFileList {
+  files: EvidenceFile[];
+  usage: { files: number; bytes: number };
+  limits: { max_bytes: number; max_files: number; max_total_bytes: number; extensions: string[]; label: string };
+  uploads_available: boolean;
+}
+
+export const listEvidenceFiles = () =>
+  apiFetch<EvidenceFileList>('/compliance/evidence-files', undefined, true) as Promise<EvidenceFileList>;
+
+export const getEvidenceFileLink = (id: string) =>
+  apiFetch<{ url: string; expires_in: number; display_name: string }>(
+    `/compliance/evidence-files/${encodeURIComponent(id)}/download`, { cache: 'no-store' }, true);
+
+export const removeEvidenceFile = (id: string) =>
+  apiFetch<{ id: string; removed: boolean }>(`/compliance/evidence-files/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
+
+/** The file goes up as the raw request body (no multipart); XMLHttpRequest gives upload progress. */
+export async function uploadEvidenceFile(
+  questionKey: string, file: File, onProgress: (fraction: number) => void,
+): Promise<EvidenceFile> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  return new Promise<EvidenceFile>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/compliance/evidence-files?question_key=${encodeURIComponent(questionKey)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (orgId) xhr.setRequestHeader('X-Organization-Id', orgId);
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onerror = () => reject(new Error('The upload could not be sent. Check your connection and try again.'));
+    xhr.onload = () => {
+      let body: any = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        clearPageCache();
+        resolve(body as EvidenceFile);
+        return;
+      }
+      const detail = typeof body?.detail === 'string' ? body.detail : `The upload failed (status ${xhr.status}).`;
+      const error: any = new Error(detail);
+      error.status = xhr.status;
+      reject(error);
+    };
+    xhr.send(file);
+  });
+}

@@ -257,6 +257,24 @@ def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONRes
     )
 
 
+def _queue_evidence_purge(org_id: str) -> None:
+    """Before the organisation's rows go, queue its stored evidence files for deletion (packet C6). Closing never
+    waits for storage and never fails because of it: the objects are deleted right after the rows, and an entry left
+    in the queue is retried by `backend/scripts/reconcile_evidence_files.py`."""
+    from backend.app.compliance import evidence_file_store
+    evidence_file_store.queue_purge(org_id)
+
+
+def _purge_evidence_files(org_id: str) -> None:
+    from backend.app import storage as file_storage
+    from backend.app.compliance import evidence_file_store
+    import logging
+    try:
+        evidence_file_store.purge_organization(file_storage.get_storage(), org_id)
+    except Exception as exc:  # the entry stays queued; the closing already succeeded
+        logging.getLogger("cyphward.evidence_files").warning("evidence purge deferred (%s)", type(exc).__name__)
+
+
 @router.post("/close")
 def close_organization(
     req: CloseOrganizationRequest,
@@ -276,6 +294,7 @@ def close_organization(
             status_code=400,
             detail=f"Type the workspace slug '{org['slug']}' to confirm closure.",
         )
+    _queue_evidence_purge(str(org["id"]))
     log_audit(None, org.get("current_user_id"), "org.closed", "organization", str(org["id"]),
               {"slug": org["slug"], "name": org["name"]})
     deleted = execute_one(
@@ -283,4 +302,5 @@ def close_organization(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Organization not found.")
+    _purge_evidence_files(str(org["id"]))
     return {"closed": True, "org_id": str(org["id"])}

@@ -51,6 +51,9 @@ jobs:
       - name: Build (tsc + vite)
         run: npm run build
 
+      - name: Time-zone helper tests
+        run: npm run test:datetime
+
   postgres-races:
     name: PostgreSQL admission and execution races
     runs-on: ubuntu-latest
@@ -80,7 +83,7 @@ jobs:
       - name: Bootstrap the empty service database
         run: python backend/scripts/bootstrap_test_database.py
       - name: Run independent-connection acceptance tests
-        run: python -m pytest backend/tests/test_scan_admission_postgres.py backend/tests/test_scan_execution_postgres.py backend/tests/test_owner_views_postgres.py backend/tests/test_owner_actions_postgres.py backend/tests/test_compliance_postgres.py backend/tests/test_third_party_findings_postgres.py backend/tests/test_privacy_stage_postgres.py backend/tests/test_domain_delete_postgres.py backend/tests/test_compliance_attestations_postgres.py backend/tests/test_compliance_incidents_postgres.py backend/tests/test_nuclei_tier_postgres.py backend/tests/test_snapshots_postgres.py backend/tests/test_packs_postgres.py backend/tests/test_compliance_documents_postgres.py backend/tests/test_browser_jobs_postgres.py -q
+        run: python -m pytest backend/tests/test_scan_admission_postgres.py backend/tests/test_scan_execution_postgres.py backend/tests/test_owner_views_postgres.py backend/tests/test_owner_actions_postgres.py backend/tests/test_compliance_postgres.py backend/tests/test_third_party_findings_postgres.py backend/tests/test_privacy_stage_postgres.py backend/tests/test_domain_delete_postgres.py backend/tests/test_compliance_attestations_postgres.py backend/tests/test_compliance_incidents_postgres.py backend/tests/test_nuclei_tier_postgres.py backend/tests/test_snapshots_postgres.py backend/tests/test_packs_postgres.py backend/tests/test_compliance_documents_postgres.py backend/tests/test_compliance_evidence_files_postgres.py backend/tests/test_browser_jobs_postgres.py -q
       - name: Stop the owned test cluster
         if: always()
         run: |

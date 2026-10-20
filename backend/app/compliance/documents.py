@@ -18,12 +18,14 @@ import hashlib
 import json
 import os
 import re
+import logging
 import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.compliance import attestations as truth
+from backend.app.compliance import document_check as check
 from backend.app.compliance import questionnaire as qn
 
 LABEL = "Draft — not legal advice"
@@ -38,16 +40,10 @@ MAX_SLOT = 120
 
 # Union of the banned lists in test_compliance_claims.py and test_compliance_questionnaire.py, plus the
 # claims a drafting assistant is most tempted to make. Matched as lowercase substrings, like the tests.
-BANNED = (
-    "partial compliance", "fully compliant", "is compliant", "compliant", "complies", "in compliance",
-    "satisfy ndpa", "satisfies", "satisfied", "certif", "ndpa 2023 compliant", "cbn compliant",
-    "passes audit", "pass the audit", "compliance score", "fully meets", "meets the requirement",
-    "meets the requirements", "is met", "guarantee", "adequate", "adequacy", "legally sufficient",
-    "legal sufficiency", "ensures compliance", "sufficient for compliance",
-)
+BANNED = check.BANNED
 
-SLOT = re.compile(r"\{\{[A-Z_]+\}\}")
-PLACEHOLDER = re.compile(r"\[MISSING: [^\[\]\n]{1,200}\]")
+SLOT = check.SLOT
+PLACEHOLDER = check.PLACEHOLDER
 URLISH = re.compile(r"https?://|www\.|@|\b[\w-]+\.(?:com|ng|org|net|io|gov|co|edu)\b", re.I)
 WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
 SENTENCE_START = re.compile(r"(?:^|[.!?]\s+|\n\s*(?:[-*#>|]+\s*|\d+[.)]\s*)?)$")
@@ -70,31 +66,43 @@ OBSERVED_KEYS = ("gaid.consent.banner_visible", "gaid.consent.accept_and_reject"
 MODEL_ENABLED = os.getenv("COMPLIANCE_DOCS_MODEL", "off").strip().lower() == "on"
 MODEL_TIMEOUT_SECONDS = 45  # the whole model step (all providers and retries), not one call
 
-# Look-alike letters (Cyrillic and Greek) that survive NFKC, folded to the Latin letter they imitate.
-CONFUSABLES = str.maketrans({
-    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y", "і": "i", "ј": "j", "ѕ": "s", "һ": "h",
-    "ԁ": "d", "ɡ": "g", "ν": "v", "ο": "o", "α": "a", "ε": "e", "ι": "i", "κ": "k", "ρ": "p", "τ": "t", "υ": "u",
-})
-STEMS = ("compliant", "complies", "certif", "satisf", "adequa", "guarante")
+fold = check.fold
+banned_hits = check.banned_hits
+STEMS = check.STEMS
+FACT_WORDS = check.FACT_WORDS
+
+_logger = logging.getLogger("cyphward.compliance.documents")
+_warned = False
 
 
-def fold(text: str) -> str:
-    """Text as a reader sees it: compatibility forms folded (full-width letters), invisible format characters
-    (zero-width spaces and joiners, soft hyphens) removed, look-alike letters mapped to Latin."""
-    text = unicodedata.normalize("NFKC", text or "")
-    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
-    return text.translate(CONFUSABLES).lower()
+def log_model_path_warning() -> bool:
+    """Log, once per process, that draft rewording by a model is switched on. True when it logged."""
+    global _warned
+    if not MODEL_ENABLED or _warned:
+        return False
+    _warned = True
+    _logger.warning(
+        "COMPLIANCE_DOCS_MODEL=on: compliance drafts are sent to an AI provider to be reworded. The reworded text is "
+        "accepted only if it passes the structural check in document_check.py; the check does not read meaning. "
+        "Review a sample of stored drafts before leaving this on, and set it per environment on purpose.")
+    return True
 
 
-def banned_hits(text: str) -> List[str]:
-    lowered = fold(text)
-    hits = [phrase for phrase in BANNED if phrase in lowered]
-    # A claim broken up inside one word with hyphens or dots ("com-pliant", "c.o.m.p.l.i.a.n.t"): check each
-    # token with its non-letters removed (per token, so letters of neighbouring words never join up).
-    for token in lowered.split():
-        letters = re.sub(r"[^a-z]", "", token)
-        hits += [stem for stem in STEMS if stem in letters and stem not in hits]
-    return hits
+def _clean(value: Any) -> Tuple[Optional[str], bool]:
+    """(cleaned text or None, True when the only reason it cannot be used is banned wording)."""
+    if not isinstance(value, str):
+        return None, False
+    # NFKC and no invisible format characters (zero-width spaces and joiners), but legitimate letters with
+    # diacritics stay: only the banned-phrase check below looks at the folded form.
+    text = "".join(ch for ch in unicodedata.normalize("NFKC", value) if unicodedata.category(ch) != "Cf")
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    text = re.sub(r"[{}\[\]<>|`*_#]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()[:MAX_SLOT].strip()
+    if not text:
+        return None, False
+    if banned_hits(text):
+        return None, True
+    return text, False
 
 
 def clean_slot(value: Any) -> Optional[str]:
@@ -103,31 +111,22 @@ def clean_slot(value: Any) -> Optional[str]:
     Markup, braces and brackets are removed so a value cannot fake or hide a placeholder; a value that
     contains wording this feature never uses (a claim of compliance) is not used at all.
     """
-    if not isinstance(value, str):
-        return None
-    # NFKC and no invisible format characters (zero-width spaces and joiners), but legitimate letters with
-    # diacritics stay: only the banned-phrase check below looks at the look-alike-folded form.
-    text = "".join(ch for ch in unicodedata.normalize("NFKC", value) if unicodedata.category(ch) != "Cf")
-    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
-    text = re.sub(r"[{}\[\]<>|`*_#]", "", text)
-    text = re.sub(r"\s+", " ", text).strip()[:MAX_SLOT].strip()
-    if not text or banned_hits(text):
-        return None
-    return text
+    return _clean(value)[0]
+
+
+def slot_wording_blocked(value: Any) -> bool:
+    """True when a value was left out only because it contains wording that drafts never use."""
+    return _clean(value)[1]
+
+
+# Shown in the draft (inside the placeholder, or in the reviewer notes) when a value was left out for its wording.
+WORDING_NOTE = "that wording cannot be used in drafts, so please rephrase it"
 
 
 def _digits(text: str) -> Counter:
     return Counter(re.findall(r"\d+", text))
 
 
-# Number, month and weekday words carry facts without a digit ("seven years", "every March").
-FACT_WORDS = frozenset("""
-    one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen
-    eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million dozen
-    january february march april may june july august september october november december
-    jan feb mar apr jun jul aug sep sept oct nov dec monday tuesday wednesday thursday friday saturday sunday
-    daily weekly monthly quarterly annually yearly annual
-""".split())
 # Words that may open a sentence without being a name.
 FUNCTION_WORDS = frozenset("""
     the this that these those we you your our us it its if when where while whether any all each every some
@@ -145,7 +144,17 @@ def _strip_tokens(text: str) -> str:
 
 
 def validate_model_text(output: Any, template: str) -> Optional[str]:
-    """None when the model's text may be used, otherwise a short reason. Never raises."""
+    """None when the model's text may be used, otherwise a short reason. Never raises; any doubt is a rejection.
+
+    The older checks run first (tokens, markup, numbers, addresses, banned wording, new names), then the
+    structural check in `document_check`: same lines, same sentences, same words apart from glue words."""
+    try:
+        return _validate(output, template)
+    except Exception:
+        return "check_failed"
+
+
+def _validate(output: Any, template: str) -> Optional[str]:
     if not isinstance(output, str) or not output.strip():
         return "empty_output"
     if len(output) > 2 * len(template) + 400 or len(output) < len(template) // 3:
@@ -175,7 +184,7 @@ def validate_model_text(output: Any, template: str) -> Optional[str]:
         # the start of a sentence or line is let through.
         if not (SENTENCE_START.search(bare[:match.start()]) and low in FUNCTION_WORDS):
             return "name_added"
-    return None
+    return check.structural_problem(output, template)
 
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
@@ -231,7 +240,8 @@ def _dpo(ctx, now: datetime) -> Dict[str, Any]:
         return _fact("dpo_name", "name of your data protection officer", None, note="you reported none is named yet")
     name = clean_slot(answer.get("text"))
     if name is None:
-        return _fact("dpo_name", "name of your data protection officer", None, note="no name recorded")
+        note = WORDING_NOTE if slot_wording_blocked(answer.get("text")) else "no name recorded"
+        return _fact("dpo_name", "name of your data protection officer", None, note=note)
     return _fact("dpo_name", "name of your data protection officer", "customer_attested", name)
 
 
@@ -242,14 +252,18 @@ def build_inputs(kind: str, ctx: Dict[str, Any], now: Optional[datetime] = None)
         raise ValueError("unknown document kind")
     now = now or datetime.now(timezone.utc)
     name = clean_slot(ctx.get("org_name"))
-    sites = [clean_slot(d) for d in (ctx.get("domains") or [])]
+    raw_sites = list(ctx.get("domains") or [])
+    sites = [clean_slot(d) for d in raw_sites]
     sites = [s for s in sites if s][:5]
+    # A value left out for its wording is never dropped silently: the draft says so and asks for a rephrase.
+    site_blocked = any(slot_wording_blocked(d) for d in raw_sites)
     facts = [
-        _fact("org_name", "name of your organisation", "organisation_profile" if name else None, name),
+        _fact("org_name", "name of your organisation", "organisation_profile" if name else None, name,
+              note=WORDING_NOTE if name is None and slot_wording_blocked(ctx.get("org_name")) else None),
     ]
     if kind in ("privacy_policy", "cookie_notice"):
         facts.append(_fact("website", "your website address", "organisation_profile" if sites else None,
-                           ", ".join(sites) or None))
+                           ", ".join(sites) or None, note=WORDING_NOTE if site_blocked else None))
     if kind in ("privacy_policy", "breach_response_plan", "retention_schedule"):
         facts.append(_dpo(ctx, now))
     if kind == "privacy_policy":
@@ -461,11 +475,15 @@ def fill_slots(text: str, inputs: Dict[str, Any]) -> str:
 
 SYSTEM_PROMPT = (
     "You edit a draft of a data protection document for a Nigerian organisation. Reword the draft so it reads "
-    "clearly in plain English, keeping the same sections, order of ideas and Markdown headings. Rules: keep every "
-    "{{TOKEN}} and every [MISSING: ...] placeholder exactly as written, once each, unchanged. Do not add or "
-    "change any fact, name, number, date, address, link or email. Do not add new sections or new commitments. "
-    "Never say or imply that the organisation complies with, satisfies or is certified under any law, and never "
-    "say the text is legally sufficient or adequate. Respond as JSON with one key, \"text\", holding the edited draft."
+    "clearly in plain English. Rules: keep exactly the same lines, in the same order, with the same Markdown "
+    "headings, list numbers and table rows, and exactly the same number of sentences in every line (do not split, "
+    "merge, add or remove a sentence). Keep every {{TOKEN}} and every [MISSING: ...] placeholder exactly as "
+    "written, once each, unchanged. Use only the words already in the draft, plus small connecting words. You may "
+    "change the order of clauses and swap a few plain verbs, but never add, remove or change a fact, name, number, "
+    "date, duration, address, link, email, or any word such as not, no, never, all, every, any, only, will, may, "
+    "can, must or should. Do not add commitments, promises or assurances, and do not say or imply that the "
+    "organisation follows, meets or is approved under any law. Use plain ASCII characters only. "
+    "Respond as JSON with one key, \"text\", holding the edited draft."
 )
 
 
@@ -476,7 +494,8 @@ def reviewer_notes(inputs: Dict[str, Any]) -> str:
     rows = []
     for f in inputs["facts"]:
         if f["state"] == "set":
-            rows.append(f"- {f['label']}: from {SOURCE_LABELS[f['source']]}")
+            rows.append(f"- {f['label']}: from {SOURCE_LABELS[f['source']]}"
+                        + (f" (one entry was left out: {f['note']})" if f.get("note") else ""))
         else:
             rows.append(f"- {f['label']}: not available" + (f" ({f['note']})" if f.get("note") else ""))
     return ("## Inputs behind this draft (for the reviewer; remove before publishing)\n\n"

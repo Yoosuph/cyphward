@@ -651,3 +651,298 @@ Heuristic banner detection (unusual markup, closed shadow DOM, iframes missed); 
 6. **Separate key** for the browser worker rather than reusing the scanner key.
 7. **Background Google hosts** Chromium contacts on its own are refused at the proxy; a short deny-list lives in `netguard.BROWSER_INTERNAL_HOSTS`.
 8. **Not done:** clicking reject and re-checking cookies (the plan's optional step), frontend wording, scheduler tuning.
+## C5b — a semantic check on AI rewording (branch `claude/nifty-roentgen-683a19`, base `main`)
+
+The model path for drafts stays **OFF by default** (`COMPLIANCE_DOCS_MODEL`, default off). Nothing in this PR turns it on in any environment. No migration, nothing under `scanner/` or `shared/`, no frontend change (the new note is part of the placeholder text the Documents tab already shows).
+
+### What the check does (`backend/app/compliance/document_check.py`, called from `documents.validate_model_text`)
+
+The older checks (tokens, placeholders, markup, numbers, addresses, banned wording, new capitalised names) still run first and keep their reason strings. Then `structural_problem` runs a list of named rules, in this order:
+
+1. **non_ascii**: output may not contain a non-ASCII character that the template (outside its placeholders) lacks. This closes zero-width, Cyrillic, Greek, Armenian, full-width, combining-mark and curly-quote disguises, including a look-alike spelling of a word the template already has ("n**о**t").
+2. **lines**: same number of non-empty lines, same kind and prefix for each (`#`/`##`, `4.`, table). Headings and table rows must be identical after normalising.
+3. **sentence_count**: each prose line has the same number of sentences as its template line. Nothing is dropped, merged, split or added.
+4. **negations / commitments / numbers**: in each aligned sentence pair, the negations (not, no, never, none, cannot, without, n't ...), the modals and quantifiers (will, shall, must, may, can, all, every, any, only, always ...), the commitment verbs (ensure, guarantee, encrypt, delete, secure, comply, meet, fulfil ...) and numbers, dates, durations and units occur exactly as often as in the template. These give specific reasons; **content_words** below makes them redundant in effect.
+5. **clause_order**: the pieces between commas, semicolons and colons are *clauses*. The content words of the reworded sentence must be the template's clauses laid end to end in some order, so whole clauses may change places but no word moves inside a clause. This stops "we do not store or send personal data" becoming "we do not store personal data or send it" with only the template's own words (found in the advisor review of this PR).
+6. **content_words**: every word that is not on the fixed glue list must occur exactly as often as in the template sentence. That covers names, `{{TOKENS}}` and `[MISSING: ...]` placeholders (each becomes one opaque word), and it also rejects **dropping** a content word (dropping "outside Nigeria" from a negation widens it).
+7. **scope**: for every negation, modal, quantifier, conjunction and condition word, the next content word must be the one in the template. A "not" cannot move onto another verb, and "store or send" cannot become "send or store" next to a "not".
+8. **claim_shape**: defence in depth. A sentence with the shape of an obligation or assurance (we/our ... will/always/never/must; will ... encrypt/delete/protect/secure/comply/meet; all/every ... the same verbs; "in accordance with", "in line with", fulfil, satisfy, "as required by", "applicable law", "legal obligation", "in full", "fully") is rejected unless the aligned template sentence has the same shape.
+
+The glue list (`GLUE`: a an the of to in on at by for with from as that this these those it its which who whom is are be been being was were am do does did has have had also then there here example out) and a few neutral verbs (`NEUTRAL`: explain(s) describe(s) outline(s) show(s) list(s) cover(s) sets) are the only words that may change. A module-level assertion keeps them disjoint from every claim list.
+
+**One normaliser for every comparison** (`fold`): NFKD, strip Cf and Mn, NFKC, lower-case **then** fold look-alike Cyrillic, Greek and Armenian letters (the old order missed upper-case Cyrillic), join hyphen and hyphen+space splits ("com- pliant"). Phrase matching collapses whitespace first (a line break inside "is met" no longer hides it) and also catches letters spelled one at a time ("c o m p l i a n t"). `clean_slot` still keeps legitimate diacritics (names such as "Ọlá Adéwálé" are used as typed); only the check looks at the folded form.
+
+**Fail safe.** The whole check is wrapped: any exception is `check_failed` and counts as a rejection. Two rejected attempts store the deterministic template with `fallback_reason = rejected:<reason>` (unchanged pipeline). Overall model timeout stays 45 s.
+
+**Closed from the release review:** accented Latin ("cómpliant"), Armenian look-alikes and hyphen+space splits are caught by the banned-phrase check; a customer value that contains a banned stem (organisation name, domain or DPO name) now becomes a placeholder **with a visible note** ("that wording cannot be used in drafts, so please rephrase it"), and a blocked domain among good ones is named in the reviewer notes (no silent drop); the note is added only on that path, so `inputs_hash` of every existing draft is unchanged; when the flag is on, the application logs one clear startup warning (`documents.log_model_path_warning`, called from `main.py` at startup).
+
+### What it guarantees, and what it does not
+
+Guaranteed (by construction, and by the corpus below): reworded text that is stored is the template's own lines in the template's order, each with the template's sentences in the template's order; it contains no word that is not in the same template sentence, apart from glue words; no template word is dropped or repeated; every negation, modal, quantifier, commitment verb, number, date, duration, name, token and placeholder keeps its exact count, and the word each one points at; content words keep the template's order inside each clause and only whole clauses change places; no non-ASCII character, link, address, markup or banned wording that the template lacks. So no sentence can be added, merged, dropped or given a new claim, commitment, number or negation.
+
+**Not guaranteed:**
+- It does not read meaning. Glue words are free and whole clauses may change places, so a rewording can be clumsy, and moving a clause can change how a sentence reads (for example a "when ..." clause moved in front of the main clause). Only the template's own commas, semicolons and colons mark clauses, so a template sentence without a comma cannot be reordered at all.
+- Case changes are accepted; upper-case words (names) are compared lower-case.
+- A faithful model will often be rejected (curly quotes, "e.g.", a split sentence, a synonym such as "hold" for "store"). That is the intended failure: the template is stored, so the tab shows "standard wording". The prompt asks for ASCII, same lines and sentences, only the draft's own words; measure the accept rate before relying on this path.
+- It was never run against a live model (stub providers only).
+- The template itself is not judged: it is deterministic and covered by the banned-phrase tests.
+
+### Operator checklist before enabling `COMPLIANCE_DOCS_MODEL=on`
+
+1. Set it **per environment on purpose** (staging first). It is read at process start; a restart is needed. The application logs a warning at startup when it is on.
+2. Provide exactly one provider key you have approved (`GEMINI_API_KEY` or `OPENAI_API_KEY`); the template holds no customer text, but its wording can reveal a yes/no answer.
+3. In staging, generate each of the four kinds for several organisations and **read a sample** of stored drafts next to their templates. Check `generator` and `fallback_reason` counts: if almost every draft falls back, the model is not following the prompt; if most are accepted, read the accepted ones for clumsy or reversed meaning.
+4. Keep the "Draft — not legal advice" label and the practitioner-review step; do not tell customers the wording is checked for meaning.
+5. Roll back by unsetting the variable and restarting; stored drafts keep their `generator`.
+
+### Tests (no network; stub providers only)
+
+- `backend/tests/c5b_corpus.py` (data) and `test_compliance_documents_check.py`: **449** adversarial rewordings that must be rejected, each by `validate_model_text` **and** by the new structural check alone: paraphrased claims put in as a new line, merged onto a sentence, in place of a sentence and in the breach plan; invented commitments; flipped negations in both directions and moved negations; added or changed modals and quantifiers; changed numbers, dates and durations; dropped clauses and sentences; merged and split sentences; added lines, headings, list items and table rows; injected links, emails, phone numbers and markup; instruction text; echoed slot values; duplicated, dropped, swapped and rewritten tokens and placeholders; synonyms, subject swaps, `and`/`or` and condition changes; look-alike spellings of template words; and disguised banned words (zero-width, joiner, soft hyphen, Cyrillic, Greek, Armenian, full-width, combining marks, hyphen+space, dotted, spaced, line-break split). **23** faithful rewordings that must be accepted (reordered clauses, neutral verb swaps, added and removed glue words, whitespace, CRLF, single newlines, missing final period), so the check is not a no-op.
+- Property tests over every document kind and all 243 answer combinations × observed or not (**65** distinct templates): the template is accepted; ~1,000 random single-word claim insertions are rejected, and every claim word at the start and end of a sentence; every deletion of a negation, placeholder, slot token or the number 72 is rejected; dropping, doubling or swapping lines is rejected.
+- Mutation check, automated: each rule alone rejects its own cases; removing `non_ascii`, `lines`, `sentence_count` or `clause_order` lets part of the corpus through (tested); with no rules at all the whole corpus gets through the structural check. **Honest note:** `negations`, `commitments`, `numbers`, `content_words`, `scope` and `claim_shape` are redundant once `clause_order` is on (a clause permutation has exactly the template's content words, in the template's order inside each clause); removing any one of them flips no corpus case. They give specific rejection reasons or are defence in depth, and each is tested on its own. `clause_order` was added after an advisor review showed that `content_words` plus `scope` accepted "We do not store personal data or send it outside Nigeria." (now a corpus case). I also removed, by hand, the Mn strip, the hyphen join, the lower-then-fold order and the whitespace collapse in the normaliser: each makes tests fail.
+- Pipeline, with the flag on and a stub provider: a faithful rewording is stored with `generator = Stub` for all four kinds; paraphrased claims, invented commitments, a flipped negation, a dropped sentence and a disguised word are stored as the template with `fallback_reason = rejected:<reason>`; the flag-off tests are unchanged.
+- Banned-phrase tests extended to everything new (the full list: compliant, certified, certification, satisfies, satisfied, passes audit, pass the audit, compliance score, fully meets, meets the requirement, is met, partial compliance, fully compliant, is compliant, satisfy ndpa, adequate, adequacy, guarantee): `test_compliance_claims.py` (the note, the prompt, the check's own docstring, the template with a blocked name, the reviewer notes), `test_compliance_questionnaire.py`, `test_compliance_documents*.py`.
+- One existing test was edited: `test_ordinary_sentence_openers_are_not_mistaken_for_names` appended a whole new sentence and expected acceptance; an added sentence must now be rejected, so it asserts only that the name check does not take "If" or "please" for a name (see Decision C5b-4).
+
+### Files
+
+`backend/app/compliance/document_check.py` (new), `documents.py`, `backend/app/main.py` (startup warning), `backend/tests/c5b_corpus.py` (new), `test_compliance_documents_check.py` (new), and edits to `test_compliance_documents.py`, `test_compliance_documents_postgres.py`, `test_compliance_claims.py`, `test_compliance_questionnaire.py`, and this file.
+
+### Validation
+
+Owned loopback PostgreSQL on 127.0.0.1:55454 (own cluster in `/tmp/pg-c5b`, bootstrap script only: 36 migrations, restricted `cyphward_app`). Final run, one `pytest backend/tests -q`, nothing else touching the files, no deselects: **2134 passed, 16 skipped in 183.56 s** (the 16 skips are the opt-in `*_INTEGRATION` suites). CI PostgreSQL list (with the extended documents file): **259 passed**. New pure file `test_compliance_documents_check.py`: 992 tests; `test_compliance_documents.py` 54 and `test_compliance_documents_postgres.py` 36 (13 new). No frontend change, so no build or browser suite was needed. `backend/tests` already runs whole in the CI pure job, so the new file is picked up; the documents postgres file is already in the CI list.
+
+### Decisions for Yusuf (C5b)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C5b-1 | Alignment | Positional, not token-overlap: both texts are split into lines and sentences, and sentence N must match template sentence N. The template is deterministic, so a fuzzy match would only add a way to mis-align; a split, merge, drop or added sentence is a rejection. |
+| C5b-2 | Word rule | Stronger than the recommended "subset of the template plus function words": the output's content words must equal the template sentence's content words exactly (reordering and glue words are free). A subset would let a rewording drop "outside Nigeria" from a negation or drop a clause. The price is that synonyms are rejected. |
+| C5b-3 | Reordering | Only whole clauses (between the template's commas, semicolons and colons) may change places; words never move inside a clause. Faithful reorderings are therefore limited to sentences the template already punctuates. |
+| C5b-3b | Free words | A short glue list plus a few neutral verbs (explains/describes/outlines/shows/lists/covers/sets out), so "explains how" can become "describes how". Add words only with a test that shows the word cannot carry a claim. |
+| C5b-4 | Existing test changed | One (see Tests). An added sentence is now rejected by design. |
+| C5b-5 | Headings and table rows | Not reworded: they must match the template. |
+| C5b-6 | Non-ASCII in reworded text | Rejected outright (prompt asks for ASCII). Curly quotes and dashes from a model cause a fallback. |
+| C5b-7 | Value with banned wording | Becomes a placeholder with the note "that wording cannot be used in drafts, so please rephrase it". For a domain that is one of several, the reviewer notes say one entry was left out. |
+| C5b-8 | Flag | Still off by default, still one environment variable, plus a startup warning. No second acknowledgement was added. |
+| C5b-9 | Migration | None. |
+| C5b-10 | Turning rewording on | Not done anywhere. Needs your decision after the staging sample in the checklist above. |
+
+### C5b review round 1 (independent review of head `822801e`: REJECT) and the fix
+
+The reviewer showed that the first version accepted meaning-changing rewrites using only the template's words: strikethrough or entity syntax around "not" (`~~not~~`, `&not;`), questions and sentence-splitting quotes or brackets (`Did we not store ...?`, `store.) Or send ...`), removing "for example" (glue), tense changes (`has been written`, `did not`), and extra or moved commas (`store it, or send ...`, `Correct, you can ask ...`). All are now corpus cases and are rejected. The rule is now strict, as the reviewer recommended:
+
+- **Glue shrank to articles (`a`, `an`, `the`) and `also`.** Prepositions, pronouns, auxiliaries, `example`, `for`, `out`, `then`, `that` and the rest are counted words: none can be added, dropped or swapped. The neutral verbs (explain/describe/outline/show/list/cover, singular and plural) count as one word, so one can replace another but not be added or dropped. `sets out` no longer works.
+- **New rule `punctuation`:** each sentence has exactly the template sentence's punctuation multiset and end mark. A sentence now ends at every `.`, `!` or `?` whatever follows, so a quote or bracket after a full stop cannot hide a split.
+- **`clause_order` is stricter:** each output clause must be a template clause word for word; only framing clauses (opening with "for example", "including" or "when") may move, the others keep their order. Added or moved commas change the clause set or the punctuation and are rejected.
+- **Removed the `PHONE` check** (redundant with the digit check: an extra digit run is already `number_added`).
+- **Fail-safe is tested:** a test makes the checker raise (`_validate`, and a rule) and asserts `check_failed`, so changing that guard to return `None` fails a test.
+- Corpus now **506** adversarial and **22** faithful cases. Mutation (structural check alone, one rule removed): `non_ascii` 11 cases let through, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 6; `negations`, `commitments`, `numbers`, `content_words`, `scope` and `claim_shape` flip none (redundant by design, kept for reasons and as defence in depth).
+- **What is still accepted** (and cannot be told apart without reading meaning): adding or removing `a`/`the`/`also`, swapping one neutral verb for another, and moving a framing clause to the other end of its sentence. Everything else must equal the template token for token.
+
+#### Decisions for Yusuf (C5b, review round)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C5b-11 | How much rewording is possible | Very little: articles, "also", neutral-verb swaps and moving "for example / including / when" clauses. A model that rewrites more is rejected and the standard wording is stored. That makes the rewording path close to a no-op in practice; if the accept rate in staging is near zero, drop the feature rather than loosen the check. The flag stays off. |
+
+Validation for this round (fresh cluster, port 55454): full backend suite **2253 passed, 16 skipped** (139 s). CI PostgreSQL list: 259 on the earlier head; on this head one run showed 2 failures and an immediate rerun passed with none (I did not capture the first run's names; the two known flaky scan-execution tests are the likely cause, not confirmed).
+
+### C5b review round 2 (head `3a8302b`: APPROVE with two should-fix items, done)
+
+- A `when ...` clause now moves only if it already opens the template sentence (so breach step 1 cannot lose "write down what happened" to the front); "for example" and "including" clauses still move.
+- A carriage return is read as a space (it was deleted, which let `no\rt` and `with\rin 72 hours` through); any other control character (`\x0b \x0c \x1c-\x1f \x00 \x7f \x85`) is rejected by a new `control_chars` rule.
+- The redundant end-mark comparison was removed (the punctuation multiset already covers it); a test pins the sentence splitter (ends at every `.`, `!`, `?`).
+- Corpus: **528** adversarial, **24** faithful. Mutation: `control_chars` 6 cases, `non_ascii` 11, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 7.
+- Validation: full backend suite **2303 passed, 16 skipped**; CI PostgreSQL list **259 passed** (fresh cluster, port 55454).
+
+## C6 — evidence file uploads (branch `claude/infallible-agnesi-011c96`, base `main`)
+
+Customer owners and admins can attach files (PDF, PNG, JPG/JPEG, DOCX, up to 10 MB) to the evidence of a questionnaire answer; every member can see and download them. Growth plan only. The bytes live in a **private** Supabase Storage bucket `evidence-files`; the database holds one row per file. This is plan decision D2 ("file uploads later: private bucket, tenant-scoped signed URLs, size and type limits, retention") built. An attachment is something the customer chose to attach: the screen says Cyphward does not read or review it, and it changes no register status.
+
+### What was built
+
+- **Storage interface** `backend/app/storage/`: `put`, `create_signed_url`, `delete`, `delete_prefix` (plus `list_objects` for reconcile). `SupabaseStorage` (httpx, service role from `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, key only in request headers, fixed error texts with no body or header, plain `http://` refused except loopback) and `MemoryStorage` (thread-safe fake with failure switches). An autouse fixture in `conftest.py` installs the fake in every test and clears the two variables, so no test can reach Supabase. Without configuration uploads answer **503** with `Retry-After`, nothing else changes.
+- **Rules** `backend/app/compliance/evidence_files.py` (pure): extension and magic bytes must agree (`%PDF-`, PNG signature, `FFD8FF`, DOCX = zip with `[Content_Types].xml`, a `word/` part and a Word main content type); refused: empty, over 10 MB, mismatches, second extensions (`report.exe.pdf`), macro-enabled content types, password-protected and path-traversal zips, DOCX with more than 1000 parts or expanding past 50 MB or 100x (checked from the zip directory, never by unpacking). Stored content type comes from the validated type. Names are cleaned (last path segment, control, bidi and zero-width characters removed, Windows-reserved characters to `_`, 120 characters) and stored as a display name only. Object path is `org/<org_id>/<file_uuid>`; a CHECK makes the database refuse any other path.
+- **Store** `backend/app/compliance/evidence_file_store.py` and **API** (end of `backend/app/api/compliance.py`): `GET /api/v1/compliance/evidence-files` (any member), `POST` (owner/admin; the file is the raw request body, name in `X-File-Name`), `GET /{id}/download` (any member; checks the organisation in the database, writes the audit row, then returns a 60-second signed URL with the Storage `download` parameter, so Cyphward's link is served as an attachment, plus the display name; `Cache-Control: no-store`), `DELETE /{id}` (owner/admin). Cross-tenant and malformed ids are 404 (ids are taken as text, not `UUID`, so no 422).
+- **Upload order (no connection or lock while bytes move):** Growth and role check, name check, storage configured, a per-process semaphore (4 uploads at a time, waiters get 503 + `Retry-After` after 10 s and hold no connection), body read with a hard stop one chunk past 10 MB (and an early 413 on a declared length), content check, unlocked quota pre-check, `put`, then ONE short transaction (`lock_timeout 5s`, per-organisation advisory lock, caps and rate checked from the table itself, row insert, audit insert). If anything fails the object is deleted again (compensating delete); a lock wait is 503 + `Retry-After`. The rate limit is counted from `uploaded_at` rows inside the same transaction, not through `rate_limit.check_rate_limit` (which commits on its own and would leave a charge behind a failed insert).
+- **Caps (per organisation, defaults in `evidence_files.py`):** 100 active files, 500 MB active total, 30 uploads per hour (removed uploads still count toward the hour). Active files only count toward the first two.
+- **Removal:** owner/admin; sets `removed_at`/`removed_by` and writes audit in one transaction, then deletes the object. If the delete fails the row stays marked (the file does not download either way) and `reconcile` retries.
+- **Organisation closing** (`POST /api/v1/organizations/close`, the only `DELETE FROM organizations` in the code): closing never waits for storage and is never blocked by it. If the organisation has file rows its id is first written to `compliance_evidence_purge_queue` (no foreign key); the rows are deleted; then `delete_prefix org/<id>/` runs and clears the entry. If storage fails or is unset the entry stays queued and `reconcile_evidence_files.py` retries it (an entry whose organisation still exists, because the database delete failed, is dropped unused). Nothing is deleted from storage before the rows, so a failed database delete cannot leave rows pointing at nothing.
+- **Reconcile** `backend/scripts/reconcile_evidence_files.py`: read-only report by default; `--delete --yes-delete` deletes orphans (objects with no row, and objects whose row is marked removed), at most `--max` (default 50) per run, and refuses when the table has no rows but storage has objects; objects with no row younger than 15 minutes (`--min-age`) or of unknown age are left (an upload may be between its put and insert); it also works through the purge queue; also lists active rows whose object is missing (never changed); `--check-bucket` fails if the bucket is public or missing; exits 1 when it finds something to do.
+- **Audit:** `compliance.evidence_file.uploaded`, `.download_link_issued`, `.removed`, with file id, size, content type and question key; never the file name or any content.
+- **Migration** `supabase/migrations/20261019100000_compliance_evidence_files.sql` (sha256 recorded at release): one transaction, `lock_timeout 5s`, `statement_timeout 60s`; table `compliance_evidence_files` with RLS, `REVOKE ALL`, then SELECT, INSERT and UPDATE (`removed_at`, `removed_by`) only; guard trigger (a row can be marked removed once; nothing else changes; a deleted profile may clear `uploaded_by`/`removed_by`); `(org_id, id)` unique key; composite `(org_id, attestation_id)` foreign key to `compliance_attestations`; `ON DELETE CASCADE` from organizations; the `compliance_evidence_purge_queue` table (SELECT, INSERT, DELETE for the app role; no foreign key); `REVOKE ALL` from `anon` and `authenticated` where those roles exist; a `DO` block creates the bucket row (private, 10 MB, four MIME types, upsert re-asserts private) only where `to_regclass('storage.buckets')` exists. No policy is created on `storage.objects`.
+- **Frontend:** `frontend/src/pages/compliance/EvidenceFiles.tsx` under each question on "Answer questions": file list (name, type, size, date, uploader), DOWNLOAD (calls the API, then follows the signed link as a download), REMOVE with the existing `ConfirmDialog`, ATTACH EVIDENCE (owner/admin) with client checks mirroring the server, a progress bar (XHR) and error messages. The list loads once per page; if it fails the file area is simply hidden. Browser suite extended (desktop/390/320).
+
+### Tests
+
+- `backend/tests/test_evidence_files.py`: **59** (rules, names, zip bombs, fake, REST implementation against a mock transport, banned phrases on all new copy and fixtures including the frontend component).
+- `backend/tests/test_compliance_evidence_files_postgres.py`: **78** (grants, guard, migration one-transaction/idempotent/private bucket in a rolled-back simulated storage schema, upload/list/download/remove with roles, Starter and cross-tenant, caps and rate also under concurrency, the last-slot race, compensating delete, no database connection while bytes move, lock wait 503, semaphore, streaming limit, audit without names, reconcile, organisation closing and its failure path, no service key in any response or log, snapshots and packs carry no file data). Added to the CI PostgreSQL list.
+- Full backend suite on the local database: **1547 passed, 16 skipped** (the two known flaky scan-execution tests deselected). CI PostgreSQL list locally: **328 passed** (the 15 files in the workflow list, the two known flaky scan-execution tests deselected). Frontend: `npm run build` and `test:compliance-ui`, `test:scans-ui`, `test:score-ui`, `test:onboarding-ui` all pass.
+- **Mutation checks** (each mutation made, the named tests run, each failed, then reverted): quota check removed; advisory lock removed; compensating delete removed; download without the `removed_at IS NULL` filter; download without the organisation filter; magic-byte check disabled; `download` parameter dropped from the signed URL; storage purge removed from organisation closing; Growth gate removed from upload; owner/admin gate relaxed on upload; removal audit dropped; file name added to the audit metadata. 12 of 12 killed.
+
+### Decisions for Yusuf (C6)
+
+| # | Decision | Default applied |
+|---|---|---|
+| C6-1 | Upload transport | The file is the raw request body with the name in a percent-encoded `X-File-Name` header; no multipart. This avoids a new dependency (`python-multipart` is not in `requirements.txt`) and lets the server stop reading at 10 MB. |
+| C6-2 | Memory | A file is held in memory (at most 10 MB) while it is checked, because a DOCX is validated from its zip directory. At most 4 uploads run per process, so the cost is bounded at about 40 MB per process. |
+| C6-3 | Caps and rate | 100 active files, 500 MB active total, 30 uploads per hour per organisation. Edit the constants in `evidence_files.py`. |
+| C6-4 | Organisation closing and storage | Closing is never blocked by storage. The cleanup is recorded in a small queue table (in the same migration) before the rows go, run right after, and retried by the reconcile script if it failed. Chosen over fail-closed because a storage outage or unset keys must not stop a customer deleting their data.
+| C6-5 | Snapshots and packs | Left alone. They embed no file data (a test proves it for a created snapshot and pack); adding an attachment list would risk changing the hash of existing snapshots for little value. |
+| C6-6 | Download link audit | The audit row is written (with the file lookup, in one transaction) before the link is signed, so a storage failure while signing leaves an audited attempt. Members' downloads are audited too. |
+| C6-7 | What a removed file leaves behind | The object is deleted at once. The database row stays marked removed, including the display name, as the trail of what was attached; it is deleted with the organisation. Say if removed rows should lose the name. |
+| C6-8 | What a file belongs to | The question, so it survives re-answering. It also records the answer that was current when it was added (nullable, same-tenant foreign key). |
+| C6-9 | Double extensions | Strict: a name with a second extension-like part (`report.final.pdf`, `v1.2.pdf`) is refused with "rename the file". `Policy v2.1.pdf` is fine (a space or digit start is not an extension). |
+| C6-10 | No malware scan | Not built. Files are never opened by Cyphward, are always served as attachments from the Storage domain, and macro-enabled DOCX content types are refused, but a PDF can still carry active content. A scanner would be a separate packet. |
+| C6-11 | Workspace export | Does not yet list file metadata (the export is an existing endpoint with its own test fixtures). Add it if the data-portability promise should cover attachments. |
+| C6-12 | Reconcile | Run by hand (report mode is safe at any time). It is not scheduled; suggested weekly. |
+| C6-15 | Refused uploads | Every upload attempt (saved or refused) counts against 60 attempts per organisation per hour (existing shared `rate_limits` table), on top of the 30 saved files per hour. One organisation may use at most 2 of the process's 4 upload slots. Download links: 30 per user per minute. |
+| C6-16 | Uploads switch | New uploads need `EVIDENCE_UPLOADS_ENABLED=true` (default off) as well as the two Supabase variables. Unsetting either never blocks downloads, removal or closing a workspace. |
+| C6-14 | Retried uploads | Uploads carry no request key, so a retry after an unseen success makes a second file (it counts against the caps; the owner can remove it). The UI disables ATTACH while a file is sending. |
+| C6-13 | Who sees what | Owners and admins attach and remove; every member lists and downloads. Starter gets the existing Growth-plan 403 on all of it, including listing. |
+
+### Limitations
+
+- **The Supabase Storage REST calls were written from the documented API and tested against a mock transport only: this build has no network access, so they have not run against a real Storage service.** The first real upload, signed link, delete and prefix delete need the smoke test below before customers see the feature.
+- **"Attachment only" holds for the links Cyphward issues, not for the signed token.** The `download` parameter is a query parameter that the signed token does not cover: anyone holding a link can drop it within its 60 seconds and view the file inline, on the Supabase storage domain and never on the app origin. We cannot add `X-Content-Type-Options: nosniff` on Supabase either. The exposure is limited to someone who already holds a valid 60-second link to a file in their own organisation, and to the four allowed types.
+- **Other accepted risks:** the service role key can reach every Supabase project resource, so keep it only on the API service; a lapsed subscription (Starter) also hides the organisation's own files and blocks downloading them until the plan returns; the workspace export does not include files; on Supabase the default privileges for `anon` and `authenticated` are revoked by the migration on the two new tables, but check `storage.objects` policies by hand (runbook).
+- A request body that is sent too slowly is refused after 60 s (408) so it cannot hold an upload slot.
+- Large organisations: `delete_prefix` lists and deletes in pages of 100 (bounded at 50 rounds) and the reconcile listing stops at 100,000 objects.
+- The upload slot semaphore is per process; with several API replicas the cap is per replica.
+- **Body size through the proxy is unverified: the 9 MB smoke test must pass before release.** The browser reaches the API through the Vercel `/api/(.*)` rewrite to Render. If Vercel caps request bodies below 10 MB on that path, large uploads will fail at the proxy (the app would show "The upload failed"). Test a file of about 9 MB in the smoke test; if it fails, lower the limit or send uploads to the API origin directly (CORS already allows it).
+- A client that disconnects between the storage put and the insert can leave an object behind; reconcile removes it after 15 minutes.
+
+### RUNBOOK (operator)
+
+1. **Order:** apply the migration, set the two variables on the API, deploy the API, then the frontend. Until the variables are set uploads answer 503 and the file area says uploads are not available; nothing else changes.
+2. **Render environment (API service):** `EVIDENCE_UPLOADS_ENABLED=true` (the on switch; unset it to stop new uploads while downloads, removal and closing still work), `SUPABASE_URL` (the project URL, `https://<ref>.supabase.co`) and `SUPABASE_SERVICE_ROLE_KEY` (the project's service role key). Never put either in the frontend or in git. To turn uploads off again, unset either variable.
+3. **The bucket:** on the hosted Supabase project the migration creates the `evidence-files` bucket (the storage schema exists there), private, 10 MB, the four MIME types. If the storage schema is missing, or the bucket row is not there after the migration, create it with the Storage API using the service role key from your shell (do not paste it anywhere): `POST {SUPABASE_URL}/storage/v1/bucket` with `{"id":"evidence-files","name":"evidence-files","public":false,"file_size_limit":10485760,"allowed_mime_types":["application/pdf","image/png","image/jpeg","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]}`.
+4. **Verify it is private:** (a) `python backend/scripts/reconcile_evidence_files.py --check-bucket` prints `bucket evidence-files: private` (exit 1 otherwise); (b) in the Supabase dashboard the bucket shows as Private; (c) in SQL: `SELECT public FROM storage.buckets WHERE id='evidence-files'` is `false`, and list ALL policies with `SELECT * FROM pg_policies WHERE schemaname='storage' AND tablename='objects'`: none may allow `anon` or `authenticated` on this bucket (a broad policy such as one covering every bucket would); (d) an unauthenticated request to `{SUPABASE_URL}/storage/v1/object/public/evidence-files/org/x/y` is refused.
+5. **Smoke test after release:** as an owner on a Growth organisation upload a small PDF to an answer, download it (the browser saves it, it does not open) and, on the signed link, check with `curl -sI` that `Content-Type` is the file's type, `Content-Disposition` is `attachment` and note whether `X-Content-Type-Options` is present (it may not be), remove it, and check the object is gone from the bucket. Repeat with a file of about 9 MB (it must get through the Vercel proxy). Then run the reconcile script in report mode: it should list nothing.
+6. **Housekeeping:** run `python backend/scripts/reconcile_evidence_files.py` weekly (it also retries queued workspace purges); use `--delete --yes-delete` only after reading the report.
+
+
+## PR-A: one row, one evidence item (status, source and evidence agree)
+
+**Problem (found in the INNOVATECH readiness pack).** The row "DPO contact published" read Status "Awaiting your input", Source "Customer attested", Evidence "cyphward.com: Not assessed, Externally observed, ...". **Root cause:** for a requirement with both an observed result and a customer answer, `attestations.merge` picks the headline status and source from one side (here the answer side), but the requirement's `domains` list is always the observed side, and `packs/document.py: evidence_references` always printed the domain lines first. Three cells, two different evidence items.
+
+**The one rule.** The headline Status and Source always describe the same evidence item, and that item is written first in the evidence cell, led by its source label. When a second source exists it follows on its own line, `Also: <source>: ...`, with its own status. Nobody reads one source's status next to the other's evidence. The headline-choice precedence in `merge` is unchanged: a present item wins (the observed one when both are present), then an observed gap, otherwise the customer's answer.
+
+**What changed (new snapshots and packs only).**
+- `compliance/status.py`: `sources` is now ordered headline-first and each item has `headline`; a single-source requirement gets its own one-item `sources` (it had none), so `(status, source)` is always a pair in `sources`. The /comply row shows one line: "The status above comes from <source> evidence. Also on this requirement: ...".
+- `snapshots/builder.py`: copies `headline`; `schema_version` stays 1; no stored snapshot is rewritten.
+- `packs/document.py`: `evidence_items` / `evidence_references` follow the rule. They also read snapshots frozen before this change (they work from `source`, `sources` and `domains`, not from the new flag). The cell stays capped: 8 references of 200 characters in all (5 for the headline source plus 2 for the other, each with a "more" line).
+- `packs/render.py`: a newline in a cell becomes `<br>` in HTML and a line break in the PDF.
+- Issued packs are stored bytes and are served as stored; nothing re-renders them. New packs are stored with the template version `cyphward-ndpa-pack-v1.1` (same layout, the row rule above); stored `cyphward-ndpa-pack-v1` packs keep their label and bytes. PR-B introduces v2.
+
+**Tests.** Full backend suite on the local database: 1410 passed, 16 skipped (after review round 1); the CI PostgreSQL list (packs test file extended) passes; frontend build and the four browser suites pass. `test_pack_row_consistency.py` (pure, 30 tests): every requirement of the real register through 5 observed results x 5 customer-answer states (present, gap, not assessed, expired, none; yes, no, not sure, expired, none), asserting on the /comply view, the snapshot content, the pack document, the HTML and the text extracted from the PDF that the row's pair is in `sources`, `sources[0]` is the single headline item, the evidence text starts with the headline source label, other sources follow as `Also:` lines, and no banned phrase appears (HTML and PDF text). Regression test built from the production combination; a snapshot frozen before this rule; a bounded cell with 400 domains and 600 findings. Postgres test `test_dpo_contact_row_shows_...also_line` issues a real pack. Mutation checks: unsorted `sources` in either layer (16-17 of 30 combinations fail), observed-first evidence (17 fail). One existing fixture in `test_packs_postgres.py` (600 findings) now also sets the requirement's source, as real data always does.
+
+**Limitations.** Each pack line leads with the source-level status that /comply shows for that source (for the observed side of the DPO contact that can read "Awaiting your input", because the privacy mapping turns "nothing found yet" into awaiting when the customer can attest); the domain's own status ("Not assessed") follows as detail on the same line. The frontend line is plain text and has no browser assertion of its own.
+
+### Decisions for Yusuf (PR-A)
+
+| # | Decision | Default applied |
+|---|---|---|
+| A-1 | Which source is the headline | Unchanged: present from either source (observed first when both), then an observed gap, then the customer's answer. Only the presentation is fixed. |
+| A-2 | Second source in a pack row | Shown on its own "Also:" line with its own status. |
+| A-3 | Pack version label | Stays v1 in this PR; v2 arrives with the branded pack in PR-B. |
+
+## PR-B: branded evidence pack (template v2)
+
+**What.** New packs use `cyphward-ndpa-pack-v2` (HTML and PDF), built from the same snapshot content:
+1. **Cover page:** Cyphward logo (the favicon's shield, an inline SVG in the HTML and vector paths in the PDF, no image library), brand colours from `frontend/src/index.css` (ink, accent `#E5532B` on the dark band, `#C63A14` deep accent), organisation, title, issue date, **pack id**. The pack uuid is generated before rendering and inserted explicitly (`store._insert_pack`).
+2. **Summary page:** scope (domains, assessment dates, snapshot, register version), the two notices, readiness as counts (with evidence, gaps, awaiting input, not assessed, applicable; never a percentage) and the top 6 prioritised gaps. DPO-section packs get their window and three counts.
+3. **"Page X of Y" on every page** of the PDF (two-pass canvas). The HTML has a footer that repeats on every printed page and CSS page counters (`counter(page)` of `counter(pages)`), so a browser's print or save-as-PDF numbers the pages; a scrolling page has none.
+4. **Footer on every page:** the short disclaimer and "Prepared with Cyphward · Pack <first 8 of id>".
+5. **One legend** for "reference pending review"; rows keep a dagger (†) after the clause. The phrase appears exactly once per rendering.
+6. **Last page:** "Frozen record: snapshot <id>, sha256 <content hash>". The pack's own hash cannot be inside itself; the API returns it.
+
+Kept: supporting-evidence and "not a Compliance Audit Return" notices, source labels, honest all-not-assessed text, capped cells (PR-A rule), non-Latin names folded in the PDF, no verdict language. New bounds: organisation name 160 characters, scope domain list 40 names. Page images (v1 before, v2 after; full data, all-not-assessed, 600 findings) and two sample PDFs are in `docs/ux-2026-10-19/pack/`; I looked at every page of those renderings and fixed two layout faults (a heading kept with a table pushed it to a blank page; spacing). Chromium's print of the HTML was checked too (footer and "Page X of Y" on each printed page).
+
+**v1 is untouched for reading.** `document.build` without a pack id still builds the original layout (labelled `cyphward-ndpa-pack-v1.1`, PR-A's row rule; stored `v1` packs are untouched), `render.to_html/to_pdf` take the v1 path for such a document, and stored bytes are served as stored. A test stores a v1 pack and shows the served bytes and hashes are the stored ones and its version stays v1. `render.pdf_extract_text` (a test and integrity helper) now also decodes octal escapes and Windows-1252, so the dagger reads back.
+
+**Tests.** `test_pack_branded.py` (14, pure: three organisations x cover/summary/footer/page-number/legend/frozen-record in HTML and PDF text, last-page check, per-page footer count, counts-not-percent, marker on every unverified row, banned phrases over HTML and extracted PDF text, worst case 600 findings + 500 domains + a 900-character name, markup escaping, DPO section, v1 builds) and 3 in `test_packs_postgres.py` (v2 stored with its own id and the real snapshot id and hash for both kinds; a stored v1 pack served unchanged); two older tests updated to the new marker. Mutation checks (each fails the suite): the phrase repeated per row, no footer on body pages, a wrong page total, a wrong hash on the last page, v1 label stored on new packs. Full backend suite on the local database: 1427 passed, 16 skipped (after merging PR-A's review fixes); frontend build and the four browser suites pass; CI status is on the PR.
+
+**Limitations.** The PDF uses built-in Helvetica/Times (no embedded brand fonts), so non-Latin names are folded as in v1. The HTML's page numbers exist only when printed. Packs show a long first-page-light summary when little is assessed. The PDF has no bookmarks or tagging for accessibility.
+
+### Decisions for Yusuf (PR-B)
+
+| # | Decision | Default applied |
+|---|---|---|
+| B-1 | Cover content | Logo, organisation, title, issue date, pack id, register version. |
+| B-2 | Marker for unverified references | Dagger (†) plus one legend. |
+| B-3 | Fonts | Built-in PDF fonts; no font embedding or licensing. |
+| B-4 | Pack hash on the pack | Not inside the pack; the snapshot's sha256 is. |
+| B-5 | Top gaps on the summary | 6. |
+| A-3 | Pack version label | New packs are stored as `cyphward-ndpa-pack-v1.1` (same layout, new row rule); stored `v1` packs are untouched. v2 arrives with the branded pack in PR-B. |
+
+### PR-A review round 1 (REJECT) and the fixes
+
+1. **Circular test (blocker).** Presentation code used to overwrite the headline item's status with the row's status, so the property test could not fail. Removed: `attestations.check_headline` now raises `HeadlineMismatch` when the headline pair is not one of the requirement's own source items, in `merge`, in `status._headline_first` and in `document.evidence_items`; nothing is rewritten, so a frozen snapshot only ever holds what a source produced. The property test now also runs on `merge`'s raw output and against an independent statement of the rule (`expected_headline`). Both reviewer mutations (a present answer labelled "externally_observed"; the awaiting branch taking the observed status but keeping the customer source) are tests that must be refused (`test_a_merge_that_mislabels_the_headline_is_refused_not_rendered`), and were also applied to the real `merge` source: 40 and 60 of 272 tests fail; with the guards removed too, the oracle still fails 60.
+2. **Newline injection.** `document.flat` collapses every control character, CR, LF, U+0085, U+2028/9 and whitespace run in every user-supplied part (owner name, domain, finding title, link); only the joiner adds `\n`. Tests with each separator; removing `flat` fails 9.
+3. **Version label.** New packs are `cyphward-ndpa-pack-v1.1`; stored `v1` rows are never re-rendered.
+4. **Same wording on both surfaces.** Every evidence line leads `<source>: <status shown on /comply for that source>`; the observed domain detail follows (`Also: Externally observed: Awaiting your input; cyphward.com: Not assessed, observed ...`). A test compares each pack `Also:` line with the `/comply` secondary line for every combination.
+5. **Wider property test:** 126 combinations (nine observed pairs including two domains with different statuses x seven answer patterns including mixed and partial x live findings on or off, including evidence only from linked findings): 272 tests in the file.
+6. **PROGRESS wording** on ties now matches the code.
+## UX overhaul of /comply and related screens (branch `claude/determined-gauss-e6701d`, base `main`)
+
+Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after from this branch; desktop and 390 wide) and the "how to use the shared components" guide are in `docs/ux-2026-10-19/` (`README.md`, `before/`, `after/`).
+
+- **One dialog.** `frontend/src/components/ui/Dialog.tsx` (`components/Modal.tsx` re-exports it, so every old caller keeps working): `role="dialog"`, `aria-modal`, named by its title, focus moves in on open (to `[data-autofocus]`, else the first field), Tab and Shift+Tab cycle, Esc closes, the page behind is `inert` and scroll-locked, focus returns to the opener, a click on the backdrop closes unless the dialog is `dirty` (then it asks "Discard your changes?"), full screen on phones with a sticky title bar, a 44px close button, safe-area padding, content scrolling inside, nested dialogs (only the top one reacts to keys). Used for: incident record, edit and details; pack details; document view; report preview and email; add domain and how to verify; scan details and start scan; every confirmation.
+- **Confirmations** (`components/ConfirmDialog.tsx`, `useConfirm`; `confirmLabel` is now required and names the action, `irreversible` is the one sentence on what cannot be undone, `danger` puts focus on Cancel): issue a pack, approve a document, record the Commission notification time, remove a domain, remove a monitored host, shorten retention.
+- **Dates and times.** `lib/datetime.ts` (Intl.DateTimeFormat only) converts between the organisation's wall clock and UTC and refuses, with a plain message, a time the clocks skip or repeat. `ui/DateTimeField.tsx` is the native `datetime-local` / `date` field with the zone shown beside it. Incident times, the questionnaire date answers and a new "A date I choose" renewal date use it; incident times and the renewal date are sent as UTC. Documents, packs, reports and domains now read in the organisation's zone (`lib/orgZone.ts`, from `organizations.display_timezone`, which the sign-in response already carries; no backend change).
+- **States.** `ui/StatePanels.tsx`: `LoadingPanel`, `EmptyPanel`, `ErrorPanel` (Try again) and `humanError` (never a status line or a server error for a 5xx). Used on every compliance tab, Reports and Domains. Reports and Domains used to show "No reports yet" / no domains when the request failed; they now throw (`listReportsStrict`, `getDomainsStrict`) and show the error state. Scans already had these states; only copy changed.
+- **Toasts** for every completed or failed action; the toast stack is drawn on `<body>` above dialogs and announced (`role="status"`).
+- **Copy** rewritten in plain English on these screens; "reference pending review", "not legal advice" and "not a Compliance Audit Return" are kept.
+- **Responsive and keyboard.** 44px targets on phones, visible focus ring everywhere (including native pickers), arrow keys / Home / End on the Compliance tab bar (roving tabindex), tab list is now a data array so other sessions can append a tab.
+
+### Tests (real counts)
+
+- Backend, full suite on the owned local database (port 55452): **1139 passed, 16 skipped** (1137 before plus the 2 new copy tests in `backend/tests/test_ux_copy_claims.py`). No backend code changed.
+- `npm run test:datetime`: 17 tests (clock gaps and overlaps in New York, London and Lord Howe, half-hour zones, round trips). Added to the CI frontend job.
+- `npm run test:compliance-ui` (extended): the old flows updated for the new copy, plus dialog focus/trap/Esc/focus-return/inert/scroll lock, backdrop click and the discard prompt, full screen on 390 and 320, native pickers sending UTC, clock-change messages with nothing sent, a chosen renewal date sent as 23:59 in the zone, confirmations (default focus, wording, cancel sends nothing), empty / loading / error states, failed saves with plain messages and toasts, a keyboard-only flow (arrow keys, Enter, typing into the pickers, Tab to Save), touch targets and focus rings, banned phrases on all rendered text (full list).
+- `npm run test:ux-ui` (new): Reports and Domains at desktop, 390 and 320.
+- `test:scans-ui` (selectors moved from the drawer to the dialog), `test:score-ui`, `test:onboarding-ui` (its confirm assertions made case-insensitive): green. `npm run build` green.
+
+### Limitations
+
+- Requirement rows on the Readiness tab stay inline expanders, not popups.
+- The questionnaire answer form stays inline in its card (it is a form, not a view); it has the native date picker and 44px targets but not the discard prompt.
+- Other screens that already used `Modal` (Findings, Overview, Remediation, Settings, owner console, board report) now get the new dialog (full screen on phones, focus trap). They were not restyled or re-tested beyond the existing suites.
+- `env(safe-area-inset-*)` is only non-zero when the page uses `viewport-fit=cover`; `index.html` was not changed (the browser itself keeps the dialog out of the notch).
+- No "revoke access" screen exists yet; the reviewer-access session should use `useConfirm({ danger: true, irreversible: … })`.
+- Keyboard typing into `datetime-local` is tested in Chromium only.
+
+### Decisions for Yusuf (UX)
+
+1. **Organisation zone comes from the sign-in response, with Africa/Lagos as the fallback.** Nothing sends the zone separately; the owner setting for it is still unbuilt (C3c).
+2. **Times are sent as UTC; calendar days are not.** Incident times and the new renewal date are UTC ISO strings. Questionnaire date answers stay `YYYY-MM-DD` because the API treats them as days, and converting them would move the day.
+3. **Renewal presets kept, plus "A date I choose".** The date must fall between tomorrow and 24 months, and means 23:59 that day in the organisation's zone.
+4. **Default focus on every confirmation is Cancel** (review fix: a held Enter must not issue a pack). Tested for issue pack, approve, Commission time, remove domain, remove host, shorten retention.
+5. **Small confirmations stay centred cards on phones;** everything else is full screen.
+6. **Scan details moved from the side drawer to the shared dialog** so every "view" behaves the same. Say if you would rather keep the drawer for scans.
+7. **Retention: only shortening asks for confirmation.** Lengthening is harmless.
+8. **The Commission-time confirmation says** "the 72-hour countdown stops and the time becomes part of the incident record". It does not say the time cannot be corrected later, because the API still allows an edit.
+
+### Review fixes (round 1)
+
+- Initial focus is Cancel for all confirmations; each irreversible confirm has a browser assertion that Enter does not confirm.
+- Focus after a dialog closes: the opener, else the dialog still open, else the tab panel/main (tests: failed save after the Commission confirm, approving a document, issuing a pack).
+- Nits: error id in `aria-describedby`; `Scans.tsx` in the copy test; zone shown beside Documents times; "detected" used throughout the incident screens; the chosen renewal date is clamped to the API's 730-day cap; dead selector removed. Browser suites are not added to CI (they need Chromium and take minutes); the date helper test is.
+
+### PR-B review round 1 (REJECT) and the fixes
+
+1. **Blocker:** the dagger pass-through had been added to the shared `render.pdf_text`, which changes v1/v1.1 bytes for text containing †. Restored exactly; the branded path has its own `branded.pdf_text`. A test renders a † document through the v1 renderer and compares the sha256 with the one main's renderer produced (it fails if the pass-through is put back).
+2. **Domain list** is capped by characters (1200, each name 120), with "and N more"; tests with 17 x 253, 40 x 110, 500 x 30 and 3 x 5000 characters.
+3. **HTML print footer** is now a page margin box (`@bottom-left`/`@bottom-right`, bottom margin 24 mm), not a fixed overlay; checked with Chromium print to PDF (footer below the content, summary tiles clear).
+4. A requirement with a verified clause has no † while the others do; the legend still appears once.
+5. A blank organisation name falls back to "Organisation"; a name with characters the PDF font cannot show prints what it can plus a clear note (or "name shown in the HTML version"), not "????".
+6. Nits: bidi and zero-width controls stripped by `flat`; banned list in `test_packs_postgres` extended; the DPO legend no longer talks about rows; the closing heading is "Match this pack to its frozen record", "snapshot no. N" versus the "Snapshot ID" line; favicon path is cwd-independent; `reportlab>=4.0,<6`; sample images regenerated with synthetic names (no sample PDFs kept).
+7. **Decision B-6:** the pack is rendered inside the per-organisation advisory-lock transaction (`store._insert_pack`). Rendering is bounded (capped cells, build slot, lock timeout), so it was left as is.
+
+### PR-B review round 2 (REJECT) and the fixes
+
+1. **Blocker:** the widened control-character set had reached the v1/v1.1 builder through the shared `flat()`. `flat(text, v2=False)` now keeps v1/v1.1 exactly as issued; only `build_v2` (and `evidence_references(..., v2=True)`) uses the extended set. A golden test builds a v1.1 document through `document.build` with zero-width, ZWNJ, RLO and BOM characters in the owner name, evidence link, domain and finding title and compares the HTML and PDF sha256 with the values main's builder and renderer produced (it fails if the extended set is used for v1).
+2. A name that loses any character in the PDF now shows the placeholder "Organisation (name shown in the HTML version)" on the cover and in the facts table, plus the note; never a leftover fragment.
+3. v2 strips bidi overrides/embeddings/isolates, U+200B and U+FEFF only (ZWNJ and ZWJ kept); `dt` avoids a page break after it; the margin boxes set a font family; `_css()` carries a warning that user text never goes into the style block.

@@ -137,8 +137,9 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
     has_evidence = observed_sourced or bool(result["unlinked_finding_ids"]) or answered
     source = result.get("headline_source") or next((d["source"] for d in domains if d.get("source")),
                                                    mapping.TOOL_SOURCE)
-    sources = [{**s, "source_label": SOURCE_LABELS[s["source"]], "status_label": STATUS_LABELS[s["status"]],
-                "reason_text": REASON_TEXT.get(s["reason"], "")} for s in result.get("sources", [])]
+    status_label = (UPCOMING_CHECK_LABEL if result["reason"] == "check_not_available_yet"
+                    else STATUS_LABELS[result["status"]])
+    sources = _headline_first(result.get("sources", []), result, source if has_evidence else None, status_label)
     return {
         "key": req["key"], "group": req["group"], "title": req["title"], "summary": req["summary"],
         "clause": req["clause"], "clause_verified": req["clause_verified"],
@@ -148,8 +149,7 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
         "checks_performed": req.get("checks_performed"), "not_checked": req.get("not_checked"),
         "freshness_days": req["freshness_days"], "remediation_hint": req["remediation_hint"],
         "status": result["status"],
-        "status_label": (UPCOMING_CHECK_LABEL if result["reason"] == "check_not_available_yet"
-                         else STATUS_LABELS[result["status"]]),
+        "status_label": status_label,
         "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
         "source": source if has_evidence else None,
         "source_label": SOURCE_LABELS[source] if has_evidence else None,
@@ -157,6 +157,25 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
         "answers": [_answer_view(entry) for entry in (attested["answers"] if attested else [])],
         "domains": domains, "unlinked_finding_ids": result["unlinked_finding_ids"],
     }
+
+
+def _headline_first(raw: List[Dict[str, Any]], result: Dict[str, Any], headline: Optional[str],
+                    headline_label: str) -> List[Dict[str, Any]]:
+    """The requirement's evidence items, the headline one first and marked.
+
+    ONE RULE for every surface: the headline status and source always describe the same item, and that
+    item is `sources[0]` (`headline: true`). When a second source exists it follows, labelled by its own
+    source and status, so one source's status is never read next to another source's evidence. A
+    requirement with a single source (an observed one has none in `raw`) gets its own item."""
+    items = [{**s, "source_label": SOURCE_LABELS[s["source"]], "status_label": STATUS_LABELS[s["status"]],
+              "reason_text": REASON_TEXT.get(s["reason"], ""), "headline": s["source"] == headline} for s in raw]
+    if headline and not any(i["headline"] for i in items):  # a single-source row: its item IS the row
+        items.append({"source": headline, "source_label": SOURCE_LABELS[headline], "status": result["status"],
+                      "reason": result["reason"], "reason_text": REASON_TEXT.get(result["reason"], ""),
+                      "status_label": headline_label, "headline": True})
+    if headline:
+        attestations.check_headline(result["status"], headline, items)
+    return sorted(items, key=lambda i: not i["headline"])
 
 
 def _answer_view(entry: Dict[str, Any]) -> Dict[str, Any]:

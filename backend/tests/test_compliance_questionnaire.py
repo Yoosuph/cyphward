@@ -428,3 +428,25 @@ def test_overview_labels_answers_customer_attested_and_excludes_not_applicable(m
     assert designated["answers"][0]["owner_name"] == "Owner"
     assert "tool_observed" not in {s["source"] for s in designated["sources"]}
     assert payload["readiness"]["applicable"] == 28  # 29 requirements, one excluded by the answer
+
+
+QUESTIONNAIRE_C5B_BANNED = ("compliant", "certified", "certification", "satisfies", "satisfied", "passes audit",
+                            "pass the audit", "compliance score", "fully meets", "meets the requirement", "is met",
+                            "partial compliance", "fully compliant", "is compliant", "satisfy ndpa", "adequate",
+                            "adequacy", "guarantee")
+
+
+def test_a_question_answer_with_a_claim_is_not_carried_into_a_draft_and_the_reason_is_plain():
+    """C5b: a DPO name that contains banned wording becomes a placeholder with a note, and no question text uses it."""
+    from backend.app.compliance import documents as docs
+    for q in RAW["questions"]:
+        for text in (q["prompt"], q.get("text_label") or ""):
+            for phrase in QUESTIONNAIRE_C5B_BANNED:
+                assert phrase not in text.lower(), (q["key"], phrase)
+    answers = {"dpo.designated": answer("dpo.designated", "yes", text="Cert\u00edfied officer")}
+    inputs = docs.build_inputs("breach_response_plan", {"org_name": "Acme", "domains": [], "answers": answers,
+                                                        "observed": {}}, NOW)
+    fact = next(f for f in inputs["facts"] if f["key"] == "dpo_name")
+    assert fact["state"] == "missing" and fact["note"] == docs.WORDING_NOTE
+    for phrase in QUESTIONNAIRE_C5B_BANNED:
+        assert phrase not in docs.WORDING_NOTE.lower()
