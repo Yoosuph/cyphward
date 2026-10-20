@@ -633,6 +633,35 @@ Four drafts (privacy policy, cookie notice, breach response plan, retention sche
 |---|---|---|
 | A-1 | Which source is the headline | Unchanged: present from either source (observed first when both), then an observed gap, then the customer's answer. Only the presentation is fixed. |
 | A-2 | Second source in a pack row | Shown on its own "Also:" line with its own status. |
+| A-3 | Pack version label | Stays v1 in this PR; v2 arrives with the branded pack in PR-B. |
+
+## PR-B: branded evidence pack (template v2)
+
+**What.** New packs use `cyphward-ndpa-pack-v2` (HTML and PDF), built from the same snapshot content:
+1. **Cover page:** Cyphward logo (the favicon's shield, an inline SVG in the HTML and vector paths in the PDF, no image library), brand colours from `frontend/src/index.css` (ink, accent `#E5532B` on the dark band, `#C63A14` deep accent), organisation, title, issue date, **pack id**. The pack uuid is generated before rendering and inserted explicitly (`store._insert_pack`).
+2. **Summary page:** scope (domains, assessment dates, snapshot, register version), the two notices, readiness as counts (with evidence, gaps, awaiting input, not assessed, applicable; never a percentage) and the top 6 prioritised gaps. DPO-section packs get their window and three counts.
+3. **"Page X of Y" on every page** of the PDF (two-pass canvas). The HTML has a footer that repeats on every printed page and CSS page counters (`counter(page)` of `counter(pages)`), so a browser's print or save-as-PDF numbers the pages; a scrolling page has none.
+4. **Footer on every page:** the short disclaimer and "Prepared with Cyphward · Pack <first 8 of id>".
+5. **One legend** for "reference pending review"; rows keep a dagger (†) after the clause. The phrase appears exactly once per rendering.
+6. **Last page:** "Frozen record: snapshot <id>, sha256 <content hash>". The pack's own hash cannot be inside itself; the API returns it.
+
+Kept: supporting-evidence and "not a Compliance Audit Return" notices, source labels, honest all-not-assessed text, capped cells (PR-A rule), non-Latin names folded in the PDF, no verdict language. New bounds: organisation name 160 characters, scope domain list 40 names. Page images (v1 before, v2 after; full data, all-not-assessed, 600 findings) and two sample PDFs are in `docs/ux-2026-10-19/pack/`; I looked at every page of those renderings and fixed two layout faults (a heading kept with a table pushed it to a blank page; spacing). Chromium's print of the HTML was checked too (footer and "Page X of Y" on each printed page).
+
+**v1 is untouched for reading.** `document.build` without a pack id still builds the original layout (labelled `cyphward-ndpa-pack-v1.1`, PR-A's row rule; stored `v1` packs are untouched), `render.to_html/to_pdf` take the v1 path for such a document, and stored bytes are served as stored. A test stores a v1 pack and shows the served bytes and hashes are the stored ones and its version stays v1. `render.pdf_extract_text` (a test and integrity helper) now also decodes octal escapes and Windows-1252, so the dagger reads back.
+
+**Tests.** `test_pack_branded.py` (14, pure: three organisations x cover/summary/footer/page-number/legend/frozen-record in HTML and PDF text, last-page check, per-page footer count, counts-not-percent, marker on every unverified row, banned phrases over HTML and extracted PDF text, worst case 600 findings + 500 domains + a 900-character name, markup escaping, DPO section, v1 builds) and 3 in `test_packs_postgres.py` (v2 stored with its own id and the real snapshot id and hash for both kinds; a stored v1 pack served unchanged); two older tests updated to the new marker. Mutation checks (each fails the suite): the phrase repeated per row, no footer on body pages, a wrong page total, a wrong hash on the last page, v1 label stored on new packs. Full backend suite on the local database: 1427 passed, 16 skipped (after merging PR-A's review fixes); frontend build and the four browser suites pass; CI status is on the PR.
+
+**Limitations.** The PDF uses built-in Helvetica/Times (no embedded brand fonts), so non-Latin names are folded as in v1. The HTML's page numbers exist only when printed. Packs show a long first-page-light summary when little is assessed. The PDF has no bookmarks or tagging for accessibility.
+
+### Decisions for Yusuf (PR-B)
+
+| # | Decision | Default applied |
+|---|---|---|
+| B-1 | Cover content | Logo, organisation, title, issue date, pack id, register version. |
+| B-2 | Marker for unverified references | Dagger (†) plus one legend. |
+| B-3 | Fonts | Built-in PDF fonts; no font embedding or licensing. |
+| B-4 | Pack hash on the pack | Not inside the pack; the snapshot's sha256 is. |
+| B-5 | Top gaps on the summary | 6. |
 | A-3 | Pack version label | New packs are stored as `cyphward-ndpa-pack-v1.1` (same layout, new row rule); stored `v1` packs are untouched. v2 arrives with the branded pack in PR-B. |
 
 ### PR-A review round 1 (REJECT) and the fixes
@@ -688,3 +717,19 @@ Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after 
 - Initial focus is Cancel for all confirmations; each irreversible confirm has a browser assertion that Enter does not confirm.
 - Focus after a dialog closes: the opener, else the dialog still open, else the tab panel/main (tests: failed save after the Commission confirm, approving a document, issuing a pack).
 - Nits: error id in `aria-describedby`; `Scans.tsx` in the copy test; zone shown beside Documents times; "detected" used throughout the incident screens; the chosen renewal date is clamped to the API's 730-day cap; dead selector removed. Browser suites are not added to CI (they need Chromium and take minutes); the date helper test is.
+
+### PR-B review round 1 (REJECT) and the fixes
+
+1. **Blocker:** the dagger pass-through had been added to the shared `render.pdf_text`, which changes v1/v1.1 bytes for text containing †. Restored exactly; the branded path has its own `branded.pdf_text`. A test renders a † document through the v1 renderer and compares the sha256 with the one main's renderer produced (it fails if the pass-through is put back).
+2. **Domain list** is capped by characters (1200, each name 120), with "and N more"; tests with 17 x 253, 40 x 110, 500 x 30 and 3 x 5000 characters.
+3. **HTML print footer** is now a page margin box (`@bottom-left`/`@bottom-right`, bottom margin 24 mm), not a fixed overlay; checked with Chromium print to PDF (footer below the content, summary tiles clear).
+4. A requirement with a verified clause has no † while the others do; the legend still appears once.
+5. A blank organisation name falls back to "Organisation"; a name with characters the PDF font cannot show prints what it can plus a clear note (or "name shown in the HTML version"), not "????".
+6. Nits: bidi and zero-width controls stripped by `flat`; banned list in `test_packs_postgres` extended; the DPO legend no longer talks about rows; the closing heading is "Match this pack to its frozen record", "snapshot no. N" versus the "Snapshot ID" line; favicon path is cwd-independent; `reportlab>=4.0,<6`; sample images regenerated with synthetic names (no sample PDFs kept).
+7. **Decision B-6:** the pack is rendered inside the per-organisation advisory-lock transaction (`store._insert_pack`). Rendering is bounded (capped cells, build slot, lock timeout), so it was left as is.
+
+### PR-B review round 2 (REJECT) and the fixes
+
+1. **Blocker:** the widened control-character set had reached the v1/v1.1 builder through the shared `flat()`. `flat(text, v2=False)` now keeps v1/v1.1 exactly as issued; only `build_v2` (and `evidence_references(..., v2=True)`) uses the extended set. A golden test builds a v1.1 document through `document.build` with zero-width, ZWNJ, RLO and BOM characters in the owner name, evidence link, domain and finding title and compares the HTML and PDF sha256 with the values main's builder and renderer produced (it fails if the extended set is used for v1).
+2. A name that loses any character in the PDF now shows the placeholder "Organisation (name shown in the HTML version)" on the cover and in the facts table, plus the note; never a leftover fragment.
+3. v2 strips bidi overrides/embeddings/isolates, U+200B and U+FEFF only (ZWNJ and ZWJ kept); `dt` avoids a page break after it; the margin boxes set a font family; `_css()` carries a warning that user text never goes into the style block.

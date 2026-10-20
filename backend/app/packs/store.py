@@ -5,7 +5,7 @@ HTML and PDF bytes with their sha256 and audits, all in one transaction. Reads s
 A second issue is a new row; nothing ever updates a pack. Every query is scoped by organisation.
 """
 import hashlib
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -65,15 +65,16 @@ def _insert_pack(conn, org: Dict[str, Any], user_id: Optional[str], snap: Dict[s
     end = snap["created_at"]
     section = dpo.build(org_id, end, content) if (kind == "dpo_section" or include_dpo) else None
     issued_at = conn.execute("SELECT clock_timestamp() AS t").fetchone()["t"].astimezone(timezone.utc)
-    doc = document.build(kind, snap, content, issued_at, section)
+    pack_id = str(uuid4())  # made before rendering, so the id can appear inside the document
+    doc = document.build(kind, snap, content, issued_at, section, pack_id=pack_id)
     html_bytes = render.to_html(doc).encode("utf-8")
     pdf_bytes = render.to_pdf(doc)
     win = dpo.window_for(end) if section else {"start": None, "end": None}
     row = conn.execute(
-        f"INSERT INTO evidence_packs (org_id, snapshot_id, kind, pack_version, issued_at, issued_by, window_start, "
+        f"INSERT INTO evidence_packs (id, org_id, snapshot_id, kind, pack_version, issued_at, issued_by, window_start, "
         f"window_end, dpo, html, html_sha256, pdf, pdf_sha256, request_key) "
-        f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {META}",
-        (org_id, str(snap["id"]), kind, document.PACK_VERSION, issued_at, user_id, win["start"], win["end"],
+        f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {META}",
+        (pack_id, org_id, str(snap["id"]), kind, document.PACK_VERSION, issued_at, user_id, win["start"], win["end"],
          Jsonb(section) if section else None, html_bytes.decode("utf-8"), _sha(html_bytes), pdf_bytes,
          _sha(pdf_bytes), request_key)).fetchone()
     conn.execute(
