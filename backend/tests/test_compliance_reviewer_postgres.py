@@ -1247,3 +1247,36 @@ def test_concurrent_duplicate_request_keys_give_one_record_and_no_errors(rw):
     differs = rw.w.client.post(f"{RB}/requirements/{KEY}/review", json={"outcome": "reviewed_with_comments", "comment": "Different", "request_key": "same-key-0001"},
                                headers=_h(rw, a.uid, a.org))
     assert differs.status_code == 422
+
+
+def test_the_branded_v2_pack_shows_the_overlay_instead_of_the_marker_and_counts_it(rw):
+    org, owner, *_ = _assessed_org(rw.w)
+    uid, email = rw.make_user()
+    rw.grant(org, owner, email)
+    a = SimpleNamespace(uid=uid, org=org)
+    key = _unverified_key()
+    title = next(r["title"] for r in REGISTER["requirements"] if r["key"] == key)
+    total = len(REGISTER["requirements"])
+
+    def flat_of(pack_id):
+        html = rw.w.client.get(f"/api/v1/packs/{pack_id}/html", headers=_h(rw, owner, org)).text
+        return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+    before = rw.w.client.post("/api/v1/packs", json={}, headers=_h(rw, owner, org)).json()["pack"]
+    assert before["pack_version"] == "cyphward-ndpa-pack-v2"
+    text = flat_of(before["id"])
+    assert f"{total} of {total} requirements below carry the † marker" in text
+    assert _clause(rw, a, key, note="Citation checked").status_code == 201
+    assert _review(rw, a, key, outcome="reviewed_with_comments", comment="Read with the guidance").status_code == 201
+    after = rw.w.client.post("/api/v1/packs", json={}, headers=_h(rw, owner, org)).json()["pack"]
+    text = flat_of(after["id"])
+    assert f"{total - 1} of {total} requirements below carry the † marker" in text
+    clause = next(r["clause"] for r in REGISTER["requirements"] if r["key"] == key)
+    assert text.count(f"{title} ({clause} \u00b7 reference reviewed by Dr Ada Reviewer (dpco.test)") == 1
+    assert f"{title} ({clause} \u2020" not in text
+    assert "Practitioner review notes" in text and "Read with the guidance" in text
+    for phrase in BANNED:
+        assert phrase not in text.lower(), phrase
+    assert rw.w.client.get(f"/api/v1/packs/{after['id']}/pdf", headers=_h(rw, owner, org)).content.startswith(b"%PDF")
+    # The earlier pack is untouched.
+    assert flat_of(before["id"]).count("reference reviewed by") == 0
