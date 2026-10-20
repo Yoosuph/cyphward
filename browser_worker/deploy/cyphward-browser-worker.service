@@ -1,0 +1,22 @@
+# Example systemd unit that runs the image with the same limits as the compose example.
+# Install as /etc/systemd/system/cyphward-browser-worker.service. Nothing in the repository installs it.
+[Unit]
+Description=Cyphward browser worker (cookie-consent observation)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker rm -f cyphward-browser
+ExecStart=/usr/bin/docker run --rm --name cyphward-browser \
+  --env-file /etc/cyphward-browser/env \
+  --user 10001:10001 --read-only --tmpfs /tmp:size=256m,mode=1777,noexec,nosuid \
+  --shm-size 256m --memory 768m --memory-swap 768m --cpus 1.0 --pids-limit 256 \
+  --cap-drop ALL --security-opt no-new-privileges:true --init \
+  cyphward-browser:local
+ExecStop=/usr/bin/docker stop -t 20 cyphward-browser
+
+[Install]
+WantedBy=multi-user.target

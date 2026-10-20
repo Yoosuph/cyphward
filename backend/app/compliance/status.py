@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.billing.subscriptions import resolve_plan
-from backend.app.compliance import attestation_store, attestations, mapping, practitioner
+from backend.app.compliance import attestation_store, attestations, browser_observation, mapping, practitioner
 from backend.app.compliance.register import DISCLAIMER, REGISTER, requirement as register_requirement
 from backend.app.core.database import execute_one, execute_query
 
@@ -61,6 +61,9 @@ REASON_TEXT = {
     "dpo_contact_not_found_in_policy": "No DPO contact was found in your published privacy policy.",
 }
 REASON_TEXT.update(attestations.REASON_TEXT)
+REASON_TEXT.update(browser_observation.REASON_TEXT)
+BROWSER_NOTE = (" A separate browser worker also loads your homepage once on a first visit, with no interaction, and "
+                "records the cookies it sees, the banner it detects and whether a reject control sits beside accept.")
 
 
 def _plan(org: Dict[str, Any]) -> str:
@@ -84,8 +87,9 @@ def _context(org_id: str) -> Dict[str, Any]:
             "SELECT DISTINCT ON (requirement_key, domain_id) id, requirement_key, domain_id, status, source, "
             "observed_at, expires_at, scan_id, finding_ids, details, register_version "
             "FROM compliance_evidence WHERE org_id = %s AND domain_id = ANY(%s::uuid[]) "
+            "AND COALESCE(details->>'observation', '') <> %s "
             "ORDER BY requirement_key, domain_id, observed_at DESC, created_at DESC",
-            (org_id, domain_ids)) or []
+            (org_id, domain_ids, browser_observation.OBSERVATION_MARKER)) or []
     latest: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for row in rows:
         latest.setdefault(row["requirement_key"], {})[str(row["domain_id"])] = row
@@ -99,10 +103,13 @@ def _context(org_id: str) -> Dict[str, Any]:
         "WHERE s.org_id = %s AND s.status = 'completed' AND s.completed_at > now() - make_interval(days => %s) "
         "AND ss.assessment_coverage->>'version' = '2'",
         (org_id, HISTORY_DAYS)) or []
-    return {"domains": domains, "latest": latest, "live": live, "history": history,
-            "answers": attestation_store.current_rows(org_id),
-            # Practitioner notes and the per-organisation clause overlay (C6): labels only, never status.
-            "reviews": practitioner.latest_reviews(org_id), "clauses": practitioner.latest_clauses(org_id)}
+    context = {"domains": domains, "latest": latest, "live": live, "history": history,
+               "answers": attestation_store.current_rows(org_id),
+               # Practitioner notes and the per-organisation clause overlay (C6): labels only, never status.
+               "reviews": practitioner.latest_reviews(org_id), "clauses": practitioner.latest_clauses(org_id)}
+    if browser_observation.enabled():  # C2b: first-visit browser observations, kept apart from the static rows
+        context["browser"] = browser_observation.latest_rows(execute_query, org_id, domain_ids)
+    return context
 
 
 def _findings(org_id: str, ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -118,10 +125,14 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
     now = now or datetime.now(timezone.utc)
     observed = mapping.requirement_status(req, domains=ctx["domains"], latest_rows=ctx["latest"].get(req["key"], {}),
                                           live_findings=ctx["live"], history=ctx["history"])
+    if req["key"] in browser_observation.KEYS and ctx.get("browser"):
+        observed = browser_observation.requirement_status(
+            req, ctx["domains"], ctx["browser"].get(req["key"], {}), observed, now)
     observed_sourced = any(d.get("source") for d in observed["domains"])
     attested = attestations.requirement_outcome(req["key"], ctx.get("answers", {}), now)
     result = attestations.merge(observed, attested, observed_sourced)
-    domains = [{**d, "status_label": STATUS_LABELS[d["status"]], "reason_text": REASON_TEXT.get(d["reason"], ""),
+    domains = [{**d, "status_label": STATUS_LABELS[d["status"]],
+                "reason_text": d["details"].get("browser_label") or REASON_TEXT.get(d["reason"], ""),
                 "source_label": SOURCE_LABELS.get(d["source"]) if d.get("source") else None}
                for d in result["domains"]]
     answered = bool(attested) and any(entry["row"] for entry in attested["answers"])
@@ -233,7 +244,7 @@ def overview(org: Dict[str, Any]) -> Dict[str, Any]:
         })
     return {
         "disclaimer": DISCLAIMER,
-        "note": C1_NOTE,
+        "note": C1_NOTE + (BROWSER_NOTE if browser_observation.enabled() else ""),
         "register": {"version": REGISTER["version"], "title": REGISTER["title"],
                      "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx.get("clauses", {}))},
         "plan": plan,

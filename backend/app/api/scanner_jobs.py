@@ -35,6 +35,7 @@ from shared.contracts import (
     CAPABILITIES_HEADER,
     PRIVACY_CAPABILITY,
 )
+from shared.browser_contracts import PRIVACY_BROWSER_CAPABILITY
 
 logger = logging.getLogger("cyphward.scanner")
 router = APIRouter(prefix="/api/v1/scanner", tags=["Scanner Worker"])
@@ -131,6 +132,9 @@ def claim_job(
     if not SCANNER_CLAIMS_ENABLED:
         return Response(status_code=204)
     capabilities = {c.strip() for c in (x_scanner_capabilities or "").split(",") if c.strip()}
+    if PRIVACY_BROWSER_CAPABILITY in capabilities:
+        # A browser worker must use its own endpoints; it never receives a recon scan.
+        return Response(status_code=204)
     row = execution.claim_recon(scanner_id, "worker", SCANNER_LEASE_SECONDS,
                                 privacy_capable=PRIVACY_CAPABILITY in capabilities)
     if row is None:

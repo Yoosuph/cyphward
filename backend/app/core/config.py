@@ -100,6 +100,15 @@ CORE_AI_TIMEOUT_SECONDS = max(1, int(os.getenv("CORE_AI_TIMEOUT_SECONDS", "120")
 SCANNER_NUCLEI_CONCURRENCY = int(os.getenv("SCANNER_NUCLEI_CONCURRENCY", "1"))
 SCANNER_NUCLEI_MAX_HOSTS = int(os.getenv("SCANNER_NUCLEI_MAX_HOSTS", "50"))
 
+# Cookie-consent browser observation (packet C2b). OFF by default: with the flag off the browser
+# endpoints answer 503/204, no job is queued and the Compliance page reads exactly as before.
+# The separate browser worker has its own key; the scanner key cannot authenticate to it.
+BROWSER_CONSENT_ENABLED = os.getenv("BROWSER_CONSENT_ENABLED", "false").lower() in ("true", "1", "yes")
+BROWSER_WORKER_API_KEY = os.getenv("BROWSER_WORKER_API_KEY", "")
+BROWSER_LEASE_SECONDS = int(os.getenv("BROWSER_LEASE_SECONDS", "180"))
+BROWSER_MAX_ATTEMPTS = int(os.getenv("BROWSER_MAX_ATTEMPTS", "3"))
+BROWSER_JOB_COOLDOWN_HOURS = int(os.getenv("BROWSER_JOB_COOLDOWN_HOURS", "20"))
+
 # Brevo (Sendinblue) Transactional Mailing Service
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 BREVO_SMTP_SERVER = os.getenv("BREVO_SMTP_SERVER", "smtp-relay.brevo.com")
