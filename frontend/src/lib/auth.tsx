@@ -12,7 +12,6 @@ import {
   logoutRequest,
   type BootstrapData,
   type MfaChallenge,
-  demoLoginRequest,
 } from './api';
 import {
   loadSession,
@@ -86,7 +85,6 @@ interface Auth {
     email: string,
     password: string
   ) => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue; mfa_required?: boolean; mfa_token?: string; email_hint?: string }>;
-  signInAsDemo: () => Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }>;
   completeMfaSignIn: (
     mfaToken: string,
     code: string,
@@ -116,7 +114,6 @@ const Ctx = createContext<Auth>({
   organization: null,
   primaryDomain: null,
   onboardingStep: 'none',
-  signInAsDemo: async () => ({ ok: false, error: 'Not ready' }),
   signInWithCredentials: async () => ({ ok: false, error: 'Sign in failed. Please try again.' }),
   completeMfaSignIn: async () => ({ ok: false, error: 'Sign in failed. Please try again.' }),
   resendMfaCode: async () => ({ ok: false, error: 'Could not resend the code.' }),
@@ -488,19 +485,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signInAsDemo = async (): Promise<{ ok: boolean; error?: string; name?: string; onboarding?: OnboardingStepValue }> => {
-    localStorage.removeItem(SIGNOUT_KEY);
-    localStorage.removeItem(IDLE_REASON_KEY);
-    try {
-      const tokens = await demoLoginRequest();
-      beginSession(tokens);
-      const onboarding = await reloadState();
-      return { ok: true, name: (tokens.user.full_name || '').trim(), onboarding };
-    } catch {
-      return { ok: false, error: 'The sample demo is not available right now.' };
-    }
-  };
-
   const completeMfaSignIn = async (
     mfaToken: string,
     code: string,
@@ -664,7 +648,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         primaryDomain,
         onboardingStep,
         signInWithCredentials,
-        signInAsDemo,
         completeMfaSignIn,
         resendMfaCode,
         signUpWithCredentials,
