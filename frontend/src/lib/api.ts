@@ -733,6 +733,17 @@ export async function loginRequest(email: string, password: string): Promise<Aut
   return authPost<AuthTokens | MfaChallenge>('/auth/login', { email, password });
 }
 
+/** Whether the server offers the sample-data demo sign-in (DEMO_LOGIN_ENABLED plus a server password). */
+export async function demoLoginStatus(): Promise<{ enabled: boolean }> {
+  const res = await apiFetch<{ enabled: boolean }>('/auth/demo-login', undefined, false);
+  return { enabled: Boolean(res?.enabled) };
+}
+
+/** Sample-data demo sign-in. The browser sends no password; the server holds it. */
+export async function demoLoginRequest(): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/demo-login', {});
+}
+
 export interface MfaChallenge {
   mfa_required: true;
   mfa_token: string;

@@ -5,7 +5,7 @@ import { ArrowRight, KeyRound, Lock, Eye, EyeOff, Sun, Moon, Globe, AlertCircle 
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { signInWithGooglePopup } from '../lib/googlePopup';
-import { exchangeOtp, mfaStart } from '../lib/api';
+import { demoLoginStatus, exchangeOtp, mfaStart } from '../lib/api';
 import type { MfaChallenge } from '../lib/api';
 import { takeMfaChallenge } from '../lib/session';
 import type { AuthTokens } from '../lib/session';
@@ -15,7 +15,7 @@ import StrataField from '../components/StrataField';
 import CyphwardLogo from '../components/CyphwardLogo';
 
 export default function Login() {
-  const { tenant, signInWithCredentials, completeMfaSignIn, resendMfaCode, completeExternalLogin, onboardingStep } = useAuth();
+  const { tenant, signInWithCredentials, signInAsDemo, completeMfaSignIn, resendMfaCode, completeExternalLogin, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -24,6 +24,7 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [demoEnabled, setDemoEnabled] = useState(false);
   const [theme, setTheme] = useState(getTheme());
   // Admin step-up: password accepted, 6-digit email code pending.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
@@ -156,6 +157,23 @@ export default function Login() {
     }
     return <Navigate to={`/overview${inviteParam}`} replace />;
   }
+
+  useEffect(() => {
+    demoLoginStatus().then((status) => setDemoEnabled(status.enabled)).catch(() => setDemoEnabled(false));
+  }, []);
+
+  const tryDemo = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    const result = await signInAsDemo();
+    if (!result.ok) {
+      setBusy(false);
+      setError(result.error || 'The sample demo is not available right now.');
+      return;
+    }
+    finishLogin(result.name || 'Sample Owner', result.onboarding);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -517,6 +535,21 @@ export default function Login() {
                       </Link>
                     </span>
                   </div>
+              {demoEnabled && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={tryDemo}
+                    disabled={busy}
+                    className="w-full h-11 border border-line rounded-md text-sm font-medium text-ink hover:bg-surface disabled:opacity-60"
+                  >
+                    Try the demo (sample data)
+                  </button>
+                  <p className="text-xs mono text-soft mt-2">
+                    A sample organisation with made-up data. Nothing here is a real customer account.
+                  </p>
+                </div>
+              )}
               </form>
               )}
 
