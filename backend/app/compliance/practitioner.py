@@ -49,7 +49,10 @@ class TextError(ValueError):
 
 def skeleton(text: str) -> str:
     from backend.app.compliance.documents import fold  # one folding for every text check in the product
-    decomposed = unicodedata.normalize("NFKD", text or "")
+    # Hyphens and dashes separate words for the phrase checks ("NDPA-ready"); letters split by them are still caught
+    # by the word-start run check ("com-pliant"). The shared fold would join them, so they are spaced out first.
+    spaced = re.sub(r"[-\u2010-\u2015\u2212]", " ", text or "")
+    decomposed = unicodedata.normalize("NFKD", spaced)
     stripped = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
     return fold(stripped).translate(EXTRA_LOOKALIKES).translate(CONFUSABLE_CHARS)
 
