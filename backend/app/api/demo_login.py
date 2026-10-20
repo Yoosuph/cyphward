@@ -44,7 +44,7 @@ def demo_login_status() -> Dict[str, bool]:
 def demo_login(request: Request) -> Dict[str, Any]:
     if not is_enabled():
         raise HTTPException(status_code=404, detail="Not found.")
-    client = request.client.host if request.client else "unknown"
+    client = owner_mod.client_ip(request) or "unknown"  # same address rule as the owner console
     check_rate_limit(f"demo-login:{client}", DEMO_LOGIN_MAX_ATTEMPTS, DEMO_LOGIN_WINDOW_SECONDS)
     user = execute_one("SELECT * FROM profiles WHERE id = %s AND email = %s", (DEMO_USER_ID, DEMO_EMAIL))
     if not user or not verify_password(user.get("password_hash"), os.environ["DEMO_LOGIN_PASSWORD"]):
@@ -53,9 +53,13 @@ def demo_login(request: Request) -> Dict[str, Any]:
         "SELECT org_id, role FROM organization_members WHERE user_id = %s", (DEMO_USER_ID,)) or []
     only = memberships[0] if len(memberships) == 1 else None
     # Member of the demo organisation only: no owner or admin powers, and no second factor enrolled.
-    if (only is None or str(only["org_id"]) != DEMO_ORG_ID or only["role"] != "member"
-            or user.get("mfa_enrolled_at") is not None or user.get("totp_enrolled_at") is not None
-            or owner_mod.is_console_only(DEMO_USER_ID)):
+    if only is None or str(only["org_id"]) != DEMO_ORG_ID or only["role"] != "member":
+        raise HTTPException(status_code=404, detail="Not found.")
+    if user.get("mfa_enrolled_at") is not None or user.get("totp_enrolled_at") is not None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    # A failed lookup refuses; owner_mod.is_console_only would treat an error as "not a console user".
+    console = execute_query("SELECT console_only FROM platform_owners WHERE user_id = %s", (DEMO_USER_ID,))
+    if console is None or any(row.get("console_only") for row in console) or owner_mod.is_owner(DEMO_USER_ID):
         raise HTTPException(status_code=404, detail="Not found.")
     log_audit(DEMO_ORG_ID, DEMO_USER_ID, "auth.demo_login", "user", DEMO_USER_ID, {"sample": True})
     return issue_session(user)
