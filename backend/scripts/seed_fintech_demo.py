@@ -534,14 +534,18 @@ def count_all(url: str) -> Dict[str, int]:
             sql.Identifier(name))).fetchone()["n"] for name in names}
 
 
-THROTTLE_PATTERNS = (f"%{DEMO_EMAIL}%", f"%{DEMO_USER_ID}%")
+# Exact bucket keys the auth code uses for the demo owner. Never a pattern: a real account's key must survive.
+THROTTLE_KEYS = (
+    f"login:{DEMO_EMAIL}", f"reset:{DEMO_EMAIL}",
+    f"welcome:{DEMO_USER_ID}", f"mfa:{DEMO_USER_ID}", f"mfa-send:{DEMO_USER_ID}", f"mfa-verify:{DEMO_USER_ID}",
+    f"mfa-disable:{DEMO_USER_ID}", f"totp-enroll:{DEMO_USER_ID}", f"totp-disable:{DEMO_USER_ID}",
+)
 
 
 def clear_throttles(url: str) -> int:
-    """Forget the sign-in and step-up throttle buckets for the demo owner. Only those two keys are matched."""
+    """Forget the throttle buckets for the demo owner, by exact key only."""
     with psycopg.connect(url) as conn:
-        cur = conn.execute("DELETE FROM rate_limits WHERE bucket_key LIKE %s OR bucket_key LIKE %s",
-                           THROTTLE_PATTERNS)
+        cur = conn.execute("DELETE FROM rate_limits WHERE bucket_key = ANY(%s)", (list(THROTTLE_KEYS),))
         conn.commit()
         return cur.rowcount
 
@@ -562,7 +566,7 @@ def _remove(url: str, *, verify: bool) -> Dict[str, int]:
                     "SELECT count(*) AS n FROM {} WHERE org_id = %s").format(sql.Identifier(table)),
                     (DEMO_ORG_ID,)).fetchone()["n"]
             removed["rate_limits (demo owner)"] = conn.execute(
-                "DELETE FROM rate_limits WHERE bucket_key LIKE %s OR bucket_key LIKE %s", THROTTLE_PATTERNS).rowcount
+                "DELETE FROM rate_limits WHERE bucket_key = ANY(%s)", (list(THROTTLE_KEYS),)).rowcount
             conn.execute("DELETE FROM organizations WHERE id = %s AND name = %s AND slug = %s",
                          (DEMO_ORG_ID, DEMO_ORG_NAME, DEMO_SLUG))
             conn.execute("DELETE FROM profiles WHERE id = %s AND email = %s AND NOT EXISTS "
