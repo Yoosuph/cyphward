@@ -24,6 +24,7 @@ import QuestionnaireTab, { ToldUs } from './compliance/Questionnaire';
 import IncidentsTab from './compliance/Incidents';
 import PacksTab from './compliance/Packs';
 import DocumentsTab from './compliance/Documents';
+import ReviewerAccessTab from './compliance/ReviewerAccess';
 import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
 
 /**
@@ -39,6 +40,7 @@ const CARD = 'rounded-lg border border-line bg-raised';
 /** What every tab panel receives. Add a field here when a new tab needs more from the page. */
 interface TabContext {
   canEdit: boolean;
+  isOwner: boolean;
   /** The organisation's display zone (default Africa/Lagos). */
   zone: string;
   readiness: ReactNode;
@@ -49,13 +51,14 @@ interface TabContext {
  * The tabs of this page, in order. To add a tab (for example evidence files or reviewer access), append one entry
  * here with a `render` that returns its panel; the tab bar, keyboard handling and ARIA wiring come for free.
  */
-interface TabDef { key: string; label: string; render: (ctx: TabContext) => ReactNode }
+interface TabDef { key: string; label: string; ownerOnly?: boolean; render: (ctx: TabContext) => ReactNode }
 const TABS: TabDef[] = [
   { key: 'readiness', label: 'Readiness', render: c => c.readiness },
   { key: 'questions', label: 'Answer questions', render: c => c.questions },
   { key: 'incidents', label: 'Incidents', render: c => <IncidentsTab canEdit={c.canEdit} /> },
   { key: 'packs', label: 'Packs', render: c => <PacksTab canEdit={c.canEdit} zone={c.zone} /> },
   { key: 'documents', label: 'Documents', render: c => <DocumentsTab canEdit={c.canEdit} zone={c.zone} /> },
+  { key: 'reviewers', label: 'Reviewer access', ownerOnly: true, render: c => <ReviewerAccessTab zone={c.zone} /> },
 ];
 
 function Chip({ status, label }: { status: ComplianceStatus; label: string }) {
@@ -112,7 +115,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
               className="w-full text-left px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 hover:bg-inset/60 transition-colors">
         <div className="min-w-0 flex-1">
           <p className="text-sm text-ink font-medium">{req.title}</p>
-          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
+          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified || req.clause_review?.verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end shrink-0">
           <Chip status={req.status} label={req.status_label} />
@@ -126,6 +129,23 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
         <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
+          {(req.practitioner_review || req.clause_review) && (
+            <div className="p-3 rounded border border-line bg-inset/50 space-y-1.5" data-testid="practitioner-note">
+              <p className="mono text-[10px] tracking-[.16em] text-soft">PRACTITIONER NOTE · DOES NOT CHANGE THE STATUS</p>
+              {req.practitioner_review && (
+                <p className="text-xs text-ink break-words">
+                  {req.practitioner_review.label}: {req.practitioner_review.outcome_label}.
+                  {req.practitioner_review.comment && <> “{req.practitioner_review.comment}”</>}
+                </p>
+              )}
+              {req.clause_review && (
+                <p className="text-xs text-ink break-words">
+                  Clause reference: {req.clause_review.label}.
+                  {req.clause_review.note && <> “{req.clause_review.note}”</>}
+                </p>
+              )}
+            </div>
+          )}
           {req.sources && req.sources.length > 1 && (
             <p className="text-xs text-soft" data-testid="other-sources">
               The status above comes from {req.sources[0].source_label.toLowerCase()} evidence. Also on this requirement:{' '}
@@ -252,6 +272,8 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
 export default function Compliance() {
   const { organization } = useAuth();
   const canEdit = ['owner', 'admin'].includes(organization?.membership_role || 'member');
+  const isOwner = organization?.membership_role === 'owner';
+  const tabs = TABS.filter(t => !t.ownerOnly || isOwner);
   const toast = useToast();
   const orgZone = useOrgZone();
   const [tab, setTab] = useState<string>('readiness');
@@ -387,7 +409,7 @@ export default function Compliance() {
   );
 
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const keys = TABS.map(t => t.key);
+    const keys = tabs.map(t => t.key);
     const at = keys.indexOf(tab);
     const next = e.key === 'ArrowRight' ? (at + 1) % keys.length : e.key === 'ArrowLeft' ? (at - 1 + keys.length) % keys.length
       : e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : -1;
@@ -416,7 +438,7 @@ export default function Compliance() {
       </div>
 
       <div role="tablist" aria-label="Compliance sections" className="flex flex-wrap gap-2" onKeyDown={onTabKey}>
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
                   aria-controls={`panel-${t.key}`} tabIndex={tab === t.key ? 0 : -1}
                   ref={el => { tabRefs.current[t.key] = el; }}
@@ -427,9 +449,9 @@ export default function Compliance() {
         ))}
       </div>
 
-      {TABS.filter(t => t.key === tab).map(t => (
+      {tabs.filter(t => t.key === tab).map(t => (
         <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} className="space-y-6">
-          {t.render({ canEdit, zone, readiness, questions })}
+          {t.render({ canEdit, isOwner, zone, readiness, questions })}
         </div>
       ))}
     </div>

@@ -1037,7 +1037,31 @@ export interface ComplianceRequirement {
   policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
   sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string; headline?: boolean }[];
   answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
-              owner_name: string | null; expires_at: string | null }[];
+              owner_name: string | null; expires_at: string | null; value?: string | null; date?: string | null }[];
+  /** A practitioner's note that they reviewed this requirement (C6). Never changes the status. */
+  /** Reviewers receive a count instead of finding details. */
+  open_finding_count?: number;
+  practitioner_review?: PractitionerReview | null;
+  /** This organisation's practitioner overlay on the clause reference (C6). */
+  clause_review?: ClauseReview | null;
+}
+
+export interface PractitionerReview {
+  outcome: 'reviewed' | 'reviewed_with_comments';
+  outcome_label: string;
+  reviewer_name: string;
+  reviewer_domain?: string | null;
+  reviewed_at: string;
+  comment: string | null;
+  label: string;
+}
+
+export interface ClauseReview {
+  verified: boolean;
+  reviewer_name: string;
+  at: string;
+  note: string | null;
+  label: string;
 }
 
 export interface ComplianceReadiness {
@@ -1348,3 +1372,79 @@ export async function uploadEvidenceFile(
     xhr.send(file);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Reviewer access (C6): an owner grants a DPCO practitioner time-limited, read-only review access
+// ---------------------------------------------------------------------------
+
+export type ReviewerGrantStatus = 'pending' | 'active' | 'expired' | 'revoked';
+
+export interface ReviewerGrant {
+  id: string;
+  reviewer_email: string;
+  purpose: string;
+  status: ReviewerGrantStatus;
+  granted_at: string;
+  granted_by_name: string | null;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
+export interface ReviewerActivity {
+  kind: 'review' | 'clause';
+  id: string;
+  requirement_key: string;
+  requirement_title: string;
+  reviewer_name: string;
+  at: string;
+  outcome: string | null;
+  outcome_label: string | null;
+  verified: boolean | null;
+  text: string | null;
+}
+
+export interface ReviewerGrantList {
+  grants: ReviewerGrant[];
+  activity: ReviewerActivity[];
+  audit: { action: string; at: string; grant_id: string | null; by: string | null }[];
+  note: string;
+  limits: { min_days: number; default_days: number; max_days: number; purpose_max: number };
+  can_grant: boolean;
+}
+
+export const listReviewerGrants = () =>
+  apiFetch<ReviewerGrantList>('/compliance/reviewer-grants', undefined, true) as Promise<ReviewerGrantList>;
+export const createReviewerGrant = (body: { email: string; days: number; purpose: string }) =>
+  apiFetch<{ grant: ReviewerGrant }>('/compliance/reviewer-grants', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ grant: ReviewerGrant }>;
+export const revokeReviewerGrant = (id: string) =>
+  apiFetch<{ revoked: boolean }>(`/compliance/reviewer-grants/${encodeURIComponent(id)}/revoke`, { method: 'POST' }, true) as Promise<{ revoked: boolean }>;
+
+export interface MyReviewGrant { org_id: string; org_name: string; purpose: string; expires_at: string }
+
+/** The organisations this account may review right now. Never throws: no grant simply means an empty list. */
+export async function getMyReviewGrants(): Promise<MyReviewGrant[]> {
+  try {
+    const res = await apiFetch<{ grants: MyReviewGrant[] }>('/compliance/reviewer/grants', undefined, true);
+    return res?.grants ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export interface ReviewerOverview extends ComplianceOverview {
+  organisation: { id: string; name: string };
+  grant: { id: string; purpose: string; expires_at: string };
+  reviewer_note: string;
+}
+
+// The reviewed organisation is named per call; it overrides the header of the signed-in account's own workspace.
+const forOrg = (orgId: string): RequestInit => ({ headers: { 'X-Organization-Id': orgId } });
+
+export const getReviewerOverview = (orgId: string) =>
+  apiFetch<ReviewerOverview>('/compliance/reviewer/overview', forOrg(orgId), true) as Promise<ReviewerOverview>;
+export const recordPractitionerReview = (orgId: string, key: string, body: { outcome: string; comment: string | null }) =>
+  apiFetch<{ practitioner_review: PractitionerReview }>(`/compliance/reviewer/requirements/${encodeURIComponent(key)}/review`,
+    { ...forOrg(orgId), method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ practitioner_review: PractitionerReview }>;
+export const recordClauseReference = (orgId: string, key: string, body: { verified: boolean; note: string | null }) =>
+  apiFetch<{ clause_review: ClauseReview }>(`/compliance/reviewer/requirements/${encodeURIComponent(key)}/clause-reference`,
+    { ...forOrg(orgId), method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ clause_review: ClauseReview }>;

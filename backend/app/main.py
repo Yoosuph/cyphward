@@ -37,6 +37,7 @@ from backend.app.api import (
     owner_views,
     owner_actions,
     compliance,
+    compliance_reviewer,
     snapshots,
     packs,
     billing,
@@ -152,6 +153,8 @@ app.include_router(owner.router)
 app.include_router(owner_views.router)
 app.include_router(owner_actions.router)
 app.include_router(compliance.router)
+app.include_router(compliance_reviewer.owner_router)
+app.include_router(compliance_reviewer.router)
 app.include_router(snapshots.router)
 app.include_router(packs.router)
 app.include_router(billing.router)
