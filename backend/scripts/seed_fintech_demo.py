@@ -301,12 +301,13 @@ def status(url: str) -> str:
 
 
 # ── Seed ─────────────────────────────────────────────────────────────────────
-def _insert_identity(cur, password_hash: str) -> None:
-    # The same INSERT the app's /register path uses, with the fixed demo id.
+def _insert_identity(cur, password_hash: str, now: datetime) -> None:
+    # The same INSERT the app's /register path uses, with the fixed demo id. The demo mailbox never receives
+    # mail, so the address is marked verified; otherwise "Try the demo" lands on the verify-email step.
     cur.execute(
-        "INSERT INTO profiles (id, email, full_name, role, password_hash, provider) "
-        "VALUES (%s, %s, %s, 'Member', %s, 'email')",
-        (DEMO_USER_ID, DEMO_EMAIL, DEMO_NAME, password_hash),
+        "INSERT INTO profiles (id, email, full_name, role, password_hash, provider, email_verified_at) "
+        "VALUES (%s, %s, %s, 'Member', %s, 'email', %s)",
+        (DEMO_USER_ID, DEMO_EMAIL, DEMO_NAME, password_hash, now),
     )
 
 
@@ -500,7 +501,7 @@ def seed(url: str, password: str, *, apply: bool, now: Optional[datetime] = None
     register_version = _register_version()
     with psycopg.connect(url, row_factory=dict_row) as conn:
         with conn.transaction():
-            _insert_identity(conn, password_hash)
+            _insert_identity(conn, password_hash, now)
             _insert_organisation(conn, now)
             domain_id = _insert_domain_and_assets(conn, now)
             _, ids = _insert_scans_and_findings(conn, now, domain_id)
@@ -567,6 +568,8 @@ def _remove(url: str, *, verify: bool) -> Dict[str, int]:
                     (DEMO_ORG_ID,)).fetchone()["n"]
             removed["rate_limits (demo owner)"] = conn.execute(
                 "DELETE FROM rate_limits WHERE bucket_key = ANY(%s)", (list(THROTTLE_KEYS),)).rowcount
+            removed["rate_limits (demo sign-in and AI buckets)"] = conn.execute(
+                "DELETE FROM rate_limits WHERE bucket_key LIKE 'demo-login:%%' OR bucket_key LIKE 'demo-ai:%%'").rowcount
             conn.execute("DELETE FROM organizations WHERE id = %s AND name = %s AND slug = %s",
                          (DEMO_ORG_ID, DEMO_ORG_NAME, DEMO_SLUG))
             conn.execute("DELETE FROM profiles WHERE id = %s AND email = %s AND NOT EXISTS "
