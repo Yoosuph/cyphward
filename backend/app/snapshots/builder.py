@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from backend.app.compliance import mapping, questionnaire as qn, status as cstatus
+from backend.app.compliance import mapping, practitioner, questionnaire as qn, status as cstatus
 from backend.app.compliance.register import DISCLAIMER, REGISTER
 from backend.app.core.database import execute_one, execute_query
 from backend.app.risk.check_set import CHECK_SET_VERSION, COVERAGE_VERSION, NUCLEI_LINE, domain_coverage_line
@@ -64,6 +64,8 @@ FENCE_SQL = """
       (SELECT count(*) || ':' || coalesce(max(created_at)::text, '') FROM compliance_evidence WHERE org_id = %(o)s),
       (SELECT count(*) || ':' || coalesce(max(created_at)::text, '') || ':' || count(superseded_by)
          FROM compliance_attestations WHERE org_id = %(o)s),
+      (SELECT count(*) || ':' || coalesce(max(reviewed_at)::text, '') FROM compliance_practitioner_reviews WHERE org_id = %(o)s),
+      (SELECT count(*) || ':' || coalesce(max(verified_at)::text, '') FROM compliance_clause_verifications WHERE org_id = %(o)s),
       (SELECT string_agg(id::text || verification_status || coalesce(revoked_at::text, ''), ',' ORDER BY id)
          FROM domains WHERE org_id = %(o)s)
     )) AS fence
@@ -192,6 +194,13 @@ def _compliance(org_id: str, now: datetime) -> Dict[str, Any]:
             "findings": [{k: f[k] for k in ("id", "title", "severity", "status")} for f in v["findings"]],
             "remediation_hint": v["remediation_hint"], "freshness_days": v["freshness_days"],
         })
+    # Practitioner notes (C6) are frozen with the snapshot, but only where they exist: a snapshot of an
+    # organisation without any is byte-identical to one made before they existed (schema_version stays 1).
+    for entry, v in zip(requirements, views):
+        if v.get("practitioner_review"):
+            entry["practitioner_review"] = v["practitioner_review"]
+        if v.get("clause_review"):
+            entry["clause_review"] = v["clause_review"]
     attestations = []
     for key, row in sorted(ctx["answers"].items()):
         question = qn.question(key)
@@ -207,7 +216,7 @@ def _compliance(org_id: str, now: datetime) -> Dict[str, Any]:
     return {
         "disclaimer": DISCLAIMER,
         "register": {"version": REGISTER["version"], "title": REGISTER["title"],
-                     "references_pending_review": sum(1 for r in REGISTER["requirements"] if not r["clause_verified"])},
+                     "references_pending_review": practitioner.pending_count(REGISTER["requirements"], ctx.get("clauses", {}))},
         "questionnaire_version": qn.QUESTIONNAIRE["version"],
         "readiness": mapping.readiness(v["status"] for v in views),
         "groups": [{"key": g["key"], "title": g["title"]} for g in REGISTER["groups"]],
