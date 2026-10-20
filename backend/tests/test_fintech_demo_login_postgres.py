@@ -110,6 +110,19 @@ def test_the_demo_account_must_stay_a_plain_member(demo_db, demo_on):
             conn.commit()
 
 
+def test_the_demo_account_may_be_admin_but_not_owner(demo_db, demo_on):
+    demo.seed(demo_db, PASSWORD, apply=True)
+    with psycopg.connect(demo_db) as conn:
+        conn.execute("UPDATE organization_members SET role = 'admin' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+        conn.commit()
+    try:
+        assert _post().status_code == 200
+    finally:
+        with psycopg.connect(demo_db) as conn:
+            conn.execute("UPDATE organization_members SET role = 'member' WHERE user_id = %s", (demo.DEMO_USER_ID,))
+            conn.commit()
+
+
 def test_the_demo_account_is_capped_on_ai_calls_and_nobody_else_is(demo_db, demo_on):
     from fastapi import HTTPException
 

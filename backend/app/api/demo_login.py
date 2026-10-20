@@ -68,8 +68,8 @@ def demo_login(request: Request) -> Dict[str, Any]:
     memberships = execute_query(
         "SELECT org_id, role FROM organization_members WHERE user_id = %s", (DEMO_USER_ID,)) or []
     only = memberships[0] if len(memberships) == 1 else None
-    # Member of the demo organisation only: no owner or admin powers, and no second factor enrolled.
-    if only is None or str(only["org_id"]) != DEMO_ORG_ID or only["role"] != "member":
+    # Member or admin of the demo organisation only: never owner, and no second factor enrolled.
+    if only is None or str(only["org_id"]) != DEMO_ORG_ID or only["role"] not in ("member", "admin"):
         raise HTTPException(status_code=404, detail="Not found.")
     if user.get("mfa_enrolled_at") is not None or user.get("totp_enrolled_at") is not None:
         raise HTTPException(status_code=404, detail="Not found.")
