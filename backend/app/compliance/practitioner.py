@@ -58,16 +58,36 @@ def _sk(word: str) -> str:
     return skeleton(word)
 
 
-EXACT_TOKENS = {_sk(w) for w in ("met", "meet", "meets", "sufficient", "sufficiency", "lawful", "lawfully")}
+EXACT_TOKENS = {_sk(w) for w in ("meets", "sufficient", "sufficiency", "lawfully", "passes")}
 TOKEN_FORMS = re.compile("^(?:" + "|".join(_sk(w) for w in (
     r"certif(?:y|ied|ies|ying|ication|ications)", r"approv(?:e|ed|es|ing)")) + ")$")
 TOKEN_PREFIXES = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "satisf", "adequa", "guarante", "fulfil",
-                                        "sufficien", "lawful"))
+                                        "sufficien"))
 RUN_STEMS = tuple(_sk(w) for w in ("complian", "complie", "comply", "conform", "satisf", "adequa", "guarante", "fulfil",
-                                   "sufficien", "lawful", "certified", "certification", "certifies", "approved",
-                                   "inlinewith"))
-EXTRA_PHRASES = ("in line with", "no gaps", "all good")
+                                   "sufficien", "certified", "certification", "certifies", "approved", "inlinewith"))
+EXTRA_PHRASES = ("in line with", "no gaps", "all good", "aligned with", "in accordance with", "consistent with the ndpa",
+                 "consistent with ndpa", "ndpa ready", "ok to go", "is lawful", "are lawful", "was lawful", "fully lawful")
 PHRASES = tuple(sorted({" ".join(re.findall(r"[a-z0-9]+", _sk(w))) for w in BANNED_PHRASES + EXTRA_PHRASES}))
+# "met" and "meet" are ordinary words ("We met the DPO on 3 October") and a claim only in a few shapes:
+# "requirement met", "it is met", "meet s.25", "meet the standard", or as the last word of the text.
+MET_AFTER = {_sk(w) for w in ("requirement", "requirements", "is", "are", "was", "were", "been", "be", "fully", "all", "criteria",
+                              "obligation", "obligations", "condition", "conditions", "standard", "standards", "it", "they",
+                              "this", "these", "that", "not", "never")}
+MEET_NEXT = {_sk(w) for w in ("s", "section", "ndpa", "gaid", "all", "every", "each", "in", "fully", "its", "their", "our")}
+MEET_NEXT_PHRASES = tuple(" ".join(re.findall(r"[a-z0-9]+", _sk(w))) for w in (
+    "the requirement", "the requirements", "the standard", "the standards", "the obligation", "the obligations",
+    "the ndpa", "the act", "the criteria"))
+
+
+def _met_claim(tokens: List[str], i: int) -> bool:
+    word = tokens[i]
+    nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+    if word == _sk("met"):
+        return nxt is None or (i > 0 and tokens[i - 1] in MET_AFTER) or nxt in MEET_NEXT
+    if word == _sk("meet"):
+        tail = " ".join(tokens[i + 1:i + 3])
+        return nxt is None or nxt in MEET_NEXT or any(tail.startswith(ph) for ph in MEET_NEXT_PHRASES)
+    return False
 
 
 def violation(text: str) -> Optional[str]:
@@ -78,13 +98,22 @@ def violation(text: str) -> Optional[str]:
     for phrase in PHRASES:
         if re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", spaced):
             return phrase
-    for token in tokens:
-        if token in EXACT_TOKENS or TOKEN_FORMS.match(token) or token.startswith(TOKEN_PREFIXES):
+    for i, token in enumerate(tokens):
+        if token in EXACT_TOKENS or TOKEN_FORMS.match(token) or token.startswith(TOKEN_PREFIXES) or _met_claim(tokens, i):
             return token
-    run = "".join(tokens)  # "c o m p l i a n t", "compl iant", "com-pliant"
+    # "c o m p l i a n t", "compl iant", "com-pliant": letters split up by spaces or marks. A stem counts only where it
+    # BEGINS at the start of a word, so words that merely contain one across a boundary ("Useful file references",
+    # "silicon form") are left alone.
+    run, starts = "", set()
+    for token in tokens:
+        starts.add(len(run))
+        run += token
     for stem in RUN_STEMS:
-        if stem in run:
-            return stem
+        at = run.find(stem)
+        while at != -1:
+            if at in starts:
+                return stem
+            at = run.find(stem, at + 1)
     return None
 
 

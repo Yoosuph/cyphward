@@ -1066,9 +1066,13 @@ ADVERSARIAL = [
     "This is adequate", "we guarantee it", "Fulfils s.25",
     "c0mpliant", "compIiant", "c\u00f6mpliant", "\u0441\u043e\u043c\u0440li\u0430nt", "c o m p l i a n t", "compl iant", "Requirement met.",
     "They meet s.25.", "In line with the NDPA; no gaps", "Lawful and sufficient.", "ndpa-compliant", "certification done",
+    "Aligned with the NDPA", "In accordance with s.25", "Consistent with the NDPA", "NDPA-ready", "OK to go", "The policy passes",
+    "Obligation met", "They meet the standard",
 ]
 ORDINARY = ["TLS certificate on the site was reviewed", "Board approval minutes seen", "Checked this method against the Act",
-            "Meeting minutes and approval records were seen", "Read the clause and the explanatory notes", "Looked at the DPO appointment letter"]
+            "Meeting minutes and approval records were seen", "Read the clause and the explanatory notes", "Looked at the DPO appointment letter",
+            "Reviewed the lawful basis register for s.25", "We met the DPO on 3 October", "Useful file references provided",
+            "Careful filing of records noted", "silicon form seen", "We will meet the DPO next week"]
 
 
 @pytest.mark.parametrize("text", ADVERSARIAL)
