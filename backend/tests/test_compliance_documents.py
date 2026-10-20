@@ -214,7 +214,9 @@ def test_a_digit_may_not_be_reused_more_often_than_the_template_uses_it():
 
 def test_ordinary_sentence_openers_are_not_mistaken_for_names():
     template = _template()
-    assert docs.validate_model_text(template + "\n\nIf you have a question, please ask us.", template) is None
+    # An added sentence is now rejected by the structural check, so this asks only that the NAME check
+    # does not take an ordinary opener ("If", "please") for a name.
+    assert docs.validate_model_text(template + "\n\nIf you have a question, please ask us.", template) != "name_added"
 
 
 def test_non_string_output_is_rejected():

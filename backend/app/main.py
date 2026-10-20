@@ -211,6 +211,13 @@ _reminders_task: asyncio.Task | None = None
 
 
 @app.on_event("startup")
+async def warn_if_document_rewording_is_on() -> None:
+    from backend.app.compliance import documents as compliance_documents
+
+    compliance_documents.log_model_path_warning()
+
+
+@app.on_event("startup")
 async def start_daily_scan_scheduler() -> None:
     global _scheduler_task, _scheduler_stop
     if not SCHEDULER_ENABLED:
