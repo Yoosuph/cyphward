@@ -40,13 +40,17 @@ KIND_TITLES = {"readiness_pack": "NDPA readiness evidence pack",
                "dpo_section": "DPO six-monthly data-security section"}
 
 
-CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")  # v1 / v1.1: exactly as issued, so stored packs reproduce
+# v2 also strips what can reorder or hide text: bidi overrides, embeddings and isolates, zero-width space, BOM.
+# ZWNJ (U+200C) and ZWJ (U+200D) are kept: they are meaningful in Persian and Indic scripts.
+CONTROL_V2 = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
-def flat(text: Any) -> str:
+def flat(text: Any, v2: bool = False) -> str:
     """One line: every control character and line break (CR, LF, U+0085, U+2028, U+2029) and run of whitespace
-    becomes one space. Only the code that joins evidence lines may add a newline to a cell."""
-    return " ".join(CONTROL.sub(" ", str(text)).split())
+    becomes one space (v2: plus the invisible and bidi controls above). Only the code that joins evidence lines
+    may add a newline to a cell."""
+    return " ".join((CONTROL_V2 if v2 else CONTROL).sub(" ", str(text)).split())
 
 
 def when(value: Optional[str]) -> str:
@@ -86,23 +90,23 @@ def evidence_items(req: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _segment_parts(item: Dict[str, Any], req: Dict[str, Any], attestations_by_q: Dict[str, Dict[str, Any]],
-                   with_findings: bool) -> List[str]:
+                   with_findings: bool, v2: bool = False) -> List[str]:
     """The details under one source's line. Every user-supplied value goes through `flat`."""
     parts: List[str] = []
     if item["source"] in OBSERVED_SOURCES:
         for d in req["domains"]:
             if d.get("source") == item["source"]:
                 scan = f", scan {d['scan_id'][:8]}" if d.get("scan_id") else ""
-                parts.append(flat(f"{d['domain']}: {d['status_label']}, observed {when(d.get('observed_at'))}{scan}"))
+                parts.append(flat(f"{d['domain']}: {d['status_label']}, observed {when(d.get('observed_at'))}{scan}", v2))
         if with_findings:
             for f in req["findings"]:
-                parts.append(flat(f"Finding: {f['title']} ({f['severity']}, {f['status']})"))
+                parts.append(flat(f"Finding: {f['title']} ({f['severity']}, {f['status']})", v2))
         return parts or ["nothing observed yet"]
     for a in req["answers"]:
         if a.get("owner_name") or a.get("expires_at"):
-            who = flat(a.get("owner_name") or "owner not recorded")
+            who = flat(a.get("owner_name") or "owner not recorded", v2)
             att = attestations_by_q.get(a["question_key"], {})
-            link = f", link {flat(att['evidence_link'])}" if att.get("evidence_link") else ""
+            link = f", link {flat(att['evidence_link'], v2)}" if att.get("evidence_link") else ""
             parts.append(f"Customer answer by {who}, answered {day(att.get('attested_at'))}, "
                          f"expires {day(a.get('expires_at'))}{link}")
     return parts or ["no answer recorded yet"]
@@ -117,14 +121,14 @@ def _capped(parts: List[str], limit: int) -> List[str]:
         f"and {hidden} more references, all of them in the snapshot this pack was made from"]
 
 
-def evidence_references(req: Dict[str, Any], attestations_by_q: Dict[str, Dict[str, Any]]) -> str:
+def evidence_references(req: Dict[str, Any], attestations_by_q: Dict[str, Dict[str, Any]], v2: bool = False) -> str:
     items = evidence_items(req)
     if not items:
         return "No evidence recorded."
     first_observed = next((i["source"] for i in items if i["source"] in OBSERVED_SOURCES), None)
     lines = []
     for n, item in enumerate(items):
-        parts = _segment_parts(item, req, attestations_by_q, item["source"] == first_observed)
+        parts = _segment_parts(item, req, attestations_by_q, item["source"] == first_observed, v2)
         parts = _capped(parts, (MAX_REFERENCES if len(items) == 1 else MAX_REFERENCES - 3 * (len(items) - 1)) if n == 0
                         else 2)
         # Every line leads with the source and the status /comply shows for it (its "Also on this requirement" line).
@@ -250,7 +254,7 @@ def _short(text: str, limit: int) -> str:
 
 
 def _domains_line(scope: Dict[str, Any]) -> str:
-    names = [_short(flat(d["domain"]), 120) for d in scope["domains"]]
+    names = [_short(flat(d["domain"], True), 120) for d in scope["domains"]]
     shown, used = [], 0
     for name in names:
         if used + len(name) + 2 > MAX_DOMAINS_CHARS:
@@ -267,7 +271,7 @@ def _requirement_rows(reqs: List[Dict[str, Any]], key: str, attestations: Dict[s
         if r["group"] == key:
             clause = r["clause"] if r["clause_verified"] else f"{r['clause']} {MARK}"
             rows.append([f"{r['title']} ({clause})", r["status_label"], r["source_label"] or "No source",
-                         evidence_references(r, attestations)])
+                         evidence_references(r, attestations, True)])
     return rows
 
 
@@ -286,7 +290,7 @@ def build_v2(kind: str, snapshot_row: Dict[str, Any], snapshot: Dict[str, Any], 
     attestations = {a["question_key"]: a for a in comp["attestations"]}
     reqs = comp["requirements"]
     pending = sum(1 for r in reqs if not r["clause_verified"])
-    org = _short(flat(scope["org_name"]) or "Organisation", MAX_NAME_CHARS)
+    org = _short(flat(scope["org_name"], True) or "Organisation", MAX_NAME_CHARS)
     issued = when(issued_at.isoformat())
     dates = snapshot["dates"]
     scope_facts = [

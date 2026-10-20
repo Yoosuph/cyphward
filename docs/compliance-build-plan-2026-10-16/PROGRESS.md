@@ -727,3 +727,9 @@ Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after 
 5. A blank organisation name falls back to "Organisation"; a name with characters the PDF font cannot show prints what it can plus a clear note (or "name shown in the HTML version"), not "????".
 6. Nits: bidi and zero-width controls stripped by `flat`; banned list in `test_packs_postgres` extended; the DPO legend no longer talks about rows; the closing heading is "Match this pack to its frozen record", "snapshot no. N" versus the "Snapshot ID" line; favicon path is cwd-independent; `reportlab>=4.0,<6`; sample images regenerated with synthetic names (no sample PDFs kept).
 7. **Decision B-6:** the pack is rendered inside the per-organisation advisory-lock transaction (`store._insert_pack`). Rendering is bounded (capped cells, build slot, lock timeout), so it was left as is.
+
+### PR-B review round 2 (REJECT) and the fixes
+
+1. **Blocker:** the widened control-character set had reached the v1/v1.1 builder through the shared `flat()`. `flat(text, v2=False)` now keeps v1/v1.1 exactly as issued; only `build_v2` (and `evidence_references(..., v2=True)`) uses the extended set. A golden test builds a v1.1 document through `document.build` with zero-width, ZWNJ, RLO and BOM characters in the owner name, evidence link, domain and finding title and compares the HTML and PDF sha256 with the values main's builder and renderer produced (it fails if the extended set is used for v1).
+2. A name that loses any character in the PDF now shows the placeholder "Organisation (name shown in the HTML version)" on the cover and in the facts table, plus the note; never a leftover fragment.
+3. v2 strips bidi overrides/embeddings/isolates, U+200B and U+FEFF only (ZWNJ and ZWJ kept); `dt` avoids a page break after it; the margin boxes set a font family; `_css()` carries a warning that user text never goes into the style block.

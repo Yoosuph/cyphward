@@ -36,6 +36,9 @@ def pdf_text(value: str) -> str:
     return DAGGER.join(render.pdf_text(part) for part in value.split(DAGGER))
 
 
+ORG_PLACEHOLDER = "Organisation (name shown in the HTML version)"
+
+
 def unprintable(value: str) -> bool:
     """True when the PDF font cannot show some of the letters (they would print as '?')."""
     return any(ch != "?" and render.pdf_text(ch) == "?" for ch in value if ch != DAGGER)
@@ -71,6 +74,7 @@ LOGO_SVG = (f'<svg class="logo" viewBox="0 0 36 36" width="64" height="64" role=
 # ── HTML ─────────────────────────────────────────────────────────────────
 
 def _css(footer: str) -> str:
+    # `footer` is built from the pack's own constants and the pack id. User text must NEVER go into the style block.
     quoted = '"' + footer.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
     return _CSS.replace("@FOOTER@", quoted)
 
@@ -90,7 +94,7 @@ line-height:1.5;font-size:14px}}
 .cover dl{{margin:14px 32px 0}}
 h2{{font-family:Georgia,'Times New Roman',serif;font-size:21px;margin:26px 0 8px;padding-bottom:4px;
 border-bottom:2px solid var(--accent)}}
-h2,h3{{break-after:avoid}}
+h2,h3,dt{{break-after:avoid}}
 h3{{font-size:14px;color:var(--deep);margin:20px 0 6px}}
 table{{border-collapse:collapse;width:100%;margin:8px 0}}
 th,td{{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;font-size:12.5px}}
@@ -111,8 +115,8 @@ margin:8px 0}}
 .pagefoot{{margin:36px auto 0;max-width:980px;border-top:1px solid var(--line);padding:8px 20px;font-size:11px;
 color:var(--soft)}}
 @page{{size:A4;margin:16mm 14mm 24mm;
-@bottom-left{{content:@FOOTER@;font-size:7.5pt;color:{SOFT};vertical-align:top;padding-top:4mm;width:78%}}
-@bottom-right{{content:"Page " counter(page) " of " counter(pages);font-size:7.5pt;color:{SOFT};vertical-align:top;
+@bottom-left{{content:@FOOTER@;font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;color:{SOFT};vertical-align:top;padding-top:4mm;width:78%}}
+@bottom-right{{content:"Page " counter(page) " of " counter(pages);font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;color:{SOFT};vertical-align:top;
 padding-top:4mm}}}}
 @media print{{
 .pagefoot{{display:none}}
@@ -374,10 +378,10 @@ def to_pdf(doc: Dict[str, Any]) -> bytes:
                           PageTemplate("body", [body_frame], onPage=on_page)])
     facts = [("Issued", cover["issued"]), ("Pack ID", cover["pack_id"]), ("Register version", cover["register"])]
     lossy = unprintable(cover["org"])
-    org_pdf = "".join(ch for ch in cover["org"] if ch == "?" or not unprintable(ch)) if lossy else cover["org"]
-    org_pdf = " ".join(render.pdf_text(org_pdf).split()) if lossy else org_pdf
-    story: List[Any] = [Spacer(1, 4 * mm), _p("PREPARED FOR", st["label"]), Spacer(1, 2 * mm),
-                        _p(org_pdf or "Organisation (name shown in the HTML version)", st["org"])]
+    # Any lost character means the printed name could mislead (a Hebrew name reduced to a quote mark, an Arabic
+    # name to its Latin suffix), so the PDF shows a placeholder and the note, never a leftover.
+    org_pdf = ORG_PLACEHOLDER if lossy else cover["org"]
+    story: List[Any] = [Spacer(1, 4 * mm), _p("PREPARED FOR", st["label"]), Spacer(1, 2 * mm), _p(org_pdf, st["org"])]
     if lossy:
         story += [Spacer(1, 2 * mm), _p("The organisation name contains characters this PDF font cannot show. "
                                         "The HTML version of this pack shows it in full.", st["label"])]

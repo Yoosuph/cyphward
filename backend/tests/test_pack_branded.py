@@ -224,14 +224,19 @@ def test_a_blank_organisation_name_falls_back_and_a_non_latin_one_gets_a_clear_n
     assert doc["cover"]["org"] == "Organisation"
     doc, *_ = make(org="\u0634\u0631\u0643\u0629 \u0627\u0644\u0646\u0648\u0631 Ltd")
     html, flat, pdf, pdf_text = texts(doc)
-    assert "?" not in pdf_text.split("Page 1 of")[0] and "cannot show" in pdf_text.split("Page 1 of")[0]
-    assert "Ltd" in pdf_text.split("Page 1 of")[0] and "\u0634\u0631\u0643\u0629" in html
-    doc, *_ = make(org="\u0634\u0631\u0643\u0629")
-    assert "name shown in the HTML version" in texts(doc)[3]
+    cover = pdf_text.split("Page 1 of")[0]
+    assert "?" not in cover and "cannot show" in cover and "Organisation (name shown in the HTML version)" in cover
+    assert "Ltd" not in cover  # never a leftover fragment of the real name
+    assert pdf_text.count("Organisation (name shown in the HTML version)") >= 2  # cover and facts table
+    assert "\u0634\u0631\u0643\u0629" in html
+    doc, *_ = make(org='\u05d7\u05d1\u05e8\u05d4 "X"')
+    cover = texts(doc)[3].split("Page 1 of")[0]
+    assert "Organisation (name shown in the HTML version)" in cover and '"' not in cover.split("PREPARED FOR")[1].split("ISSUED")[0].replace("The organisation name contains", "")
 
 
 def test_bidi_and_zero_width_controls_are_stripped_from_user_text():
-    assert document.flat("a\u202eb\u200bc\u2066d\ufeffe") == "a b c d e"
+    assert document.flat("a\u202eb\u200bc\u2066d\ufeffe", True) == "a b c d e"
+    assert document.flat("a\u202eb") == "a\u202eb"  # v1 is unchanged
 
 
 def test_dpo_legend_does_not_describe_requirement_rows():
@@ -246,3 +251,53 @@ def test_html_print_footer_is_a_page_margin_box_not_a_fixed_overlay():
 
 
 V1_DAGGER_GOLDEN = "a9f8c554652fe9af3d6036d3481b655cb66933100e7d37a934c41dc932a0393a"  # sha256 of the PDF the v1 renderer on main produced for the document above
+
+
+ZW = "​‌‮﻿"  # zero-width space, ZWNJ, RLO, BOM: v1 keeps them exactly as issued
+
+
+def v1_fixture():
+    """A deterministic snapshot whose user-supplied text carries invisible and bidi characters."""
+    reqs = []
+    for n, r in enumerate(REGISTER["requirements"][:3]):
+        reqs.append({
+            "key": r["key"], "group": r["group"], "title": r["title"], "clause": r["clause"],
+            "clause_verified": False, "summary": r["summary"], "status": "present", "status_label": "Evidence present",
+            "reason": "x", "reason_text": "Reason text.", "source": "customer_attested",
+            "source_label": "Customer attested", "remediation_hint": "Do the thing.",
+            "sources": [{"source": "customer_attested", "source_label": "Customer attested", "status": "present",
+                         "status_label": "Evidence present", "reason": "x"}],
+            "domains": [{"domain": f"d{n}{ZW}.example.com", "status": "present", "status_label": "Evidence present",
+                         "source": "tool_observed", "source_label": "Tool observed", "observed_at": "2026-10-17T14:48:00+00:00",
+                         "scan_id": "654136c6-0000-0000-0000-000000000000"}],
+            "findings": [{"title": f"Finding{ZW} {n}", "severity": "high", "status": "open"}],
+            "answers": [{"question_key": f"q{n}", "owner_name": f"Ada{ZW}\nOwner", "expires_at": "2027-08-15T00:00:00+00:00"}]})
+    comp = {"readiness": {"with_evidence": 3, "present": 3, "gap": 0, "awaiting_input": 0, "not_assessed": 0, "applicable": 3},
+            "register": {"title": "Register", "version": "v1"},
+            "attestations": [{"question_key": f"q{n}", "attested_at": "2026-10-14T10:00:00+00:00",
+                              "evidence_link": f"https://example.test/a{ZW}b"} for n in range(3)],
+            "groups": [{"key": g, "title": g} for g in dict.fromkeys(r["group"] for r in reqs)], "requirements": reqs}
+    snap = {"generated_at": "2026-10-17T14:50:00+00:00", "scope": {"org_name": f"Org{ZW} Ltd", "domains": [{"domain": f"a{ZW}.example.com"}]},
+            "dates": {"earliest_observation": "2026-10-17T14:48:00+00:00", "latest_observation": "2026-10-17T14:49:00+00:00"},
+            "compliance": comp}
+    return {"id": "00000000-0000-0000-0000-000000000001", "seq": 1, "content_sha256": "0" * 64}, snap
+
+
+def test_v1_packs_built_through_document_build_reproduce_the_hashes_main_produced():
+    row, snap = v1_fixture()
+    doc = document.build("readiness_pack", row, snap, ISSUED, None)  # no pack id: the v1.1 layout
+    assert hashlib.sha256(render.to_html(doc).encode()).hexdigest() == V1_BUILD_HTML_GOLDEN
+    assert hashlib.sha256(render.to_pdf(doc)).hexdigest() == V1_BUILD_PDF_GOLDEN
+
+
+def test_v2_strips_bidi_and_zero_width_space_but_keeps_zwnj_and_zwj():
+    assert document.flat("a‮b​c﻿d⁦e", True) == "a b c d e"
+    assert document.flat("می‌خواهم a‍b", True) == "می‌خواهم a‍b"
+    row, snap = v1_fixture()
+    doc = document.build("readiness_pack", row, snap, ISSUED, None, pack_id=str(uuid.uuid4()))
+    cells = " ".join(c for b in doc["blocks"] if b["type"] == "table" for r in b["rows"] for c in r)
+    assert "‮" not in cells and "​" not in cells and "﻿" not in cells and "Ada \u200c Owner" in cells
+
+
+V1_BUILD_HTML_GOLDEN = "724644f09b0ee9702538034969467b9d855152f80e369ab591e67829d7ae1836"  # pinned from main (v1.1 builder and renderer) before this change
+V1_BUILD_PDF_GOLDEN = "b47d76464b052c93da2741fa299be777793111a9b61000d04fe4f2a70856d270"
