@@ -151,16 +151,16 @@ export default function Login() {
     };
   }, [tenant]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    demoLoginStatus().then((status) => setDemoEnabled(status.enabled)).catch(() => setDemoEnabled(false));
+  }, []);
+
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       return <Navigate to={`/onboarding${inviteParam}`} replace />;
     }
     return <Navigate to={`/overview${inviteParam}`} replace />;
   }
-
-  useEffect(() => {
-    demoLoginStatus().then((status) => setDemoEnabled(status.enabled)).catch(() => setDemoEnabled(false));
-  }, []);
 
   const tryDemo = async () => {
     if (busy) return;
