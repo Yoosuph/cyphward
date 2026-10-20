@@ -23,6 +23,7 @@ export default function Login() {
   const [pw, setPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState('');
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [theme, setTheme] = useState(getTheme());
@@ -165,10 +166,12 @@ export default function Login() {
   const tryDemo = async () => {
     if (busy) return;
     setBusy(true);
+    setDemoBusy(true);
     setError('');
     const result = await signInAsDemo();
     if (!result.ok) {
       setBusy(false);
+      setDemoBusy(false);
       setError(result.error || 'The sample demo is not available right now.');
       return;
     }
@@ -541,9 +544,17 @@ export default function Login() {
                     type="button"
                     onClick={tryDemo}
                     disabled={busy}
+                    aria-busy={demoBusy}
                     className="w-full h-11 border border-line rounded-md text-sm font-medium text-ink hover:bg-surface disabled:opacity-60"
                   >
-                    Try the demo (sample data)
+                    {demoBusy ? (
+                      <span className="inline-flex items-center gap-1 animate-pulse">
+                        Signing you into the demo
+                        <span aria-hidden="true">...</span>
+                      </span>
+                    ) : (
+                      'Try the demo (sample data)'
+                    )}
                   </button>
                   <p className="text-xs mono text-soft mt-2">
                     A sample organisation with made-up data. Nothing here is a real customer account.
