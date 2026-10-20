@@ -38,6 +38,7 @@ DOCX_MAX_ENTRIES = 1000
 DOCX_MAX_UNCOMPRESSED = 50 * 1024 * 1024
 DOCX_MAX_RATIO = 100
 DOCX_CONTENT_TYPES_MAX = 1024 * 1024
+DOCX_MAX_COMMENT = 1024
 DOCX_MAX_DIRECTORY_BYTES = 256 * 1024  # the zip's central directory; bounds the work of reading it
 
 ALLOWED_TEXT = "PDF, PNG, JPG/JPEG or DOCX files up to 10 MB"
@@ -105,8 +106,14 @@ def _directory_problem(data: bytes) -> Optional[str]:
         return "This is not a valid DOCX file."
     # A zip64 record (its locator sits right before this record) overrides the numbers below, and a Word file under
     # 10 MB never needs one: refuse it.
-    if at >= 20 and tail[at - 20:at - 16] == b"PK\x06\x07":
+    # The locator is looked for in the WHOLE file at the record's absolute position (a long comment must not push it
+    # out of view), and a zip comment is not needed in a Word file: refuse a long one.
+    absolute = len(data) - len(tail) + at
+    if absolute >= 20 and data[absolute - 20:absolute - 16] == b"PK\x06\x07":
         return "This DOCX file has too many parts to accept."
+    comment_declared = struct.unpack("<H", tail[at + 20:at + 22])[0]
+    if comment_declared > DOCX_MAX_COMMENT or len(tail) - at - 22 > DOCX_MAX_COMMENT:
+        return "This is not a valid DOCX file."
     entries, size = struct.unpack("<HI", tail[at + 10:at + 10 + 2] + tail[at + 12:at + 16])
     if entries == 0xFFFF or size == 0xFFFFFFFF or entries > DOCX_MAX_ENTRIES:
         return "This DOCX file has too many parts to accept."

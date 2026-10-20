@@ -130,6 +130,23 @@ def test_a_zip64_record_is_refused_so_it_cannot_override_the_entry_count():
     ef.check("a.docx", base)  # the same file without it is fine
 
 
+def test_a_long_zip_comment_cannot_hide_the_zip64_locator():
+    import struct
+    base = docx()
+    eocd = base.rfind(b"PK\x05\x06")
+    locator = b"PK\x06\x07" + struct.pack("<IQI", 0, eocd, 1)
+    comment = b"x" * 65530
+    record = bytearray(base[eocd:eocd + 22])
+    record[20:22] = struct.pack("<H", len(comment))
+    forged = base[:eocd] + locator + bytes(record) + comment
+    with pytest.raises(ef.FileRejected):
+        ef.check("a.docx", forged)
+    plain = bytearray(base[eocd:eocd + 22])
+    plain[20:22] = struct.pack("<H", 2000)
+    with pytest.raises(ef.FileRejected):  # a comment alone, over 1 KiB, is refused too
+        ef.check("a.docx", base[:eocd] + bytes(plain) + b"y" * 2000)
+
+
 def test_zip_with_path_traversal_entries_is_refused():
     with pytest.raises(ef.FileRejected):
         ef.check("a.docx", docx({"../evil.txt": b"x"}))
