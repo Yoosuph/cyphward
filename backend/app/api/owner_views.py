@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.app.core import owner as owner_mod
+from backend.app.core.demo_org import DEMO_ORG_ID, DEMO_USER_ID
 from backend.app.core.config import BREVO_API_KEY
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.plans import PLANS
@@ -52,32 +53,36 @@ def _rows(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
 @router.get("/overview")
 def overview(request: Request, owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
     _view(request, owner, "overview")
+    # The sample-data demo organisation and its owner are left out of every count here (core/demo_org.py).
+    demo_org = f"'{DEMO_ORG_ID}'"
+    demo_user = f"'{DEMO_USER_ID}'"
     counts = execute_one(
-        """
+        f"""
         SELECT
-          (SELECT count(*) FROM profiles) AS users_total,
-          (SELECT count(*) FROM profiles WHERE created_at > now() - interval '7 days') AS users_7d,
-          (SELECT count(*) FROM profiles WHERE created_at > now() - interval '30 days') AS users_30d,
-          (SELECT count(*) FROM organizations) AS orgs_total,
-          (SELECT count(*) FROM organizations WHERE created_at > now() - interval '7 days') AS orgs_7d,
-          (SELECT count(*) FROM domains WHERE revoked_at IS NULL AND verification_status = 'verified') AS domains_verified,
-          (SELECT count(*) FROM domains WHERE revoked_at IS NULL AND verification_status <> 'verified') AS domains_pending,
-          (SELECT count(*) FROM scans WHERE created_at > now() - interval '24 hours') AS scans_24h,
-          (SELECT count(*) FROM scans WHERE created_at > now() - interval '24 hours' AND status = 'failed') AS scans_failed_24h,
-          (SELECT count(*) FROM scans WHERE status = 'queued') AS scans_queued,
-          (SELECT count(*) FROM scans WHERE status = 'running') AS scans_running,
-          (SELECT count(*) FROM scans WHERE status = 'running' AND lease_expires_at < now()) AS scans_lease_expired,
-          (SELECT EXTRACT(EPOCH FROM now() - min(created_at))::int FROM scans WHERE status = 'queued') AS oldest_queued_seconds
+          (SELECT count(*) FROM profiles WHERE id <> {demo_user}) AS users_total,
+          (SELECT count(*) FROM profiles WHERE id <> {demo_user} AND created_at > now() - interval '7 days') AS users_7d,
+          (SELECT count(*) FROM profiles WHERE id <> {demo_user} AND created_at > now() - interval '30 days') AS users_30d,
+          (SELECT count(*) FROM organizations WHERE id <> {demo_org}) AS orgs_total,
+          (SELECT count(*) FROM organizations WHERE id <> {demo_org} AND created_at > now() - interval '7 days') AS orgs_7d,
+          (SELECT count(*) FROM domains WHERE org_id <> {demo_org} AND revoked_at IS NULL AND verification_status = 'verified') AS domains_verified,
+          (SELECT count(*) FROM domains WHERE org_id <> {demo_org} AND revoked_at IS NULL AND verification_status <> 'verified') AS domains_pending,
+          (SELECT count(*) FROM scans WHERE org_id <> {demo_org} AND created_at > now() - interval '24 hours') AS scans_24h,
+          (SELECT count(*) FROM scans WHERE org_id <> {demo_org} AND created_at > now() - interval '24 hours' AND status = 'failed') AS scans_failed_24h,
+          (SELECT count(*) FROM scans WHERE org_id <> {demo_org} AND status = 'queued') AS scans_queued,
+          (SELECT count(*) FROM scans WHERE org_id <> {demo_org} AND status = 'running') AS scans_running,
+          (SELECT count(*) FROM scans WHERE org_id <> {demo_org} AND status = 'running' AND lease_expires_at < now()) AS scans_lease_expired,
+          (SELECT EXTRACT(EPOCH FROM now() - min(created_at))::int FROM scans WHERE org_id <> {demo_org} AND status = 'queued') AS oldest_queued_seconds
         """
     ) or {}
     signups = _rows(
         "SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, count(*) AS users "
-        "FROM profiles WHERE created_at > now() - interval '14 days' GROUP BY 1 ORDER BY 1"
+        f"FROM profiles WHERE id <> {demo_user} AND created_at > now() - interval '14 days' GROUP BY 1 ORDER BY 1"
     )
-    subscriptions = _rows("SELECT plan, status, count(*) AS n FROM subscriptions GROUP BY 1, 2 ORDER BY 3 DESC")
+    subscriptions = _rows(f"SELECT plan, status, count(*) AS n FROM subscriptions WHERE org_id <> {demo_org} "
+                          "GROUP BY 1, 2 ORDER BY 3 DESC")
     invoices = _rows(
         "SELECT currency, status, count(*) AS n, COALESCE(sum(amount_kobo), 0) AS amount_minor "
-        "FROM invoices GROUP BY 1, 2 ORDER BY 1, 2"
+        f"FROM invoices WHERE org_id <> {demo_org} GROUP BY 1, 2 ORDER BY 1, 2"
     )
     activity = _rows(
         """

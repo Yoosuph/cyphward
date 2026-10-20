@@ -905,3 +905,73 @@ Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after 
 1. **Blocker:** the widened control-character set had reached the v1/v1.1 builder through the shared `flat()`. `flat(text, v2=False)` now keeps v1/v1.1 exactly as issued; only `build_v2` (and `evidence_references(..., v2=True)`) uses the extended set. A golden test builds a v1.1 document through `document.build` with zero-width, ZWNJ, RLO and BOM characters in the owner name, evidence link, domain and finding title and compares the HTML and PDF sha256 with the values main's builder and renderer produced (it fails if the extended set is used for v1).
 2. A name that loses any character in the PDF now shows the placeholder "Organisation (name shown in the HTML version)" on the cover and in the facts table, plus the note; never a leftover fragment.
 3. v2 strips bidi overrides/embeddings/isolates, U+200B and U+FEFF only (ZWNJ and ZWJ kept); `dt` avoids a page break after it; the margin boxes set a font family; `_css()` carries a warning that user text never goes into the style block.
+
+## Fintech Org demo seed (sample data)
+
+Branch `claude/focused-hodgkin-0990e8`, base `main`. Nothing was run against production. The seed is dry-run by default and writes only to the URL it is given.
+
+### Files
+
+- `backend/scripts/seed_fintech_demo.py`: `status`, `seed` and `unseed` commands. Dry run unless `--apply`. Target guard: `--target local` accepts only a loopback host and database `cyphward_test` or `cyphward_demo`. `--target production` also needs `--confirm-production SEED-FINTECH-DEMO-IN-PRODUCTION`. The app's own modules are pointed at the explicit URL before import, so `.env` cannot redirect them.
+- `backend/app/core/demo_org.py` (new): the fixed demo organisation and owner ids. The seed imports them, and `owner_views.overview` excludes them.
+- `backend/app/api/owner_views.py`: the overview counts, signups, subscriptions and invoices exclude the demo organisation and owner. The organisation list and the activity list are unchanged, so the demo stays visible and labelled.
+- `backend/tests/test_fintech_demo_seed_postgres.py` (new, 23 tests, against the migrated `cyphward_test` database through `cyphward_app`).
+- `backend/tests/test_fintech_demo_seed.py` (new, 13 pure tests, default suite).
+- `.github/workflows/ci.yml`: the new Postgres file is added to the CI PostgreSQL list.
+
+### Decisions
+
+1. **Domain stays `pending`.** `scanme.nmap.org` has `verification_status='pending'`, `verified_at` NULL and the token `sample-data-not-issued`. Nothing is verified and nothing is scanned. Scan admission already refuses unverified domains, and a test checks that no scan or launch request exists.
+2. **No organisation-level grade on the live dashboard.** Grade needs every verified domain complete, and this one is not verified. The live score is still shown (65.4 today, the same as the latest scan), with the label "Not all domains assessed" and no grade. Per-scan grades are stored: D (46.3), D (42.2), C (65.4). Showing an organisation grade for investors would need a demo-only verified state. That is a product and migration decision, and I did not bypass verification.
+3. **Scores are derived, not typed.** Each scan's score is produced by `compute_risk_score` from the findings that scan saw, with a synthetic `complete` assessment for the sample domain. The test re-derives every score from the stored rows and compares it with `scans.score` and `score_snapshots`.
+4. **No sample flag in the schema.** The schema has none, so none was invented. The marker is the organisation name `Fintech Org (SAMPLE DATA)`, the title prefix `SAMPLE:` on every finding, the sample token, and a `label` inside `stage_progress.scoring`.
+5. **Owner sign-in needs an emailed code.** Owner and admin roles always take the email step-up (`_user_is_admin`). `demo.owner@fintech-org.test` (reserved `.test`) can never receive it, so an investor cannot sign in as the owner without a mailbox. The test completes the step-up by capturing the code from the patched mailer, so no mail is sent. I did not bypass the step-up. Options are in Decisions for Yusuf.
+6. **Sign-in audit rows survive unseed.** `audit_log` is append-only for `cyphward_app` (permission denied on DELETE). Organisation rows go with the cascade. Sign-in rows with no organisation stay, keyed to the removed owner id, which is harmless.
+7. **Billing.** `subscriptions` row: `growth`, `trialing`, `provider='manual'`, no provider reference, 90-day trial. No invoices. No notifications (`notifications` is empty). Reminders need a verified domain, so none are sent.
+8. **Drafts use the template path.** `COMPLIANCE_DOCS_MODEL` is forced to `off`. Four drafts are generated, one per kind. The readiness pack is issued through `packs.store.issue_with_new_snapshot`.
+9. **Questionnaire.** 19 answers recorded through `attestation_store.record`, owner set to the demo owner, expiry set by the question's rule. Two date answers use the `{"value": "date", "date": ...}` shape.
+
+### Known gaps
+
+- The sample label is stored on the scan (`stage_progress.scoring.label`) but the Scans UI has no name field to show it. Showing it needs a UI change, which is a follow-up.
+- Production metrics exclude the demo by id. Exports, backups and any other reports that don't use these queries will still include it.
+- Dates are relative to the seed time, so re-seeding after an unseed refreshes them.
+
+### Counts (written rows, from the local run)
+
+Organisation 1, owner profile 1, membership 1, subscription 1, domain 1, asset 1, scans 3, findings 11 (7 open in the latest scan: 2 high, 2 medium, 3 low), score snapshots 3, attestations 19, incidents 2, compliance evidence 8, remediation tasks 2, pack 1, drafts 4, audit rows (seed actions) 5 plus those from the app functions.
+
+### Tests (local, `cyphward_test`, port 55460)
+
+- `test_fintech_demo_seed_postgres.py`: 23 passed.
+- `test_fintech_demo_seed.py`: 13 passed.
+- Owner views and owner console suites: 32 passed, 5 skipped.
+- Full backend suite: see the final message for the result.
+
+### Commands for production (not run)
+
+```bash
+export CYPHWARD_DEMO_DATABASE_URL='<production URL from the secret store>'
+export CYPHWARD_DEMO_PASSWORD='<chosen password; not stored>'
+```
+
+```bash
+python -m backend.scripts.seed_fintech_demo status --database-url "$CYPHWARD_DEMO_DATABASE_URL" --target production --confirm-production SEED-FINTECH-DEMO-IN-PRODUCTION
+```
+
+```bash
+python -m backend.scripts.seed_fintech_demo seed --database-url "$CYPHWARD_DEMO_DATABASE_URL" --target production --confirm-production SEED-FINTECH-DEMO-IN-PRODUCTION --apply
+```
+
+Removal, if needed:
+
+```bash
+python -m backend.scripts.seed_fintech_demo unseed --database-url "$CYPHWARD_DEMO_DATABASE_URL" --target production --confirm-production SEED-FINTECH-DEMO-IN-PRODUCTION --apply
+```
+
+### Decisions for Yusuf
+
+1. **Where to seed.** Recommend a separate demo database (`cyphward_demo`), not the customer production database. The production route works only because of the guards and the id exclusion, and the seed must not run before the PR is reviewed and the release gates pass.
+2. **Password and owner sign-in.** The password is typed or supplied through `CYPHWARD_DEMO_PASSWORD` at seed time (minimum 8 characters) and is never stored in the repo, the log or the database beyond its hash. Owner sign-in needs an emailed code. Options: (a) a mailbox you control for the demo owner, giving a real address; or (b) a `member` role for investor viewing, which cannot issue packs or drafts. Neither is a bypass.
+3. **Sample label wording.** The organisation is "Fintech Org (SAMPLE DATA)", each finding title starts "SAMPLE:", each description ends "Synthetic sample evidence for the demo organisation. Not observed on scanme.nmap.org.", and every pack and draft carries SAMPLE DATA. Please approve or change the wording.
+4. **Organisation grade.** Investors will see a score with no grade, because the domain is not verified. Decide whether a demo-only verified state is worth a migration.
