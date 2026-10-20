@@ -715,6 +715,40 @@ Validation for this round (fresh cluster, port 55454): full backend suite **2253
 - Corpus: **528** adversarial, **24** faithful. Mutation: `control_chars` 6 cases, `non_ascii` 11, `lines` 83, `sentence_count` 37, `punctuation` 15, `clause_order` 7.
 - Validation: full backend suite **2303 passed, 16 skipped**; CI PostgreSQL list **259 passed** (fresh cluster, port 55454).
 
+
+## PR-A: one row, one evidence item (status, source and evidence agree)
+
+**Problem (found in the INNOVATECH readiness pack).** The row "DPO contact published" read Status "Awaiting your input", Source "Customer attested", Evidence "cyphward.com: Not assessed, Externally observed, ...". **Root cause:** for a requirement with both an observed result and a customer answer, `attestations.merge` picks the headline status and source from one side (here the answer side), but the requirement's `domains` list is always the observed side, and `packs/document.py: evidence_references` always printed the domain lines first. Three cells, two different evidence items.
+
+**The one rule.** The headline Status and Source always describe the same evidence item, and that item is written first in the evidence cell, led by its source label. When a second source exists it follows on its own line, `Also: <source>: ...`, with its own status. Nobody reads one source's status next to the other's evidence. The headline-choice precedence in `merge` is unchanged: a present item wins (the observed one when both are present), then an observed gap, otherwise the customer's answer.
+
+**What changed (new snapshots and packs only).**
+- `compliance/status.py`: `sources` is now ordered headline-first and each item has `headline`; a single-source requirement gets its own one-item `sources` (it had none), so `(status, source)` is always a pair in `sources`. The /comply row shows one line: "The status above comes from <source> evidence. Also on this requirement: ...".
+- `snapshots/builder.py`: copies `headline`; `schema_version` stays 1; no stored snapshot is rewritten.
+- `packs/document.py`: `evidence_items` / `evidence_references` follow the rule. They also read snapshots frozen before this change (they work from `source`, `sources` and `domains`, not from the new flag). The cell stays capped: 8 references of 200 characters in all (5 for the headline source plus 2 for the other, each with a "more" line).
+- `packs/render.py`: a newline in a cell becomes `<br>` in HTML and a line break in the PDF.
+- Issued packs are stored bytes and are served as stored; nothing re-renders them. New packs are stored with the template version `cyphward-ndpa-pack-v1.1` (same layout, the row rule above); stored `cyphward-ndpa-pack-v1` packs keep their label and bytes. PR-B introduces v2.
+
+**Tests.** Full backend suite on the local database: 1410 passed, 16 skipped (after review round 1); the CI PostgreSQL list (packs test file extended) passes; frontend build and the four browser suites pass. `test_pack_row_consistency.py` (pure, 30 tests): every requirement of the real register through 5 observed results x 5 customer-answer states (present, gap, not assessed, expired, none; yes, no, not sure, expired, none), asserting on the /comply view, the snapshot content, the pack document, the HTML and the text extracted from the PDF that the row's pair is in `sources`, `sources[0]` is the single headline item, the evidence text starts with the headline source label, other sources follow as `Also:` lines, and no banned phrase appears (HTML and PDF text). Regression test built from the production combination; a snapshot frozen before this rule; a bounded cell with 400 domains and 600 findings. Postgres test `test_dpo_contact_row_shows_...also_line` issues a real pack. Mutation checks: unsorted `sources` in either layer (16-17 of 30 combinations fail), observed-first evidence (17 fail). One existing fixture in `test_packs_postgres.py` (600 findings) now also sets the requirement's source, as real data always does.
+
+**Limitations.** Each pack line leads with the source-level status that /comply shows for that source (for the observed side of the DPO contact that can read "Awaiting your input", because the privacy mapping turns "nothing found yet" into awaiting when the customer can attest); the domain's own status ("Not assessed") follows as detail on the same line. The frontend line is plain text and has no browser assertion of its own.
+
+### Decisions for Yusuf (PR-A)
+
+| # | Decision | Default applied |
+|---|---|---|
+| A-1 | Which source is the headline | Unchanged: present from either source (observed first when both), then an observed gap, then the customer's answer. Only the presentation is fixed. |
+| A-2 | Second source in a pack row | Shown on its own "Also:" line with its own status. |
+| A-3 | Pack version label | New packs are stored as `cyphward-ndpa-pack-v1.1` (same layout, new row rule); stored `v1` packs are untouched. v2 arrives with the branded pack in PR-B. |
+
+### PR-A review round 1 (REJECT) and the fixes
+
+1. **Circular test (blocker).** Presentation code used to overwrite the headline item's status with the row's status, so the property test could not fail. Removed: `attestations.check_headline` now raises `HeadlineMismatch` when the headline pair is not one of the requirement's own source items, in `merge`, in `status._headline_first` and in `document.evidence_items`; nothing is rewritten, so a frozen snapshot only ever holds what a source produced. The property test now also runs on `merge`'s raw output and against an independent statement of the rule (`expected_headline`). Both reviewer mutations (a present answer labelled "externally_observed"; the awaiting branch taking the observed status but keeping the customer source) are tests that must be refused (`test_a_merge_that_mislabels_the_headline_is_refused_not_rendered`), and were also applied to the real `merge` source: 40 and 60 of 272 tests fail; with the guards removed too, the oracle still fails 60.
+2. **Newline injection.** `document.flat` collapses every control character, CR, LF, U+0085, U+2028/9 and whitespace run in every user-supplied part (owner name, domain, finding title, link); only the joiner adds `\n`. Tests with each separator; removing `flat` fails 9.
+3. **Version label.** New packs are `cyphward-ndpa-pack-v1.1`; stored `v1` rows are never re-rendered.
+4. **Same wording on both surfaces.** Every evidence line leads `<source>: <status shown on /comply for that source>`; the observed domain detail follows (`Also: Externally observed: Awaiting your input; cyphward.com: Not assessed, observed ...`). A test compares each pack `Also:` line with the `/comply` secondary line for every combination.
+5. **Wider property test:** 126 combinations (nine observed pairs including two domains with different statuses x seven answer patterns including mixed and partial x live findings on or off, including evidence only from linked findings): 272 tests in the file.
+6. **PROGRESS wording** on ties now matches the code.
 ## UX overhaul of /comply and related screens (branch `claude/determined-gauss-e6701d`, base `main`)
 
 Same brand, clearer behaviour. Screenshots (before from unchanged `main`, after from this branch; desktop and 390 wide) and the "how to use the shared components" guide are in `docs/ux-2026-10-19/` (`README.md`, `before/`, `after/`).

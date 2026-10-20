@@ -126,6 +126,12 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
         <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
+          {req.sources && req.sources.length > 1 && (
+            <p className="text-xs text-soft" data-testid="other-sources">
+              The status above comes from {req.sources[0].source_label.toLowerCase()} evidence. Also on this requirement:{' '}
+              {req.sources.slice(1).map(s => `${s.source_label}: ${s.status_label}`).join('; ')}.
+            </p>
+          )}
           {told.some(q => q.current) && (
             <div className="p-3 rounded border border-line bg-inset/50 space-y-2">
               <p className="mono text-[10px] tracking-[.16em] text-soft">YOUR ANSWER · CUSTOMER ATTESTED</p>
