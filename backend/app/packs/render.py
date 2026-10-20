@@ -45,7 +45,7 @@ def to_html(doc: Dict[str, Any]) -> str:
             out.append('<ul>' + ''.join(f'<li>{escape(t)}</li>' for t in block["items"]) + '</ul>')
         elif kind == "table":
             head = ''.join(f'<th>{escape(h)}</th>' for h in block["head"])
-            rows = ''.join('<tr>' + ''.join(f'<td>{escape(c)}</td>' for c in row) + '</tr>' for row in block["rows"])
+            rows = ''.join('<tr>' + ''.join(f'<td>{escape(c).replace(chr(10), "<br>")}</td>' for c in row) + '</tr>' for row in block["rows"])
             out.append(f'<table><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>')
     out.append('</body></html>')
     return "\n".join(out) + "\n"
@@ -72,7 +72,7 @@ def pdf_text(value: str) -> str:
 
 
 def _p(text: str, style: ParagraphStyle) -> Paragraph:
-    return Paragraph(escape(pdf_text(text)), style)
+    return Paragraph(escape(pdf_text(text)).replace("\n", "<br/>"), style)
 
 
 def to_pdf(doc: Dict[str, Any]) -> bytes:
