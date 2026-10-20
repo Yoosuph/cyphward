@@ -1274,6 +1274,11 @@ def test_the_branded_v2_pack_shows_the_overlay_instead_of_the_marker_and_counts_
     clause = next(r["clause"] for r in REGISTER["requirements"] if r["key"] == key)
     assert text.count(f"{title} ({clause} \u00b7 reference reviewed by Dr Ada Reviewer (dpco.test)") == 1
     assert f"{title} ({clause} \u2020" not in text
+    # Unmarked rows no longer read as confirmed by a qualified reviewer: the legend and the closing page say who.
+    assert "or was marked as reviewed by a reviewer named by this organisation, whose licence Cyphward does not check" in text
+    assert "reserved for a qualified reviewer" not in text
+    assert "Practitioner notes in this pack come from a reviewer named by this organisation" in text
+    assert "the named practitioner" not in text
     assert "Practitioner review notes" in text and "Read with the guidance" in text
     for phrase in BANNED:
         assert phrase not in text.lower(), phrase
