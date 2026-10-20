@@ -37,7 +37,8 @@ def is_enabled() -> bool:
 
 def _client_address(request: Request) -> str:
     """The hop the proxy adds: the last X-Forwarded-For entry. The leftmost value is set by the client."""
-    hops = [hop.strip() for hop in (request.headers.get("x-forwarded-for") or "").split(",") if hop.strip()]
+    joined = ",".join(request.headers.getlist("x-forwarded-for"))
+    hops = [hop.strip() for hop in joined.split(",") if hop.strip()]
     if hops:
         return hops[-1]
     return request.client.host if request.client else "unknown"
@@ -60,8 +61,8 @@ def demo_login_status() -> Dict[str, bool]:
 def demo_login(request: Request) -> Dict[str, Any]:
     if not is_enabled():
         raise HTTPException(status_code=404, detail="Not found.")
-    check_rate_limit("demo-login:all", DEMO_LOGIN_GLOBAL_MAX, 3600)
     check_rate_limit(f"demo-login:{_client_address(request)}", DEMO_LOGIN_MAX_ATTEMPTS, DEMO_LOGIN_WINDOW_SECONDS)
+    check_rate_limit("demo-login:all", DEMO_LOGIN_GLOBAL_MAX, 3600)
     user = execute_one("SELECT * FROM profiles WHERE id = %s AND email = %s", (DEMO_USER_ID, DEMO_EMAIL))
     if not user or not verify_password(user.get("password_hash"), os.environ["DEMO_LOGIN_PASSWORD"]):
         raise HTTPException(status_code=404, detail="Not found.")

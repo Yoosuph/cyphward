@@ -193,3 +193,35 @@ def test_the_global_ceiling_holds_whatever_addresses_are_claimed(demo_db, monkey
     statuses = [client.post("/api/v1/auth/demo-login", headers={"X-Forwarded-For": f"198.51.100.{i}"}).status_code
                 for i in range(5)]
     assert statuses[:3] == [404] * 3 and statuses[3:] == [429, 429]
+
+
+def test_rotating_a_second_forwarded_header_line_does_not_escape_the_limit():
+    from backend.app.api.demo_login import _client_address
+
+    class Req:
+        def __init__(self, lines):
+            self.headers = {"x-forwarded-for": ", ".join(lines)}
+            self._lines = lines
+            self.client = None
+
+        class _H(dict):
+            pass
+
+    class Hdrs:
+        def __init__(self, lines):
+            self._lines = lines
+
+        def getlist(self, name):
+            return self._lines if name == "x-forwarded-for" else []
+
+        def get(self, name):
+            return ", ".join(self._lines) if name == "x-forwarded-for" else None
+
+    class R:
+        def __init__(self, lines):
+            self.headers = Hdrs(lines)
+            self.client = None
+
+    a = _client_address(R(["10.1.1.1", "9.9.9.8"]))
+    b = _client_address(R(["10.1.2.1", "9.9.9.8"]))
+    assert a == b == "9.9.9.8"
