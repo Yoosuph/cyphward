@@ -179,7 +179,7 @@ def _compliance(org_id: str, now: datetime) -> Dict[str, Any]:
             "status": v["status"], "status_label": v["status_label"],
             "reason": v["reason"], "reason_text": v["reason_text"],
             "source": v["source"], "source_label": v["source_label"],
-            "sources": [{k: s.get(k) for k in ("source", "source_label", "status", "status_label", "reason")}
+            "sources": [{k: s.get(k) for k in ("source", "source_label", "status", "status_label", "reason", "headline")}
                         for s in v["sources"]],
             "domains": [{
                 "domain": d.get("domain"), "status": d["status"], "status_label": d["status_label"],
