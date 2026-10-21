@@ -1,6 +1,6 @@
 {
-  "version": "ndpa-gaid-questionnaire-v1",
-  "register_version": "ndpa-gaid-v1.1",
+  "version": "ndpa-gaid-questionnaire-v1.1",
+  "register_version": "ndpa-gaid-v1.2",
   "questions": [
     {
       "key": "registration.major_importance",

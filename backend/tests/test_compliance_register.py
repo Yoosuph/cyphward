@@ -11,8 +11,8 @@ from backend.app.risk.check_set import DECLARED_CHECKS
 RAW = json.loads(reg.REGISTER_FILE.read_text())
 
 
-def test_register_v1_1_loads_with_29_requirements_in_11_groups():
-    assert reg.REGISTER["version"] == "ndpa-gaid-v1.1"
+def test_register_v1_2_loads_with_29_requirements_in_11_groups():
+    assert reg.REGISTER["version"] == "ndpa-gaid-v1.2"
     assert len(reg.requirements()) == 29 and len(reg.REGISTER["groups"]) == 11
     assert len(reg.tool_requirements()) == 5
     assert [r["key"] for r in reg.privacy_requirements()] == [

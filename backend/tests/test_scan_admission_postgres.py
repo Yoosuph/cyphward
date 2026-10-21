@@ -243,7 +243,7 @@ def test_active_subscription_entitlement_overrides_org_plan(admission_db):
     assert result.outcome == "created"
 
 
-def test_expired_subscription_falls_back_to_starter_quota(admission_db):
+def test_expired_subscription_has_no_new_scan_allowance(admission_db):
     conn, org_id, domains = admission_db
     with conn.transaction():
         conn.execute(
@@ -258,10 +258,10 @@ def test_expired_subscription_falls_back_to_starter_quota(admission_db):
         )
     result = scan_admission.admit_scan(org_id, domains[1], request_scope=f"user:{uuid4()}", request_key="expired-growth")
     assert result.outcome == "quota"
-    assert result.limit == 30
+    assert result.limit == 0
 
 
-def test_first_subscription_write_serializes_with_admission(admission_db):
+def test_customer_subscription_request_cannot_expand_admission_quota(admission_db):
     conn, org_id, domains = admission_db
     with conn.transaction():
         conn.execute(
@@ -269,20 +269,14 @@ def test_first_subscription_write_serializes_with_admission(admission_db):
             "SELECT %s, %s, 'completed', clock_timestamp() FROM generate_series(1, 30)",
             (org_id, domains[0]),
         )
-    barrier = Barrier(3)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        launch = executor.submit(lambda: (barrier.wait(timeout=10), scan_admission.admit_scan(
-            org_id, domains[1], request_scope=f"user:{uuid4()}", request_key="subscription-race"))[1])
-        change = executor.submit(lambda: (barrier.wait(timeout=10), billing._save_subscription_plan(org_id, "growth"))[1])
-        barrier.wait(timeout=10)
-        admitted, subscription = launch.result(timeout=20), change.result(timeout=20)
-    current = conn.execute("SELECT plan, status FROM subscriptions WHERE org_id = %s", (org_id,)).fetchone()
-    assert subscription["plan"] == current["plan"] == "growth"
-    assert current["status"] == "active"
-    assert admitted.outcome in {"created", "quota"}
-    scans, keys = _counts(conn, org_id)
-    assert scans == (31 if admitted.outcome == "created" else 30)
-    assert keys == (1 if admitted.outcome == "created" else 0)
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as refused:
+        billing.set_subscription(billing.SetPlanRequest(plan="growth"), {"id": org_id})
+    assert refused.value.status_code == 409
+    result = scan_admission.admit_scan(org_id, domains[1], request_scope=f"user:{uuid4()}", request_key="subscription-race")
+    assert result.outcome == "quota"
+    assert conn.execute("SELECT id FROM subscriptions WHERE org_id = %s", (org_id,)).fetchone() is None
+    assert _counts(conn, org_id) == (30, 0)
 
 
 def test_failure_after_scan_insert_rolls_back_scan_and_key(admission_db, disposable_postgres_url, monkeypatch):

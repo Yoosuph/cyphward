@@ -18,8 +18,8 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
                 <CyphwardLogo variant="full" size={20} />
               </div>
               <p className="text-xs mono text-soft leading-relaxed">
-                African-built cyber security platform.
-                Technical evidence about your external security, layer by layer, built for the continent.
+                Built in Nigeria. Find external weaknesses, coordinate supported fixes,
+                and prepare evidence for customer security and data-protection reviews.
               </p>
               <div className="flex items-center gap-2.5 mt-4">
                 <a
@@ -53,7 +53,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
             </div>
 
             <div>
-              <p className="eyebrow mb-3">DEFENSE LAYERS</p>
+              <p className="eyebrow mb-3">HOW IT WORKS</p>
               <ul className="space-y-2 text-xs mono text-soft">
                 <li><a href={a('#layers')} className="hover:text-ink">Overview &amp; Score</a></li>
                 <li><a href={a('#layers')} className="hover:text-ink">Assets &amp; Domains</a></li>
@@ -81,9 +81,8 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               <p className="eyebrow mb-3">REGULATORY CONTEXT</p>
               <ul className="space-y-2 text-xs mono text-soft">
                 <li>NDPA 2023 (Nigeria)</li>
-                <li>CBN Cybersecurity Guidelines</li>
-                <li>Kenya DPA 2019 / PoPIA ZA</li>
-                <li>AU Malabo Convention</li>
+                <li>Evidence preparation and source-labelled records</li>
+                <li>Requirement references pending professional review</li>
                 <li className="pt-1">Scans provide technical evidence, not a compliance certification.</li>
               </ul>
             </div>

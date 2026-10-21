@@ -5,7 +5,7 @@ import { useAuth } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
 import { PUBLIC_PLANS } from '../../lib/publicPlans';
 
-const PLANS = PUBLIC_PLANS.map(plan => ({ id: plan.id, label: plan.name, price: `${plan.priceLabel}/mo`, desc: plan.blurb }));
+const PLANS = PUBLIC_PLANS.map(plan => ({ id: plan.id, label: plan.name, price: `${plan.priceLabel} / 30 days`, desc: plan.blurb }));
 
 function initialPlan(searchParams: URLSearchParams): string {
   const p = (searchParams.get('plan') || '').toLowerCase();
@@ -57,7 +57,7 @@ export default function CreateOrganization() {
         <input
           id="orgName"
           type="text"
-          placeholder="e.g. Continental Merchant Bank"
+          placeholder="e.g. Kano Software Studio"
           value={orgName}
           onChange={e => setOrgName(e.target.value)}
           required
@@ -93,7 +93,7 @@ export default function CreateOrganization() {
           ))}
         </div>
         <p className="text-[10px] text-soft">
-          You can change plans later in Settings. Need a custom agreement?{' '}
+          No automatic charge after the trial. Contact us for payment, renewal or a plan change. Need a custom agreement?{' '}
           <a className="underline" href="mailto:info@cyphward.com">Talk to us</a>.
         </p>
       </div>

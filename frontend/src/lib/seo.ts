@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
 /** Public identity — must stay in sync with <title> in index.html. */
-export const SITE_TITLE = 'Cyphward — External Security Scoring for African Businesses';
+export const SITE_TITLE = 'Cyphward — Security and Evidence for Nigerian Software Teams';
 
 const TITLES: Record<string, string> = {
   '/': SITE_TITLE,

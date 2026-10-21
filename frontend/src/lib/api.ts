@@ -272,16 +272,7 @@ export async function explainFinding(findingId?: string, finding?: any): Promise
   });
   if (data) return data;
 
-  return {
-    title: finding?.title || 'Security Finding Explanation',
-    severity: (finding?.severity || 'HIGH').toUpperCase(),
-    category: finding?.category || 'Security Configuration',
-    what_is_this: 'Detailed technical description of the evaluated attack surface vector.',
-    why_it_matters: 'The identified security configuration gap exposes services to unauthorized access or communication hijacking.',
-    evidence_analysis: 'Observation telemetry recorded from non-destructive probe handshake.',
-    what_happens_if_ignored: 'Heightened risk of exploitation, data loss, and regulatory non-compliance.',
-    sovereign_advisory: 'Roll the recommended change out in a test environment first, then apply it in production.',
-  };
+  throw new Error('The finding explanation could not be loaded.');
 }
 
 export async function getRemediation(findingId?: string, targetStack: string = 'nginx', finding?: any): Promise<RemediationGuide> {
@@ -291,16 +282,7 @@ export async function getRemediation(findingId?: string, targetStack: string = '
   });
   if (data) return data;
 
-  return {
-    title: finding?.title || 'Remediation Blueprint',
-    target_stack: targetStack,
-    summary: `Step-by-step remediation guide for ${targetStack.toUpperCase()}.`,
-    prerequisites: ['Administrative access to host', 'Access to reload reverse proxy'],
-    steps: ['Open config file', 'Add security directive', 'Test configuration', 'Reload service'],
-    code_snippet: `# Configuration for ${targetStack}\n# Add appropriate directive here`,
-    verification_command: 'curl -I https://example.com',
-    estimated_time_minutes: 15,
-  };
+  throw new Error('The remediation guide could not be loaded.');
 }
 
 export async function getExecutiveSummary(): Promise<ExecutiveSummary | null> {
@@ -631,7 +613,7 @@ export async function askCyphBot(
       actions: data.actions || [{ label: 'View Findings', kind: 'solid', path: '/findings' }],
     };
   } catch (err) {
-    const naturalFallback = `Public sites should use HTTPS (TLS 1.3) and strict email authentication (DMARC p=reject).\n\nYou can see your open issues and security score in the **Findings** section. Would you like me to walk you through fixing your top issues?`;
+    const naturalFallback = `CyphBot could not load a response. Open the recorded finding and its guidance in **Findings**, or retry. No new assessment or configuration recommendation was produced.`;
     return {
       q: message,
       a: naturalFallback,
