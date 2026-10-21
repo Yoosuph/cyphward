@@ -27,7 +27,7 @@ const PAGES = [
     url: '/pricing',
     file: 'pricing/index.html',
     title: 'Pricing — Cyphward',
-    description: 'Starter is ₦15,000 a month. Growth is ₦25,000 a month. Both plans scan a verified domain and return a 0–100 security score with a fix for every finding.',
+    description: 'Starter ₦15,000 and Growth ₦25,000 per 30 days. Compare scan allowances and Compliance workflows. Start a 30-day trial, no card required; continuation is arranged manually.',
     canonical: 'https://cyphward.com/pricing',
   },
   {

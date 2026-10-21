@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
@@ -10,7 +11,7 @@ import {
   Sparkles,
   Check,
 } from 'lucide-react';
-import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, forgetTrustedBrowsers, exportOrganization, closeOrganization, getSubscription, setSubscriptionPlan, renewSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
+import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, forgetTrustedBrowsers, exportOrganization, closeOrganization, getSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
@@ -81,7 +82,6 @@ export default function Settings() {
   const [billing, setBilling] = useState<any | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [billingBusy, setBillingBusy] = useState(false);
-  const [newPlan, setNewPlan] = useState('growth');
   // MFA (step-up sign-in code): status + enroll/disable flows.
   const [mfa, setMfa] = useState<{ enrolled: boolean; admin_required: boolean; email_verified: boolean; totp_enrolled: boolean; totp_pending: boolean; remembered_browsers?: number } | null>(null);
   // Authenticator app (TOTP): enroll/confirm/disable flows.
@@ -330,43 +330,8 @@ export default function Settings() {
       const [sub, inv] = await Promise.all([getSubscription(), listInvoices().catch(() => null)]);
       setBilling(sub);
       setInvoices(inv?.invoices || []);
-      if (sub?.subscription?.plan) setNewPlan(sub.subscription.plan);
     } catch {
       toast('Could not load billing status');
-    }
-  };
-
-  const handleSetPlan = async () => {
-    setBillingBusy(true);
-    try {
-      const res = await setSubscriptionPlan(newPlan);
-      if (res?.subscription) {
-        toast(`Plan set to ${newPlan} — manual billing, nothing charged`);
-        await refreshBilling();
-      } else {
-        toast('Could not change the plan');
-      }
-    } catch (e: any) {
-      toast(e?.message || 'Could not change the plan');
-    } finally {
-      setBillingBusy(false);
-    }
-  };
-
-  const handleRenew = async () => {
-    setBillingBusy(true);
-    try {
-      const res = await renewSubscription();
-      if (res?.subscription) {
-        toast('Billing period extended by 30 days');
-        await refreshBilling();
-      } else {
-        toast('Could not renew');
-      }
-    } catch (e: any) {
-      toast(e?.message || 'Could not renew');
-    } finally {
-      setBillingBusy(false);
     }
   };
 
@@ -577,18 +542,18 @@ export default function Settings() {
           <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">
               <h3 className="mono font-semibold text-ink text-sm">BILLING</h3>
-              <span className="tag ml-auto">MANUAL — NOTHING IS CHARGED</span>
+              <span className="tag ml-auto">MANUAL PAYMENT CONFIRMATION</span>
             </div>
             {billing ? (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mono">
                   <div className="p-2 rounded bg-inset border border-line">
                     <div className="text-soft text-[10px]">PLAN</div>
-                    <div className="text-ink font-semibold capitalize">{billing.entitlements?.plan || '—'}</div>
+                    <div className="text-ink font-semibold capitalize">{billing.subscription?.plan || billing.entitlements?.plan || '—'}</div>
                   </div>
                   <div className="p-2 rounded bg-inset border border-line">
                     <div className="text-soft text-[10px]">STATUS</div>
-                    <div className="text-ink font-semibold uppercase">{billing.effective_status || 'none'}</div>
+                    <div className="text-ink font-semibold">{({ trialing: 'Trial', active: 'Active period', past_due: 'Period ended', canceled: 'Ended' } as Record<string, string>)[billing.effective_status] || 'Contact us'}</div>
                   </div>
                   <div className="p-2 rounded bg-inset border border-line col-span-2">
                     <div className="text-soft text-[10px]">CURRENT PERIOD ENDS</div>
@@ -596,30 +561,9 @@ export default function Settings() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={newPlan}
-                    onChange={e => setNewPlan(e.target.value)}
-                    className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
-                  >
-                    <option value="starter">Starter — ₦15,000/mo</option>
-                    <option value="growth">Growth — ₦25,000/mo</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleSetPlan}
-                    disabled={billingBusy}
-                    className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-ink disabled:opacity-50"
-                  >
-                    {billingBusy ? 'SAVING…' : 'SET PLAN'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRenew}
-                    disabled={billingBusy || !billing.subscription}
-                    className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
-                  >
-                    RENEW 30 DAYS
-                  </button>
+                  <Link to="/contact" className="btn-tactile px-3 py-2 rounded text-xs mono border border-line hover:border-accent text-ink">
+                    ARRANGE PAYMENT OR PLAN CHANGE
+                  </Link>
                   <button
                     type="button"
                     onClick={handleCancelSub}
@@ -629,6 +573,12 @@ export default function Settings() {
                     {billing.subscription?.cancel_at_period_end ? 'CANCELS AT PERIOD END' : 'CANCEL'}
                   </button>
                 </div>
+                <p className="text-xs text-soft leading-relaxed">
+                  New workspaces have a 30-day trial. No automatic charge or paid renewal is made.
+                  Payment must be confirmed before another paid period is activated. An open invoice
+                  does not confirm payment. New scans and report generation pause after expiry;
+                  contact us for payment or an explicit trial extension.
+                </p>
                 {invoices.length > 0 && (
                   <table className="w-full text-left text-xs mono">
                     <thead>

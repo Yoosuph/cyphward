@@ -13,7 +13,8 @@
     "test:compliance-ui": "node scripts/check-compliance-page.mjs",
     "test:datetime": "node scripts/test-datetime.mjs",
     "test:ux-ui": "node scripts/check-ux-screens.mjs",
-    "test:reviewer-ui": "node scripts/check-reviewer-ui.mjs"
+    "test:reviewer-ui": "node scripts/check-reviewer-ui.mjs",
+    "test:commercial-ui": "node scripts/check-commercial-flow.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",

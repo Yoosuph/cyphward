@@ -1,22 +1,21 @@
 """Owner billing endpoints (manual provider — nothing is charged).
 
 GET    /billing/subscription   current subscription + entitlements + invoices
-POST   /billing/subscription   set plan (new 30-day period, open invoice)
-POST   /billing/subscription/renew    extend 30 days (open invoice)
+POST   /billing/subscription   refuse self-activation; arrange manual billing
+POST   /billing/subscription/renew    refuse unconfirmed renewal
 POST   /billing/subscription/cancel   cancel at period end
 GET    /billing/invoices       invoice ledger
 """
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.app.billing.provider import PLAN_PRICES_KOBO, provider
+from backend.app.billing.provider import provider
 from backend.app.billing.subscriptions import effective_status, resolve_plan
 from backend.app.core.auth import get_current_org, log_audit, membership_role, require_owner
 from backend.app.core.database import execute_one, execute_query, get_db
-from backend.app.core.plans import PLANS, parse_plan
+from backend.app.core.plans import parse_plan
 
 router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
 
@@ -41,45 +40,11 @@ def _recent_invoices(org_id: str) -> List[Dict[str, Any]]:
     )
 
 
-def _open_invoice(org_id: str, plan: str) -> Optional[Dict[str, Any]]:
-    if plan not in PLAN_PRICES_KOBO:
-        return None  # retired/custom tiers never auto-invoice
-    return execute_one(
-        """
-        INSERT INTO invoices (org_id, plan, amount_kobo, currency, status)
-        VALUES (%s, %s, %s, 'NGN', 'open')
-        RETURNING id, number, plan, amount_kobo, currency, status, created_at
-        """,
-        (org_id, plan, PLAN_PRICES_KOBO[plan]),
-    )
-
-
-def _save_subscription_plan(org_id: str, plan: str) -> Dict[str, Any]:
-    """Upsert a plan while serializing with admission on the organization row."""
-    with get_db() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
-                if not cur.fetchone():
-                    raise HTTPException(status_code=404, detail="Workspace not found.")
-                cur.execute(
-                    """
-                    INSERT INTO subscriptions (org_id, plan, status, provider,
-                                               current_period_start, current_period_end)
-                    VALUES (%s, %s, 'active', 'manual', now(), now() + interval '30 days')
-                    ON CONFLICT (org_id) DO UPDATE SET
-                      plan = EXCLUDED.plan,
-                      status = CASE WHEN subscriptions.status = 'canceled' THEN 'active'
-                                    ELSE subscriptions.status END,
-                      cancel_at_period_end = false,
-                      current_period_start = now(),
-                      current_period_end = now() + interval '30 days',
-                      updated_at = now()
-                    RETURNING *
-                    """,
-                    (org_id, plan),
-                )
-                return cur.fetchone()
+def manual_billing_required() -> None:
+    raise HTTPException(status_code=409, detail={
+        "code": "manual_billing_review_required",
+        "message": "Contact Cyphward through /contact to arrange a plan or renewal. Paid access starts after payment is confirmed; this request has not changed your plan or trial.",
+    })
 
 
 @router.get("/subscription")
@@ -91,6 +56,8 @@ def get_subscription(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str
         "entitlements": resolve_plan(org, sub),
         "provider": provider.name,
         "role": membership_role(org),
+        "billing_mode": "manual_confirmation",
+        "trial_days": 30,
     }
 
 
@@ -104,50 +71,15 @@ def set_subscription(
     req: SetPlanRequest,
     org: Dict[str, Any] = Depends(require_owner),
 ) -> Dict[str, Any]:
-    """Owner sets the commercial plan (manual billing — records only)."""
-    plan = parse_plan(req.plan)
-    org_id = str(org["id"])
-    sub = _save_subscription_plan(org_id, plan)
-    invoice = _open_invoice(org_id, plan)
-    provider.charge(invoice or {"id": None, "amount_kobo": 0})
-    log_audit(org_id, org.get("current_user_id"), "billing.plan_changed",
-              "subscription", str(sub["id"]), {"plan": plan})
-    return {"subscription": sub, "invoice": invoice}
+    """Choosing a plan cannot create a paid period or restart a trial."""
+    parse_plan(req.plan)
+    manual_billing_required()
 
 
 @router.post("/subscription/renew")
 def renew_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
-    """Owner extends the period 30 days (manual billing — records only)."""
-    org_id = str(org["id"])
-    with get_db() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
-                if not cur.fetchone():
-                    raise HTTPException(status_code=404, detail="Workspace not found.")
-                cur.execute("SELECT * FROM subscriptions WHERE org_id = %s FOR UPDATE", (org_id,))
-                existing = cur.fetchone()
-                if not existing:
-                    raise HTTPException(status_code=404, detail="No subscription — set a plan first.")
-                plan = (existing.get("plan") or "").strip().lower()
-                if plan not in PLANS:
-                    raise HTTPException(status_code=400, detail="Subscription plan is invalid — set a plan first.")
-                cur.execute(
-                    """
-                    UPDATE subscriptions
-                    SET status = 'active', cancel_at_period_end = false,
-                        current_period_start = now(),
-                        current_period_end = now() + interval '30 days',
-                        updated_at = now()
-                    WHERE org_id = %s RETURNING *
-                    """,
-                    (org_id,),
-                )
-                sub = cur.fetchone()
-    invoice = _open_invoice(org_id, plan)
-    log_audit(org_id, org.get("current_user_id"), "billing.renewed",
-              "subscription", str(sub["id"]), {"plan": plan})
-    return {"subscription": sub, "invoice": invoice}
+    """Keep the endpoint explicit for older clients, without granting time."""
+    manual_billing_required()
 
 
 @router.post("/subscription/cancel")

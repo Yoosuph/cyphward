@@ -36,21 +36,21 @@ async def run_security_checks(
         if not dmarc_record:
             findings.append({
                 "title": "Missing Email DMARC Authentication Policy",
-                "description": f"Domain {hostname} does not publish a DMARC DNS record at _dmarc.{hostname}. Without DMARC, threat actors can freely forge transactional emails purporting to originate from this domain, leading to severe phishing and brand impersonation.",
+                "description": f"No DMARC TXT record was found at _dmarc.{hostname}. Receiving mail systems have no published DMARC policy for messages using this domain in the From address. This can increase impersonation risk; this DNS check does not test actual message delivery or mailbox security.",
                 "severity": "critical",
                 "category": "DNS & Email Security",
                 "evidence": {
                     "dns_query": f"_dmarc.{hostname}",
                     "record_type": "TXT",
                     "observed_value": None,
-                    "risk_impact": "Inbound recipient mail systems (Gmail, Microsoft 365) cannot verify email authenticity."
+                    "risk_impact": "Recipients have no domain-published DMARC handling policy; other authentication and spam controls may still apply."
                 },
-                "remediation": f"Publish a DNS TXT record at _dmarc.{hostname} specifying 'v=DMARC1; p=reject; rua=mailto:dmarc-reports@{hostname};'"
+                "remediation": f"Inventory every legitimate sender for {hostname} and configure aligned SPF and/or DKIM with your mail provider. Start DMARC in monitoring mode (v=DMARC1; p=none). Add rua only after creating a reporting mailbox or configuring a trusted reporting service; never copy an unconfigured address. Review reports across your normal sending cycles and fix authentication failures before gradually moving to quarantine and then reject. Applying reject immediately can block legitimate email. Recheck DNS after changes; a published record alone does not prove that real messages authenticate or that impersonation is prevented. Rollout guide: https://support.google.com/a/answer/10032473",
             })
         elif "p=none" in dmarc_record.lower():
             findings.append({
                 "title": "Permissive Email DMARC Policy (p=none)",
-                "description": f"The DMARC policy for {hostname} is set to 'p=none' (monitoring only). Malicious spoofed messages are delivered to users without quarantine or rejection.",
+                "description": f"The DMARC policy for {hostname} is set to p=none. It requests monitoring rather than DMARC-based quarantine or rejection. This can be an intentional rollout phase; recipient filtering may still block suspicious messages. Review authentication reports before increasing enforcement.",
                 "severity": "high",
                 "category": "DNS & Email Security",
                 "evidence": {
@@ -59,7 +59,7 @@ async def run_security_checks(
                     "observed_value": dmarc_record,
                     "mode": "monitoring_only"
                 },
-                "remediation": "Elevate DMARC enforcement policy from 'p=none' to 'p=quarantine' or 'p=reject' once legitimate sender sources are verified."
+                "remediation": "Review DMARC reports for all legitimate senders, including low-frequency services, and correct SPF/DKIM alignment failures. Keep monitoring while unresolved legitimate failures remain, then introduce quarantine gradually and move to reject only when the reports support it. Confirm reporting addresses are configured. A DNS recheck confirms the published policy, not successful mail delivery. Rollout guide: https://support.google.com/a/answer/10032473",
             })
 
     # Each email check needs its own query; a DMARC failure must not hide SPF.
@@ -76,19 +76,19 @@ async def run_security_checks(
                     "record_type": "TXT",
                     "observed_records": records.get("TXT", [])
                 },
-                "remediation": f"Create an SPF TXT record for {hostname} detailing authorized mail servers (e.g., 'v=spf1 include:_spf.google.com -all')."
+                "remediation": f"Inventory every service that sends mail for {hostname}, then build one SPF TXT record using those providers' documented mechanisms. Do not copy another provider's include value or publish multiple SPF records. Check DNS lookup limits and test legitimate senders before choosing a restrictive all policy. If the domain sends no mail, confirm that with its owner before choosing a no-senders policy. SPF results alone do not establish DMARC alignment or guarantee delivery. Guide: https://support.google.com/a/answer/33786"
             })
         elif "~all" in spf_record:
             findings.append({
                 "title": "SPF Record Configured with Softfail (~all)",
-                "description": f"The SPF record for {hostname} specifies '~all' (Softfail) instead of '-all' (Hardfail). Unauthorized mail transfers are flagged rather than definitively blocked.",
+                "description": f"The SPF record for {hostname} specifies ~all (softfail). This can be intentional during rollout; receiving systems decide how to handle the authentication result. A DNS record does not reveal whether all legitimate senders are configured.",
                 "severity": "low",
                 "category": "DNS & Email Security",
                 "evidence": {
                     "domain": hostname,
                     "observed_spf": spf_record
                 },
-                "remediation": "Transition SPF mechanism qualifier from '~all' to '-all' to enforce strict rejection of unauthenticated relays."
+                "remediation": "Check all legitimate sending services and their SPF results before changing ~all. Review provider guidance and authentication reports; moving to -all without that inventory can disrupt legitimate mail. Receivers decide delivery, so -all does not guarantee rejection. Guide: https://support.google.com/a/answer/33786"
             })
 
     # -------------------------------------------------------------------------
@@ -109,7 +109,7 @@ async def run_security_checks(
                     "observed_headers": list(raw_headers.keys())[:10],
                     "missing_header": "Strict-Transport-Security"
                 },
-                "remediation": "Configure your reverse proxy/web server to send: 'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload'."
+                "remediation": "Verify valid HTTPS on this host, then deploy HSTS with a short max-age in a staged rollout and test before increasing it. Inventory every subdomain before adding includeSubDomains: an HTTP-only subdomain can become inaccessible. Treat preload submission as a separate, deliberate change after checking its requirements and removal delay. Do not blindly copy a year-long includeSubDomains/preload policy. Guide: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Strict-Transport-Security"
             })
         elif "includesubdomains" not in hsts.lower():
             findings.append({
@@ -120,9 +120,9 @@ async def run_security_checks(
                 "evidence": {
                     "url": f"https://{hostname}",
                     "observed_hsts": hsts,
-                    "recommendation": "Add 'includeSubDomains; preload'"
+                    "recommendation": "Review subdomain HTTPS readiness before considering includeSubDomains; preload is a separate decision."
                 },
-                "remediation": "Update HSTS header to include 'includeSubDomains'."
+                "remediation": "Inventory all subdomains and confirm they support valid HTTPS before considering includeSubDomains. Keep the host-only policy while any affected service still needs HTTP; test a staged rollout. Preload requires a separate review and is not required by this recommendation. Guide: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Strict-Transport-Security"
             })
 
         # 3.2 Content-Security-Policy (CSP)
@@ -137,7 +137,7 @@ async def run_security_checks(
                     "url": f"https://{hostname}",
                     "missing_header": "Content-Security-Policy"
                 },
-                "remediation": "Deploy a restrictive Content-Security-Policy header such as: default-src 'self'; script-src 'self'; object-src 'none'."
+                "remediation": "Inventory the application's scripts, styles, embeds and external services. Trial an application-specific policy with Content-Security-Policy-Report-Only and review violations before enforcement. Choose nonces/hashes and allowed origins to fit the application, then test sign-in, payments and integrations in staging. Do not copy a restrictive policy directly into production. Guide: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP"
             })
 
         # 3.3 Clickjacking (X-Frame-Options)
@@ -152,7 +152,7 @@ async def run_security_checks(
                     "url": f"https://{hostname}",
                     "missing_header": "X-Frame-Options"
                 },
-                "remediation": "Add 'X-Frame-Options: DENY' or 'X-Frame-Options: SAMEORIGIN' to all HTTP response headers."
+                "remediation": "Check whether legitimate customers or partner sites embed this page. Set a CSP frame-ancestors policy for the origins that genuinely need access, or use X-Frame-Options DENY/SAMEORIGIN when that fits the application. Test allowed embeds before enforcing; a blanket DENY can break them."
             })
 
         # 3.4 MIME Sniffing (X-Content-Type-Options)

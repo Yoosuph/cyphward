@@ -1,112 +1,45 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  ArrowRight, ShieldCheck, Radar, Gauge, Wrench, MessageSquare,
-  Activity, Lock, Globe, Check, AlertTriangle, Terminal,
-  Laptop, Sparkles, Building2, Zap, Shield,
-  Twitter, Instagram, Linkedin
-} from 'lucide-react';
-import { useAuth } from '../lib/auth';
+import { ArrowRight, ShieldCheck, Radar, Gauge, Wrench, Activity, Check, Terminal, Twitter, Instagram, Linkedin } from 'lucide-react';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
 import { usePageMotion } from '../lib/usePageMotion';
-import { useToast } from '../components/Toast';
 import StrataField from '../components/StrataField';
 import ScoreRing from '../components/ScoreRing';
 import Meter from '../components/Meter';
-import CyphwardLogo from '../components/CyphwardLogo';
 
-const LAYERS = [
-  {
-    idx: '01',
-    name: 'COMMAND',
-    icon: Activity,
-    tagline: 'One clear dashboard of your security health',
-    summary: 'A single 0–100 security score, updated after every scan across four areas: Network, Web apps, Encryption, and Exposure.',
-    features: [
-      'Daily automated scans of your verified domains',
-      'Four scored areas with a full breakdown',
-      'Board-ready AI summary after each scan',
-    ],
-    metric: '79 / 100',
-    metricLabel: 'EXAMPLE OVERALL SCORE',
-  },
-  {
-    idx: '02',
-    name: 'EXPOSE',
-    icon: Globe,
-    tagline: 'Your external footprint, mapped',
-    summary: 'We discover and track what the internet can see about your verified domains — subdomains, hosts, open ports, certificates and web technologies.',
-    features: [
-      'Asset discovery across your domains and subdomains',
-      'Open port and service inventory for public IPs',
-      'Certificate expiry tracking before outages happen',
-    ],
-    metric: '5',
-    metricLabel: 'EXPOSURE SURFACES CHECKED',
-  },
-  {
-    idx: '03',
-    name: 'ANALYZE',
-    icon: Radar,
-    tagline: 'Automated checks that map to real rules',
-    summary: 'Every scan checks common external controls — email authentication, TLS, security headers — and flags what is missing or weak.',
-    features: [
-      'SPF and DMARC email authentication checks',
-      'HSTS, CSP and clickjacking header checks',
-      'Known-CVE template matching with Nuclei (matches reported)',
-    ],
-    metric: 'DAILY',
-    metricLabel: 'AUTOMATED CHECK RUNS',
-  },
-  {
-    idx: '04',
-    name: 'SCORE',
-    icon: Gauge,
-    tagline: 'A security rating built for finance',
-    summary: 'A clear security score your executives and board can read at a glance — built from what is actually exposed online, with history across every scan.',
-    features: [
-      'Breakdown across network, web apps, encryption and exposure',
-      'Score history tracked across every scan',
-      'Exportable reports for boards and stakeholders',
-    ],
-    metric: '+12 PTS',
-    metricLabel: 'EXAMPLE SCORE IMPROVEMENT',
-  },
-  {
-    idx: '05',
-    name: 'REMEDIATE',
-    icon: Wrench,
-    tagline: 'From finding to fix, in order',
-    summary: 'Every finding arrives with evidence, a plain-English explanation and a step-by-step fix — queued so your team works on what matters first.',
-    features: [
-      'Prioritized fix queue ordered by severity',
-      'Step-by-step remediation guidance per finding',
-      'Evidence attached, with rechecks to confirm fixes',
-    ],
-    metric: 'STEP-BY-STEP',
-    metricLabel: 'REMEDIATION FOR EVERY FINDING',
-  },
-  {
-    idx: '06',
-    name: 'CYPHBOT',
-    icon: MessageSquare,
-    tagline: 'An AI analyst that knows your data',
-    summary: 'A conversational AI assistant grounded in your live scan results. Ask about any finding in plain English and get answers from your own telemetry — not generic advice.',
-    features: [
-      'Answers grounded in your live scan data',
-      'Plain-English explanations of every finding',
-      'Streams responses right in the dashboard',
-    ],
-    metric: 'STREAMING',
-    metricLabel: 'AI ANSWERS FROM YOUR SCAN DATA',
-  },
+const STEPS = [
+  { idx: '01', name: 'FIND', icon: Radar,
+    tagline: 'Find external weaknesses on domains you own',
+    summary: 'Verify ownership, then assess public DNS, email authentication, web headers, certificates and exposed services.',
+    features: ['DNS ownership verification before scanning', 'Evidence attached to findings', 'Failed and omitted checks stay visible'],
+    metric: 'YOUR DOMAIN', metricLabel: 'DEFINED ASSESSMENT SCOPE' },
+  { idx: '02', name: 'UNDERSTAND', icon: Gauge,
+    tagline: 'Understand the finding and its limits',
+    summary: 'Read the observed evidence, why it matters and suggested next steps. A score is shown only when the assessment evidence supports it.',
+    features: ['Plain-English findings', 'Prioritised remediation guidance', 'Assessment dates and coverage'],
+    metric: 'EVIDENCE', metricLabel: 'BEFORE A SECURITY CLAIM' },
+  { idx: '03', name: 'ASSIGN', icon: Wrench,
+    tagline: 'Give the fix an owner',
+    summary: 'Turn a finding into a remediation task. Growth gives your team a shared workspace to coordinate the work.',
+    features: ['Tasks linked to findings', 'Team roles on Growth', 'A visible record of follow-up'],
+    metric: 'ONE OWNER', metricLabel: 'FOR THE NEXT ACTION' },
+  { idx: '04', name: 'VERIFY', icon: ShieldCheck,
+    tagline: 'Recheck supported findings after the change',
+    summary: 'A recheck can show whether the original issue is still reproduced. Incomplete checks remain inconclusive rather than certifying a fix.',
+    features: ['Detector-aware rechecks where supported', 'Manual task closure stays distinct from verification', 'DNS checks do not prove mail delivery'],
+    metric: 'RECHECK', metricLabel: 'SUPPORTED FIX VERIFICATION' },
+  { idx: '05', name: 'EXPORT', icon: Activity,
+    tagline: 'Prepare dated evidence for the review',
+    summary: 'Share assessment reports. Growth adds Nigerian data-protection questionnaires, incident records and evidence packs for preparation and adviser review.',
+    features: ['Reports with assessment scope and dates', 'Growth evidence packs from frozen snapshots', 'Source labels for observed and customer-supplied evidence'],
+    metric: 'DATED RECORD', metricLabel: 'FOR CUSTOMERS AND ADVISERS' },
 ];
 
 const CHECKS = [
   {
     check: 'DNS & email authentication',
-    detail: 'SPF and DMARC records validated; permissive policies flagged before spoofers use them',
+    detail: 'Published SPF and DMARC records checked; monitoring and enforcement policies explained. Actual mail delivery is not tested',
   },
   {
     check: 'TLS certificates',
@@ -130,62 +63,9 @@ const CHECKS = [
   },
 ];
 
-const CALCULATOR_SECTORS = [
-  { name: 'Commercial Banking & Merchant Banks', turnoverNGN: 22_500_000_000, recommended: 'Growth' },
-  { name: 'Fintech & Payment Gateway Switches', turnoverNGN: 9_000_000_000, recommended: 'Growth' },
-  { name: 'Telco VAS & Mobile Money Providers', turnoverNGN: 16_000_000_000, recommended: 'Growth' },
-  { name: 'Logistics & Supply Chain Conglomerates', turnoverNGN: 3_250_000_000, recommended: 'Starter' },
-  { name: 'Healthcare & Healthtech Networks', turnoverNGN: 4_750_000_000, recommended: 'Starter' },
-];
-
-// Illustrative FX for the estimator only (foreign currency per ₦1).
-const ILLUSTRATIVE_FX: Record<string, number> = { KES: 1 / 12, ZAR: 1 / 85, GHS: 1 / 120, EGP: 1 / 30 };
-
-function compact(n: number): string {
-  if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1))}M`;
-  if (n >= 1_000) return `${parseFloat((n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1))}K`;
-  return `${Math.round(n)}`;
-}
-
-// Jurisdiction-specific maximum administrative exposure for the sector's
-// assumed turnover. Rules: NDPA 2023 s.48 (greater of ₦10M/₦2M and 2%);
-// Kenya DPA 2019 s.63 (up to KES 5M or 1% of turnover, whichever is lower);
-// PoPIA s.109 (up to R10M); Ghana DPA 2012 (up to 2,500 penalty units);
-// Egypt Law 151/2020 art.36 (up to EGP 1M for unlawful processing).
-function calcFine(turnoverNGN: number, country: string): { figure: string; rule: string } {
-  switch (country) {
-    case 'Kenya': {
-      const t = turnoverNGN * ILLUSTRATIVE_FX.KES;
-      const fine = Math.min(5_000_000, 0.01 * t);
-      return { figure: `KES ${compact(fine)}`, rule: 'Kenya DPA s.63: up to KES 5M or 1% of turnover, whichever is lower.' };
-    }
-    case 'South Africa':
-      return { figure: 'R10M', rule: 'PoPIA s.109: administrative fine up to R10M (statutory maximum).' };
-    case 'Ghana':
-      return { figure: 'GHS 30K', rule: 'Ghana DPA 2012: up to 2,500 penalty units (≈GHS 30,000) per serious offence.' };
-    case 'Egypt':
-      return { figure: 'EGP 1M', rule: 'Law 151/2020 art.36: up to EGP 1M for unlawful processing.' };
-    default: {
-      const fine = Math.max(10_000_000, 0.02 * turnoverNGN);
-      return { figure: `₦${compact(fine)}`, rule: 'NDPA 2023 s.48 (major importance): greater of ₦10M and 2% of annual turnover.' };
-    }
-  }
-}
-
-const COUNTRY_REGULATION: Record<string, string> = {
-  Nigeria: 'NDPA 2023 · CBN Cybersecurity Framework',
-  Kenya: 'Kenya DPA 2019 · CBK Cybersecurity Guidance',
-  'South Africa': 'PoPIA · FSCA Cyber Resilience Rules',
-  Ghana: 'Ghana DPA 2012 · BoG Cyber & Information Security Directive',
-  Egypt: 'Law 151 of 2020 · CBE Cybersecurity Framework',
-};
-
 export default function Landing() {
   const nav = useNavigate();
-  const toast = useToast();
   const [activeLayer, setActiveLayer] = useState(0);
-  const [calcSector, setCalcSector] = useState(0);
-  const [calcCountry, setCalcCountry] = useState('Nigeria');
   const [previewTab, setPreviewTab] = useState<'telemetry' | 'findings' | 'fixes'>('telemetry');
 
   const motionRef = usePageMotion<HTMLElement>();
@@ -207,31 +87,32 @@ export default function Landing() {
         <section className="hero-sec">
           <div className="inline-block rise-in">
             <div className="telemetry-pill">
-              <span>DAILY SCANS · DNS · PORTS · TLS · WEB · EMAIL</span>
+              <span>FOR NIGERIAN SOFTWARE TEAMS · SECURITY & EVIDENCE</span>
             </div>
           </div>
 
           <h1 className="hero-h1 max-w-4xl rise-in rise-in-2">
-            Cyber defense built in Africa for <em>African businesses.</em>
+            Find the weakness. Verify the fix. <em>Show the evidence.</em>
           </h1>
 
           <p className="hero-desc rise-in rise-in-3">
-            Big global security tools weren't built for African networks. CYPHWARD checks
-            what the internet can see about you — DNS, ports, TLS certificates, web apps and
-            email security — and turns it into a clear 0–100 score with plain-English findings,
-            fix guides and board-ready reports. Built with NDPA 2023 in mind.
+            Cyphward helps Nigerian software teams assess external security weaknesses,
+            coordinate fixes and prepare supporting evidence for customer security and
+            data-protection reviews. Start with a domain you own.
           </p>
 
           <div className="hero-ctas rise-in rise-in-4">
             <button className="btn btn-solid text-sm py-3.5 px-6 hover-lift" onClick={handleGetStarted}>
-              CREATE YOUR ACCOUNT <ArrowRight size={14} />
+              START YOUR 30-DAY TRIAL <ArrowRight size={14} />
             </button>
             <a href="#layers" className="btn-mini py-3 text-xs">
-              EXPLORE THE 6 LAYERS ↓
+              SEE HOW IT WORKS ↓
             </a>
           </div>
 
-          {/* Interactive Live Preview Terminal */}
+          <p className="text-xs mono text-soft mt-4">No card required. Plan limits apply. Paid continuation is arranged manually.</p>
+
+          {/* Interactive example, clearly marked as synthetic. */}
           <div className="preview-card mt-12 hover-lift rise-in rise-in-5">
             <div className="preview-head">
               <div className="flex items-center gap-2">
@@ -305,15 +186,15 @@ export default function Landing() {
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <h4 className="font-display text-lg font-medium">Findings from your latest scan</h4>
-                      <p className="text-xs mono text-soft">Severity-ranked, with evidence attached to every item</p>
+                      <p className="text-xs mono text-soft">Example observations, with their evidence and limitations</p>
                     </div>
-                    <span className="tag acc">3 HIGH</span>
+                    <span className="tag acc">SAMPLE FINDINGS</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="p-3 bg-inset border border-line rounded">
                       <div className="text-[10px] mono text-soft">DNS &amp; EMAIL SECURITY</div>
                       <div className="text-sm font-medium mt-1">Permissive Email DMARC Policy (p=none)</div>
-                      <p className="text-[11px] mono text-accent mt-2">Spoofed mail from your domain is accepted today</p>
+                      <p className="text-[11px] mono text-accent mt-2">Monitoring mode: review reports before enforcement</p>
                     </div>
                     <div className="p-3 bg-inset border border-line rounded">
                       <div className="text-[10px] mono text-soft">HTTP HEADERS</div>
@@ -333,17 +214,17 @@ export default function Landing() {
                 <div className="col-span-12 py-3">
                   <div className="flex justify-between items-center mb-4">
                     <div>
-                      <h4 className="font-display text-lg font-medium">Fix guide: enforce DMARC</h4>
-                      <p className="text-xs mono text-soft">Step-by-step remediation, copy-paste ready</p>
+                      <h4 className="font-display text-lg font-medium">Fix guide: roll out DMARC safely</h4>
+                      <p className="text-xs mono text-soft">Check your legitimate mail senders before changing enforcement</p>
                     </div>
                     <span className="tag ok">STEP-BY-STEP</span>
                   </div>
                   <div className="p-4 bg-inset border border-line font-mono text-xs leading-relaxed overflow-x-auto">
-                    <div className="text-soft">// STEP 1 — Publish a restrictive DMARC record</div>
-                    <div className="text-ink mt-1">_dmarc.yourdomain.com  TXT  "v=DMARC1; p=quarantine; pct=100"</div>
-                    <div className="text-soft mt-3">// STEP 2 — Point reports at a mailbox you read</div>
-                    <div className="text-ink mt-1">rua=mailto:dmarc-reports@yourdomain.com</div>
-                    <div className="text-ok mt-3">// After publishing: re-run the scan to verify the fix</div>
+                    <div className="text-soft">// STEP 1 — Configure SPF/DKIM for every legitimate sender</div>
+                    <div className="text-ink mt-1">Start with a monitoring policy: v=DMARC1; p=none</div>
+                    <div className="text-soft mt-3">// STEP 2 — Configure reporting, then review normal sending cycles</div>
+                    <div className="text-ink mt-1">Fix alignment failures before gradually increasing enforcement</div>
+                    <div className="text-ok mt-3">// DNS rechecks confirm records, not successful mail delivery</div>
                   </div>
                 </div>
               )}
@@ -360,19 +241,19 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Pan-African Metrics Strip */}
+        {/* Product scope and trial terms. */}
         <section className="stat-matrix" data-reveal>
           <div className="stat-matrix-cell">
             <div className="stat-matrix-val text-accent">0–100</div>
-            <div className="stat-matrix-lbl">ONE SCORE ACROSS FOUR AREAS</div>
+            <div className="stat-matrix-lbl">SCORE WHEN COVERAGE SUPPORTS IT</div>
           </div>
           <div className="stat-matrix-cell">
-            <div className="stat-matrix-val text-ok">DAILY</div>
-            <div className="stat-matrix-lbl">AUTOMATED SCANS PER VERIFIED DOMAIN</div>
+            <div className="stat-matrix-val text-ok">30 DAYS</div>
+            <div className="stat-matrix-lbl">TRIAL · NO CARD REQUIRED</div>
           </div>
           <div className="stat-matrix-cell">
-            <div className="stat-matrix-val">100%</div>
-            <div className="stat-matrix-lbl">OF FINDINGS SHIP WITH EVIDENCE &amp; A FIX</div>
+            <div className="stat-matrix-val">SCOPE</div>
+            <div className="stat-matrix-lbl">SEE WHAT WAS AND WAS NOT ASSESSED</div>
           </div>
           <div className="stat-matrix-cell">
             <div className="stat-matrix-val">5</div>
@@ -383,16 +264,16 @@ export default function Landing() {
         {/* The 6 Strata Defense Layers */}
         <section id="layers" className="py-16" data-reveal>
           <div className="sec-head">
-            <p className="eyebrow">THE DEFENSE ARCHITECTURE</p>
-            <h2>The 6 Layers of Strata Defense.</h2>
+            <p className="eyebrow">FROM ASSESSMENT TO EVIDENCE</p>
+            <h2>One workflow your team can finish.</h2>
             <p className="sec-note">
-              From your public footprint to a prioritised fix queue, with an AI assistant on
-              hand. Click through each layer to see what it does.
+              Find a weakness, understand it, assign the work, recheck supported fixes,
+              and export supporting evidence. Choose a step to see the detail.
             </p>
           </div>
 
           <div className="layer-nav-tabs">
-            {LAYERS.map((layer, i) => (
+            {STEPS.map((layer, i) => (
               <button
                 key={layer.idx}
                 type="button"
@@ -400,7 +281,7 @@ export default function Landing() {
                 onClick={() => setActiveLayer(i)}
               >
                 <layer.icon size={13} className="inline mr-1.5" />
-                LAYER {layer.idx} · {layer.name}
+                STEP {layer.idx} · {layer.name}
               </button>
             ))}
           </div>
@@ -409,18 +290,18 @@ export default function Landing() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
               <div className="lg:col-span-7">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className="tag">LAYER {LAYERS[activeLayer].idx}</span>
-                  <span className="eyebrow">{LAYERS[activeLayer].name} DEFENSE LAYER</span>
+                  <span className="tag">STEP {STEPS[activeLayer].idx}</span>
+                  <span className="eyebrow">{STEPS[activeLayer].name}</span>
                 </div>
                 <h3 className="font-display text-3xl font-medium mb-3">
-                  {LAYERS[activeLayer].tagline}
+                  {STEPS[activeLayer].tagline}
                 </h3>
                 <p className="text-soft text-sm leading-relaxed mb-6">
-                  {LAYERS[activeLayer].summary}
+                  {STEPS[activeLayer].summary}
                 </p>
 
                 <div className="space-y-2.5 mb-6">
-                  {LAYERS[activeLayer].features.map((feat, fi) => (
+                  {STEPS[activeLayer].features.map((feat, fi) => (
                     <div key={fi} className="flex items-start gap-2.5 text-xs mono">
                       <Check size={14} className="text-ok flex-none mt-0.5" />
                       <span>{feat}</span>
@@ -429,17 +310,17 @@ export default function Landing() {
                 </div>
 
                 <button className="btn btn-solid btn-mini" onClick={handleGetStarted}>
-                  TEST LAYER {LAYERS[activeLayer].idx} ON YOUR DOMAIN <ArrowRight size={12} />
+                  START YOUR TRIAL <ArrowRight size={12} />
                 </button>
               </div>
 
               <div className="lg:col-span-5 p-6 bg-inset border border-line rounded flex flex-col items-center justify-center text-center">
-                <p className="eyebrow">{LAYERS[activeLayer].metricLabel}</p>
+                <p className="eyebrow">{STEPS[activeLayer].metricLabel}</p>
                 <p className="font-display text-4xl font-medium my-3 text-accent">
-                  {LAYERS[activeLayer].metric}
+                  {STEPS[activeLayer].metric}
                 </p>
                 <p className="text-xs mono text-soft max-w-xs leading-relaxed">
-                  Scans run from the internet edge — the same view an attacker has of your public surface.
+                  Only verified domains. Scope, limits and incomplete checks stay visible.
                 </p>
               </div>
             </div>
@@ -481,78 +362,24 @@ export default function Landing() {
           <p className="ledger-hint">SWIPE THE TABLE FOR THE FULL COLUMN →</p>
         </section>
 
-        {/* Interactive Regulatory Exposure Calculator */}
         <section id="compliance" className="py-16" data-reveal>
           <div className="calc-panel">
             <div className="sec-head mb-6">
-              <p className="eyebrow">WHAT NON-COMPLIANCE COSTS</p>
-              <h2 className="text-2xl">See what breaking the rules could cost you</h2>
-              <p className="sec-note">
-                Pick your industry and country to see what non-compliance could cost you under
-                the data-protection rules that apply where you operate.
-              </p>
+              <p className="eyebrow">NIGERIAN DATA-PROTECTION PREPARATION · GROWTH</p>
+              <h2 className="text-2xl">Keep the evidence behind your answers.</h2>
+              <p className="sec-note">Bring technical observations and your team's records together for a customer review or a conversation with your adviser.</p>
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-6 space-y-4">
-                <div className="field">
-                  <label>YOUR INDUSTRY</label>
-                  <select
-                    value={calcSector}
-                    onChange={e => setCalcSector(Number(e.target.value))}
-                  >
-                    {CALCULATOR_SECTORS.map((s, i) => (
-                      <option key={i} value={i}>{s.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label>YOUR COUNTRY</label>
-                  <select
-                    value={calcCountry}
-                    onChange={e => setCalcCountry(e.target.value)}
-                  >
-                    <option value="Nigeria">Nigeria (NDPA 2023 / CBN Framework)</option>
-                    <option value="Kenya">Kenya (Kenya DPA 2019 / CBK Guideline)</option>
-                    <option value="South Africa">South Africa (PoPIA / FSCA)</option>
-                    <option value="Ghana">Ghana (Ghana DPA 2012 / BoG Directives)</option>
-                    <option value="Egypt">Egypt (Law 151 of 2020 / CBE Cybersecurity)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="lg:col-span-6 p-6 bg-inset border border-line rounded">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="eyebrow">ESTIMATED FINE IF YOU'RE NON-COMPLIANT</span>
-                  <span className="tag acc">ILLUSTRATIVE</span>
-                </div>
-                <div className="font-display text-4xl text-accent font-medium mb-1">
-                  {calcFine(CALCULATOR_SECTORS[calcSector].turnoverNGN, calcCountry).figure}
-                </div>
-                <p className="text-xs mono text-soft mb-4">
-                  {calcFine(CALCULATOR_SECTORS[calcSector].turnoverNGN, calcCountry).rule}{' '}
-                  Assumes ≈₦{(CALCULATOR_SECTORS[calcSector].turnoverNGN / 1_000_000_000).toFixed(1)}B
-                  annual turnover for this sector. Illustrative estimate — not legal advice.
-                </p>
-
-                <div className="space-y-2 border-t border-line pt-3 text-xs mono">
-                  <div className="flex justify-between">
-                    <span className="text-soft">APPLIES TO YOU:</span>
-                    <span>{COUNTRY_REGULATION[calcCountry]}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-soft">RECOMMENDED PLAN:</span>
-                    <span className="font-medium text-ok">{CALCULATOR_SECTORS[calcSector].recommended}</span>
-                  </div>
-                </div>
-
-                <button
-                  className="btn btn-solid w-full justify-center mt-5 text-xs py-2.5"
-                  onClick={handleGetStarted}
-                >
-                  RUN A REAL SCAN ON YOUR DOMAIN <ArrowRight size={13} />
-                </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <ul className="space-y-3 text-sm text-soft">
+                <li>Questionnaires with evidence owners and expiry dates.</li>
+                <li>Incident records and reminders.</li>
+                <li>Document drafts with customer approval history.</li>
+                <li>Dated evidence packs from frozen assessment snapshots.</li>
+              </ul>
+              <div className="panel p-5 text-sm text-soft leading-relaxed">
+                <p>Tool observations, customer answers and reviewer notes keep their own source labels.</p>
+                <p className="mt-3">Requirement references are pending professional review. Evidence packs support preparation; they are not a compliance certification or a Compliance Audit Return. Ask a qualified adviser about applicability and filing.</p>
+                <Link className="btn btn-solid mt-5" to="/pricing">SEE GROWTH <ArrowRight size={14} /></Link>
               </div>
             </div>
           </div>
@@ -561,7 +388,7 @@ export default function Landing() {
         {/* Teams & roles */}
         <section id="teams" className="py-16" data-reveal>
           <div className="sec-head">
-            <p className="eyebrow">BUILT FOR TEAMS</p>
+            <p className="eyebrow">TEAM COLLABORATION · GROWTH</p>
             <h2>One workspace, the right access for everyone.</h2>
             <p className="sec-note">
               Invite colleagues by email and give each person a role — security, IT and
@@ -637,16 +464,16 @@ export default function Landing() {
 
         {/* Final CTA Banner */}
         <section className="my-20 text-center py-16 panel bg-inset border-line-strong" data-reveal>
-          <p className="eyebrow mb-3">TRY IT WITH NO COMMITMENT</p>
+          <p className="eyebrow mb-3">30-DAY TRIAL · NO CARD REQUIRED</p>
           <h2 className="font-display text-4xl font-medium mb-4 max-w-xl mx-auto">
-            Check how secure you are right now.
+            Prepare for your next customer review.
           </h2>
           <p className="text-sm mono text-soft max-w-lg mx-auto mb-8">
-            Create your account, add your domain, and run a real scan — you get a security score, board-ready reports, and clear steps to fix any issues.
+            Create a workspace, verify a domain you own, and work through your first assessment. Choose Starter or Growth; included quotas apply during the trial. We confirm payment manually before paid continuation.
           </p>
           <div className="flex justify-center gap-4 flex-wrap">
             <Link to="/signup" className="btn btn-solid py-3 px-8 text-sm">
-              CREATE YOUR ACCOUNT <ArrowRight size={14} />
+              START YOUR 30-DAY TRIAL <ArrowRight size={14} />
             </Link>
             <Link to="/login" className="btn btn-ghost py-3 px-8 text-sm">
               SIGN IN

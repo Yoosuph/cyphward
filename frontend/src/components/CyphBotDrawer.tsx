@@ -38,7 +38,7 @@ const QUICK_PROMPTS = [
   {
     icon: ShieldAlert,
     label: 'Email spoofing (DMARC)',
-    prompt: 'How do we stop email spoofing with DMARC, and how do we turn on p=reject?',
+    prompt: 'How do we inventory legitimate senders and roll out DMARC safely?',
   },
   {
     icon: ShieldCheck,

@@ -23,7 +23,7 @@ export default function Terms() {
           The rules of <em>the road.</em>
         </>
       }
-      effective="1 October 2026"
+      effective="21 October 2026"
     >
       <Section n="01" heading="Acceptance">
         <p>
@@ -95,16 +95,22 @@ export default function Terms() {
           defences and professional advice too.
         </p>
         <p>
-          Compliance scores reflect the rules we model at the time; regulators make the
-          final call.
+          Compliance readiness counts describe the evidence recorded against the
+          requirements we model. They are not a legal opinion, compliance certification
+          or Compliance Audit Return. References pending professional review are labelled.
         </p>
       </Section>
 
       <Section n="07" heading="Plans and payment">
         <p>
           Some features are paid. Prices, seats, and limits are shown before you buy.
-          Subscriptions renew automatically unless cancelled before the renewal date;
-          fees already paid are non-refundable except where the law says otherwise. We
+          New workspaces receive a 30-day trial of the selected plan, subject to its limits.
+          Paid continuation is arranged manually after payment confirmation; an open invoice
+          does not activate access. There are no automatic charges or automatic paid renewals.
+          Each confirmed standard payment covers 30 days. Scan and report allowances reset
+          monthly in UTC and are shared across the workspace. After expiry, new scans and
+          report generation pause unless we confirm payment or explicitly extend the trial.
+          Fees already paid are non-refundable except where the law says otherwise. We
           give reasonable notice before changing prices.
         </p>
       </Section>
