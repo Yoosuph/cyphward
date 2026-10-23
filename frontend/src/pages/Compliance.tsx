@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ClipboardList, Info, Lock, RefreshCw } from 'lucide-react';
+import { ArrowUpRight, CheckCheck, ChevronDown, ClipboardList, FileCheck2, FolderOpen, Info, ListChecks, Lock, Search, ShieldCheck, Siren, Users, RefreshCw } from 'lucide-react';
+import './compliance/compliance.css';
 import { PageHead } from '../components/ui';
 import { ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
 import { resolveZone } from '../lib/datetime';
@@ -35,7 +36,9 @@ import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './co
 
 const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', not_assessed: 'warn', not_applicable: 'idle', awaiting_input: 'idle' };
 
-const CARD = 'rounded-lg border border-line bg-raised';
+const CARD = 'rounded-2xl border border-line bg-raised';
+const TAB_ICONS = [ShieldCheck, ListChecks, Siren, FolderOpen, FileCheck2, Users];
+const TAB_NOTES: Record<string, string> = { readiness: 'Review the evidence behind each requirement and decide what to work on next.', questions: 'Record what your team does, assign evidence owners and keep answers up to date.', incidents: 'Record events and follow the response work through to closure.', packs: 'Prepare dated evidence for management and practitioner reviews.', documents: 'Draft, review and approve your organisation’s policy documents.', reviewers: 'Give a practitioner scoped access to support your review.' };
 
 /** What every tab panel receives. Add a field here when a new tab needs more from the page. */
 interface TabContext {
@@ -110,7 +113,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
   const fmtDay = (value?: string | null) => fmtDayZone(value, zone);
   const renewalDue = told.some(q => q.current?.expired);
   return (
-    <li className="border-t border-line first:border-t-0">
+    <li data-requirement-row className="border-t border-line first:border-t-0">
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
               className="w-full text-left px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 hover:bg-inset/60 transition-colors">
         <div className="min-w-0 flex-1">
@@ -277,6 +280,14 @@ export default function Compliance() {
   const toast = useToast();
   const orgZone = useOrgZone();
   const [tab, setTab] = useState<string>('readiness');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const requirementsRef = useRef<HTMLDivElement>(null);
+  const selectTab = (key: string) => {
+    setTab(key);
+    requestAnimationFrame(() => tabRefs.current[key]?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+  };
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [data, setData] = useState<ComplianceOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +338,17 @@ export default function Compliance() {
   const zone = qn?.display_timezone ? resolveZone(qn.display_timezone) : orgZone;
   const answersFor = (key: string) => (qn?.questions || []).filter(q => q.evidences.some(e => e.key === key));
   const excluded = data.groups.flatMap(g => g.requirements.filter(q => q.status === 'not_applicable'));
+  const filtering = Boolean(search.trim()) || statusFilter !== 'all' || groupFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setStatusFilter('all'); setGroupFilter('all'); };
+  const visibleGroups = data.groups.filter(g => groupFilter === 'all' || g.key === groupFilter).map(group => ({
+    ...group,
+    requirements: group.requirements.filter(req => req.status !== 'not_applicable'
+      && (statusFilter === 'all' || req.status === statusFilter)
+      && (!search.trim() || `${req.title} ${req.summary} ${req.clause_label} ${req.source_label || ''}`.toLowerCase().includes(search.trim().toLowerCase()))),
+  })).filter(group => group.requirements.length > 0 || (!filtering && groupFilter === 'all') || (group.locked && !search.trim() && statusFilter === 'all'));
+  const visibleCount = visibleGroups.reduce((n, group) => n + group.requirements.length, 0);
+  const coverage = r.applicable > 0 ? Math.min(100, Math.max(0, Math.round(r.with_evidence / r.applicable * 100))) : 0;
+
 
   const questions = qnGated ? <GrowthGate what="The questionnaire" />
     : qnError && !qn ? <LoadError title="We could not load the questions" message={qnError} onRetry={() => void loadQuestionnaire()} />
@@ -335,22 +357,38 @@ export default function Compliance() {
 
   const readiness = (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className={`lg:col-span-4 p-6 ${CARD}`}>
-          <p className="text-[11px] mono uppercase text-soft">Readiness evidence</p>
-          <p className="text-base text-ink mt-3 leading-snug" data-testid="readiness-line">
-            <span className="text-3xl font-bold mono">{r.with_evidence}</span> of {r.applicable} have evidence
-            <span className="text-soft"> · {r.awaiting_input} awaiting input or upcoming checks</span>
+      <div className="compliance-overview-grid">
+        <section className="compliance-coverage" aria-label="Evidence coverage">
+          <div className="flex items-center justify-between gap-3"><span className="compliance-eyebrow">Your evidence at a glance</span><ShieldCheck size={19} className="text-accent" /></div>
+          <p className="text-base text-ink mt-4 leading-snug" data-testid="readiness-line">
+            <span className="text-4xl font-semibold tracking-tight">{r.with_evidence}</span> of {r.applicable} have evidence
+            <span className="block text-xs text-soft mt-2"> · {r.awaiting_input} awaiting input or upcoming checks</span>
           </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4">
-            <StatusChip level="ok">{r.present} PRESENT</StatusChip>
-            <StatusChip level="bad">{r.gap} GAPS</StatusChip>
-            <StatusChip level="warn">{r.not_assessed} NOT ASSESSED</StatusChip>
-            <StatusChip level="idle">{r.awaiting_input} AWAITING INPUT</StatusChip>
+          <div className="compliance-coverage-track" role="progressbar" aria-label="Requirements with recorded evidence" aria-valuenow={r.with_evidence} aria-valuemin={0} aria-valuemax={Math.max(r.applicable, r.with_evidence, 1)}><span style={{ width: `${coverage}%` }} /></div>
+          <p className="text-[11px] text-soft">Evidence coverage includes recorded gaps. It is not a legal verdict.</p>
+          <div className="compliance-status-grid">
+            <div><StatusChip level="ok">{r.present} PRESENT</StatusChip></div>
+            <div><StatusChip level="bad">{r.gap} GAPS</StatusChip></div>
+            <div><StatusChip level="warn">{r.not_assessed} NOT ASSESSED</StatusChip></div>
+            <div><StatusChip level="idle">{r.awaiting_input} AWAITING INPUT</StatusChip></div>
           </div>
-        </div>
-        <div className={`lg:col-span-8 p-6 ${CARD} space-y-3 text-sm`}>
-          <p className="text-[11px] mono uppercase text-soft">How to read this</p>
+        </section>
+        <section className={`p-5 sm:p-6 ${CARD}`} aria-label="Next steps">
+          <p className="compliance-eyebrow">Keep your review moving</p>
+          <h2 className="text-lg font-semibold mt-2 mb-4">A clear next step</h2>
+          <div className="compliance-next-actions">
+            {data.domains.length === 0 && <Link to="/domains" className="inline-flex items-center gap-2 text-sm text-accent min-h-[44px]">Verify a domain to start collecting evidence <ArrowUpRight size={15}/></Link>}
+            <button type="button" onClick={() => { setSearch(''); setGroupFilter('all'); setStatusFilter('gap'); requestAnimationFrame(() => requirementsRef.current?.scrollIntoView({ block: 'start' })); }}>
+              <span className="compliance-action-icon"><CheckCheck size={17}/></span><span><strong>Review the gaps</strong><small>{r.gap} {r.gap === 1 ? 'requirement' : 'requirements'} with linked findings</small></span><ArrowUpRight size={15}/>
+            </button>
+            <button type="button" onClick={() => selectTab('questions')}><span className="compliance-action-icon"><ListChecks size={17}/></span><span><strong>Complete your evidence</strong><small>Answer questions and review renewals</small></span><ArrowUpRight size={15}/></button>
+            <button type="button" onClick={() => selectTab('packs')}><span className="compliance-action-icon"><FolderOpen size={17}/></span><span><strong>Prepare a review pack</strong><small>Keep a dated snapshot of your evidence</small></span><ArrowUpRight size={15}/></button>
+          </div>
+        </section>
+      </div>
+      <details className={`p-4 sm:p-5 ${CARD} text-sm`}>
+        <summary className="cursor-pointer font-medium flex items-center gap-2"><Info size={15} className="text-accent"/> Understand your evidence <ChevronDown size={14} className="ml-auto text-soft"/></summary>
+        <div className="space-y-3 mt-4">
           <p className="text-soft leading-relaxed">{data.note}</p>
           <p className="text-soft leading-relaxed">
             Evidence present means every check finished and nothing linked to it is open. A gap means an open finding is
@@ -362,11 +400,21 @@ export default function Compliance() {
             <p className="text-xs text-ink">You have no verified domain yet. <Link to="/domains" className="text-accent underline">Verify a domain</Link> to start collecting evidence.</p>
           )}
         </div>
-      </div>
+      </details>
 
-      <div className="space-y-5">
-        {data.groups.map(group => (
-          <section key={group.key} className={CARD} aria-label={group.title}>
+      <div className="space-y-5 scroll-mt-5" ref={requirementsRef}>
+        <div className="compliance-register-toolbar">
+          <div><p className="compliance-eyebrow">Requirement register</p><h2 className="text-lg font-semibold mt-1">Find the evidence you need</h2></div>
+          <label className="compliance-search"><Search size={15} aria-hidden="true"/><input aria-label="Search requirements" placeholder="Search requirements…" value={search} onChange={e => setSearch(e.target.value)} /></label>
+          <div className="compliance-filter-row">
+            <select aria-label="Filter by evidence status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All evidence statuses</option><option value="gap">Gaps</option><option value="not_assessed">Not assessed</option><option value="awaiting_input">Awaiting input</option><option value="present">Evidence present</option></select>
+            <select aria-label="Filter by requirement group" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}><option value="all">All requirement groups</option>{data.groups.map(g => <option key={g.key} value={g.key}>{g.title}</option>)}</select>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-soft"><span role="status">{visibleCount} visible requirements{filtering ? ' matching your filters' : ''}</span>{filtering && <button type="button" data-testid="clear-requirement-filters" onClick={clearFilters} className="text-accent min-h-[44px] px-2">Clear filters</button>}</div>
+        </div>
+        {!visibleGroups.length && <div data-testid="requirements-empty" className={`${CARD} p-8 text-center`}><Search size={22} className="mx-auto text-soft mb-3"/><h3 className="font-medium">No requirements match</h3><p className="text-sm text-soft mt-2">Try another search or clear your filters to see the register.</p></div>}
+        {visibleGroups.map(group => (
+          <section key={group.key} className={CARD} aria-label={group.title} data-requirement-group>
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
               <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">{group.title}</h2>
               {group.locked ? (
@@ -383,7 +431,7 @@ export default function Compliance() {
                 <Link to="/settings" className="btn-mini whitespace-nowrap self-start">SEE PLANS</Link>
               </div>
             ) : (
-              <ul>{group.requirements.filter(req => req.status !== 'not_applicable').map(req => (
+              <ul>{!group.requirements.length && <li className="p-5 text-xs text-soft">No applicable requirements in this group. See the exclusions below.</li>}{group.requirements.filter(req => req.status !== 'not_applicable').map(req => (
                 <RequirementRow key={req.key} req={req} zone={zone} told={answersFor(req.key)} />
               ))}</ul>
             )}
@@ -415,42 +463,45 @@ export default function Compliance() {
       : e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : -1;
     if (next < 0) return;
     e.preventDefault();
-    setTab(keys[next]);
+    selectTab(keys[next]);
     tabRefs.current[keys[next]]?.focus();
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
+    <div className="compliance-page space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
       <PageHead
         title="Compliance readiness"
-        note={`${data.register.title}. This is the evidence Cyphward has seen, and where each piece came from.`}
+        note={`${data.register.title}. Organise evidence, close gaps and prepare for review.`}
         actions={
-          <button type="button" onClick={() => void load(true)} aria-label="Refresh" title="Refresh"
+          <button type="button" onClick={() => void load(true)} aria-label="Refresh" title="Refresh" disabled={loading}
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[44px] btn-tactile">
-            <RefreshCw size={14} /> <span className="sm:hidden">REFRESH</span>
+            <RefreshCw size={14} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> <span>Refresh</span>
           </button>
         }
       />
+
+      {error && <ErrorPanel title="Your latest refresh did not finish" message={error} onRetry={() => void load(true)} retrying={loading} />}
 
       <div role="note" className="flex items-start gap-2.5 p-3.5 rounded border border-accent/30 bg-accent/5 text-xs text-ink leading-relaxed" data-testid="compliance-disclaimer">
         <Info size={14} className="text-accent flex-none mt-0.5" />
         <span>{data.disclaimer}</span>
       </div>
 
-      <div role="tablist" aria-label="Compliance sections" className="flex flex-wrap gap-2" onKeyDown={onTabKey}>
-        {tabs.map(t => (
+      <div role="tablist" aria-label="Compliance sections" className="compliance-tabs" onKeyDown={onTabKey}>
+        {tabs.map(t => { const Icon = TAB_ICONS[TABS.indexOf(t)]; return (
           <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
                   aria-controls={`panel-${t.key}`} tabIndex={tab === t.key ? 0 : -1}
                   ref={el => { tabRefs.current[t.key] = el; }}
-                  onClick={() => setTab(t.key)}
-                  className={`btn-mini touch-target ${tab === t.key ? '!border-ink !text-ink' : ''}`}>
-            {t.label}
+                  onClick={() => selectTab(t.key)}
+                  className={`compliance-tab ${tab === t.key ? 'compliance-tab-active' : ''}`}>
+            <Icon size={15} aria-hidden="true"/>{t.label}
           </button>
-        ))}
+        ); })}
       </div>
 
       {tabs.filter(t => t.key === tab).map(t => (
         <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} className="space-y-6">
+          <p className="text-sm text-soft">{TAB_NOTES[t.key]}</p>
           {t.render({ canEdit, isOwner, zone, readiness, questions })}
         </div>
       ))}
