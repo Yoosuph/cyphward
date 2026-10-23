@@ -1984,7 +1984,8 @@ input[type="date"]:focus-within, input[type="datetime-local"]:focus-within{outli
 /* A reduced-motion preference applies to every feature, including third-party
    utility animations and page-level transitions added later. */
 @media (prefers-reduced-motion: reduce) {
-  html, html *, html *::before, html *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  html, html *, html *::before, html *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+  .loading-track span { animation: none !important; transform: none !important; }
   html.motion .rise-in, html.motion [data-reveal] { opacity: 1 !important; transform: none !important; }
   .skeleton { background-image: none !important; background-color: var(--inset) !important; }
   .branded-cursor-host { display: none !important; }

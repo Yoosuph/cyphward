@@ -12,7 +12,10 @@ import { BANNED, user, org, domain } from "./lib/compliance-fixtures.mjs";
 const frontend = fileURLToPath(new URL("..", import.meta.url));
 process.chdir(frontend);
 
-const REPORT_HTML = `<div style="padding:16px"><h2>Security report for acme.ng</h2><p>Score 72 out of 100.</p><table style="width:900px"><tr><td>A wide table that must scroll inside the dialog</td></tr></table></div>`;
+const REPORT_HTML = `<!doctype html><html><head><style>body{margin:0;background:rgb(1,2,3)!important;color:white}table{width:900px}</style></head>
+<body><h2>Security report for acme.ng</h2><p>Score 72 out of 100.</p><table><tr><td>A wide table that must scroll inside the report</td></tr></table>
+<a href="https://cyphward.com/">First report link</a><a href="https://cyphward.com/about">Last report link</a>
+<script>window.__reportScriptRan = true;</script></body></html>`;
 const freshReports = () => [
   { id: "r1", title: "Security report: acme.ng", status: "ready", summary: { score: 72 }, domain: "acme.ng", created_at: "2026-10-17T09:00:00Z", updated_at: "2026-10-17T09:00:00Z", html: null, integrity: "snapshot", integrity_label: "Frozen snapshot" },
 ];
@@ -110,6 +113,7 @@ try {
 
     // View: opens in the shared dialog, wide content scrolls inside it, Esc closes, focus returns to the button.
     await page.focus("table button");
+    const backgroundBeforePreview = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     const viewSelector = await page.evaluate(() => { const b = document.activeElement; b.setAttribute("data-ux-opener", "1"); return '[data-ux-opener="1"]'; });
     await page.keyboard.press("Enter");
     await page.waitForSelector('[role="dialog"] [data-testid="report-preview"]', { timeout: 5000 });
@@ -123,11 +127,35 @@ try {
     assert.equal(pv.label, "Security report: acme.ng", `${name}: the preview is named by its title`);
     assert.ok(pv.inside, `${name}: focus is inside the preview`);
     assert.ok(pv.page <= 0 && pv.bodyX <= 0, `${name}: a wide report scrolls inside the dialog, not the page`);
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), backgroundBeforePreview, `${name}: report styles cannot change the dashboard`);
+    const frame = await (await page.$('[data-testid="report-preview"] iframe')).contentFrame();
+    assert.equal(await frame.evaluate(() => window.__reportScriptRan), undefined, `${name}: report scripts are disabled`);
+    await frame.focus('a:first-of-type');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    await page.keyboard.up('Shift');
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'BUTTON', `${name}: Shift+Tab returns to dialog controls`);
+    await frame.focus('a:last-of-type');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'BUTTON', `${name}: Tab stays within the dialog`);
     if (phone) assert.ok(Math.abs(pv.w - width) < 1 && Math.abs(pv.h - 860) < 1, `${name}: the preview is full screen (${pv.w}x${pv.h})`);
+    await frame.focus('a:first-of-type');
     await page.keyboard.press("Escape");
     await closed();
     await sleep(50);
     assert.equal(await page.evaluate((s) => document.activeElement === document.querySelector(s), viewSelector), true, `${name}: focus returns to the View button`);
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    const delays = await page.evaluate(() => {
+      const element = document.createElement('div');
+      element.style.cssText = 'animation-delay:2s;transition-delay:2s';
+      document.body.append(element);
+      const style = getComputedStyle(element);
+      const value = [style.animationDelay, style.transitionDelay];
+      element.remove();
+      return value;
+    });
+    assert.deepEqual(delays, ['0s', '0s'], `${name}: reduced motion also removes animation delays`);
+    await page.emulateMediaFeatures([]);
 
     // Email: native form in the dialog; leaving it with input asks first; a send gives a toast; a failure gives a plain one.
     assert.ok(await clickExact("Email report"));

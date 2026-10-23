@@ -54,8 +54,6 @@ def generate_executive_report_html(
     critical_count: int = 0,
     high_count: int = 0,
     medium_count: int = 0,
-    low_count: int = 0,
-    resolved_recent_count: int = 0,
     summary_text: Optional[str] = None,
     drivers: Optional[List[Dict[str, Any]]] = None,
     scope_label: Optional[str] = None,
@@ -65,13 +63,16 @@ def generate_executive_report_html(
     generated_at: Optional[datetime] = None,
     report_ref: Optional[str] = None,
     integrity_lines: Optional[List[str]] = None,
+    low_count: int = 0,
+    resolved_recent_count: int = 0,
 ) -> str:
     """
     Renders a clean, light-themed HTML security report email in plain English.
 
     A report issued from a snapshot passes the snapshot's own time, reference and integrity lines, so
     the same snapshot always renders the same page. Without them the page is stamped with the current time.
-    Compatible with Gmail, Apple Mail, Outlook, and webmail clients.
+    Uses table layout and inline styles for email clients, with responsive and print
+    styles where supported.
 
     A graded score (grade plus scope_label) is described as valid only within the
     declared scope. Ungraded results keep the "does not establish complete coverage"
@@ -80,7 +81,7 @@ def generate_executive_report_html(
     assessed = score is not None
     if assessed:
         score_color = "#DC2626" if score < 70 else ("#D97706" if score < 85 else "#059669")
-        score_width = max(2, min(100, int(score)))
+        score_width = max(0, min(100, float(score)))
         score_text = str(score)
         score_label = f"{score}/100"
         score_suffix = "/100"
@@ -122,6 +123,12 @@ def generate_executive_report_html(
                 "Recorded open findings still require attention; missing evidence is not proof of security."
             )
 
+    if not drivers and critical_count + high_count + medium_count + low_count > 0:
+        drivers = [{
+            "impact": "Review findings", "title": "Open findings require review",
+            "desc": "Open findings are recorded in the counts above. Detailed evidence is available in your dashboard.",
+            "remedy": "Review the highest-severity findings and assign a technical owner.",
+        }]
     if not drivers:
         drivers = [{
             "impact": "No findings" if assessed else "Awaiting scan",
@@ -138,7 +145,10 @@ def generate_executive_report_html(
     domain = escape(domain or "No verified domain")
     summary_text = escape(summary_text)
 
-    scope_lines = [line for line in (coverage_label, domain_line, nuclei_line, *(integrity_lines or [])) if line]
+    report_ref = escape(str(report_ref))
+    score_label = escape(score_label)
+    grade_text = escape(grade_text)
+    scope_lines = [line for line in (scope_label, coverage_label, domain_line, nuclei_line, *(integrity_lines or [])) if line]
     scope_html = ""
     if scope_lines:
         scope_items = "".join(
@@ -149,7 +159,7 @@ def generate_executive_report_html(
         scope_html = f"""
       <!-- Declared Scope -->
       <tr>
-        <td style="padding: 0 28px 22px;">
+        <td class="report-pad" style="padding: 0 28px 22px;">
           <div style="font-size: 12px; font-weight: 700; color: #6B6459; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">
             SCOPE
           </div>
@@ -160,25 +170,30 @@ def generate_executive_report_html(
 """
 
     drivers_html = ""
+    badge_colors = {
+        "CRITICAL": ("#FEF2F2", "#B91C1C"), "HIGH": ("#FFF7ED", "#9A3412"),
+        "MEDIUM": ("#FFFBEB", "#92400E"), "LOW": ("#F1F5F9", "#475569"),
+    }
     for d in drivers:
+        badge_bg, badge_color = badge_colors.get(str(d.get("impact", "")).upper(), ("#F5F2EC", "#5D564B"))
         drivers_html += f"""
         <tr>
           <td style="padding: 13px 16px; border-bottom: 1px solid #EFECE5; background-color: #FFFFFF;">
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
-                <td style="vertical-align: top; width: 66px;">
-                  <span style="display: inline-block; padding: 3px 8px; background-color: {d.get('badge_bg', '#F5F2EC')}; color: {d.get('badge_color', '#C2410C')}; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; border-radius: 10px; letter-spacing: 0.5px;">
+                <td class="report-finding-badge" style="vertical-align: top; width: 66px;">
+                  <span style="display: inline-block; padding: 3px 8px; background-color: {badge_bg}; color: {badge_color}; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; font-weight: bold; border-radius: 10px; letter-spacing: 0.5px;">
                     {escape(str(d.get('impact') or '-'))}
                   </span>
                 </td>
-                <td style="vertical-align: top; padding-left: 10px;">
+                <td class="report-finding-content" style="vertical-align: top; padding-left: 10px;">
                   <div style="font-size: 14px; font-weight: 600; color: #1F1A14; margin-bottom: 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     {escape(str(d.get('title') or 'Security issue'))}
                   </div>
                   <div style="font-size: 13px; color: #5D564B; line-height: 1.55; margin-bottom: 5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     {escape(str(d.get('desc') or ''))}
                   </div>
-                  <div style="font-size: 12px; color: #C2410C; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                  <div style="font-size: 13px; line-height:1.6; color: #C2410C; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     <strong>HOW TO FIX:</strong> {escape(str(d.get('remedy') or 'See your dashboard for details.'))}
                   </div>
                 </td>
@@ -190,11 +205,11 @@ def generate_executive_report_html(
 
     metric_items = [
         ("Assets on record", assets_count, "#1F1A14"),
-        ("Open critical", critical_count, "#DC2626" if critical_count else "#059669"),
-        ("Open high", high_count, "#D97706" if high_count else "#059669"),
+        ("Open critical", critical_count, "#DC2626" if critical_count else "#64748B"),
+        ("Open high", high_count, "#D97706" if high_count else "#64748B"),
         ("Open medium", medium_count, "#1F1A14"),
         ("Open low", low_count, "#1F1A14"),
-        ("Resolved · 30 days", resolved_recent_count, "#047857"),
+        ("Resolved · 30 days", resolved_recent_count, "#047857" if resolved_recent_count else "#64748B"),
     ]
     metrics_html = ""
     for index in range(0, len(metric_items), 3):
@@ -222,6 +237,13 @@ def generate_executive_report_html(
     html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
     body {{ margin: 0; padding: 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-color-scheme: only light; -webkit-text-size-adjust: 100%; }}
     table {{ border-collapse: collapse; }}
+    .report-card {{ table-layout: fixed; overflow-wrap: anywhere; word-break: break-word; }}
+    .report-card tr {{ break-inside: avoid; }}
+    @media print {{
+      body, .report-outer {{ padding: 0 !important; background: white !important; }}
+      .report-card {{ max-width: none !important; border: 0 !important; box-shadow: none !important; }}
+      .report-action {{ display: none !important; }}
+    }}
     @media screen and (max-width: 600px) {{
       .report-outer {{ padding: 12px 0 !important; }}
       .report-card {{ width: 100% !important; border-radius: 0 !important; }}
@@ -229,12 +251,17 @@ def generate_executive_report_html(
       .report-header-status {{ display: none !important; }}
       .report-meta-cell {{ display: block !important; width: 100% !important; text-align: left !important; padding-top: 4px !important; }}
       .report-score-org, .report-score-value {{ display: block !important; width: 100% !important; text-align: left !important; }}
-      .report-score-value {{ padding-top: 16px !important; }}
+      .report-score-org {{ box-sizing: border-box; padding: 18px 16px 0 !important; }}
+      .report-score-value {{ box-sizing: border-box; padding: 16px !important; }}
       .report-metric-cell {{ padding: 3px !important; }}
+      .report-finding-badge, .report-finding-content {{ display: block !important; width: 100% !important; padding-left: 0 !important; }}
+      .report-finding-badge {{ padding-bottom: 8px !important; }}
+      .report-footer-copy, .report-footer-link {{ display: block !important; width: 100% !important; text-align: left !important; }}
+      .report-footer-link {{ padding-top: 12px !important; }}
     }}
   </style>
 </head>
-<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-color-scheme: only light;" bgcolor="#F3F1EC">
+<body style="margin: 0; padding: 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-color-scheme: only light;" bgcolor="#F3F1EC">
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F3F1EC;">
     {org_name} security report — score {score_label}, grade {grade_text}. {critical_count} urgent issues need attention. Open your dashboard for details.
   </div>
@@ -275,7 +302,7 @@ def generate_executive_report_html(
                 </table>
               </td>
               <td class="report-header-status" style="vertical-align: middle; text-align: right;">
-                <span style="display: inline-block; padding: 5px 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 12px; font-size: 11px; font-weight: 600; color: #047857; letter-spacing: 0.3px;">
+                <span style="display: inline-block; padding: 5px 10px; background-color: #F5F2EC; border: 1px solid #E6E2DA; border-radius: 12px; font-size: 11px; font-weight: 600; color: #5D564B; letter-spacing: 0.3px;">
                   &#9679; {'Known-risk score available' if assessed else 'Insufficient assessment evidence'}
                 </span>
               </td>
@@ -306,7 +333,7 @@ def generate_executive_report_html(
         <td class="report-pad" style="padding: 22px 28px 6px;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #FAF9F6; border: 1px solid #E6E2DA; border-radius: 10px; padding: 18px 20px;">
             <tr>
-              <td class="report-score-org" style="vertical-align: middle;">
+              <td class="report-score-org" style="vertical-align: middle; padding:20px;">
                 <div style="font-size: 10px; color: #8A8377; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; font-weight: 600;">
                   Organization
                 </div>
@@ -317,9 +344,9 @@ def generate_executive_report_html(
                   A point-in-time view of known risks in the declared assessment scope
                 </div>
               </td>
-              <td class="report-score-value" style="vertical-align: middle; text-align: right; width: 150px;">
+              <td class="report-score-value" style="vertical-align: middle; text-align: right; width: 150px; padding:20px 20px 20px 0;">
                 <div style="font-size: 10px; color: #8A8377; letter-spacing: 1px; margin-bottom: 2px; font-weight: 600;">
-                  SECURITY SCORE
+                  SECURITY SCORE · KNOWN RISK
                 </div>
                 <div style="font-size: 36px; font-weight: 800; color: {score_color}; line-height: 1; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">
                   {score_text}<span style="font-size: 15px; color: #8A8377; font-weight: 400;">{score_suffix}</span>
@@ -332,13 +359,11 @@ def generate_executive_report_html(
               </td>
             </tr>
             <tr>
-              <td colspan="2" style="padding-top: 15px;">
-                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #ECE9E3; border-radius: 4px;">
-                  <tr>
-                    <td width="{score_width}%" style="background-color: {score_color}; border-radius: 4px; font-size: 0; line-height: 0;">&nbsp;</td>
-                    <td style="font-size: 0; line-height: 0;">&nbsp;</td>
-                  </tr>
-                </table>
+              <td colspan="2" style="padding:0 20px 20px;">
+                <div style="height:4px; background-color:#ECE9E3; border-radius:4px; overflow:hidden;">
+                  <div style="width:{score_width}%; height:4px; background-color:{score_color};"></div>
+                </div>
+                <div style="font-size:11px; color:#6B6459; padding-top:8px;">{'Higher is better. Read alongside assessment coverage below.' if assessed else 'No score is shown until there is sufficient evaluated evidence.'}</div>
               </td>
             </tr>
           </table>
@@ -382,7 +407,7 @@ def generate_executive_report_html(
 
       <!-- CTA Button -->
       <tr>
-        <td style="padding: 0 28px 8px; text-align: center;">
+        <td class="report-pad report-action" style="padding: 0 28px 8px; text-align: center;">
           <table cellpadding="0" cellspacing="0" border="0" align="center">
             <tr>
               <td style="background-color: #E5532B; border-radius: 8px; text-align: center;">
@@ -395,24 +420,24 @@ def generate_executive_report_html(
         </td>
       </tr>
       <tr>
-        <td style="padding: 0 28px 26px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #6B6459; line-height: 1.5;">
+        <td class="report-pad report-action" style="padding: 0 28px 26px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #6B6459; line-height: 1.5;">
           Review findings, assign remediation and verify supported fixes from your dashboard.
         </td>
       </tr>
 
       <!-- Footer -->
       <tr>
-        <td style="padding: 18px 28px; background-color: #FAF9F6; border-top: 1px solid #EFECE5; font-size: 11px; color: #8A8377; line-height: 1.65;">
+        <td class="report-pad" style="padding: 18px 28px; background-color: #FAF9F6; border-top: 1px solid #EFECE5; font-size: 11px; color: #8A8377; line-height: 1.65;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
-              <td>
+              <td class="report-footer-copy">
                 <strong style="color: #5D564B;">CYPHWARD — EXTERNAL SECURITY MONITORING</strong><br />
                 Findings and coverage reflect the checks listed in this report.<br />
                 This report is not a compliance certification or guarantee of security.<br />
                 Report <span style="color: #C2410C;">CW-{report_ref}</span> · Generated {generated_at} UTC.<br />
                 You received this report because you manage <strong style="color: #5D564B;">{org_name}</strong>.
               </td>
-              <td style="text-align: right; vertical-align: bottom;">
+              <td class="report-footer-link" style="text-align: right; vertical-align: bottom;">
                 <a href="https://cyphward.com/" target="_blank" style="color: #C2410C; text-decoration: underline;">cyphward.com</a>
               </td>
             </tr>
