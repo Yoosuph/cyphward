@@ -104,3 +104,6 @@ The planner now accepts an explicit empty chart list, distinct from null (preser
 The live stream holds prepared report data until the model explanation is ready, then sends explanation text before the preview. If narration fails, a visible failure notice precedes the prepared preview and terminal provider error; completed data remains available. This supersedes the earlier preview-before-explanation behavior described above. No extra AI calls are introduced.
 
 Regression coverage: planner schema/prompt, explicit format overrides after chart views, table-only report refresh, SSE explanation-before-artifact ordering, and browser table rendering/mobile overflow/HTML-as-text/default Data view. Run the isolated browser check with `node frontend/scripts/check-cyphbot-tables.mjs`.
+
+
+Live Gemini verification exposed a constrained-JSON decoding failure for long Markdown table strings (MAX_TOKENS with runaway whitespace). Table turns now use a short structured query/format plan followed by plain-text Markdown generation against the requested data. Planning still controls the bounded query; prose never supplies chart values or executable instructions. Real Gemini verification on the deployed sample findings completed both phases with STOP and returned a table. Backend regressions: 63 passed; the isolated browser check and frontend production build passed.

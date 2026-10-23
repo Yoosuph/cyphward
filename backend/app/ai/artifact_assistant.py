@@ -94,6 +94,11 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
         "use more detail when requested. If the question concerns a historical value, explain that causation isn't "
         "proven by a score change. Plain text/Markdown prose only, no HTML, executable code, chart JSON or invented links."
     )
+    table_answer = answer_only and table_only_requested(message)
+    if table_only_requested(message) and not answer_only:
+        system += ("\nFor this table-only request, this is ONLY the query/presentation planning phase. "
+                   "Choose action and query fields as usual, but answer must be a short acknowledgement, "
+                   "NOT the table or detailed explanation. The host will request the actual table in a separate answer phase.")
     if answer_only:
         system += ("\nThe host has NOW executed the requested query. The current_snapshot is the exact returned data for this turn. "
                    "Answer the latest question using it, including a useful interpretation and limitations where relevant. "
@@ -142,6 +147,16 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
         "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096,
                              "responseMimeType": "application/json", "responseSchema": schema},
     }
+    if table_answer:
+        # Keep Markdown out of Gemini's constrained JSON decoder. It can emit
+        # runaway whitespace when asked to put tables inside a schema string.
+        payload["generationConfig"].pop("responseSchema")
+        payload["generationConfig"]["responseMimeType"] = "text/plain"
+        payload["systemInstruction"]["parts"][0]["text"] += (
+            "\nFINAL OUTPUT FORMAT OVERRIDE: return ONLY the requested Markdown table, NOT a JSON object. "
+            "Use at most 10 rows and concise cells, with columns for the requested facts/explanations/safe next steps. "
+            "Use only supplied records, say when unavailable, and label synthetic sample data. "
+            "Do not include a chart, JSON, an introduction or a closing paragraph.")
     if model == "gemini-2.5-flash":
         payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 1024}
     try:
@@ -177,6 +192,10 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
         if not candidates or candidates[0].get("finishReason") not in (None, "STOP"):
             raise LiveAIUnavailable("The AI provider did not finish a valid answer. Please retry.")
         raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
+        if table_answer:
+            if not raw.strip() or len(raw) > 8000:
+                raise LiveAIUnavailable("The AI could not finish the requested table. Please retry with fewer findings.")
+            return ConversationPlan(action="chat", answer=raw.strip())
         try:
             return ConversationPlan.model_validate_json(raw)
         except ValidationError as exc:
@@ -224,7 +243,7 @@ async def reply_live(org: dict, message: str, history: list, previous: ArtifactR
             await on_progress("writing_answer")
         final = await plan_conversation(message, history, artifact, previous, workspace, answer_only=True, report_ready=True, **retry_options)
         plan.answer = final.answer
-    elif days != snapshot["days"] or plan.severities is not None:
+    elif table_only_requested(message) or days != snapshot["days"] or plan.severities is not None:
         # A textual analytical question can request data without opening a panel.
         if on_progress:
             await on_progress("querying_period")

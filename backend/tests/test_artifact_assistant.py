@@ -343,3 +343,25 @@ def test_table_only_overrides_model_and_previous_chart_choices(monkeypatch, mess
     asyncio.run(live.reply_live({"id": ORG_A, "name": "Sample"}, message, [], previous))
     assert builds[-1]["charts"] == []
     assert builds[-1]["include_tables"] is True and builds[-1]["include_metrics"] is False
+
+
+def test_table_prose_uses_plain_text_instead_of_constrained_json(monkeypatch):
+    answer = "| Finding | Meaning |\n| --- | --- |\n| Missing DMARC | No monitoring policy recorded |"
+    requests = stub_http(monkeypatch, body={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": answer}]}}]})
+    result = asyncio.run(live.plan_conversation("Use just a table", [], SNAPSHOT, None, answer_only=True))
+    assert result.action == "chat" and result.answer == answer
+    generation = requests[0][2]["generationConfig"]
+    assert generation["responseMimeType"] == "text/plain"
+    assert "responseSchema" not in generation
+
+
+def test_table_chat_has_separate_planning_and_prose_phases(monkeypatch):
+    phases = []
+    monkeypatch.setattr(live, "build_report", lambda *args, **kwargs: SNAPSHOT)
+    async def plan(*args, **kwargs):
+        phases.append(kwargs.get("answer_only", False))
+        return live.ConversationPlan(action="chat", answer="| Finding | Meaning |" if kwargs.get("answer_only") else "Preparing table")
+    monkeypatch.setattr(live, "plan_conversation", plan)
+    result = asyncio.run(live.reply_live({"id": ORG_A, "name": "Sample"}, "Use just a table", [], None))
+    assert phases == [False, True]
+    assert "artifact" not in result and result["answer"].startswith("|")
