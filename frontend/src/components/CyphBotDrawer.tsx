@@ -430,7 +430,7 @@ export default function CyphBotDrawer({ open, onClose }: Props) {
         {
           onActivity: (step) => {
             if (!current()) return;
-            setMessages(prev => prev.map(m => m.id === botMsgId && m.activity?.at(-1) !== step
+            setMessages(prev => prev.map(m => m.id === botMsgId && m.activity?.[m.activity.length - 1] !== step
               ? { ...m, activity: [...(m.activity || []), step] } : m));
           },
           onToken: (token: string) => {
