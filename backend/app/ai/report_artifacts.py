@@ -99,12 +99,23 @@ class ReportArtifact(StrictModel):
     sources: list[str]
 
 
-def enabled() -> bool:
+def lab_enabled() -> bool:
     return (
         os.getenv("CYPHWARD_ARTIFACT_LAB") == "true"
         and os.getenv("CYPHWARD_ENV", "development") == "development"
         and database_is_local(config.DATABASE_URL)
     )
+
+
+def production_reports_enabled() -> bool:
+    return (
+        os.getenv("CYPHWARD_ENV", "development") == "production"
+        and os.getenv("CYPHWARD_ARTIFACT_REPORTS") == "true"
+    )
+
+
+def enabled() -> bool:
+    return lab_enabled() or production_reports_enabled()
 
 
 def wants_report(message: str, previous: ArtifactReference | None = None) -> bool:
@@ -123,7 +134,7 @@ def build_report(org: dict, message: str, previous: ArtifactReference | None = N
                  severities: list[Severity] | None = None, include_catalog: bool = False) -> dict:
     """One repeatable-read tenant-scoped snapshot, bounded rows, host-derived numbers."""
     if not enabled():
-        raise ValueError("The report experiment requires an enabled local development database.")
+        raise ValueError("Report charts are not enabled on this server.")
     text = message.lower()
     days = previous.days if previous else 90
     match = re.search(r"\b(\d{1,3})[ -]?(?:days?|day)\b", text)
@@ -262,11 +273,15 @@ def build_report(org: dict, message: str, previous: ArtifactReference | None = N
             ReportTable(title="Completed assessments · selected period (latest 60)", columns=["Completed (UTC)", "Score / 100", "Scan ID"],
                 rows=[[r["completed_at"].isoformat(), r["score"], str(r["id"])] for r in scans]),
         ] if include_tables else [],
-        limitations=["Local experiment. Report versions live in this browser tab's memory and reset on reload.",
-                     "Period selection applies to completed assessments and discovery/resolution events; inventory counts describe the current state.",
-                     "Security telemetry does not measure revenue, uptime, employee productivity or financial performance.",
-                     "Synthetic sample data." if sample else "Recorded data is evidence of assessed scope, not proof of a secure or compliant organization.",
-                     "Finding severity filter: " + (", ".join(severities) if severities else "all severities") + ". This does not filter assessment scores, scan activity, assets or tasks."],
+        limitations=[
+            ("Lab preview. Report versions live in this browser tab and reset on reload."
+             if lab_enabled() else
+             "Report versions live in this browser tab and reset on reload."),
+            "Period selection applies to completed assessments and discovery/resolution events; inventory counts describe the current state.",
+            "Security telemetry does not measure revenue, uptime, employee productivity or financial performance.",
+            "Synthetic sample data." if sample else "Recorded data is evidence of assessed scope, not proof of a secure or compliant organization.",
+            "Finding severity filter: " + (", ".join(severities) if severities else "all severities") + ". This does not filter assessment scores, scan activity, assets or tasks.",
+        ],
         sources=["findings: current tenant-scoped inventory", "scans: completed assessments within selected period", "assets / domains: current tenant-scoped inventory"],
     )
     return artifact.model_dump(mode="json")

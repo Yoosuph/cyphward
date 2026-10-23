@@ -131,7 +131,7 @@ export default function CyphBotReportPanel({ artifact, versions, onVersion, onCl
     </div>
     <div className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-6 space-y-5" role="tabpanel" id={viewId} aria-labelledby={`${viewId}-${tab}`} data-report-scroll>
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2 text-[10px] mono text-soft"><span className="rounded-full border border-accent/30 bg-accent/10 text-accent px-2 py-0.5">LOCAL PREVIEW</span>{artifact.sample && <span className="rounded-full border border-line px-2 py-0.5">SAMPLE DATA</span>}<span>{artifact.days} DAYS · V{artifact.version}</span></div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] mono text-soft">{artifact.sample && <span className="rounded-full border border-line px-2 py-0.5">SAMPLE DATA</span>}<span>{artifact.days} DAYS · V{artifact.version}</span></div>
         <h1 className="text-xl font-semibold text-ink leading-tight">{artifact.title}</h1>
         <p className="text-[10px] text-soft">Generated {new Date(artifact.generated_at).toLocaleString()} · Snapshot of recorded telemetry</p>
         {artifact.severities.length > 0 && <p className="text-xs text-accent">Finding filter: {artifact.severities.join(', ')} · Assessment and task metrics retain their full scope.</p>}

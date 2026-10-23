@@ -270,7 +270,7 @@ async def cyphbot_chat_stream(
                 except LiveAIUnavailable as exc:
                     await queue.put({'error': str(exc), 'done': True})
                 except Exception:
-                    await queue.put({'error': 'CyphBot could not read the local report data. Please retry.', 'done': True})
+                    await queue.put({'error': 'CyphBot could not read the report data. Please retry.', 'done': True})
                 finally:
                     await queue.put(None)
             yield f"data: {json.dumps({'type': 'assistant-status', 'status': 'thinking', 'step': 'reading_workspace'})}\n\n"

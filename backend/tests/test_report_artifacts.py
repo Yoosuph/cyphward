@@ -27,10 +27,54 @@ def lab(monkeypatch):
 def test_lab_stays_off_outside_opted_in_local_runtime(monkeypatch, env, url, flag):
     monkeypatch.setenv("CYPHWARD_ENV", env)
     monkeypatch.setenv("CYPHWARD_ARTIFACT_LAB", flag)
+    monkeypatch.delenv("CYPHWARD_ARTIFACT_REPORTS", raising=False)
     monkeypatch.setattr(artifacts.config, "DATABASE_URL", url)
     assert not artifacts.wants_report("generate a performance report with charts")
     with pytest.raises(ValueError):
         artifacts.build_report({"id": ORG_A}, "report")
+
+
+@pytest.fixture
+def prod_reports(monkeypatch):
+    monkeypatch.setenv("CYPHWARD_ENV", "production")
+    monkeypatch.setenv("CYPHWARD_ARTIFACT_REPORTS", "true")
+    monkeypatch.delenv("CYPHWARD_ARTIFACT_LAB", raising=False)
+    monkeypatch.setattr(artifacts.config, "DATABASE_URL", "postgresql://postgres@db.example.com/cyphward")
+
+
+def test_production_reports_need_the_production_flag(monkeypatch):
+    monkeypatch.setenv("CYPHWARD_ENV", "production")
+    monkeypatch.delenv("CYPHWARD_ARTIFACT_REPORTS", raising=False)
+    monkeypatch.setattr(artifacts.config, "DATABASE_URL", "postgresql://postgres@db.example.com/cyphward")
+    assert not artifacts.enabled()
+    monkeypatch.setenv("CYPHWARD_ARTIFACT_REPORTS", "true")
+    assert artifacts.enabled() and artifacts.production_reports_enabled()
+    assert not artifacts.lab_enabled()
+
+
+def test_production_reports_flag_does_not_unlock_the_lab(monkeypatch):
+    monkeypatch.setenv("CYPHWARD_ENV", "development")
+    monkeypatch.setenv("CYPHWARD_ARTIFACT_REPORTS", "true")
+    monkeypatch.delenv("CYPHWARD_ARTIFACT_LAB", raising=False)
+    monkeypatch.setattr(artifacts.config, "DATABASE_URL", "postgresql://cyphward_app@127.0.0.1/cyphward_test")
+    assert not artifacts.enabled()
+
+
+def test_production_live_planner_follows_the_reports_flag(prod_reports, monkeypatch):
+    from backend.app.ai.artifact_assistant import live_enabled
+    monkeypatch.delenv("CYPHWARD_ARTIFACT_AI", raising=False)
+    assert artifacts.wants_report("generate a performance report with charts")
+    assert not live_enabled()
+    monkeypatch.setenv("CYPHWARD_ARTIFACT_AI", "live")
+    assert live_enabled()
+
+
+def test_production_limitations_are_not_labelled_lab(prod_reports, monkeypatch):
+    stub_snapshot(monkeypatch)
+    result = artifacts.build_report({"id": ORG_A, "name": "Tenant A"}, "report")
+    assert result["org_id"] == ORG_A
+    assert any("browser tab" in text for text in result["limitations"])
+    assert not any("Lab preview" in text or "Local experiment" in text for text in result["limitations"])
 
 
 def test_report_intent_and_revision(lab):

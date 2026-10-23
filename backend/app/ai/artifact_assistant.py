@@ -50,9 +50,9 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
     key = os.getenv("GEMINI_API_KEY", "")
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     if not key:
-        raise LiveAIUnavailable("Live AI is not configured for this local server. No AI answer was generated.")
+        raise LiveAIUnavailable("Live AI is not configured. No AI answer was generated.")
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,100}", model):
-        raise LiveAIUnavailable("The local AI model configuration is invalid.")
+        raise LiveAIUnavailable("The AI model configuration is invalid.")
     system = (
         "You are CyphBot, a conversational security analyst inside Cyphward. Answer the actual latest question, "
         "using the conversation for continuity. Do not repeat the inventory or canned greeting unless asked. "
