@@ -1,0 +1,49 @@
+.cyphbot-chat-pane { display: flex; flex-direction: column; min-width: 0; width: 100%; height: 100%; min-height: 0; }
+.cyphbot-window { position: fixed; top: 24px; bottom: 24px; right: 24px; width: min(480px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-height: none; border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 24px 80px #0002, 0 4px 18px #0001; }
+.cyphbot-header { background: linear-gradient(120deg, var(--raised), var(--inset)); }
+.cyphbot-header button { min-width: 30px; min-height: 30px; border-radius: 9px; }
+.cyphbot-message p, .cyphbot-message > div { font-size: 13px; line-height: 1.75; }
+.cyphbot-composer { padding: 14px 18px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--raised); }
+.cyphbot-composer-box { padding: 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--base); transition: border-color 160ms, box-shadow 160ms; }
+.cyphbot-composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); }
+.cyphbot-send { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; margin-bottom: 2px; border-radius: 11px; color: var(--accent); background: var(--inset); }
+.cyphbot-send[aria-label="Send message"]:not(:disabled) { color: white; background: var(--accent); }
+.cyphbot-response-notice { padding: 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 12px; line-height: 1.65; color: var(--soft); background: var(--inset); }
+.cyphbot-jump { position: absolute; bottom: 12px; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 30px; background: var(--raised); font-size: 11px; box-shadow: 0 4px 16px #0001; }
+.cyphbot-window :is(button,summary,select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cyphbot-window textarea:focus-visible { outline: none; }
+.cyphbot-window [data-chat-scroll] { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.cyphbot-preview-card { background: linear-gradient(145deg, var(--inset), var(--raised)); transition: border-color 180ms, transform 180ms, box-shadow 180ms; }
+.cyphbot-preview-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 6px 18px #00000008; }
+.cyphbot-expanded.cyphbot-expanded { display: flex; flex-direction: row; width: min(1280px, calc(100vw - 48px)); max-width: none; right: 24px; top: 24px; bottom: 24px; height: calc(100dvh - 48px); max-height: none; border-radius: 16px; }
+.cyphbot-expanded .cyphbot-chat-pane { flex: 0 0 365px; border-right: 1px solid var(--line); }
+.cyphbot-artifact-panel { min-height: 0; }
+.cyphbot-backdrop { opacity: 0; transition: opacity 220ms ease; pointer-events: none; }
+.cyphbot-backdrop.is-visible { opacity: 1; pointer-events: auto; }
+.cyphbot-window { opacity: 0; transform: translate3d(32px, 8px, 0) scale(.985); transform-origin: right center; pointer-events: none; transition: opacity 180ms ease, transform 260ms cubic-bezier(.2,.8,.2,1), width 280ms cubic-bezier(.2,.8,.2,1), height 280ms cubic-bezier(.2,.8,.2,1), top 280ms ease, right 280ms ease, border-radius 280ms ease; }
+.cyphbot-window.is-visible { opacity: 1; transform: translate3d(0,0,0) scale(1); pointer-events: auto; }
+.cyphbot-artifact-panel { animation: cyphbot-report-enter 240ms ease both; }
+.cyphbot-chart-tooltip { animation: cyphbot-tooltip-enter 100ms ease both; }
+.cyphbot-surface-word { display: inline-block; max-width: 100%; overflow-wrap: anywhere; vertical-align: baseline; animation: cyphbotWordRise 320ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes cyphbotWordRise { from { opacity: 0; transform: translateY(.6em); filter: blur(1.5px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+.cyphbot-artifact-panel .mark-symbol path, .cyphbot-artifact-panel .mark-rect path, .cyphbot-artifact-panel .mark-arc path { cursor: crosshair; transition: opacity 100ms ease; }
+.cyphbot-artifact-panel .mark-symbol path:hover, .cyphbot-artifact-panel .mark-rect path:hover, .cyphbot-artifact-panel .mark-arc path:hover { opacity: .75; }
+@keyframes cyphbot-report-enter { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes cyphbot-tooltip-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 900px) {
+  .cyphbot-window { top: auto; right: 12px; bottom: calc(86px + env(safe-area-inset-bottom)); width: min(340px, calc(100vw - 24px)); height: min(460px, calc(100dvh - 116px)); border-radius: 20px; }
+  .cyphbot-window.cyphbot-fullscreen { inset: 8px; width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+  .cyphbot-composer { padding: 12px; }
+  .cyphbot-composer textarea { font-size: 16px; }
+  .cyphbot-send { width: 40px; height: 40px; }
+  .cyphbot-expanded.cyphbot-expanded { inset: 8px; width: calc(100vw - 16px); height: calc(100dvh - 16px); max-width: none; border-radius: 14px; }
+  .cyphbot-expanded .cyphbot-chat-pane { display: none; }
+  .cyphbot-window:not(.is-visible) { transform: translate3d(0,18px,0) scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cyphbot-window, .cyphbot-backdrop { transition: none; }
+  .cyphbot-artifact-panel, .cyphbot-chart-tooltip { animation: none; }
+  .cyphbot-surface-word { animation: none; opacity: 1; transform: none; filter: none; }
+  .cyphbot-preview-card { transition: none; }
+  .cyphbot-preview-card:hover { transform: none; }
+}

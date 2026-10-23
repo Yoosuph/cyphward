@@ -1808,12 +1808,15 @@ body.drawer-open {
   .setup-checklist-steps li.is-next .btn{width:100%; justify-content:center}
 }
 
-.tour-root{position:fixed; inset:0; z-index:200; --tour-scrim:rgba(18,17,13,.32)}
+.tour-root{position:fixed; inset:0; z-index:1300; --tour-scrim:rgba(18,17,13,.32)}
 .tour-blocker{position:fixed; inset:0}
 [data-theme="dark"] .tour-root{--tour-scrim:rgba(0,0,0,.6)}
 .tour-scrim{position:fixed; inset:0; background:var(--tour-scrim)}
 .tour-spot{position:fixed; border-radius:10px; box-shadow:0 0 0 2px var(--accent), 0 0 0 9999px var(--tour-scrim); pointer-events:none; transition:top .25s ease, left .25s ease, width .25s ease, height .25s ease}
-.tour-card{position:fixed; z-index:1; background:var(--raised); border:1px solid var(--line-strong); border-radius:8px; padding:18px 18px 16px; box-shadow:0 18px 50px -12px rgba(0,0,0,.35); transition:top .25s ease, left .25s ease}
+.tour-card{position:fixed; z-index:1; background:var(--raised); border:1px solid var(--line-strong); border-radius:16px; padding:18px 18px 16px; box-shadow:0 18px 50px -12px rgba(0,0,0,.35); transition:top .25s ease, left .25s ease; overflow-y:auto; overscroll-behavior:contain}
+.tour-card button{min-height:40px}
+.tour-card button:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+@media(max-width:900px){.tour-card button{min-height:44px}.tour-card{padding:16px;transition:none}.tour-card .btn-mini{padding-inline:12px}}
 .tour-close{display:grid; place-items:center; width:32px; height:32px; margin:-6px -6px 0 0; border-radius:6px; color:var(--soft)}
 .tour-close:hover{background:var(--inset); color:var(--ink)}
 .tour-dots{display:flex; gap:5px; margin-top:14px}

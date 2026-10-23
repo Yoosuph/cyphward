@@ -13,6 +13,7 @@ import {
   type SessionUser,
 } from './session';
 import { clearPageCache } from './pageCache';
+import { reportArtifactSchema, type ReportArtifact, type ArtifactContext } from './reportArtifacts';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
   Scan, FindingExplanation, RemediationGuide, ExecutiveSummary, SettingsData,
@@ -498,12 +499,19 @@ export interface CyphBotResponse {
   q?: string;
   a?: string;
   answer: string;
+  artifact?: ReportArtifact;
   sources?: Array<{ id: string; label: string }>;
   actions?: Array<{ label: string; kind?: string; path?: string; toast?: string }>;
 }
 
+export type CyphBotActivityStep = 'request_sent' | 'reading_workspace' | 'reviewing_request' | 'building_report' | 'querying_period' | 'writing_answer' | 'retrying_provider';
+const ACTIVITY_STEPS: CyphBotActivityStep[] = ['reading_workspace', 'reviewing_request', 'building_report', 'querying_period', 'writing_answer', 'retrying_provider'];
+
 export interface CyphBotStreamCallbacks {
   onToken: (token: string) => void;
+  onArtifact?: (artifact: ReportArtifact) => void;
+  onArtifactStatus?: () => void;
+  onActivity?: (step: CyphBotActivityStep) => void;
   onComplete: (meta: { sources?: Array<{ id: string; label: string }>; actions?: Array<{ label: string; kind?: string; path?: string; toast?: string }> }) => void;
   onError: (err: any) => void;
 }
@@ -511,7 +519,8 @@ export interface CyphBotStreamCallbacks {
 export async function streamCyphBot(
   message: string,
   history: CyphBotMessage[] = [],
-  callbacks: CyphBotStreamCallbacks
+  callbacks: CyphBotStreamCallbacks,
+  options: { artifact_context?: ArtifactContext; signal?: AbortSignal } = {},
 ): Promise<void> {
   const token = await getAccessToken();
   const orgId = getActiveOrgId();
@@ -519,6 +528,7 @@ export async function streamCyphBot(
   try {
     const response = await fetch('/api/v1/ai/chat/stream', {
       method: 'POST',
+      signal: options.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -526,6 +536,7 @@ export async function streamCyphBot(
       },
       body: JSON.stringify({
         message,
+        artifact_context: options.artifact_context,
         history: history.map(h => ({
           role: h.role === 'assistant' ? 'model' : 'user',
           content: h.content,
@@ -534,71 +545,74 @@ export async function streamCyphBot(
     });
 
     if (!response.ok || !response.body) {
+      const failure = await response.json().catch(() => null);
+      if (typeof failure?.detail === 'string') throw new Error(failure.detail);
       throw new Error(`Stream request failed: ${response.status}`);
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    const consume = (line: string): boolean => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return false;
+      const data = JSON.parse(trimmed.slice(5).trim());
+      if (data.error) throw new Error(String(data.error));
+      if (data.type === 'assistant-status' && ACTIVITY_STEPS.includes(data.step)) callbacks.onActivity?.(data.step);
+      if (data.type === 'artifact-status') callbacks.onArtifactStatus?.();
+      if (data.type === 'artifact') {
+        const artifact = reportArtifactSchema.parse(data.artifact);
+        if (artifact.org_id !== orgId) throw new Error('Report workspace mismatch');
+        callbacks.onArtifact?.(artifact);
+      }
+      if (data.token) callbacks.onToken(data.token);
+      if (data.done) {
+        callbacks.onComplete({ sources: data.sources, actions: data.actions });
+        return true;
+      }
+      return false;
+    };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          if (buffer.trim() && consume(buffer)) return;
+          throw new Error('CyphBot disconnected before finishing. Please retry.');
+        }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > 2_000_000) throw new Error('The response was too large to display. Try a smaller report.');
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-            if (data.token) {
-              callbacks.onToken(data.token);
-            }
-            if (data.done) {
-              callbacks.onComplete({
-                sources: data.sources,
-                actions: data.actions,
-              });
-              return;
-            }
-          } catch (e) {
-            // Ignore partial parse
-          }
+        for (const line of lines) {
+          if (consume(line)) return;
         }
       }
+    } finally {
+      await reader.cancel().catch(() => {});
     }
 
-    callbacks.onComplete({});
   } catch (err) {
-    try {
-      const fallback = await askCyphBot(message, history);
-      const words = fallback.answer.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        callbacks.onToken(words[i] + (i < words.length - 1 ? ' ' : ''));
-        await new Promise(r => setTimeout(r, 16));
-      }
-      callbacks.onComplete({
-        sources: fallback.sources,
-        actions: fallback.actions,
-      });
-    } catch (innerErr) {
-      callbacks.onError(innerErr);
-    }
+    callbacks.onError(err);
+    throw err;
   }
 }
 
 export async function askCyphBot(
   message: string,
-  history: CyphBotMessage[] = []
+  history: CyphBotMessage[] = [],
+  options: { artifact_context?: ArtifactContext; signal?: AbortSignal } = {},
 ): Promise<CyphBotResponse> {
   try {
     const data = await apiFetch<any>('/ai/chat', {
       method: 'POST',
+      signal: options.signal,
       body: JSON.stringify({
         message,
+        artifact_context: options.artifact_context,
         history: history.map(h => ({
           role: h.role === 'assistant' ? 'model' : 'user',
           content: h.content,
@@ -609,10 +623,12 @@ export async function askCyphBot(
       q: message,
       a: data.answer,
       answer: data.answer,
+      artifact: data.artifact ? reportArtifactSchema.parse(data.artifact) : undefined,
       sources: data.sources || [{ id: 's1', label: 'Cyphward Sovereign Defense Core' }],
       actions: data.actions || [{ label: 'View Findings', kind: 'solid', path: '/findings' }],
     };
   } catch (err) {
+    if (options.signal?.aborted) throw err;
     const naturalFallback = `CyphBot could not load a response. Open the recorded finding and its guidance in **Findings**, or retry. No new assessment or configuration recommendation was produced.`;
     return {
       q: message,

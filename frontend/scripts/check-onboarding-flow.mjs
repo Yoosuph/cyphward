@@ -134,7 +134,7 @@ try {
   await page.setViewport({ width: 390, height: 844 });
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowRight');
   await page.waitForFunction(() => document.querySelector('#tour-title')?.textContent === 'Domains');
-  await page.waitForFunction(() => document.querySelector('#tour-body')?.textContent.includes('open Menu to find Domains'));
+  await page.waitForFunction(() => document.querySelector('#tour-body')?.textContent.includes('tap Menu to find Domains'));
   await new Promise(resolve => setTimeout(resolve, 400)); // card glides to its new place over 250ms
   assert.ok(await page.evaluate(() => {
     const card = document.querySelector('.tour-card').getBoundingClientRect();

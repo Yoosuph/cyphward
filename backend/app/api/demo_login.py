@@ -85,4 +85,14 @@ def demo_login(request: Request) -> Dict[str, Any]:
 def limit_demo_ai(org: Dict[str, Any] = Depends(get_current_org)) -> None:
     """Router dependency for the AI endpoints: caps the demo account's calls. Every other account is unaffected."""
     if str(org.get("current_user_id") or "") == DEMO_USER_ID:
-        check_rate_limit(f"demo-ai:{DEMO_USER_ID}", DEMO_AI_MAX_CALLS, DEMO_AI_WINDOW_SECONDS)
+        try:
+            check_rate_limit(f"demo-ai:{DEMO_USER_ID}", DEMO_AI_MAX_CALLS, DEMO_AI_WINDOW_SECONDS)
+        except HTTPException as exc:
+            if exc.status_code != 429:
+                raise
+            raise HTTPException(
+                status_code=429,
+                detail=(f"CyphBot's shared demo limit has been reached ({DEMO_AI_MAX_CALLS} requests per hour). "
+                        "Please try again after the current window resets."),
+                headers=exc.headers,
+            ) from None

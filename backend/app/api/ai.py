@@ -4,16 +4,19 @@ Evidence First, AI Second: Explanations, Step-by-step Remediation, and Executive
 """
 import json
 import asyncio
+from uuid import uuid4
 from backend.app.api.demo_login import limit_demo_ai
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional, List
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.ai.factory import get_ai_provider
 from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.core.auth import get_current_org
+from backend.app.ai.report_artifacts import ArtifactReference, build_report, wants_report
+from backend.app.ai.artifact_assistant import live_enabled, reply_live, LiveAIUnavailable
 
 router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"], dependencies=[Depends(limit_demo_ai)])
 
@@ -116,9 +119,25 @@ class ChatMessage(BaseModel):
 
 
 class CyphBotChatRequest(BaseModel):
-    message: str
-    history: Optional[List[Dict[str, str]]] = []
+    message: str = Field(min_length=1, max_length=6000)
+    history: Optional[List[Dict[str, str]]] = Field(default_factory=list, max_length=20)
     finding_id: Optional[str] = None
+    artifact_context: Optional[ArtifactReference] = None
+
+    @field_validator("message")
+    @classmethod
+    def nonempty_message(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a question.")
+        return value.strip()
+
+    @field_validator("history")
+    @classmethod
+    def bounded_history(cls, value):
+        for item in value or []:
+            if set(item) != {"role", "content"} or item["role"] not in ("user", "assistant", "model") or len(item["content"]) > 6000:
+                raise ValueError("History must contain bounded user and assistant messages.")
+        return value
 
 
 def _build_chat_context(org: Dict[str, Any]) -> Dict[str, Any]:
@@ -189,6 +208,17 @@ def _build_chat_context(org: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _live_lab_reply(req: CyphBotChatRequest, org: dict, on_progress=None, on_artifact=None) -> dict:
+    context = await asyncio.to_thread(_build_chat_context, org)
+    workspace = {
+        "score": context.get("score"), "score_assessed": context.get("score_assessed"),
+        "unresolved_findings_total": context.get("open_findings_total"), "severity_counts": context.get("severity_counts"),
+        "domains": [{"domain": d.get("domain"), "verification_status": d.get("verification_status")} for d in context.get("domains", [])],
+        "open_findings": [{k: str(f.get(k, ""))[:1500] for k in ("title", "severity", "category", "status", "description", "remediation")} for f in context.get("findings", [])[:15]],
+    }
+    return await reply_live(org, req.message, req.history or [], req.artifact_context, workspace, on_progress=on_progress, on_artifact=on_artifact)
+
+
 @router.post("/chat")
 async def cyphbot_chat(
     req: CyphBotChatRequest,
@@ -198,6 +228,15 @@ async def cyphbot_chat(
     CyphBot Interactive AI Security Assistant:
     Answers queries grounded in live scan telemetry and active findings.
     """
+    if live_enabled():
+        try:
+            return await _live_lab_reply(req, org)
+        except LiveAIUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
+    if wants_report(req.message, req.artifact_context):
+        artifact = await asyncio.to_thread(build_report, org, req.message, req.artifact_context)
+        return {"answer": artifact["summary"], "artifact": artifact,
+                "sources": [{"id": "report-data", "label": "Recorded workspace telemetry"}], "actions": []}
     context = _build_chat_context(org)
     ai = get_ai_provider()
     return await ai.chat(req.message, req.history or [], context)
@@ -209,6 +248,53 @@ async def cyphbot_chat_stream(
     org: Dict[str, Any] = Depends(get_current_org)
 ):
     """CyphBot streaming analyst: streams tokens progressively over SSE."""
+    if live_enabled():
+        async def live_events():
+            # Only host operation names are exposed, never model thinking text.
+            queue = asyncio.Queue()
+            artifact_sent = False
+            async def progress(step):
+                await queue.put({'type': 'assistant-status', 'status': 'thinking', 'step': step})
+            async def publish_artifact(artifact):
+                nonlocal artifact_sent
+                artifact_sent = True
+                await queue.put({'type': 'artifact-status', 'id': artifact['id'], 'status': 'loading'})
+                await queue.put({'type': 'artifact', 'artifact': artifact})
+            async def run():
+                try:
+                    result = await _live_lab_reply(req, org, progress, publish_artifact)
+                    if result.get("artifact") and not artifact_sent:
+                        await publish_artifact(result["artifact"])
+                    await queue.put({'token': result['answer'], 'done': False})
+                    await queue.put({'done': True, 'sources': result['sources'], 'actions': []})
+                except LiveAIUnavailable as exc:
+                    await queue.put({'error': str(exc), 'done': True})
+                except Exception:
+                    await queue.put({'error': 'CyphBot could not read the local report data. Please retry.', 'done': True})
+                finally:
+                    await queue.put(None)
+            yield f"data: {json.dumps({'type': 'assistant-status', 'status': 'thinking', 'step': 'reading_workspace'})}\n\n"
+            task = asyncio.create_task(run())
+            try:
+                while (event := await queue.get()) is not None:
+                    yield f"data: {json.dumps(event)}\n\n"
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        return StreamingResponse(live_events(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+    if wants_report(req.message, req.artifact_context):
+        async def report_events():
+            # Keyed event stays separate from prose; no partial JSON is ever painted.
+            artifact_id = req.artifact_context.id if req.artifact_context else uuid4()
+            yield f"data: {json.dumps({'type': 'artifact-status', 'id': str(artifact_id), 'status': 'loading'})}\n\n"
+            try:
+                artifact = await asyncio.to_thread(build_report, org, req.message, req.artifact_context, artifact_id)
+                yield f"data: {json.dumps({'type': 'artifact', 'artifact': artifact})}\n\n"
+                yield f"data: {json.dumps({'token': artifact['summary'], 'done': False})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'sources': [{'id': 'report-data', 'label': 'Recorded workspace telemetry'}], 'actions': []})}\n\n"
+            except Exception:
+                yield f"data: {json.dumps({'error': 'Report could not be generated. Please retry; no report was saved.', 'done': True})}\n\n"
+        return StreamingResponse(report_events(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
     context = _build_chat_context(org)
     ai = get_ai_provider()
 

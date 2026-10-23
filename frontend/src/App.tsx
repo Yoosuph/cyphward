@@ -10,6 +10,7 @@ import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import CommandPalette from './components/CommandPalette';
 import ProductTour from './components/ProductTour';
+import { TOUR_EVENT } from './lib/tour';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
@@ -151,6 +152,12 @@ function AppShell() {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const closeOverlays = () => { setMobileMenuOpen(false); setCyphBotOpen(false); setPalOpen(false); };
+    window.addEventListener(TOUR_EVENT, closeOverlays);
+    return () => window.removeEventListener(TOUR_EVENT, closeOverlays);
+  }, []);
 
   // New pages open at the top; back/forward keeps the browser's position.
   useLayoutEffect(() => {
