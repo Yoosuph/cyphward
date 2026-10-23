@@ -253,7 +253,12 @@ try {
     return { id: a?.id || "", testid: a?.getAttribute?.("data-testid") || "", tag: a?.tagName || "", inDialog: !!a?.closest?.('[role="dialog"]') };
   });
   const openTab = async (label) => {
-    assert.ok(await clickExact(label, '[role="tablist"]'), `tab ${label}`);
+    assert.ok(await page.evaluate(label => {
+      const button = [...document.querySelectorAll('[role="tab"]')].find(button => button.getAttribute('aria-label') === label);
+      button?.click();
+      return Boolean(button);
+    }, label), `tab ${label}`);
+    await page.waitForFunction(label => document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('aria-label') === label, {}, label);
   };
   const noVerdicts = async (where) => {
     const lowered = (await bodyText()).toLowerCase();
@@ -974,6 +979,7 @@ try {
   await page.focus("#tab-readiness");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
+  await page.waitForSelector('#tab-incidents[aria-selected="true"]');
   assert.equal(await page.evaluate(() => [document.activeElement.id, document.activeElement.getAttribute("aria-selected")].join()), "tab-incidents,true", "keyboard: arrow keys select and focus the next tab");
   await page.waitForSelector('[data-testid="incidents"]');
   assert.ok(await tabUntil((a) => a.testid === "incident-new", 10), "keyboard: Tab reaches Record an incident");

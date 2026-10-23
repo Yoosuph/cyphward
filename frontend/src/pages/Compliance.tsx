@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CheckCheck, ChevronDown, ClipboardList, FileCheck2, FolderOpen, Info, ListChecks, Lock, Search, ShieldCheck, Siren, Users, RefreshCw } from 'lucide-react';
 import './compliance/compliance.css';
-import { PageHead } from '../components/ui';
+import { PageHead, Skeleton, SkeletonText } from '../components/ui';
 import { ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
 import { resolveZone } from '../lib/datetime';
 import { useOrgZone } from '../lib/orgZone';
@@ -39,6 +39,19 @@ const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', n
 const CARD = 'rounded-2xl border border-line bg-raised';
 const TAB_ICONS = [ShieldCheck, ListChecks, Siren, FolderOpen, FileCheck2, Users];
 const TAB_NOTES: Record<string, string> = { readiness: 'Review the evidence behind each requirement and decide what to work on next.', questions: 'Record what your team does, assign evidence owners and keep answers up to date.', incidents: 'Record events and follow the response work through to closure.', packs: 'Prepare dated evidence for management and practitioner reviews.', documents: 'Draft, review and approve your organisation’s policy documents.', reviewers: 'Give a practitioner scoped access to support your review.' };
+
+function ComplianceLoading() {
+  return <div className="compliance-page space-y-6 pb-12" data-testid="state-loading" role="status" aria-busy="true" aria-label="Loading compliance workspace">
+    <PageHead title="Compliance readiness" note="Organise evidence, close gaps and prepare for review." />
+    <p className="text-xs mono text-soft">Loading your compliance workspace…</p>
+    <Skeleton height={68} rounded="lg" />
+    <Skeleton height={58} rounded="lg" />
+    <div className="compliance-overview-grid" aria-hidden="true">
+      {[0, 1].map(key => <div key={key} className={`${CARD} p-6 space-y-5`}><Skeleton width="55%" height={15}/><Skeleton width="70%" height={35}/><SkeletonText lines={3}/><Skeleton height={68}/></div>)}
+    </div>
+    <Skeleton height={160} rounded="lg" />
+  </div>;
+}
 
 /** What every tab panel receives. Add a field here when a new tab needs more from the page. */
 interface TabContext {
@@ -110,14 +123,15 @@ function TaskButton({ finding }: { finding: ComplianceFindingRef }) {
 
 function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone: string; told: QuestionnaireQuestion[] }) {
   const [open, setOpen] = useState(false);
+  const detailId = useId();
   const fmtDay = (value?: string | null) => fmtDayZone(value, zone);
   const renewalDue = told.some(q => q.current?.expired);
   return (
     <li data-requirement-row className="border-t border-line first:border-t-0">
-      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+      <button type="button" id={`${detailId}-trigger`} onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls={open ? detailId : undefined}
               className="w-full text-left px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 hover:bg-inset/60 transition-colors">
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-ink font-medium">{req.title}</p>
+          <p className="text-sm text-ink font-medium flex items-start justify-between gap-3">{req.title}<ChevronDown size={15} aria-hidden="true" className={`sm:hidden shrink-0 mt-0.5 text-soft transition-transform ${open ? 'rotate-180' : ''}`} /></p>
           <p className={`text-[11px] mono mt-0.5 ${req.clause_verified || req.clause_review?.verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end shrink-0">
@@ -129,7 +143,7 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
       </button>
 
       {open && (
-        <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
+        <div id={detailId} role="region" aria-labelledby={`${detailId}-trigger`} className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
           {(req.practitioner_review || req.clause_review) && (
@@ -279,13 +293,15 @@ export default function Compliance() {
   const tabs = TABS.filter(t => !t.ownerOnly || isOwner);
   const toast = useToast();
   const orgZone = useOrgZone();
-  const [tab, setTab] = useState<string>('readiness');
+  const [params, setParams] = useSearchParams();
+  const requestedTab = params.get('section');
+  const tab = tabs.some(t => t.key === requestedTab) ? requestedTab! : 'readiness';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
   const requirementsRef = useRef<HTMLDivElement>(null);
   const selectTab = (key: string) => {
-    setTab(key);
+    setParams(previous => { const next = new URLSearchParams(previous); if (key === 'readiness') next.delete('section'); else next.set('section', key); return next; });
     requestAnimationFrame(() => tabRefs.current[key]?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   };
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -324,7 +340,7 @@ export default function Compliance() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading && !data) return <div className="max-w-7xl mx-auto pb-16"><LoadingPanel label="compliance readiness" lines={4} /></div>;
+  if (loading && !data) return <ComplianceLoading />;
   if (error && !data) {
     return (
       <div className="max-w-7xl mx-auto pb-16 content-fade-in">
@@ -348,12 +364,16 @@ export default function Compliance() {
   })).filter(group => group.requirements.length > 0 || (!filtering && groupFilter === 'all') || (group.locked && !search.trim() && statusFilter === 'all'));
   const visibleCount = visibleGroups.reduce((n, group) => n + group.requirements.length, 0);
   const coverage = r.applicable > 0 ? Math.min(100, Math.max(0, Math.round(r.with_evidence / r.applicable * 100))) : 0;
-
+  const renewals = (qn?.questions || []).filter(q => q.answer_state === 'expired').length;
+  const focusStatus = (status: string) => {
+    setSearch(''); setGroupFilter('all'); setStatusFilter(status);
+    requestAnimationFrame(() => requirementsRef.current?.scrollIntoView({ block: 'start' }));
+  };
 
   const questions = qnGated ? <GrowthGate what="The questionnaire" />
     : qnError && !qn ? <LoadError title="We could not load the questions" message={qnError} onRetry={() => void loadQuestionnaire()} />
     : !qn ? <LoadingPanel label="questions" />
-    : <QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} />;
+    : <>{qnError && <LoadError title="Your questions were not refreshed" message={qnError} onRetry={() => void loadQuestionnaire()} />}<QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} /></>;
 
   const readiness = (
     <>
@@ -367,10 +387,11 @@ export default function Compliance() {
           <div className="compliance-coverage-track" role="progressbar" aria-label="Requirements with recorded evidence" aria-valuenow={r.with_evidence} aria-valuemin={0} aria-valuemax={Math.max(r.applicable, r.with_evidence, 1)}><span style={{ width: `${coverage}%` }} /></div>
           <p className="text-[11px] text-soft">Evidence coverage includes recorded gaps. It is not a legal verdict.</p>
           <div className="compliance-status-grid">
-            <div><StatusChip level="ok">{r.present} PRESENT</StatusChip></div>
-            <div><StatusChip level="bad">{r.gap} GAPS</StatusChip></div>
-            <div><StatusChip level="warn">{r.not_assessed} NOT ASSESSED</StatusChip></div>
-            <div><StatusChip level="idle">{r.awaiting_input} AWAITING INPUT</StatusChip></div>
+            {([
+              ['present', r.present, 'PRESENT', 'ok'], ['gap', r.gap, 'GAPS', 'bad'],
+              ['not_assessed', r.not_assessed, 'NOT ASSESSED', 'warn'], ['awaiting_input', r.awaiting_input, 'AWAITING INPUT', 'idle'],
+            ] as const).map(([status, count, label, level]) => <button key={status} type="button" aria-label={`Filter requirements: ${label.toLowerCase()}`} aria-pressed={statusFilter === status}
+              onClick={() => focusStatus(statusFilter === status ? 'all' : status)}><StatusChip level={level}>{count} {label}</StatusChip><ArrowUpRight size={12} aria-hidden="true" /></button>)}
           </div>
         </section>
         <section className={`p-5 sm:p-6 ${CARD}`} aria-label="Next steps">
@@ -378,10 +399,10 @@ export default function Compliance() {
           <h2 className="text-lg font-semibold mt-2 mb-4">A clear next step</h2>
           <div className="compliance-next-actions">
             {data.domains.length === 0 && <Link to="/domains" className="inline-flex items-center gap-2 text-sm text-accent min-h-[44px]">Verify a domain to start collecting evidence <ArrowUpRight size={15}/></Link>}
-            <button type="button" onClick={() => { setSearch(''); setGroupFilter('all'); setStatusFilter('gap'); requestAnimationFrame(() => requirementsRef.current?.scrollIntoView({ block: 'start' })); }}>
-              <span className="compliance-action-icon"><CheckCheck size={17}/></span><span><strong>Review the gaps</strong><small>{r.gap} {r.gap === 1 ? 'requirement' : 'requirements'} with linked findings</small></span><ArrowUpRight size={15}/>
+            <button type="button" onClick={() => focusStatus('gap')}>
+              <span className="compliance-action-icon"><CheckCheck size={17}/></span><span><strong>Review the gaps</strong><small>{r.gap} {r.gap === 1 ? 'requirement' : 'requirements'} with recorded gaps</small></span><ArrowUpRight size={15}/>
             </button>
-            <button type="button" onClick={() => selectTab('questions')}><span className="compliance-action-icon"><ListChecks size={17}/></span><span><strong>Complete your evidence</strong><small>Answer questions and review renewals</small></span><ArrowUpRight size={15}/></button>
+            <button type="button" onClick={() => selectTab('questions')}><span className="compliance-action-icon"><ListChecks size={17}/></span><span><strong>{canEdit ? 'Complete your evidence' : 'Review your evidence'}</strong><small>{renewals > 0 ? `${renewals} ${renewals === 1 ? 'answer needs' : 'answers need'} renewal` : 'Answer questions and review renewals'}</small></span><ArrowUpRight size={15}/></button>
             <button type="button" onClick={() => selectTab('packs')}><span className="compliance-action-icon"><FolderOpen size={17}/></span><span><strong>Prepare a review pack</strong><small>Keep a dated snapshot of your evidence</small></span><ArrowUpRight size={15}/></button>
           </div>
         </section>
@@ -458,7 +479,10 @@ export default function Compliance() {
 
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const keys = tabs.map(t => t.key);
-    const at = keys.indexOf(tab);
+    // URL navigation may still be committing when a second key arrives.
+    // Move from the focused tab so rapid arrow presses never repeat a step.
+    const focused = (e.target as HTMLElement).closest('[role="tab"]')?.id.replace('tab-', '');
+    const at = keys.indexOf(focused || tab);
     const next = e.key === 'ArrowRight' ? (at + 1) % keys.length : e.key === 'ArrowLeft' ? (at - 1 + keys.length) % keys.length
       : e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : -1;
     if (next < 0) return;
@@ -473,10 +497,13 @@ export default function Compliance() {
         title="Compliance readiness"
         note={`${data.register.title}. Organise evidence, close gaps and prepare for review.`}
         actions={
+          <>
+          {!canEdit && <span className="compliance-access-label"><Lock size={12} aria-hidden="true"/> View only</span>}
           <button type="button" onClick={() => void load(true)} aria-label="Refresh" title="Refresh" disabled={loading}
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[44px] btn-tactile">
             <RefreshCw size={14} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> <span>Refresh</span>
           </button>
+          </>
         }
       />
 
@@ -489,19 +516,20 @@ export default function Compliance() {
 
       <div role="tablist" aria-label="Compliance sections" className="compliance-tabs" onKeyDown={onTabKey}>
         {tabs.map(t => { const Icon = TAB_ICONS[TABS.indexOf(t)]; return (
-          <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
+          <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-label={t.label} aria-selected={tab === t.key}
+                  aria-describedby={t.key === 'questions' && renewals > 0 ? 'compliance-renewal-count' : undefined}
                   aria-controls={`panel-${t.key}`} tabIndex={tab === t.key ? 0 : -1}
                   ref={el => { tabRefs.current[t.key] = el; }}
                   onClick={() => selectTab(t.key)}
                   className={`compliance-tab ${tab === t.key ? 'compliance-tab-active' : ''}`}>
-            <Icon size={15} aria-hidden="true"/>{t.label}
+            <Icon size={15} aria-hidden="true"/><span>{t.label}</span>{t.key === 'questions' && renewals > 0 && <span id="compliance-renewal-count" className="compliance-tab-count"><span aria-hidden="true">{renewals}</span><span className="sr-only">{renewals} {renewals === 1 ? 'answer needs' : 'answers need'} renewal</span></span>}
           </button>
         ); })}
       </div>
 
       {tabs.filter(t => t.key === tab).map(t => (
-        <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} className="space-y-6">
-          <p className="text-sm text-soft">{TAB_NOTES[t.key]}</p>
+        <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} className="compliance-tab-panel space-y-6">
+          <div className="compliance-section-heading"><div><p className="compliance-eyebrow">Compliance workspace</p><h2>{t.label === 'Packs' ? 'Evidence packs' : t.label}</h2></div><p>{TAB_NOTES[t.key]}</p></div>
           {t.render({ canEdit, isOwner, zone, readiness, questions })}
         </div>
       ))}
