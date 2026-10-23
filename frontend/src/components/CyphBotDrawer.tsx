@@ -167,7 +167,10 @@ function FormattedMessage({ content, isStreaming, animate, onRevealed }: { conte
   let codeBuffer: string[] = [];
   let codeLang = '';
 
+  let tableEnd = -1;
+  const cells = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'));
   lines.forEach((line, idx) => {
+    if (idx <= tableEnd) return;
     if (line.trim().startsWith('```')) {
       if (!inCode) {
         inCode = true;
@@ -188,6 +191,24 @@ function FormattedMessage({ content, isStreaming, animate, onRevealed }: { conte
 
     if (inCode) {
       codeBuffer.push(line);
+      return;
+    }
+
+    // A delimiter row distinguishes Markdown tables from ordinary prose.
+    // Cells stay React text, and wide tables scroll within the chat bubble.
+    const headers = cells(line);
+    const divider = lines[idx + 1] ? cells(lines[idx + 1]) : [];
+    if (line.includes('|') && divider.length === headers.length && divider.every(cell => /^:?-{3,}:?$/.test(cell))) {
+      const rows: string[][] = [];
+      tableEnd = idx + 1;
+      while (tableEnd + 1 < lines.length && lines[tableEnd + 1].includes('|') && lines[tableEnd + 1].trim()) {
+        rows.push(cells(lines[++tableEnd]));
+      }
+      parts.push(<div key={`table-${idx}`} className="my-2 max-w-full overflow-x-auto rounded-lg border border-line" tabIndex={0} role="region" aria-label="Findings explanation table">
+        <table className="w-full text-left text-xs"><thead className="bg-inset"><tr>{headers.map((header, col) => <th scope="col" key={col} className="px-3 py-2 font-semibold text-ink">{inlineFormat(header, surface)}</th>)}</tr></thead>
+          <tbody>{rows.map((row, r) => <tr key={r} className="border-t border-line">{headers.map((_, col) => <td key={col} className="px-3 py-2 min-w-[120px] max-w-[280px] break-words align-top text-ink/90">{inlineFormat(row[col] || '', surface)}</td>)}</tr>)}</tbody>
+        </table>
+      </div>);
       return;
     }
 

@@ -98,7 +98,7 @@ function Chart({ chart }: { chart: ReportChart }) {
 export default function CyphBotReportPanel({ artifact, versions, onVersion, onClose }: {
   artifact: ReportArtifact; versions: ReportArtifact[]; onVersion: (version: ReportArtifact) => void; onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'preview' | 'data'>('preview');
+  const [tab, setTab] = useState<'preview' | 'data'>(artifact.charts.length ? 'preview' : 'data');
   const viewId = useId();
   const tabKeys = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -137,7 +137,7 @@ export default function CyphBotReportPanel({ artifact, versions, onVersion, onCl
         {artifact.severities.length > 0 && <p className="text-xs text-accent">Finding filter: {artifact.severities.join(', ')} · Assessment and task metrics retain their full scope.</p>}
         <p className="text-sm leading-relaxed text-soft">{artifact.summary}</p>
       </div>
-      {tab === 'preview' ? <>
+      {tab === 'preview' && artifact.charts.length > 0 ? <>
         {artifact.metrics.length > 0 && <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{artifact.metrics.map(metric => <div key={metric.label} className="rounded-lg border border-line bg-raised p-3"><p className="text-[10px] text-soft">{metric.label}</p><p className="text-2xl font-semibold text-ink mt-1">{metric.value}</p></div>)}</div>}
         <div className="space-y-4">{artifact.charts.map(chart => <Chart key={`${artifact.version}-${chart.id}`} chart={chart}/>)}</div>
       </> : <div className="space-y-5">{tables.map((table, i) => <section key={i} className="rounded-xl border border-line bg-raised overflow-hidden">

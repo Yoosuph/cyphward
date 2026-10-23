@@ -233,6 +233,7 @@ def test_published_report_is_not_emitted_twice(monkeypatch):
         return [json.loads(chunk.removeprefix("data: ")) async for chunk in response.body_iterator]
     events = asyncio.run(run())
     assert len([e for e in events if e.get("type") == "artifact"]) == 1
+    assert next(i for i, e in enumerate(events) if "token" in e) < next(i for i, e in enumerate(events) if e.get("type") == "artifact")
     assert events[-1]["done"] is True
 
 
@@ -314,3 +315,31 @@ def test_invalid_plan_is_repaired_once_by_model(monkeypatch):
     result = asyncio.run(live.plan_conversation("Show severity as a line", [], SNAPSHOT, None))
     assert result.action == "chat" and len(calls) == 2
     assert "failed host validation" in calls[1]["systemInstruction"]["parts"][0]["text"]
+
+
+def test_model_schema_and_prompt_support_table_only(monkeypatch):
+    body = {"candidates": [{"finishReason": "STOP", "content": {"parts": [
+        {"text": json.dumps({"action": "report", "answer": "Findings table", "charts": [], "include_tables": True, "include_metrics": False})}
+    ]}}]}
+    requests = stub_http(monkeypatch, body=body)
+    result = asyncio.run(live.plan_conversation("Use only a table", [], SNAPSHOT, None))
+    assert result.charts == []
+    payload = requests[0][2]
+    assert payload["generationConfig"]["responseSchema"]["properties"]["charts"]["minItems"] == 0
+    assert "Markdown table" in payload["systemInstruction"]["parts"][0]["text"]
+
+
+@pytest.mark.parametrize("message", ["Use just table to explain findings", "Only a table please", "Tables only", "Use a table without charts"])
+def test_table_only_overrides_model_and_previous_chart_choices(monkeypatch, message):
+    builds = []
+    def build(*args, **options):
+        builds.append(options)
+        return SNAPSHOT
+    async def plan(*args, **kwargs):
+        return live.ConversationPlan(action="chat" if kwargs.get("answer_only") else "report", answer="Findings explanation", charts=[{"metric": "severity", "kind": "bar"}])
+    monkeypatch.setattr(live, "build_report", build)
+    monkeypatch.setattr(live, "plan_conversation", plan)
+    previous = ArtifactReference(id=UUID(ORG_A), version=1, charts=[{"metric": "severity", "kind": "bar"}])
+    asyncio.run(live.reply_live({"id": ORG_A, "name": "Sample"}, message, [], previous))
+    assert builds[-1]["charts"] == []
+    assert builds[-1]["include_tables"] is True and builds[-1]["include_metrics"] is False

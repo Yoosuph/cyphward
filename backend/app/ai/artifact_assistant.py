@@ -16,7 +16,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.app.ai.privacy import sanitize_for_ai, sanitize_text
-from backend.app.ai.report_artifacts import ArtifactReference, ChartSelection, Severity, CATALOG, build_report, enabled
+from backend.app.ai.report_artifacts import ArtifactReference, ChartSelection, Severity, CATALOG, build_report, enabled, table_only_requested
 
 
 class LiveAIUnavailable(RuntimeError):
@@ -29,7 +29,7 @@ class ConversationPlan(BaseModel):
     answer: str = Field(min_length=1, max_length=8000)
     days: int | None = Field(default=None, ge=1, le=365)
     chart_style: Literal["line", "bar", "area"] | None = None
-    charts: list[ChartSelection] | None = Field(default=None, min_length=1, max_length=6)
+    charts: list[ChartSelection] | None = Field(default=None, max_length=6)
     include_metrics: bool | None = None
     include_tables: bool | None = None
     heading: str | None = Field(default=None, max_length=120)
@@ -63,13 +63,18 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
         "Resolved workflow status alone doesn't prove a verified fix. Safe configuration advice requires sender inventories, "
         "staged changes, testing and rollback; never immediate DMARC reject, blanket HSTS/preload, or enforcing CSP. "
         "Choose action=report ONLY when the user actually asks to create/regenerate a visual report, chart or graph, "
-        "or explicitly change the existing chart's presentation or period. Questions ABOUT a report (why a value changed, "
+        "table report, or explicitly change the existing report's presentation or period. Questions ABOUT a report (why a value changed, "
         "what a chart means, what to fix, whether the report is reliable) are action=chat. General questions are chat. "
         "Do not turn every mention of dashboard/performance/report into a report. "
         "Supported periods are any rolling 1–365 days (weeks/months can be converted). If a question needs a different period, "
         "set days to that period even for chat: the host will retrieve fresh data before the final answer. "
         "Available chart metrics are described in metric_catalog. Choose charts as a complete ordered list of metric/kind pairs. "
-        "Use at most six charts per report. "
+        "Use at most six charts per report. charts=[] explicitly means NO charts; null preserves the previous view or defaults. "
+        "Respect the latest requested format over earlier chart requests. For a table-only report, return charts=[], "
+        "include_metrics=false and include_tables=true. Never substitute a bar chart for a table. "
+        "For requests to explain findings using just a table, prefer action=chat and answer with a Markdown table "
+        "containing the observed finding, what it means, and safe next steps, grounded in organization_assessment. "
+        "Do not attach any report/chart to a chat answer. Do not add prose outside the table when the user says only a table. "
         "Temporal metrics permit line/bar/area; current category metrics permit bar/donut, never fake historical lines. "
         "A request to draw ONLY a line graph of organizational performance means charts=[{metric:assessment_scores,kind:line}], "
         "include_metrics=false, include_tables=false. Never include unwanted bar/donut charts. "
@@ -95,7 +100,7 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
                    "For a generated chart, describe what it actually shows. Do not say you are about to generate it. "
                    "Always return action=chat and null for every presentation/query field; no further tool request is allowed.")
         if report_ready:
-            system += ("\nThe chart/report has ALREADY been generated and attached as a clickable preview in chat. "
+            system += ("\nThe report data has ALREADY been prepared. Your explanation will appear BEFORE its clickable preview. "
                        "The full artifact panel opens only when the user selects that preview; do not claim it is already open. "
                        "Do not say 'I will generate', 'I'll create', "
                        "'generating' or merely acknowledge the request. Explain what the returned plotted values show, "
@@ -120,7 +125,7 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
             "answer": {"type": "STRING"},
             "days": {"type": "INTEGER", "nullable": True},
             "chart_style": {"type": "STRING", "enum": ["line", "bar", "area"], "nullable": True},
-            "charts": {"type": "ARRAY", "nullable": True, "minItems": 1, "maxItems": 6, "items": {"type": "OBJECT", "properties": {
+            "charts": {"type": "ARRAY", "nullable": True, "minItems": 0, "maxItems": 6, "items": {"type": "OBJECT", "properties": {
                 "metric": {"type": "STRING", "enum": list(CATALOG)},
                 "kind": {"type": "STRING", "enum": ["line", "bar", "area", "donut"]},
             }, "required": ["metric", "kind"]}},
@@ -206,6 +211,8 @@ async def reply_live(org: dict, message: str, history: list, previous: ArtifactR
         "include_tables": plan.include_tables, "severities": plan.severities,
         "heading": f"{org['name']} · {plan.heading}" if plan.heading else None,
     }
+    if table_only_requested(message):
+        options.update(charts=[], include_metrics=False, include_tables=True)
     if plan.action == "report":
         if on_progress:
             await on_progress("building_report")

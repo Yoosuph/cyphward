@@ -154,8 +154,8 @@ def test_keyed_stream_separates_chart_payload_from_text(lab, monkeypatch):
         return [json.loads(chunk.removeprefix("data: ")) async for chunk in response.body_iterator]
     events = asyncio.run(run())
     assert events[0]["status"] == "loading"
-    assert events[0]["id"] == events[1]["artifact"]["id"]
-    assert "artifact" not in events[2] and "token" in events[2]
+    assert events[0]["id"] == events[2]["artifact"]["id"]
+    assert "artifact" not in events[1] and "token" in events[1]
     assert events[-1]["done"] is True
 
 
@@ -207,3 +207,13 @@ def test_catalog_is_complete_bounded_and_scoped(lab, monkeypatch):
     for sql, params in queries:
         if sql.startswith("SELECT"):
             assert params[0] == ORG_A and "org_id=%s" in sql
+
+
+def test_table_only_report_and_refresh_preserve_empty_chart_selection(lab, monkeypatch):
+    stub_snapshot(monkeypatch)
+    report = artifacts.build_report({"id": ORG_A, "name": "Tenant A"}, "Use just a table to explain findings")
+    assert report["charts"] == [] and report["metrics"] == []
+    assert report["tables"][0]["rows"][0][0] == "Recorded finding"
+    ref = artifacts.ArtifactReference(id=report["id"], version=1, charts=[], include_metrics=False, include_tables=True)
+    refreshed = artifacts.build_report({"id": ORG_A, "name": "Tenant A"}, "refresh", ref)
+    assert refreshed["charts"] == [] and refreshed["tables"]

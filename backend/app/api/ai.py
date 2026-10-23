@@ -252,24 +252,35 @@ async def cyphbot_chat_stream(
         async def live_events():
             # Only host operation names are exposed, never model thinking text.
             queue = asyncio.Queue()
-            artifact_sent = False
+            prepared_artifact = None
             async def progress(step):
                 await queue.put({'type': 'assistant-status', 'status': 'thinking', 'step': step})
-            async def publish_artifact(artifact):
-                nonlocal artifact_sent
-                artifact_sent = True
-                await queue.put({'type': 'artifact-status', 'id': artifact['id'], 'status': 'loading'})
-                await queue.put({'type': 'artifact', 'artifact': artifact})
+            async def remember_artifact(artifact):
+                nonlocal prepared_artifact
+                # Preserve completed data if narration fails, but do not display
+                # the preview before the explanation.
+                prepared_artifact = artifact
+            async def publish_artifact():
+                if prepared_artifact:
+                    await queue.put({'type': 'artifact-status', 'id': prepared_artifact['id'], 'status': 'loading'})
+                    await queue.put({'type': 'artifact', 'artifact': prepared_artifact})
             async def run():
                 try:
-                    result = await _live_lab_reply(req, org, progress, publish_artifact)
-                    if result.get("artifact") and not artifact_sent:
-                        await publish_artifact(result["artifact"])
+                    result = await _live_lab_reply(req, org, progress, remember_artifact)
+                    if result.get("artifact"):
+                        await remember_artifact(result["artifact"])
                     await queue.put({'token': result['answer'], 'done': False})
+                    await publish_artifact()
                     await queue.put({'done': True, 'sources': result['sources'], 'actions': []})
                 except LiveAIUnavailable as exc:
+                    if prepared_artifact:
+                        await queue.put({'token': 'The requested report data is ready, but the AI explanation could not be completed.', 'done': False})
+                        await publish_artifact()
                     await queue.put({'error': str(exc), 'done': True})
                 except Exception:
+                    if prepared_artifact:
+                        await queue.put({'token': 'The requested report data is ready, but its explanation could not be completed.', 'done': False})
+                        await publish_artifact()
                     await queue.put({'error': 'CyphBot could not read the report data. Please retry.', 'done': True})
                 finally:
                     await queue.put(None)
@@ -289,8 +300,8 @@ async def cyphbot_chat_stream(
             yield f"data: {json.dumps({'type': 'artifact-status', 'id': str(artifact_id), 'status': 'loading'})}\n\n"
             try:
                 artifact = await asyncio.to_thread(build_report, org, req.message, req.artifact_context, artifact_id)
-                yield f"data: {json.dumps({'type': 'artifact', 'artifact': artifact})}\n\n"
                 yield f"data: {json.dumps({'token': artifact['summary'], 'done': False})}\n\n"
+                yield f"data: {json.dumps({'type': 'artifact', 'artifact': artifact})}\n\n"
                 yield f"data: {json.dumps({'done': True, 'sources': [{'id': 'report-data', 'label': 'Recorded workspace telemetry'}], 'actions': []})}\n\n"
             except Exception:
                 yield f"data: {json.dumps({'error': 'Report could not be generated. Please retry; no report was saved.', 'done': True})}\n\n"

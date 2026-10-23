@@ -95,3 +95,12 @@ Repeated live checks exhausted the local sample account's hourly AI throttle onc
 Branding follow-up: removed fabricated provider citations from welcome/reset messages. Legacy Claude provider badges display as “AI analysis”; actual Gemini response labels remain intact. Source badges use compact 8px text with less padding and no decorative lock. A browser display check with an intercepted response passed welcome/reset, legacy/Gemini badges, computed font size, and desktop/mobile overflow checks; it did not call Gemini. The frontend build and diff whitespace checks passed after this change.
 
 User acceptance comes first. A shippable version would need a durable tenant-authorized artifact/version store, quota and retention decisions, broader model-intent/grounding evaluations and optional expanded chart catalogs, broader empty/error/tenant-switch browser coverage, accessible keyboard/focus handling for the combined chat/report dialog, chart-library dependency review, and an explicit production rollout. Nothing here creates a publication link or a compliance certification.
+
+
+### 23 October: table-only answers and explanation-first delivery
+
+The planner now accepts an explicit empty chart list, distinct from null (preserve/default). Latest-turn table-only requests suppress chart and metric cards even when the prior view contained charts. Findings explanations can be Markdown tables directly in chat; the host renders safe text cells in a horizontally scrollable table. Table-only report artifacts open on Data, with table counts in their preview. Empty chart selection survives refresh/version references.
+
+The live stream holds prepared report data until the model explanation is ready, then sends explanation text before the preview. If narration fails, a visible failure notice precedes the prepared preview and terminal provider error; completed data remains available. This supersedes the earlier preview-before-explanation behavior described above. No extra AI calls are introduced.
+
+Regression coverage: planner schema/prompt, explicit format overrides after chart views, table-only report refresh, SSE explanation-before-artifact ordering, and browser table rendering/mobile overflow/HTML-as-text/default Data view. Run the isolated browser check with `node frontend/scripts/check-cyphbot-tables.mjs`.

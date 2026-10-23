@@ -41,7 +41,7 @@ export default function CyphBotReportPreview({ artifact, onOpen }: { artifact: R
       <Thumbnail chart={artifact.charts[0]}/>
     </div>}
     <div className="flex flex-wrap items-center justify-between gap-1 text-[9px] text-soft">
-      <span>{artifact.charts.length} {artifact.charts.length === 1 ? 'chart' : 'charts'} · v{artifact.version} · {artifact.days} days{artifact.sample ? ' · Sample' : ''}</span>
+      <span>{artifact.charts.length ? `${artifact.charts.length} ${artifact.charts.length === 1 ? 'chart' : 'charts'}` : `${artifact.tables.length} ${artifact.tables.length === 1 ? 'table' : 'tables'}`} · v{artifact.version} · {artifact.days} days{artifact.sample ? ' · Sample' : ''}</span>
       <span className="text-accent">Open report</span>
     </div>
   </button>;

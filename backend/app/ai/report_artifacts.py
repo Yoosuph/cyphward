@@ -51,7 +51,7 @@ class ArtifactReference(StrictModel):
     version: int = Field(ge=1, le=100)
     days: int = Field(default=90, ge=1, le=365)
     chart_style: Literal["line", "bar", "area"] = "line"
-    charts: list[ChartSelection] | None = Field(default=None, min_length=1, max_length=8)
+    charts: list[ChartSelection] | None = Field(default=None, max_length=8)
     include_metrics: bool = True
     include_tables: bool = True
     heading: str | None = Field(default=None, max_length=300)
@@ -118,11 +118,18 @@ def enabled() -> bool:
     return lab_enabled() or production_reports_enabled()
 
 
+def table_only_requested(message: str) -> bool:
+    """Honor an explicit latest-turn format restriction, even after a chart view."""
+    text = message.lower()
+    return bool(re.search(r"\b(?:only|just)\s+(?:(?:a|the)\s+)?tables?\b|\btables?[- ]only\b", text)
+                or (re.search(r"\btables?\b", text) and re.search(r"\b(?:no|without)\s+(?:charts?|graphs?)\b", text)))
+
+
 def wants_report(message: str, previous: ArtifactReference | None = None) -> bool:
     if not enabled():
         return False
     text = message.lower()
-    if re.search(r"\b(report|chart|graph|visuali[sz]e|performance|dashboard)\b", text):
+    if re.search(r"\b(report|table|chart|graph|visuali[sz]e|performance|dashboard)\b", text):
         return True
     return previous is not None and bool(re.search(
         r"\b(change|update|revise|instead|bar|line|pie|donut|last|past|refresh|regenerate)\b", text))
@@ -156,6 +163,10 @@ def build_report(org: dict, message: str, previous: ArtifactReference | None = N
     selection = charts if charts is not None else (previous.charts if previous else None)
     if charts is None and previous and previous.charts and re.search(r"\b(line|bar|area)\b", text):
         selection = [ChartSelection(metric=c.metric, kind=style if CATALOG[c.metric]["temporal"] else c.kind) for c in previous.charts]
+    if table_only_requested(message) and not include_catalog:
+        selection = []
+        include_metrics = False
+        include_tables = True
     if include_catalog:
         selection = [ChartSelection(metric=m, kind=c["kind"]) for m, c in CATALOG.items()]
     if selection is None:
