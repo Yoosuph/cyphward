@@ -1,8 +1,20 @@
 import { ReactNode } from 'react';
+import CyphwardLogo from './CyphwardLogo';
 import type { ChipLevel } from './StatusChip';
 import { Skeleton, SkeletonText } from './Skeleton';
 
 export * from './Skeleton';
+
+/** Consistent, low-motion loading state for app and owner-console handoffs. */
+export function LoadingScreen({ label = 'Loading your workspace' }: { label?: string }) {
+  return (
+    <main className="loading-screen" role="status" aria-live="polite" aria-busy="true">
+      <CyphwardLogo variant="mark" size={34} className="loading-screen-mark" />
+      <p className="loading-screen-label">{label}</p>
+      <div className="loading-track" aria-hidden="true"><span /></div>
+    </main>
+  );
+}
 
 /**
  * The one page header used by every app page: title, a single plain-language

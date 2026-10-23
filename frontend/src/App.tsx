@@ -18,6 +18,7 @@ import AccountRecoveryGate from './components/AccountRecoveryGate';
 import { DocumentTitle } from './lib/seo';
 import InviteAcceptance from './components/InviteAcceptance';
 import ButtonPlate from './components/ButtonPlate';
+import { LoadingScreen } from './components/ui';
 
 // Public / prerendered pages — eager: built into the landing bundle.
 import Landing from './pages/Landing';
@@ -99,14 +100,7 @@ function PageFallback() {
 
 /** Fallback while a route-split page chunk downloads. */
 function RouteLoading() {
-  return (
-    <div className="shell relative min-h-screen flex items-center justify-center">
-      <div className="text-center p-8 z-10">
-        <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="mono text-[11px] text-soft tracking-widest">LOADING…</p>
-      </div>
-    </div>
-  );
+  return <LoadingScreen label="Opening this page" />;
 }
 
 /**
@@ -118,14 +112,7 @@ function HomeRoute() {
   const { tenant, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="shell relative min-h-screen flex items-center justify-center">
-        <div className="text-center p-8 z-10">
-          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label="Checking your workspace" />;
   }
 
   if (tenant) return <Navigate to="/overview" replace />;
@@ -201,15 +188,7 @@ function AppShell() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="shell relative min-h-screen flex items-center justify-center">
-        <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
-        <div className="text-center p-8 z-10">
-          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label="Checking your workspace" />;
   }
 
   if (!tenant) return <Navigate to={{ pathname: "/login", search: location.search }} replace />;

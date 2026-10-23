@@ -7,6 +7,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { OwnerShell, ThemeButton } from './shell';
 import { OwnerApiError, ownerMe, ownerSetupAuthenticator, ownerSetupComplete, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
 import { OwnerMeContext, SessionEndedContext } from './ui';
+import { LoadingScreen } from '../components/ui';
 import { ToastProvider } from '../components/Toast';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
 import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
@@ -54,15 +55,7 @@ export default function OwnerApp() {
   }, [load]);
 
   if (state.kind === 'loading') {
-    return (
-      <div className="shell relative min-h-screen flex items-center justify-center">
-        <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
-        <div className="text-center p-8 z-10">
-          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">CHECKING OWNER SESSION…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label="Checking your console session" />;
   }
   if (state.kind === 'unavailable') {
     return (
