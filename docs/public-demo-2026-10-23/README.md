@@ -28,6 +28,10 @@ With no public identity pins, the legacy sample account path keeps its existing 
 
 122 focused backend checks passed across public demo sessions, ordinary authentication, MFA, Google step-up, platform-staff access, the owner console and core API behavior. Coverage includes refresh scope preservation, stripped refresh-token rejection, replay rejection, write denial, cross-workspace denial after a new membership, platform access denial and independent normal-owner sessions.
 
-Frontend production build and prerender passed. Browser and live cutover verification are recorded after deployment.
+Frontend production build and prerender passed.
+
+Live cutover verification on 23 October 2026 passed: the production demo endpoint selected the pinned account and InnovaTech workspace, issued no MFA challenge and exposed only member access. Staff access, owner export and an invalid domain write were denied. Token refresh retained the restriction; replay of the previous refresh token was denied. The verification session was logged out.
+
+An anonymous Chromium browser at 390 × 844 clicked the production login page's demo button and reached the app dashboard as the selected account, with the view-only banner, without entering any credentials or verification code. That browser's session was also logged out. The account already had no enrolled MFA/TOTP; no factor, password, ownership or staff-grant record was changed. The old synthetic demo account remains intact.
 
 Render configuration uses its [individual environment-variable endpoint](https://api-docs.render.com/reference/update-env-var), preserving unrelated settings. Environment changes need a deployment before the running service uses them.
