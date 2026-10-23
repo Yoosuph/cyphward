@@ -497,7 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const onboarding = await reloadState();
       return { ok: true, name: (tokens.user.full_name || '').trim(), onboarding };
     } catch {
-      return { ok: false, error: 'The sample demo is not available right now.' };
+      return { ok: false, error: 'The demo is not available right now.' };
     }
   };
 

@@ -18,7 +18,7 @@ from functools import wraps
 from typing import Any, Callable, Dict, List, Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query, Request
 
 from backend.app.core.config import ACCESS_TOKEN_TTL_SECONDS, AUTH_JWT_SECRET
 from backend.app.core.database import execute_one
@@ -45,6 +45,8 @@ def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None
     }
     if session_id:
         claims["sid"] = str(session_id)
+    if profile.get("session_demo_org_id"):
+        claims["demo_org_id"] = str(profile["session_demo_org_id"])
     return jwt.encode(claims, AUTH_JWT_SECRET, algorithm="HS256")
 
 
@@ -76,6 +78,7 @@ def _verify_token(token: str) -> Dict[str, Any]:
 
 def get_current_user(
     authorization: Optional[str] = Header(None),
+    request: Request = None,
 ) -> Dict[str, Any]:
     """Verify the Cyphward JWT and return the caller's profile.
 
@@ -117,6 +120,21 @@ def get_current_user(
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
             raise HTTPException(status_code=401, detail="Session expired — sign in again.")
+    if "demo_org_id" in claims:
+        if not _is_uuid(claims["demo_org_id"]):
+            raise HTTPException(status_code=401, detail="Invalid public demo session.")
+        profile = {**profile, "session_demo_org_id": str(claims["demo_org_id"])}
+        from backend.app.core.demo_org import public_demo_session_valid
+        if not public_demo_session_valid(profile, profile["session_demo_org_id"]):
+            raise HTTPException(status_code=401, detail="The public demo session has ended.")
+        # These POSTs interpret existing evidence. All account/workspace mutations
+        # are refused, including routes that do not use organisation role gates.
+        read_posts = {"/api/v1/ai/explain", "/api/v1/ai/remediate", "/api/v1/ai/executive-summary",
+                      "/api/v1/ai/chat", "/api/v1/ai/chat/stream"}
+        if request and request.method not in {"GET", "HEAD", "OPTIONS"} and not (
+            request.method == "POST" and request.url.path in read_posts
+        ):
+            raise HTTPException(status_code=403, detail="The public demo is view-only. Create your own account to make changes.")
     return profile
 
 
@@ -156,9 +174,13 @@ def get_current_org(
         )
         if not org:
             raise HTTPException(status_code=403, detail="Not a member of the requested organization")
+        if user.get("session_demo_org_id"):
+            if str(org["id"]) != str(user["session_demo_org_id"]):
+                raise HTTPException(status_code=403, detail="The demo session is restricted to its workspace.")
+            org = {**org, "membership_role": "member", "demo_session": True}
         return org
 
-    memberships = execute_query_memberships(user["id"])
+    memberships = session_memberships(user)
     if not memberships:
         raise HTTPException(status_code=403, detail="No organization membership")
     if len(memberships) > 1:
@@ -167,6 +189,15 @@ def get_current_org(
             detail="Multiple organizations: specify X-Organization-Id",
         )
     return memberships[0]
+
+
+def session_memberships(user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    memberships = execute_query_memberships(user["id"])
+    scope = user.get("session_demo_org_id")
+    if scope:
+        return [{**org, "membership_role": "member", "demo_session": True}
+                for org in memberships if str(org["id"]) == str(scope)]
+    return memberships
 
 
 def execute_query_memberships(user_id: str) -> List[Dict[str, Any]]:

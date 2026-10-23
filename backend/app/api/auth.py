@@ -31,7 +31,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel
 
 from backend.app.api.demo_login import refuse_demo_account
-from backend.app.core.auth import execute_query_memberships, get_current_user, log_audit
+from backend.app.core.auth import session_memberships, get_current_user, log_audit
 from backend.app.core.config import AUTH_JWT_SECRET, FRONTEND_URL, REFRESH_TOKEN_TTL_SECONDS
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.rate_limit import check_rate_limit, reset_bucket
@@ -993,7 +993,7 @@ async def bootstrap(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[st
     state, memberships, and each org's domains (replaces the old direct
     Supabase PostgREST reads).
     """
-    memberships = execute_query_memberships(user["id"])
+    memberships = session_memberships(user)
     result_memberships = []
     for org in memberships:
         domains = (

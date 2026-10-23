@@ -172,7 +172,7 @@ export default function Login() {
     if (!result.ok) {
       setBusy(false);
       setDemoBusy(false);
-      setError(result.error || 'The sample demo is not available right now.');
+      setError(result.error || 'The demo is not available right now.');
       return;
     }
     finishLogin(result.name || 'Sample Owner', result.onboarding);
@@ -553,11 +553,11 @@ export default function Login() {
                         <span aria-hidden="true">...</span>
                       </span>
                     ) : (
-                      'Try the demo (sample data)'
+                      'Try the demo'
                     )}
                   </button>
                   <p className="text-xs mono text-soft mt-2">
-                    A sample organisation with made-up data. Nothing here is a real customer account.
+                    Explore the shared demo workspace. No password or verification code needed.
                   </p>
                 </div>
               )}

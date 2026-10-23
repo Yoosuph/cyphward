@@ -120,7 +120,7 @@ function HomeRoute() {
 }
 
 function AppShell() {
-  const { tenant, loading, onboardingStep } = useAuth();
+  const { tenant, user, loading, onboardingStep } = useAuth();
   const location = useLocation();
   const [palOpen, setPalOpen] = useState(false);
   const [cyphBotOpen, setCyphBotOpen] = useState(false);
@@ -232,6 +232,7 @@ function AppShell() {
             keep the current page visible instead of re-showing a fallback. */}
         <Suspense fallback={<PageFallback />}>
           <div className="page" key={location.pathname}>
+            {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
             <Outlet />
           </div>
         </Suspense>

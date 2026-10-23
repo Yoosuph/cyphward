@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from backend.app.core.database import execute_one, execute_query
 from backend.app.api.demo_login import refuse_demo_account
 from backend.app.billing.subscriptions import resolve_plan
-from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role
+from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role, session_memberships
 from backend.app.core.plans import (
     DEFAULT_PLAN,
     parse_plan,
@@ -59,6 +59,9 @@ class CloseOrganizationRequest(BaseModel):
 @router.get("")
 def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     """List organizations the caller belongs to."""
+    if user.get("session_demo_org_id"):
+        return [{**{key: org.get(key) for key in ("id", "name", "slug", "sector", "plan")}, "role": "member"}
+                for org in session_memberships(user)]
     return (
         execute_query(
             """
