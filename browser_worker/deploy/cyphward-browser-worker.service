@@ -1,0 +1,28 @@
+# Example systemd unit that runs the image with the same limits as the compose example.
+# Install as /etc/systemd/system/cyphward-browser-worker.service. Nothing in the repository installs it.
+[Unit]
+Description=Cyphward browser worker (cookie-consent observation)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker rm -f cyphward-browser
+# The key is fed on standard input: it is in no environment and in no file inside the container.
+# /etc/cyphward-browser/api-key: one line, mode 0600, owned by root. The seccomp profile lets Chromium's
+# sandbox create user namespaces (see the runbook, "Sandbox and the key").
+StandardInput=file:/etc/cyphward-browser/api-key
+ExecStart=/usr/bin/docker run --rm -i --name cyphward-browser \
+  --env-file /etc/cyphward-browser/env -e BROWSER_API_KEY_STDIN=1 \
+  --security-opt seccomp=/etc/cyphward-browser/chromium-seccomp.json \
+  --dns 1.1.1.1 --dns 9.9.9.9 \
+  --user 10001:10001 --read-only --tmpfs /tmp:size=256m,mode=1777,noexec,nosuid \
+  --shm-size 256m --memory 768m --memory-swap 768m --cpus 1.0 --pids-limit 256 \
+  --cap-drop ALL --security-opt no-new-privileges:true --init \
+  cyphward-browser:local
+ExecStop=/usr/bin/docker stop -t 20 cyphward-browser
+
+[Install]
+WantedBy=multi-user.target

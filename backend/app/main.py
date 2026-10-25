@@ -30,6 +30,7 @@ from backend.app.api import (
     dashboard,
     notifications,
     scanner_jobs,
+    browser_worker,
     auth,
     auth_google,
     platform,
@@ -147,6 +148,8 @@ app.include_router(demo_login.router)
 app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)
+app.include_router(browser_worker.router)
+app.include_router(browser_worker.customer_router)
 app.include_router(platform.router)
 app.include_router(owner.router)
 app.include_router(owner_views.router)

@@ -7,7 +7,7 @@ the finaliser's execution context and are fenced like every other Core read.
 """
 from typing import Any, Dict, List
 
-from backend.app.compliance import mapping
+from backend.app.compliance import browser_observation, mapping
 from backend.app.compliance.register import REGISTER, privacy_requirements, tool_requirements
 from backend.app.core.database import execute_query
 from backend.app.risk.coverage import _open_ports
@@ -32,7 +32,9 @@ def evidence_for_scan(*, org_id: str, domain_id: str, scan_id: str, coverage: An
         previous = {r["requirement_key"]: r for r in execute_query(
             "SELECT DISTINCT ON (requirement_key) requirement_key, status, details FROM compliance_evidence "
             "WHERE org_id = %s AND domain_id = %s AND requirement_key = ANY(%s) "
-            "ORDER BY requirement_key, observed_at DESC, created_at DESC", (org_id, domain_id, keys)) or []}
+            "AND COALESCE(details->>'observation', '') <> %s "
+            "ORDER BY requirement_key, observed_at DESC, created_at DESC",
+            (org_id, domain_id, keys, browser_observation.OBSERVATION_MARKER)) or []}
         rows += mapping.privacy_rows(privacy_requirements(), privacy, org_id=str(org_id), domain_id=str(domain_id),
                                      scan_id=str(scan_id), observed_at=completed_at,
                                      register_version=REGISTER["version"], apex=domain.get("domain") or "",

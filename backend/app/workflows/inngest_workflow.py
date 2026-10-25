@@ -27,6 +27,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
 import inngest
+import psycopg
 
 from backend.app.core.config import (
     SCANNER_MODE,
@@ -43,7 +44,7 @@ from backend.app.core.config import (
 )
 from backend.app.core.database import execute_one, execute_query, execute_many
 from backend.app.core.auth import log_audit
-from backend.app.core import scan_execution as execution
+from backend.app.core import browser_jobs, scan_execution as execution
 from backend.app.core.execution_fence import ClaimLost, ExecutionClaim, require_execution
 from backend.app.core.scan_admission import admit_scan
 from backend.app.core.cron_claim import (
@@ -1008,10 +1009,23 @@ async def execute_recon_local(scan_id: str, claim: ExecutionClaim) -> Dict[str, 
     return await execution.run_owned(claim, lambda: _execute_recon_local_owned(scan_id), execution.LOCAL_LEASE_SECONDS)
 
 
+async def _queue_browser_observation(scan_id: str) -> None:
+    """C2b: queue a first-visit browser observation after the assessment has committed.
+
+    Off by default and entirely outside the completion transaction: a failure here is logged and
+    can never change the scan."""
+    try:
+        await asyncio.to_thread(browser_jobs.enqueue_after_scan, scan_id)
+    except Exception:  # noqa: BLE001 - best effort after the commit; nothing here may skip the emails that follow
+        logger.warning('scan=%s browser observation not queued', scan_id, exc_info=True)
+
+
 async def finalize_scan(scan_id: str, claim: ExecutionClaim) -> Dict[str, Any]:
     if claim.scan_id != str(scan_id) or claim.phase != 'core':
         raise ClaimLost('Invalid Core finalisation authority')
     result = await execution.run_owned(claim, lambda: _finalize_scan_owned(scan_id), execution.CORE_LEASE_SECONDS)
+    if result.get('status') == 'completed':
+        await _queue_browser_observation(scan_id)
     jobs = result.pop('_email_jobs', [])
     org_id = result.pop('_email_org_id', None)
     # Email is best-effort after the authoritative completion transaction. A
