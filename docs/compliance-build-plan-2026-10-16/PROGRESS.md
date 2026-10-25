@@ -415,6 +415,76 @@ Next: C1, as planned in `C1-plan.md`.
 2. **Verification runs on every scan, daily and weekly.** It is cheap (at most 20 reruns, each one template). Raise or lower `VERIFY_LIMIT` if needed.
 3. **A resolved finding that comes back** is reopened by the existing rules when a scan matches it again.
 
+## C2b step 0: browser memory measurement
+
+**Question (README C2b, decision D3):** does headless Chromium fit beside the scanners in the 640 MiB worker, or does it need its own small worker if the peak is above about 200 MiB? Nothing of C2b is built; this is measurement only.
+
+**Answer: separate small worker.** Chromium's idle floor alone is about 187 MiB charged to the container (about 290 MiB PSS), and a heavy page reaches about 311 MiB (about 400 MiB PSS). That is above the 200 MiB line even for an empty page. No tested flag brings the peak under it.
+
+### Method and what this is not
+
+- **No Docker daemon was available** (`docker info` fails: cannot connect to `/var/run/docker.sock`), so `Dockerfile.scanner` was **not** built and Chromium was **not** run in the real image. Numbers are from the **host**: Arch Linux, Chromium **153.0.8010.52** (`/usr/bin/chromium`), 8 cores, systemd 'user' scopes, cgroup v2. Debian bookworm's Chromium, its libraries and the VPS CPU will differ. Treat these as a floor to confirm in the image, not as image numbers.
+- Each run is a fresh Chromium (new profile) started with `systemd-run --user --scope -p MemoryMax=640M -p MemorySwapMax=0`, so the 640 MiB cap applied and no run was OOM-killed. Flags: `--headless=new --no-sandbox`, and `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"` so a page's third-party requests are *recorded* but fail (no live third-party sites). Chromium otherwise moves its browser process into its own transient systemd scope, out of the capped scope; the script sets `DBUS_SESSION_BUS_ADDRESS=disabled:` to stop that, and checks that every process stayed in the capped scope.
+- C2b behaviour: open a blank tab, `Page.navigate`, wait for the `networkIdle` lifecycle event, wait 0.5 s, read cookies (`Network.getAllCookies`), count requests that left the fixture origin, and look for a visible cookie/consent banner. No clicks. Driven over the DevTools protocol by a small Node script (Node 26, no Playwright).
+- **Sites** (served from local static servers; fixtures in `backend/tests/fixtures/privacy_sites/`): `plain_home.html` (116 bytes), `gtm_only.html` (GTM tags), `consent_blocked.html` (Cookiebot plus a blocked GTM tag). Because those are tiny, a fourth page, `synthetic_heavy` (5,000 DOM nodes, 200,000 JS objects, twelve 1600x1000 canvas images, a cookie, a banner), stands in for a real marketing site. It is synthetic and is **not** a measurement of any real site. Real sites running GTM or Cookiebot will use more than all four, because here every third-party script is blocked.
+- **Metrics**, sampled every 50 ms: **cgroup `memory.peak`** of the capped scope is the headline, because it is what the container limit counts. The summed **PSS** of all processes in the scope is the cross-check. Summed RSS (about 1,050 MiB for 13 processes) double-counts pages shared between processes and is shown only to say that it should *not* be compared against 640 MiB. `cgroup` can undercount on this host, because the Chromium binary's file pages were already cached and charged to other cgroups; a cold container is charged for them (reclaimable, but part of the footprint). PSS includes them, so it is the safer bound.
+- **Time:** `networkIdle` fires about 1.0 s after navigation for every page, so "load" is a floor set by Chromium's own quiet window, not page cost. The realistic per-site duration is **wall time including browser start, about 2.7 s**. The idle baseline just sleeps 3 s (its 3000 ms is not a load time; its wall time of about 4.7 s is start plus sleep). 5 runs per cell, medians shown (max in brackets); run-to-run spread was within about 5 MiB.
+
+### Results (default flags)
+
+| Page | cgroup peak MiB | PSS peak MiB | Wall time (start + load) | Processes | Cookies / off-origin requests / banner |
+|---|---|---|---|---|---|
+| Idle Chromium (about:blank, 3 s) | 187 (189) | 290 (293) | n/a | 13 | - |
+| plain_home | 190 (194) | 295 (297) | 2.7 s | 13 | 0 / 0 / no |
+| gtm_only | 189 (192) | 286 (288) | 2.9 s | 13 | 0 / 1 / no |
+| consent_blocked | 190 (192) | 289 (291) | 2.8 s | 13 | 0 / 1 / no |
+| synthetic_heavy | **311 (314)** | 400 (418) | 2.7 s | 13 | 1 / 0 real, plus 12 `data:` images / yes |
+
+(The `synthetic_heavy` harness counted its 12 `data:` image URLs as off-origin; they are not third-party requests.)
+
+### Low-memory flags (cgroup peak, median MiB)
+
+| Flags | idle | plain_home | synthetic_heavy | Effect |
+|---|---|---|---|---|
+| default | 187 | 190 | 311 | - |
+| `--disable-gpu` | 189 | 189 | 310 | none (headless already software-renders) |
+| `--disable-dev-shm-usage` | 186 | 190 | 312 | none here (see below) |
+| `--js-flags=--max-old-space-size=128` | 186 | 190 | 310 | none; the heavy page's JS heap is under 128 MiB |
+| `--renderer-process-limit=1` | 167 | 170 | 292 | about -20 MiB (2 fewer processes); pages share a renderer |
+| combined (`--disable-gpu --disable-dev-shm-usage --js-flags=... --renderer-process-limit=1 --disable-extensions --disable-background-networking --disable-component-update --mute-audio --disable-sync --no-zygote`) | 206 | 211 | 332 | **worse by about 20 MiB**: `--no-zygote` stops renderers sharing zygote pages, even though the process count fell to 9 |
+
+`--single-process` was not tried (not safe). `--disable-dev-shm-usage` looks neutral here because this host's `/dev/shm` is large; Docker's default `/dev/shm` is 64 MiB, which is where the flag matters, so keep it (or mount a larger `/dev/shm`) in a container. Best case with flags is about 165-170 MiB idle and 290 MiB heavy: still not under 200 MiB for a real page.
+
+### The existing worker's footprint (estimate, not a measurement)
+
+- One job at a time (`SCANNER_MAX_CONCURRENT_SCANS=1`) and one stage at a time (`scanner/runner.py`). Per-stage concurrency: ports (naabu) 4 hosts, TLS (sslyze) 2 hosts, HTTP probe 25 in-process, Nuclei 1 process (`SCANNER_NUCLEI_MAX_PROCESSES=1`, at most 4) with template concurrency 4 and `GOMEMLIMIT=384MiB` (`nuclei_runner.py`, a soft limit).
+- Measured on this host: importing `scanner.runner` gives a Python process of about **55 MiB RSS** (before scanning). With sslyze and a 25-way HTTP probe, **assume 80-120 MiB** for the Python side. subfinder, naabu (4 at once) and httpx were not measured; assume tens of MiB each, one stage at a time.
+- Estimate: during Nuclei, about 100 MiB Python + up to **384 MiB** Nuclei (soft) leaves roughly **150 MiB** of 640 MiB. Between stages (no Nuclei), roughly 400-450 MiB.
+- So by arithmetic a browser *stage* (one at a time, after or between the other stages) could just fit: about 100 MiB Python + 190-310 MiB Chromium is about 290-410 MiB. That is not a reason to run it in the same worker: the idle floor alone already breaks D3, the margin on a heavy page is thin once real third-party scripts load, and Go's `GOMEMLIMIT` is soft, so an OOM kill from a Chromium spike would take down the whole scan (Nuclei, TLS and ports data included). Chromium would also be loading untrusted pages inside the process that holds `SCANNER_API_KEY`, with `--no-sandbox` as root in a container.
+
+### Recommendation
+
+Run the C2b browser test as a **separate small worker**, claiming its own `privacy_browser` stage, as README D3 says:
+
+1. **Capability flag:** a new capability (next to `PRIVACY_CAPABILITY` in `shared/contracts.py`, advertised through `X-Scanner-Capabilities`) so Core only hands `privacy_browser` stages to a worker that has it, and old workers never receive them.
+2. **Own container and limit:** a second image (python slim plus Chromium and fonts, no ProjectDiscovery tools or templates) with its own memory limit. Suggest **768 MiB** (about 1.5x the 311 MiB heavy-page peak plus Python, headroom for real pages), one browser at a time, a new browser per target, and a per-target timeout and kill. `/dev/shm` of at least 256 MiB or `--disable-dev-shm-usage`. Confirm in that image before fixing the number.
+3. **Claim protocol:** the browser worker claims only `privacy_browser` work (own claim and lease), so a Chromium OOM or hang cannot touch the scan worker's Nuclei/TLS/ports results. Core gives it the in-scope origin from the already-verified scan scope; it applies the same scope and private-IP guard before navigation and on every redirect and subrequest.
+4. **Drop-in flags:** `--renderer-process-limit=1` (-20 MiB) is the only flag with a real effect; do not use `--no-zygote`.
+5. **Before building:** repeat this measurement inside the real image (needs a Docker daemon) and on two or three real, owner-approved public sites, since these fixtures are a lower bound.
+
+### Reproduce
+
+```bash
+# from a checkout that contains scanner/scripts/browser_memory_probe.mjs (this PR's branch, or main once merged)
+# needs Node >= 22, /usr/bin/chromium, a systemd user session and cgroup v2; installs nothing
+cd /tmp && node <repo>/scanner/scripts/browser_memory_probe.mjs <repo>/backend/tests/fixtures/privacy_sites 5 > c2b-results.json
+# optional: CHROME=/path/to/chromium; third argument is the cap in MiB with an M suffix (default 640M)
+# worker footprint:
+cd <repo> && python3 -c "import scanner.runner,re;print(re.search(r'VmRSS.*',open('/proc/self/status').read()).group())"
+```
+
+The script (`scanner/scripts/browser_memory_probe.mjs`, about 150 lines, measurement only, not shipped in the scanner image) writes JSON with per-run cgroup peak, PSS and RSS sums, wall and idle time, cookies, off-origin requests and banner. Raw results from this run: 150 runs, no OOM kills, no failures.
+
 ## Packet 04 — assessment snapshots and report integrity (branch `track-b/packet-04-snapshots`)
 
 **State:** implemented and validated locally; review-ready. Not released. Migration `20261018100000_assessment_snapshots.sql` must be applied before the API.
