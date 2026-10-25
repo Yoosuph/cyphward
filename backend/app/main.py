@@ -14,6 +14,7 @@ from backend.app.core.runtime_guard import (
     track_background_task,
 )
 from backend.app.api import (
+    demo_login,
     overview,
     domains,
     assets,
@@ -143,6 +144,7 @@ app.include_router(settings.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
 app.include_router(auth.router)
+app.include_router(demo_login.router)
 app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)

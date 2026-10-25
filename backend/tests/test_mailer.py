@@ -25,7 +25,7 @@ def test_executive_report_html_score_scale_100():
     assert "/100" in html
     assert "/1000" not in html
     assert "74" in html
-    assert "ASSESSMENT STATUS" in html
+    assert "OPEN FINDINGS AND NEXT STEPS" in html
     assert "SECURITY SCORE" in html
 
 
@@ -94,6 +94,27 @@ def test_report_uses_only_supplied_findings_and_escapes_untrusted_text():
 
 
 # --- Central sender map (EMAIL_SENDERS) -------------------------------------
+
+def test_report_counts_cannot_produce_a_no_findings_message():
+    html = generate_executive_report_html(org_name="Example", domain="example.ng", score=74, high_count=2)
+    assert "Open findings require review" in html
+    assert "No open findings" not in html
+
+
+def test_report_zero_score_has_no_artificial_progress_and_escapes_reference():
+    html = generate_executive_report_html(org_name="Example", domain="example.ng", score=0,
+                                          report_ref='<script>alert(1)</script>')
+    assert "width:0%" in html or "width:0.0%" in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<script>" not in html
+
+
+def test_report_includes_low_findings_and_recent_resolutions():
+    html = generate_executive_report_html(org_name="Example", domain="example.ng", score=74,
+                                          low_count=4, resolved_recent_count=7)
+    assert "4 low open findings" in html
+    assert "Open low" in html and "Resolved · 30 days" in html
+
 
 def test_sender_map_covers_all_verified_identities():
     assert set(EMAIL_SENDERS) == {

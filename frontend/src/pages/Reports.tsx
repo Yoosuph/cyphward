@@ -10,6 +10,7 @@ import { useOrgZone } from '../lib/orgZone';
 import { fmtDayZone } from './compliance/shared';
 import StatusChip from '../components/StatusChip';
 import { PageHead } from '../components/ui';
+import ReportPreview from '../components/ReportPreview';
 import { sendReportEmail, getEvidenceRetention, setEvidenceRetention, type EvidenceRetention } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -299,7 +300,7 @@ export default function Reports() {
         ) : previewError ? (
           <ErrorPanel title="We could not open this report" message={previewError} onRetry={() => previewId && void openPreview(previewId)} />
         ) : preview?.html ? (
-          <div data-testid="report-preview" className="overflow-x-auto rounded border border-line bg-inset" dangerouslySetInnerHTML={{ __html: preview.html }} />
+          <ReportPreview html={preview.html} title={preview.title || 'Security report'} />
         ) : (
           <EmptyPanel title="This report has no preview" help="You can still download it from the list." />
         )}

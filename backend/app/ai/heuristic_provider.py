@@ -9,6 +9,7 @@ import json
 import asyncio
 from backend.app.ai.base import AIProvider
 from backend.app.ai.privacy import sanitize_for_ai
+from backend.app.ai.safe_guidance import configuration_guide, configuration_topic
 
 
 class HeuristicAIProvider(AIProvider):
@@ -23,16 +24,11 @@ class HeuristicAIProvider(AIProvider):
         evidence_str = json.dumps(evidence, indent=2) if evidence else "Observed through automated probe telemetry."
 
         # Specialized synthesis based on vulnerability type
-        if "DMARC" in title:
-            what = "DMARC (Domain-based Message Authentication, Reporting, and Conformance) is an internet protocol that links SPF and DKIM mechanisms to combat email spoofing and phishing."
-            why = "Without an enforced DMARC policy (p=quarantine or p=reject), threat actors anywhere on the globe can send fraudulent emails appearing to come directly from your corporate executive domain."
-            evidence_analysis = f"Telemetry confirmed the domain's TXT record at _dmarc: {evidence.get('observed_value', 'Missing or p=none')}. This instructs receiving mail systems to deliver unauthenticated spoofed emails into inboxes without hindrance."
-            ignored = "Business Email Compromise (BEC), CEO impersonation, wire transfer fraud, and severe reputation damage when your domain is blacklisted by Google Workspace and Microsoft 365."
-        elif "HSTS" in title:
-            what = "HTTP Strict Transport Security (HSTS) is an IETF-standard web security header that commands browsers to only communicate with your domain over encrypted HTTPS."
-            why = "Without HSTS and the 'includeSubDomains' directive, users transmitting sensitive credentials or session cookies over public networks can be downgraded to unencrypted HTTP via SSL-stripping."
-            evidence_analysis = f"The response header is deficient: {evidence.get('observed_header', 'Header missing')}. This permits legacy unencrypted HTTP transport fallback."
-            ignored = "Active adversary-in-the-middle (AITM) attacks on enterprise networks, session hijacking, and non-compliance with NDPA 2023 data transport encryption mandates."
+        if configuration_topic(title):
+            what = f"Recorded configuration finding: {title}."
+            why = "Review the observed configuration and the service's actual use before changing enforcement. Missing safeguards can increase exposure, but this observation does not prove exploitation."
+            evidence_analysis = f"Recorded evidence only: {evidence_str}. Missing fields remain unknown."
+            ignored = "The recorded configuration may remain exposed; impact depends on the application and mail flows. Use a staged, provider-specific review rather than assuming an outage or legal violation."
         elif "Server" in title or "Banner" in title or "Powered-By" in title:
             what = "Software banner disclosure occurs when the web server or application runtime advertises its exact product name and minor version in HTTP response headers."
             why = "Publicizing build versions provides reconnaissance intelligence to threat scanners, allowing adversaries to look up published zero-days and 1-day CVEs tailored to your exact stack."
@@ -79,95 +75,12 @@ class HeuristicAIProvider(AIProvider):
         code_snippet = ""
         verification_cmd = "curl -sI https://example.com | head -n 20"
 
-        # 1. HSTS Remediation
-        if "HSTS" in title or "Strict-Transport-Security" in title:
-            if stack == "nginx":
-                steps = [
-                    "Open your Nginx virtual host configuration: sudo nano /etc/nginx/sites-available/default",
-                    "Add the Strict-Transport-Security directive inside the server block listening on port 443 ssl",
-                    "Test configuration syntax: sudo nginx -t",
-                    "Reload Nginx: sudo systemctl reload nginx"
-                ]
-                code_snippet = (
-                    "# /etc/nginx/conf.d/security_headers.conf\n"
-                    "server {\n"
-                    "    listen 443 ssl http2;\n"
-                    "    server_name yourdomain.com;\n\n"
-                    "    # Enforce HSTS with 1 year max-age, subdomains, and preloading\n"
-                    "    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\" always;\n"
-                    "}"
-                )
-            elif stack == "apache":
-                steps = [
-                    "Ensure mod_headers is enabled: sudo a2enmod headers",
-                    "Open your Apache SSL virtual host config: sudo nano /etc/apache2/sites-available/default-ssl.conf",
-                    "Add Header always set Strict-Transport-Security directive",
-                    "Restart Apache: sudo systemctl restart apache2"
-                ]
-                code_snippet = (
-                    "<VirtualHost *:443>\n"
-                    "    ServerName yourdomain.com\n"
-                    "    # Strict-Transport-Security\n"
-                    "    Header always set Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\"\n"
-                    "</VirtualHost>"
-                )
-            elif stack == "cloudflare":
-                steps = [
-                    "Log in to the Cloudflare Dashboard and select your domain",
-                    "Navigate to SSL/TLS > Edge Certificates",
-                    "Scroll to 'HTTP Strict Transport Security (HSTS)' and click 'Change HSTS settings'",
-                    "Enable HSTS, set max-age to 12 months, and toggle 'Apply HSTS to subdomains' and 'Preload'"
-                ]
-                code_snippet = (
-                    "# Cloudflare Dashboard Configuration:\n"
-                    "Status: Enabled\n"
-                    "Max-Age: 12 months (31536000)\n"
-                    "Apply to subdomains: ON\n"
-                    "Preload: ON\n"
-                    "No-Sniff: ON"
-                )
-            else: # AWS CloudFront / ALB
-                steps = [
-                    "In AWS Console, navigate to CloudFront > Response headers policies",
-                    "Create or edit custom Response Headers Policy",
-                    "Under Strict-Transport-Security, enable HSTS with max_age=31536000, includeSubdomains=true, preload=true",
-                    "Attach policy to CloudFront distribution behaviors"
-                ]
-                code_snippet = (
-                    "aws cloudfront create-response-headers-policy \\\n"
-                    "  --response-headers-policy-config '{\n"
-                    "    \"Name\": \"CyphwardHstsPolicy\",\n"
-                    "    \"SecurityHeadersConfig\": {\n"
-                    "      \"StrictTransportSecurity\": {\n"
-                    "        \"Override\": true,\n"
-                    "        \"MaxAgeSec\": 31536000,\n"
-                    "        \"IncludeSubdomains\": true,\n"
-                    "        \"Preload\": true\n"
-                    "      }\n"
-                    "    }\n"
-                    "  }'"
-                )
-            verification_cmd = "curl -sI https://yourdomain.com | grep -i strict-transport-security"
-
-        # 2. DMARC / SPF Email Security
-        elif "DMARC" in title or "SPF" in title:
-            steps = [
-                "Access your authoritative DNS management console (Cloudflare, Route 53, or Domain Registrar)",
-                "Create a new TXT record at the subdomain '_dmarc'",
-                "Set policy to 'p=quarantine' or 'p=reject' and configure forensic report recipient (rua)",
-                "Verify propagation using dig or nslookup"
-            ]
-            code_snippet = (
-                "# DNS TXT Record for _dmarc.yourdomain.com\n"
-                "Type:  TXT\n"
-                "Host:  _dmarc\n"
-                "Value: v=DMARC1; p=reject; sp=reject; rua=mailto:dmarc-reports@yourdomain.com; aspf=r; adkim=r;\n"
-                "TTL:   3600"
-            )
-            verification_cmd = "dig +short TXT _dmarc.yourdomain.com"
+        curated = configuration_guide(sanitized, stack)
+        if curated:
+            return curated
 
         # 3. Server Version Disclosed
-        elif "Server" in title or "Banner" in title:
+        if "Server" in title or "Banner" in title:
             if stack == "nginx":
                 steps = [
                     "Open /etc/nginx/nginx.conf",
@@ -206,38 +119,6 @@ class HeuristicAIProvider(AIProvider):
                     "Header name: Server"
                 )
             verification_cmd = "curl -sI https://yourdomain.com | grep -i server"
-
-        # 4. Content-Security-Policy (CSP)
-        elif "Content-Security-Policy" in title or "CSP" in title:
-            if stack == "nginx":
-                steps = [
-                    "Open your Nginx site configuration file",
-                    "Add Content-Security-Policy directive in the HTTPS server block",
-                    "Test and reload Nginx: sudo nginx -t && sudo systemctl reload nginx"
-                ]
-                code_snippet = (
-                    "# /etc/nginx/sites-available/default\n"
-                    "add_header Content-Security-Policy \"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none';\" always;"
-                )
-            elif stack == "apache":
-                steps = [
-                    "Add Header set Content-Security-Policy inside your Apache virtual host",
-                    "Restart Apache: sudo systemctl restart apache2"
-                ]
-                code_snippet = (
-                    "<VirtualHost *:443>\n"
-                    "    Header set Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none';\"\n"
-                    "</VirtualHost>"
-                )
-            else:
-                steps = [
-                    "Configure CSP header in your cloud CDN or edge middleware",
-                    "Deploy in 'Content-Security-Policy-Report-Only' first if testing legacy assets"
-                ]
-                code_snippet = (
-                    "Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';"
-                )
-            verification_cmd = "curl -sI https://yourdomain.com | grep -i content-security-policy"
 
         # Fallback generic
         else:
@@ -317,77 +198,29 @@ class HeuristicAIProvider(AIProvider):
         score = context.get("score")
         open_findings = context.get("findings", [])
         
-        if "dmarc" in q_lower or "spoof" in q_lower or "email" in q_lower:
-            answer = (
-                f"Your domain has no **DMARC policy**, so anyone can send email pretending to be you.\n\n"
-                f"Add this one DNS TXT record at your DNS provider (Namecheap, Cloudflare, etc.):\n\n"
-                f"```dns\n"
-                f"Host:  _dmarc\n"
-                f"Type:  TXT\n"
-                f"Value: v=DMARC1; p=reject; rua=mailto:security@{org_name.lower().replace(' ', '')}.com; pct=100;\n"
-                f"```\n\n"
-                f"- **p=reject** makes mail servers drop fake emails from your domain.\n"
-                f"- **rua** emails you a daily report of who sent email as you.\n\n"
-                f"This also covers the email-security rule in **NDPA 2023** and **CBN** guidelines.\n\n"
-                f"Want me to check your SPF and DKIM first? If those are wrong, real emails can break when you switch to p=reject."
-            )
-            sources = [
-                {"id": "s_dmarc", "label": "Email Security Standards (DMARC & SPF)"},
-                {"id": "s_ndpa", "label": "NDPA 2023 Section 39 (Technical Safeguards)"},
-            ]
-        elif "hsts" in q_lower or "tls" in q_lower or "ssl" in q_lower or "cipher" in q_lower:
-            answer = (
-                f"Your server doesn't send the **HSTS** header. That's a small instruction that tells browsers: \"always use HTTPS for this site.\" "
-                f"Without it, a user on public Wi-Fi can be tricked into an unencrypted connection.\n\n"
-                f"Add this line inside your Nginx HTTPS (port 443) block:\n\n"
-                f"```nginx\n"
-                f"add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\" always;\n"
-                f"```\n\n"
-                f"Then check and reload:\n\n"
-                f"```bash\n"
-                f"sudo nginx -t && sudo systemctl reload nginx\n"
-                f"```\n\n"
-                f"On Cloudflare you can switch the same setting on under **SSL/TLS > Edge Certificates > HSTS** — no server edit needed.\n\n"
-                f"Want me to also check whether your server allows old TLS versions?"
-            )
-            sources = [
-                {"id": "s_tls", "label": "Web Encryption Best Practices (HSTS / TLS 1.3)"},
-                {"id": "s_cbn", "label": "CBN Cybersecurity Framework — Secure Transport"},
-            ]
+        if configuration_topic(message):
+            topic = configuration_topic(message)
+            topic_title = {"email": "DMARC" if "dmarc" in q_lower or "spoof" in q_lower else "SPF / DKIM", "transport": "HSTS / TLS", "browser_policy": "CSP / clickjacking"}[topic]
+            guide = configuration_guide({"title": topic_title})
+            answer = "This is general rollout guidance, not a new assessment of your domain.\n\n" + "\n".join(f"- {step}" for step in guide["steps"])
+            sources = [{"id": "curated_guidance", "label": "Curated configuration guidance; provider prerequisites required"}]
         elif "ndpa" in q_lower or "compliance" in q_lower or "cbn" in q_lower or "law" in q_lower:
             answer = (
-                f"Here's what the main rules ask of **{org_name}**:\n\n"
-                f"- **NDPA 2023 (Section 39)**: keep your systems patched and scanned. Your weekly scans cover this.\n"
-                f"- **NDPA 2023 (Section 40)**: if personal data is stolen, tell the regulator within **72 hours**.\n"
-                f"- **CBN framework** (banks): use strong encryption (TLS), DMARC on email, and constant monitoring.\n\n"
-                f"See your live status in the **Comply** tab. Want me to list the checks you're currently failing?"
+                "Cyphward's Compliance page organises technical observations, customer answers and reviewer notes. "
+                "These records support preparation; they do not establish legal compliance or replace a Compliance Audit Return. "
+                "Requirement references are pending professional review. Ask a qualified Nigerian adviser or licensed DPCO "
+                "to confirm which duties apply to your business and the evidence/filing needed."
             )
-            sources = [
-                {"id": "s_ndpa23", "label": "NDPA 2023 Data Protection Act"},
-                {"id": "s_cbn_csf", "label": "CBN Cybersecurity Guidelines"},
-            ]
-        elif "board" in q_lower or "briefing" in q_lower or "executive" in q_lower or "report" in q_lower:
-            if score is None:
-                answer = (
-                    f"Short update for **{org_name}** leadership:\n\n"
-                    f"- **Score**: Not assessed — no completed scan yet.\n"
-                    f"- **Next step**: run the first scan. It checks DNS, web apps, email "
-                    f"security, and encryption; the score and board report populate once it completes.\n\n"
-                    f"Once a scan has completed, **Generate Board Report** on the Overview page "
-                    f"exports the full PDF."
-                )
-            else:
-                answer = (
-                    f"Short update for **{org_name}** leadership:\n\n"
-                    f"- **Score**: {score}/100. Encryption is strong; no open database ports found.\n"
-                    f"- **Top risk**: email spoofing. Moving DMARC to `p=reject` is the next step — it stops fake emails sent as your staff or brand.\n"
-                    f"- **Also due**: HSTS across subdomains, and the NDPA/CBN checks you're close to passing.\n\n"
-                    f"Download the full PDF from **Generate Board Report** on the Overview page. Want me to write 3 talking points for your next board meeting?"
-                )
-            sources = [
-                {"id": "s_board", "label": "Cyphward Risk Assessment Engine"},
-                {"id": "s_audit", "label": "Live Perimeter Scan Telemetry"},
-            ]
+            sources = [{"id": "compliance_scope", "label": "Cyphward readiness scope; professional review required"}]
+        elif any(word in q_lower for word in ("board", "briefing", "executive", "report")):
+            known = "Not assessed" if score is None else f"{score}/100 within the recorded assessment scope"
+            titles = [str(f.get("title") or "Recorded finding") for f in open_findings[:3] if f.get("status") != "resolved"]
+            answer = (
+                f"Recorded score for **{org_name}**: {known}. "
+                + ("Recorded open findings: " + "; ".join(titles) + ". " if titles else "No open finding details were supplied in this context; that is not proof of a clean assessment. ")
+                + "Use the dated assessment/report for coverage, limitations and provenance. No TLS strength, closed-port result or compliance conclusion can be inferred from the score alone."
+            )
+            sources = [{"id": "recorded_context", "label": "Recorded assessment context"}]
         elif "domain" in q_lower:
             domains = context.get("domains") or (
                 [{"domain": context.get("domain", ""), "verified": True}] if context.get("domain") else []

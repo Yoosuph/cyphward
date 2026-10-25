@@ -35,6 +35,8 @@ def require_platform_staff(*required_scopes: str) -> Callable:
     """Dependency factory — e.g. Depends(require_platform_staff(PLATFORM_READ))."""
 
     def dependency(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+        if user.get("session_demo_org_id"):
+            raise HTTPException(status_code=403, detail="Platform access is not available in the public demo.")
         if not user.get("email_verified_at"):
             raise HTTPException(
                 status_code=403,

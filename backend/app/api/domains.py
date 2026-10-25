@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.domain_verifier import generate_verification_token, verify_domain_dns_txt
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
 from backend.app.core.plans import entitlements_for, require_quota, usage_for_org
 
@@ -153,7 +154,7 @@ def list_domains(org: Dict[str, Any] = Depends(get_current_org)) -> List[Dict[st
     return domains
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(refuse_demo_account)])
 def add_domain(
     req: AddDomainRequest,
     org: Dict[str, Any] = Depends(require_admin),
@@ -209,7 +210,7 @@ def add_domain(
     }
 
 
-@router.post("/{domain_id}/verify")
+@router.post("/{domain_id}/verify", dependencies=[Depends(refuse_demo_account)])
 async def verify_domain(
     domain_id: str,
     org: Dict[str, Any] = Depends(require_admin),

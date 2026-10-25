@@ -10,6 +10,7 @@ import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import CommandPalette from './components/CommandPalette';
 import ProductTour from './components/ProductTour';
+import { TOUR_EVENT } from './lib/tour';
 import StrataField from './components/StrataField';
 import BrandedCursor from './components/BrandedCursor';
 import CookieBanner from './components/CookieBanner';
@@ -17,6 +18,7 @@ import AccountRecoveryGate from './components/AccountRecoveryGate';
 import { DocumentTitle } from './lib/seo';
 import InviteAcceptance from './components/InviteAcceptance';
 import ButtonPlate from './components/ButtonPlate';
+import { LoadingScreen } from './components/ui';
 
 // Public / prerendered pages — eager: built into the landing bundle.
 import Landing from './pages/Landing';
@@ -98,14 +100,7 @@ function PageFallback() {
 
 /** Fallback while a route-split page chunk downloads. */
 function RouteLoading() {
-  return (
-    <div className="shell relative min-h-screen flex items-center justify-center">
-      <div className="text-center p-8 z-10">
-        <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="mono text-[11px] text-soft tracking-widest">LOADING…</p>
-      </div>
-    </div>
-  );
+  return <LoadingScreen label="Opening this page" />;
 }
 
 /**
@@ -117,14 +112,7 @@ function HomeRoute() {
   const { tenant, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="shell relative min-h-screen flex items-center justify-center">
-        <div className="text-center p-8 z-10">
-          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label="Checking your workspace" />;
   }
 
   if (tenant) return <Navigate to="/overview" replace />;
@@ -132,7 +120,7 @@ function HomeRoute() {
 }
 
 function AppShell() {
-  const { tenant, loading, onboardingStep } = useAuth();
+  const { tenant, user, loading, onboardingStep } = useAuth();
   const location = useLocation();
   const [palOpen, setPalOpen] = useState(false);
   const [cyphBotOpen, setCyphBotOpen] = useState(false);
@@ -151,6 +139,12 @@ function AppShell() {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const closeOverlays = () => { setMobileMenuOpen(false); setCyphBotOpen(false); setPalOpen(false); };
+    window.addEventListener(TOUR_EVENT, closeOverlays);
+    return () => window.removeEventListener(TOUR_EVENT, closeOverlays);
+  }, []);
 
   // New pages open at the top; back/forward keeps the browser's position.
   useLayoutEffect(() => {
@@ -194,15 +188,7 @@ function AppShell() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="shell relative min-h-screen flex items-center justify-center">
-        <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
-        <div className="text-center p-8 z-10">
-          <div className="inline-block w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="mono text-[11px] text-soft tracking-widest">LOADING YOUR WORKSPACE…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label="Checking your workspace" />;
   }
 
   if (!tenant) return <Navigate to={{ pathname: "/login", search: location.search }} replace />;
@@ -246,6 +232,7 @@ function AppShell() {
             keep the current page visible instead of re-showing a fallback. */}
         <Suspense fallback={<PageFallback />}>
           <div className="page" key={location.pathname}>
+            {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
             <Outlet />
           </div>
         </Suspense>

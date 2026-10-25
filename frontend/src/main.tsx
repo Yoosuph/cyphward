@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { LoadingScreen } from './components/ui';
 import { consumeHandoff } from './lib/session';
 import './index.css';
 
@@ -21,7 +22,7 @@ if (!isOwnerConsole) consumeHandoff();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {isOwnerConsole ? (
-      <Suspense fallback={null}>
+      <Suspense fallback={<LoadingScreen label="Opening the console" />}>
         <OwnerApp />
       </Suspense>
     ) : (

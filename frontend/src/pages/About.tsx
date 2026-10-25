@@ -30,7 +30,7 @@ export default function About() {
           The company behind <em>the score.</em>
         </>
       }
-      lede="Cyphward Ltd builds Cyphward, external security scoring for Nigerian businesses. You prove a domain is yours. We scan what the internet can already see. You get one 0–100 score, and a fix for every finding."
+      lede="Cyphward Ltd helps Nigerian software teams find external security weaknesses, coordinate supported fixes and prepare evidence for customer security and data-protection reviews. Domain ownership is verified before scanning."
     >
       <div className="space-y-10 text-sm text-soft leading-relaxed">
         <section className="space-y-3 about-section" data-reveal>

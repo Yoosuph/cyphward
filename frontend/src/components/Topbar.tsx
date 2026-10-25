@@ -90,6 +90,7 @@ export default function Topbar({
               onClick={handleAiClick}
               title="Open CyphBot (Ctrl+J)"
               aria-label="Open CyphBot"
+              data-tour="cyphbot"
             >
               <Sparkles size={13} className="text-accent" />
               <span className={`${mobileAi ? 'hidden sm:inline' : ''} font-semibold`}>CYPHBOT</span>

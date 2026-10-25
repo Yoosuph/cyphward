@@ -3,8 +3,8 @@
 Precedence: a live `subscriptions` row governs; otherwise the legacy
 `organizations.plan` text applies. Effective status is computed in code —
 `trialing`/`active` get full plan quotas; anything else (`past_due`,
-`canceled`, or an expired period with no renewal) falls back to the
-growth floor so the workspace stays readable but heavy use stops.
+`canceled`, or an expired period with no renewal) keeps the workspace
+readable with no new scan/report/domain/member allowance.
 Provider webhooks do not exist yet; renewal is an explicit manual step.
 """
 from datetime import datetime, timezone
@@ -60,6 +60,8 @@ def resolve_plan(org: Dict[str, Any], sub: Optional[Dict[str, Any]]) -> Dict[str
     else:
         slug = _org_plan_slug(org)
     ent = {"plan": slug, **PLANS[slug]}
+    if status in ("past_due", "canceled"):
+        ent.update(monthly_scans=0, monthly_reports=0, max_domains=0, max_members=0)
     ent["subscription"] = (
         {"status": status,
          "current_period_end": str(sub.get("current_period_end")) if sub else None,

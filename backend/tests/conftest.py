@@ -1105,7 +1105,7 @@ class FakeStore:
             if sub is None:
                 sub = {"id": str(uuid.uuid4()), "org_id": org_id, "created_at": now}
                 self.subscriptions.append(sub)
-            sub.update({"plan": plan, "status": "active" if sub.get("status") != "canceled" else "active",
+            sub.update({"plan": plan, "status": "trialing" if "'trialing'" in s else "active",
                         "provider": "manual", "cancel_at_period_end": False,
                         "current_period_start": now,
                         "current_period_end": now + timedelta(days=30),
