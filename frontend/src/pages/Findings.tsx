@@ -46,11 +46,16 @@ export default function Findings() {
   const [explainModalOpen, setExplainModalOpen] = useState(false);
   const [explanation, setExplanation] = useState<FindingExplanation | null>(null);
   const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState(false);
+  const explainRequest = useRef(0);
 
   // AI Remediation Assistant State
   const [remediationDrawerOpen, setRemediationDrawerOpen] = useState(false);
   const [remediationGuide, setRemediationGuide] = useState<RemediationGuide | null>(null);
+  const [remediationFinding, setRemediationFinding] = useState<Finding | null>(null);
   const [remediating, setRemediating] = useState(false);
+  const [remediationError, setRemediationError] = useState(false);
+  const remediationRequest = useRef(0);
   const [selectedStack, setSelectedStack] = useState<string>('nginx');
 
   const [copiedCode, setCopiedCode] = useState(false);
@@ -107,29 +112,42 @@ export default function Findings() {
   };
 
   const handleTriggerExplain = async (finding: Finding) => {
+    const request = ++explainRequest.current;
+    setExplanation(null);
+    setExplainError(false);
     setExplainModalOpen(true);
     setExplaining(true);
     try {
       const exp = await explainFinding(finding.id, finding);
-      setExplanation(exp);
+      if (request === explainRequest.current) setExplanation(exp);
     } catch (e) {
-      toast('Could not load the explanation. Please try again.');
+      if (request === explainRequest.current) {
+        setExplainError(true);
+        toast('Could not load the explanation. Please try again.');
+      }
     } finally {
-      setExplaining(false);
+      if (request === explainRequest.current) setExplaining(false);
     }
   };
 
   const handleTriggerRemediate = async (finding: Finding, stack: string = selectedStack) => {
+    const request = ++remediationRequest.current;
+    setRemediationFinding(finding);
+    setRemediationGuide(null);
+    setRemediationError(false);
     setSelectedStack(stack);
     setRemediationDrawerOpen(true);
     setRemediating(true);
     try {
       const guide = await getRemediation(finding.id, stack, finding);
-      setRemediationGuide(guide);
+      if (request === remediationRequest.current) setRemediationGuide(guide);
     } catch (e) {
-      toast('Could not build the fix guide. Please try again.');
+      if (request === remediationRequest.current) {
+        setRemediationError(true);
+        toast('Could not build the fix guide. Please try again.');
+      }
     } finally {
-      setRemediating(false);
+      if (request === remediationRequest.current) setRemediating(false);
     }
   };
 
@@ -458,7 +476,9 @@ export default function Findings() {
         icon={<Sparkles size={16} />}
         maxWidth="max-w-xl"
       >
-        {explaining || !explanation ? (
+        {explainError ? (
+          <p role="alert" className="text-sm text-soft py-4">The explanation could not be loaded. No new analysis was produced. Close this window and retry; the original finding evidence is still available.</p>
+        ) : explaining || !explanation ? (
           <div className="space-y-4 pt-2" aria-busy="true">
             <Skeleton width="45%" height={16} />
             <SkeletonText lines={3} />
@@ -532,7 +552,7 @@ export default function Findings() {
               {['nginx', 'apache', 'cloudflare', 'aws'].map(stack => (
                 <button
                   key={stack}
-                  onClick={() => activeFinding && handleTriggerRemediate(activeFinding, stack)}
+                  onClick={() => remediationFinding && handleTriggerRemediate(remediationFinding, stack)}
                   className={`py-1.5 px-2 rounded uppercase font-medium transition-all border btn-tactile ${
                     selectedStack === stack
                       ? 'bg-accent text-white border-accent shadow-sm shadow-accent/20'
@@ -545,7 +565,9 @@ export default function Findings() {
             </div>
           </div>
 
-          {remediating || !remediationGuide ? (
+          {remediationError ? (
+            <p role="alert" className="text-sm text-soft py-4">The guide could not be loaded. No configuration recommendation was produced. Close this panel and retry, or review the original finding guidance.</p>
+          ) : remediating || !remediationGuide ? (
             <div className="space-y-4 pt-4" aria-busy="true">
               <div className="p-3 bg-inset rounded border border-line space-y-2">
                 <Skeleton width="60%" height={16} />
@@ -568,9 +590,18 @@ export default function Findings() {
                 <h4 className="font-semibold text-ink">{remediationGuide.title}</h4>
                 <p className="text-soft text-[11.5px]">{remediationGuide.summary}</p>
                 <span className="inline-block text-[10px] mono text-ok font-semibold mt-1">
-                  Est. time: ~{remediationGuide.estimated_time_minutes} minutes
+                  {remediationGuide.estimated_time_minutes == null ? 'Allow time for staging and observation before enforcement.' : `Est. time: ~${remediationGuide.estimated_time_minutes} minutes`}
                 </span>
               </div>
+
+              {remediationGuide.prerequisites?.length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="mono font-semibold text-soft uppercase text-[11px]">Before you start:</h5>
+                  <ul className="list-disc pl-5 space-y-1 text-ink">
+                    {remediationGuide.prerequisites.map(item => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
 
               {/* Step-by-Step Instructions */}
               <div className="space-y-2">
@@ -591,7 +622,7 @@ export default function Findings() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="mono text-[11px] font-semibold text-soft uppercase">
-                    Settings code ({selectedStack.toUpperCase()})
+                    Configuration notes ({selectedStack.toUpperCase()})
                   </span>
                   <button
                     onClick={() => copyToClipboard(remediationGuide.code_snippet, false)}
@@ -610,7 +641,7 @@ export default function Findings() {
               {/* Verification Command */}
               <div className="space-y-1.5">
                 <span className="mono text-[11px] font-semibold text-soft uppercase">
-                  Command to check it worked
+                  Verification and limitations
                 </span>
                 <div className="p-2.5 bg-inset rounded border border-line font-mono text-[11px] text-ink flex items-center justify-between">
                   <code>{remediationGuide.verification_command}</code>

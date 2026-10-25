@@ -6,15 +6,37 @@ every use and can be revoked (logout, password reset).
 """
 from fastapi import HTTPException
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from backend.app.core.auth import issue_access_token
 from backend.app.core.config import ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.security import hash_opaque_token, new_opaque_token
 
+DEMO_REFRESH_PREFIX = "cw-demo-v1:"
+
+
+def _demo_refresh_scope(token: str) -> Optional[str]:
+    """Scope is committed by the stored hash of the entire refresh token.
+
+    Stripping/changing this prefix invalidates the token. A refreshed demo
+    always gets another scoped token, never an ordinary owner session.
+    """
+    if not token.startswith(DEMO_REFRESH_PREFIX):
+        return None
+    scope, nonce = token[len(DEMO_REFRESH_PREFIX):].split(":", 1)
+    if len(nonce) < 32:
+        raise ValueError("Invalid demo refresh token")
+    return str(UUID(scope))
+
+
+def _refresh_token(demo_org_id: Optional[str] = None) -> str:
+    nonce = new_opaque_token()
+    return f"{DEMO_REFRESH_PREFIX}{demo_org_id}:{nonce}" if demo_org_id else nonce
+
 
 def public_user(profile: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    result = {
         "id": str(profile["id"]),
         "email": (profile.get("email") or "").strip().lower(),
         "full_name": profile.get("full_name") or "",
@@ -22,6 +44,9 @@ def public_user(profile: Dict[str, Any]) -> Dict[str, Any]:
         "mfa_enrolled": profile.get("mfa_enrolled_at") is not None,
         "provider": profile.get("provider") or "email",
     }
+    if profile.get("session_demo_org_id"):
+        result["demo_session"] = True
+    return result
 
 
 def token_response(
@@ -60,13 +85,19 @@ def _create_session_row(
     return str(row["id"]) if row else ""
 
 
-def issue_session(profile: Dict[str, Any], otc: Optional[str] = None) -> Dict[str, Any]:
+def issue_session(profile: Dict[str, Any], otc: Optional[str] = None, *, demo_org_id: Optional[str] = None) -> Dict[str, Any]:
     """Create a session row and return access + refresh tokens for the caller."""
     # Dedicated owner-console logins never get a customer session.
     from backend.app.core.owner import is_console_only
     if is_console_only(str(profile["id"])):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
-    refresh_token = new_opaque_token()
+    demo_org_id = demo_org_id or profile.get("session_demo_org_id")
+    if demo_org_id:
+        from backend.app.core.demo_org import public_demo_session_valid
+        if otc or not public_demo_session_valid(profile, demo_org_id):
+            raise HTTPException(status_code=403, detail="Public demo configuration is invalid.")
+        profile = {**profile, "session_demo_org_id": demo_org_id}
+    refresh_token = _refresh_token(demo_org_id)
     session_id = _create_session_row(str(profile["id"]), refresh_token, otc)
     return token_response(profile, refresh_token, session_id)
 
@@ -79,6 +110,10 @@ def rotate_refresh_token(old_refresh_token: str) -> Optional[Dict[str, Any]]:
     token loses the race and gets nothing — single-use is enforced by the
     database, not by read-then-write timing (review P1).
     """
+    try:
+        demo_scope = _demo_refresh_scope(old_refresh_token)
+    except ValueError:
+        return None
     old_hash = hash_opaque_token(old_refresh_token)
     session = execute_one(
         "SELECT id, user_id FROM auth_sessions WHERE refresh_token_hash = %s",
@@ -89,7 +124,12 @@ def rotate_refresh_token(old_refresh_token: str) -> Optional[Dict[str, Any]]:
     profile = execute_one("SELECT * FROM profiles WHERE id = %s", (session["user_id"],))
     if not profile:
         return None
-    new_refresh = new_opaque_token()
+    if demo_scope:
+        from backend.app.core.demo_org import public_demo_session_valid
+        if not public_demo_session_valid(profile, demo_scope):
+            return None
+        profile = {**profile, "session_demo_org_id": demo_scope}
+    new_refresh = _refresh_token(demo_scope)
     rotated = execute_one(
         """
         UPDATE auth_sessions

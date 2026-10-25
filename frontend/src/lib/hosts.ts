@@ -32,6 +32,7 @@ const APP_PATHS = new Set([
   '/platform',
   '/analytics',
   '/comply',
+  '/reviews',
   '/dashboard',
   '/copilot',
   '/detect',

@@ -12,10 +12,11 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from backend.app.core.database import execute_one, execute_query
-from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role
+from backend.app.api.demo_login import refuse_demo_account
+from backend.app.billing.subscriptions import resolve_plan
+from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role, session_memberships
 from backend.app.core.plans import (
     DEFAULT_PLAN,
-    entitlements_for,
     parse_plan,
     usage_for_org,
 )
@@ -58,6 +59,9 @@ class CloseOrganizationRequest(BaseModel):
 @router.get("")
 def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     """List organizations the caller belongs to."""
+    if user.get("session_demo_org_id"):
+        return [{**{key: org.get(key) for key in ("id", "name", "slug", "sector", "plan")}, "role": "member"}
+                for org in session_memberships(user)]
     return (
         execute_query(
             """
@@ -73,7 +77,7 @@ def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> L
     )
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account)])
 def create_organization(
     req: CreateOrganizationRequest,
     user: Dict[str, Any] = Depends(get_current_user),
@@ -141,7 +145,7 @@ def get_current_organization(org: Dict[str, Any] = Depends(get_current_org)) -> 
         "cac_rc": org.get("cac_rc"),
         "sector": org.get("sector"),
         "plan": org.get("plan"),
-        "plan_entitlements": entitlements_for(org),
+        "plan_entitlements": resolve_plan(org, execute_one("SELECT * FROM subscriptions WHERE org_id = %s", (str(org["id"]),))),
         "plan_usage": usage_for_org(str(org["id"])),
         "created_at": org.get("created_at"),
         "role": membership_role(org),
@@ -165,8 +169,7 @@ def update_current_organization(
     old_plan = (org.get("plan") or "").strip().lower()
     new_plan = parse_plan(req.plan) if req.plan is not None else None
     if new_plan is not None and new_plan != old_plan:
-        updates.append("plan = %s")
-        params.append(new_plan)
+        raise HTTPException(status_code=409, detail="Contact Cyphward to arrange a plan change. Editing your company profile cannot activate paid access.")
 
     if not updates:
         return {"organization": get_current_organization(org)}
@@ -257,6 +260,24 @@ def export_organization(org: Dict[str, Any] = Depends(require_owner)) -> JSONRes
     )
 
 
+def _queue_evidence_purge(org_id: str) -> None:
+    """Before the organisation's rows go, queue its stored evidence files for deletion (packet C6). Closing never
+    waits for storage and never fails because of it: the objects are deleted right after the rows, and an entry left
+    in the queue is retried by `backend/scripts/reconcile_evidence_files.py`."""
+    from backend.app.compliance import evidence_file_store
+    evidence_file_store.queue_purge(org_id)
+
+
+def _purge_evidence_files(org_id: str) -> None:
+    from backend.app import storage as file_storage
+    from backend.app.compliance import evidence_file_store
+    import logging
+    try:
+        evidence_file_store.purge_organization(file_storage.get_storage(), org_id)
+    except Exception as exc:  # the entry stays queued; the closing already succeeded
+        logging.getLogger("cyphward.evidence_files").warning("evidence purge deferred (%s)", type(exc).__name__)
+
+
 @router.post("/close")
 def close_organization(
     req: CloseOrganizationRequest,
@@ -276,6 +297,7 @@ def close_organization(
             status_code=400,
             detail=f"Type the workspace slug '{org['slug']}' to confirm closure.",
         )
+    _queue_evidence_purge(str(org["id"]))
     log_audit(None, org.get("current_user_id"), "org.closed", "organization", str(org["id"]),
               {"slug": org["slug"], "name": org["name"]})
     deleted = execute_one(
@@ -283,4 +305,5 @@ def close_organization(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Organization not found.")
+    _purge_evidence_files(str(org["id"]))
     return {"closed": True, "org_id": str(org["id"])}

@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, ChevronDown, ClipboardList, Info, Lock, RefreshCw } from 'lucide-react';
-import { PageHead, Loading } from '../components/ui';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowUpRight, CheckCheck, ChevronDown, ClipboardList, FileCheck2, FolderOpen, Info, ListChecks, Lock, Search, ShieldCheck, Siren, Users, RefreshCw } from 'lucide-react';
+import './compliance/compliance.css';
+import { PageHead, Skeleton, SkeletonText } from '../components/ui';
+import { ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
+import { resolveZone } from '../lib/datetime';
+import { useOrgZone } from '../lib/orgZone';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
 import { useToast } from '../components/Toast';
 import { useAuth } from '../lib/auth';
@@ -19,6 +23,9 @@ import {
 } from '../lib/api';
 import QuestionnaireTab, { ToldUs } from './compliance/Questionnaire';
 import IncidentsTab from './compliance/Incidents';
+import PacksTab from './compliance/Packs';
+import DocumentsTab from './compliance/Documents';
+import ReviewerAccessTab from './compliance/ReviewerAccess';
 import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
 
 /**
@@ -29,14 +36,45 @@ import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './co
 
 const CHIP: Record<ComplianceStatus, ChipLevel> = { present: 'ok', gap: 'bad', not_assessed: 'warn', not_applicable: 'idle', awaiting_input: 'idle' };
 
-const CARD = 'rounded-lg border border-line bg-raised';
+const CARD = 'rounded-2xl border border-line bg-raised';
+const TAB_ICONS = [ShieldCheck, ListChecks, Siren, FolderOpen, FileCheck2, Users];
+const TAB_NOTES: Record<string, string> = { readiness: 'Review the evidence behind each requirement and decide what to work on next.', questions: 'Record what your team does, assign evidence owners and keep answers up to date.', incidents: 'Record events and follow the response work through to closure.', packs: 'Prepare dated evidence for management and practitioner reviews.', documents: 'Draft, review and approve your organisation’s policy documents.', reviewers: 'Give a practitioner scoped access to support your review.' };
 
-const DEFAULT_ZONE = 'Africa/Lagos';
-type Tab = 'readiness' | 'questions' | 'incidents';
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'readiness', label: 'Readiness' },
-  { key: 'questions', label: 'Answer questions' },
-  { key: 'incidents', label: 'Incidents' },
+function ComplianceLoading() {
+  return <div className="compliance-page space-y-6 pb-12" data-testid="state-loading" role="status" aria-busy="true" aria-label="Loading compliance workspace">
+    <PageHead title="Compliance readiness" note="Organise evidence, close gaps and prepare for review." />
+    <p className="text-xs mono text-soft">Loading your compliance workspace…</p>
+    <Skeleton height={68} rounded="lg" />
+    <Skeleton height={58} rounded="lg" />
+    <div className="compliance-overview-grid" aria-hidden="true">
+      {[0, 1].map(key => <div key={key} className={`${CARD} p-6 space-y-5`}><Skeleton width="55%" height={15}/><Skeleton width="70%" height={35}/><SkeletonText lines={3}/><Skeleton height={68}/></div>)}
+    </div>
+    <Skeleton height={160} rounded="lg" />
+  </div>;
+}
+
+/** What every tab panel receives. Add a field here when a new tab needs more from the page. */
+interface TabContext {
+  canEdit: boolean;
+  isOwner: boolean;
+  /** The organisation's display zone (default Africa/Lagos). */
+  zone: string;
+  readiness: ReactNode;
+  questions: ReactNode;
+}
+
+/**
+ * The tabs of this page, in order. To add a tab (for example evidence files or reviewer access), append one entry
+ * here with a `render` that returns its panel; the tab bar, keyboard handling and ARIA wiring come for free.
+ */
+interface TabDef { key: string; label: string; ownerOnly?: boolean; render: (ctx: TabContext) => ReactNode }
+const TABS: TabDef[] = [
+  { key: 'readiness', label: 'Readiness', render: c => c.readiness },
+  { key: 'questions', label: 'Answer questions', render: c => c.questions },
+  { key: 'incidents', label: 'Incidents', render: c => <IncidentsTab canEdit={c.canEdit} /> },
+  { key: 'packs', label: 'Packs', render: c => <PacksTab canEdit={c.canEdit} zone={c.zone} /> },
+  { key: 'documents', label: 'Documents', render: c => <DocumentsTab canEdit={c.canEdit} zone={c.zone} /> },
+  { key: 'reviewers', label: 'Reviewer access', ownerOnly: true, render: c => <ReviewerAccessTab zone={c.zone} /> },
 ];
 
 function Chip({ status, label }: { status: ComplianceStatus; label: string }) {
@@ -63,10 +101,10 @@ function TaskButton({ finding }: { finding: ComplianceFindingRef }) {
       const created = await createRemediationTask({ finding_id: finding.id, title: `Fix: ${finding.title}`.slice(0, 300) });
       if (!created) throw new Error('not created');
       setState('created');
-      toast('Remediation task created.');
+      toast('Task created. You will find it under Remediation.');
     } catch {
       setState('idle');
-      toast('Could not create the task. Try again from Remediation.');
+      toast('The task was not created. You can add it from the Remediation page.');
     }
   };
   if (state === 'exists' || state === 'created') {
@@ -85,15 +123,16 @@ function TaskButton({ finding }: { finding: ComplianceFindingRef }) {
 
 function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone: string; told: QuestionnaireQuestion[] }) {
   const [open, setOpen] = useState(false);
+  const detailId = useId();
   const fmtDay = (value?: string | null) => fmtDayZone(value, zone);
   const renewalDue = told.some(q => q.current?.expired);
   return (
-    <li className="border-t border-line first:border-t-0">
-      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+    <li data-requirement-row className="border-t border-line first:border-t-0">
+      <button type="button" id={`${detailId}-trigger`} onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls={open ? detailId : undefined}
               className="w-full text-left px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 hover:bg-inset/60 transition-colors">
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-ink font-medium">{req.title}</p>
-          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
+          <p className="text-sm text-ink font-medium flex items-start justify-between gap-3">{req.title}<ChevronDown size={15} aria-hidden="true" className={`sm:hidden shrink-0 mt-0.5 text-soft transition-transform ${open ? 'rotate-180' : ''}`} /></p>
+          <p className={`text-[11px] mono mt-0.5 ${req.clause_verified || req.clause_review?.verified ? 'text-soft' : 'text-warn'}`}>{req.clause_label}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end shrink-0">
           <Chip status={req.status} label={req.status_label} />
@@ -104,9 +143,32 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
       </button>
 
       {open && (
-        <div className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
+        <div id={detailId} role="region" aria-labelledby={`${detailId}-trigger`} className="px-4 sm:px-5 pb-5 space-y-4 text-sm content-fade-in">
           <p className="text-soft leading-relaxed">{req.summary}</p>
           <p className="text-xs mono text-ink">{req.reason_text}</p>
+          {(req.practitioner_review || req.clause_review) && (
+            <div className="p-3 rounded border border-line bg-inset/50 space-y-1.5" data-testid="practitioner-note">
+              <p className="mono text-[10px] tracking-[.16em] text-soft">PRACTITIONER NOTE · DOES NOT CHANGE THE STATUS</p>
+              {req.practitioner_review && (
+                <p className="text-xs text-ink break-words">
+                  {req.practitioner_review.label}: {req.practitioner_review.outcome_label}.
+                  {req.practitioner_review.comment && <> “{req.practitioner_review.comment}”</>}
+                </p>
+              )}
+              {req.clause_review && (
+                <p className="text-xs text-ink break-words">
+                  Clause reference: {req.clause_review.label}.
+                  {req.clause_review.note && <> “{req.clause_review.note}”</>}
+                </p>
+              )}
+            </div>
+          )}
+          {req.sources && req.sources.length > 1 && (
+            <p className="text-xs text-soft" data-testid="other-sources">
+              The status above comes from {req.sources[0].source_label.toLowerCase()} evidence. Also on this requirement:{' '}
+              {req.sources.slice(1).map(s => `${s.source_label}: ${s.status_label}`).join('; ')}.
+            </p>
+          )}
           {told.some(q => q.current) && (
             <div className="p-3 rounded border border-line bg-inset/50 space-y-2">
               <p className="mono text-[10px] tracking-[.16em] text-soft">YOUR ANSWER · CUSTOMER ATTESTED</p>
@@ -227,7 +289,22 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
 export default function Compliance() {
   const { organization } = useAuth();
   const canEdit = ['owner', 'admin'].includes(organization?.membership_role || 'member');
-  const [tab, setTab] = useState<Tab>('readiness');
+  const isOwner = organization?.membership_role === 'owner';
+  const tabs = TABS.filter(t => !t.ownerOnly || isOwner);
+  const toast = useToast();
+  const orgZone = useOrgZone();
+  const [params, setParams] = useSearchParams();
+  const requestedTab = params.get('section');
+  const tab = tabs.some(t => t.key === requestedTab) ? requestedTab! : 'readiness';
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const requirementsRef = useRef<HTMLDivElement>(null);
+  const selectTab = (key: string) => {
+    setParams(previous => { const next = new URLSearchParams(previous); if (key === 'readiness') next.delete('section'); else next.set('section', key); return next; });
+    requestAnimationFrame(() => tabRefs.current[key]?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+  };
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [data, setData] = useState<ComplianceOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -242,122 +319,123 @@ export default function Compliance() {
       setQnGated(false);
     } catch (e) {
       if (isGrowthGate(e)) setQnGated(true);
-      else setQnError(errorText(e, 'Could not load the questions.'));
+      else setQnError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
     }
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manual = false) => {
     setLoading(true);
     setError(null);
     try {
       setData(await getComplianceOverview());
     } catch (e) {
-      setError((e as Error).message || 'Could not load compliance readiness.');
+      const message = errorText(e, 'Something went wrong on our side. Try again in a moment.');
+      setError(message);
+      if (manual) toast('The page was not refreshed.');
     } finally {
       setLoading(false);
     }
     void loadQuestionnaire();
-  }, [loadQuestionnaire]);
+  }, [loadQuestionnaire, toast]);
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading && !data) return <Loading label="COMPLIANCE READINESS" />;
+  if (loading && !data) return <ComplianceLoading />;
   if (error && !data) {
     return (
       <div className="max-w-7xl mx-auto pb-16 content-fade-in">
-        <div className="bg-inset border border-line rounded p-10 text-center space-y-3">
-          <AlertTriangle size={22} className="mx-auto text-accent" />
-          <p className="text-sm mono">We couldn't load compliance readiness.</p>
-          <p className="text-xs mono text-soft max-w-md mx-auto">{error}</p>
-          <button type="button" className="btn btn-solid btn-mini hover-lift" onClick={() => void load()}>
-            <RefreshCw size={12} className="mr-1" /> RETRY
-          </button>
-        </div>
+        <ErrorPanel title="We could not load your compliance readiness" message={error} onRetry={() => void load()} retrying={loading} />
       </div>
     );
   }
   if (!data) return null;
   const r = data.readiness;
   const total = data.groups.reduce((n, g) => n + g.requirement_count, 0);
-  const zone = qn?.display_timezone || DEFAULT_ZONE;
+  const zone = qn?.display_timezone ? resolveZone(qn.display_timezone) : orgZone;
   const answersFor = (key: string) => (qn?.questions || []).filter(q => q.evidences.some(e => e.key === key));
   const excluded = data.groups.flatMap(g => g.requirements.filter(q => q.status === 'not_applicable'));
+  const filtering = Boolean(search.trim()) || statusFilter !== 'all' || groupFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setStatusFilter('all'); setGroupFilter('all'); };
+  const visibleGroups = data.groups.filter(g => groupFilter === 'all' || g.key === groupFilter).map(group => ({
+    ...group,
+    requirements: group.requirements.filter(req => req.status !== 'not_applicable'
+      && (statusFilter === 'all' || req.status === statusFilter)
+      && (!search.trim() || `${req.title} ${req.summary} ${req.clause_label} ${req.source_label || ''}`.toLowerCase().includes(search.trim().toLowerCase()))),
+  })).filter(group => group.requirements.length > 0 || (!filtering && groupFilter === 'all') || (group.locked && !search.trim() && statusFilter === 'all'));
+  const visibleCount = visibleGroups.reduce((n, group) => n + group.requirements.length, 0);
+  const coverage = r.applicable > 0 ? Math.min(100, Math.max(0, Math.round(r.with_evidence / r.applicable * 100))) : 0;
+  const renewals = (qn?.questions || []).filter(q => q.answer_state === 'expired').length;
+  const focusStatus = (status: string) => {
+    setSearch(''); setGroupFilter('all'); setStatusFilter(status);
+    requestAnimationFrame(() => requirementsRef.current?.scrollIntoView({ block: 'start' }));
+  };
 
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
-      <PageHead
-        title="Compliance readiness"
-        note={`${data.register.title}. Evidence Cyphward has observed, labelled by source.`}
-        actions={
-          <button type="button" onClick={() => void load()} aria-label="Refresh" title="Refresh"
-                  className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[38px] btn-tactile">
-            <RefreshCw size={14} /> <span className="sm:hidden">REFRESH</span>
-          </button>
-        }
-      />
+  const questions = qnGated ? <GrowthGate what="The questionnaire" />
+    : qnError && !qn ? <LoadError title="We could not load the questions" message={qnError} onRetry={() => void loadQuestionnaire()} />
+    : !qn ? <LoadingPanel label="questions" />
+    : <>{qnError && <LoadError title="Your questions were not refreshed" message={qnError} onRetry={() => void loadQuestionnaire()} />}<QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} /></>;
 
-      <div role="note" className="flex items-start gap-2.5 p-3.5 rounded border border-accent/30 bg-accent/5 text-xs text-ink leading-relaxed" data-testid="compliance-disclaimer">
-        <Info size={14} className="text-accent flex-none mt-0.5" />
-        <span>{data.disclaimer}</span>
-      </div>
-
-      <div role="tablist" aria-label="Compliance sections" className="flex flex-wrap gap-2">
-        {TABS.map(t => (
-          <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`btn-mini ${tab === t.key ? '!border-ink !text-ink' : ''}`}>
-            {t.label.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'questions' && (
-        <div role="tabpanel" aria-labelledby="tab-questions">
-          {qnGated ? <GrowthGate what="The questionnaire" />
-            : qnError && !qn ? <LoadError message={qnError} onRetry={() => void loadQuestionnaire()} />
-            : !qn ? <p className="text-xs mono text-soft">LOADING QUESTIONS…</p>
-            : <QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} />}
-        </div>
-      )}
-
-      {tab === 'incidents' && (
-        <div role="tabpanel" aria-labelledby="tab-incidents"><IncidentsTab canEdit={canEdit} /></div>
-      )}
-
-      {tab === 'readiness' && (
-      <div role="tabpanel" aria-labelledby="tab-readiness" className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className={`lg:col-span-4 p-6 ${CARD}`}>
-          <p className="text-[11px] mono uppercase text-soft">Readiness evidence</p>
-          <p className="text-base text-ink mt-3 leading-snug" data-testid="readiness-line">
-            <span className="text-3xl font-bold mono">{r.with_evidence}</span> of {r.applicable} have evidence
-            <span className="text-soft"> · {r.awaiting_input} awaiting input or upcoming checks</span>
+  const readiness = (
+    <>
+      <div className="compliance-overview-grid">
+        <section className="compliance-coverage" aria-label="Evidence coverage">
+          <div className="flex items-center justify-between gap-3"><span className="compliance-eyebrow">Your evidence at a glance</span><ShieldCheck size={19} className="text-accent" /></div>
+          <p className="text-base text-ink mt-4 leading-snug" data-testid="readiness-line">
+            <span className="text-4xl font-semibold tracking-tight">{r.with_evidence}</span> of {r.applicable} have evidence
+            <span className="block text-xs text-soft mt-2"> · {r.awaiting_input} awaiting input or upcoming checks</span>
           </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4">
-            <StatusChip level="ok">{r.present} PRESENT</StatusChip>
-            <StatusChip level="bad">{r.gap} GAPS</StatusChip>
-            <StatusChip level="warn">{r.not_assessed} NOT ASSESSED</StatusChip>
-            <StatusChip level="idle">{r.awaiting_input} AWAITING INPUT</StatusChip>
+          <div className="compliance-coverage-track" role="progressbar" aria-label="Requirements with recorded evidence" aria-valuenow={r.with_evidence} aria-valuemin={0} aria-valuemax={Math.max(r.applicable, r.with_evidence, 1)}><span style={{ width: `${coverage}%` }} /></div>
+          <p className="text-[11px] text-soft">Evidence coverage includes recorded gaps. It is not a legal verdict.</p>
+          <div className="compliance-status-grid">
+            {([
+              ['present', r.present, 'PRESENT', 'ok'], ['gap', r.gap, 'GAPS', 'bad'],
+              ['not_assessed', r.not_assessed, 'NOT ASSESSED', 'warn'], ['awaiting_input', r.awaiting_input, 'AWAITING INPUT', 'idle'],
+            ] as const).map(([status, count, label, level]) => <button key={status} type="button" aria-label={`Filter requirements: ${label.toLowerCase()}`} aria-pressed={statusFilter === status}
+              onClick={() => focusStatus(statusFilter === status ? 'all' : status)}><StatusChip level={level}>{count} {label}</StatusChip><ArrowUpRight size={12} aria-hidden="true" /></button>)}
           </div>
-        </div>
-        <div className={`lg:col-span-8 p-6 ${CARD} space-y-3 text-sm`}>
-          <p className="text-[11px] mono uppercase text-soft">How to read this</p>
+        </section>
+        <section className={`p-5 sm:p-6 ${CARD}`} aria-label="Next steps">
+          <p className="compliance-eyebrow">Keep your review moving</p>
+          <h2 className="text-lg font-semibold mt-2 mb-4">A clear next step</h2>
+          <div className="compliance-next-actions">
+            {data.domains.length === 0 && <Link to="/domains" className="inline-flex items-center gap-2 text-sm text-accent min-h-[44px]">Verify a domain to start collecting evidence <ArrowUpRight size={15}/></Link>}
+            <button type="button" onClick={() => focusStatus('gap')}>
+              <span className="compliance-action-icon"><CheckCheck size={17}/></span><span><strong>Review the gaps</strong><small>{r.gap} {r.gap === 1 ? 'requirement' : 'requirements'} with recorded gaps</small></span><ArrowUpRight size={15}/>
+            </button>
+            <button type="button" onClick={() => selectTab('questions')}><span className="compliance-action-icon"><ListChecks size={17}/></span><span><strong>{canEdit ? 'Complete your evidence' : 'Review your evidence'}</strong><small>{renewals > 0 ? `${renewals} ${renewals === 1 ? 'answer needs' : 'answers need'} renewal` : 'Answer questions and review renewals'}</small></span><ArrowUpRight size={15}/></button>
+            <button type="button" onClick={() => selectTab('packs')}><span className="compliance-action-icon"><FolderOpen size={17}/></span><span><strong>Prepare a review pack</strong><small>Keep a dated snapshot of your evidence</small></span><ArrowUpRight size={15}/></button>
+          </div>
+        </section>
+      </div>
+      <details className={`p-4 sm:p-5 ${CARD} text-sm`}>
+        <summary className="cursor-pointer font-medium flex items-center gap-2"><Info size={15} className="text-accent"/> Understand your evidence <ChevronDown size={14} className="ml-auto text-soft"/></summary>
+        <div className="space-y-3 mt-4">
           <p className="text-soft leading-relaxed">{data.note}</p>
           <p className="text-soft leading-relaxed">
-            Evidence present means the checks finished with nothing linked open; a gap means an open finding is
-            linked. Not assessed means a check could have run but did not finish. Awaiting input means Cyphward has
-            no source for it yet. Clause references marked “pending review” have not yet been checked against the official texts
+            Evidence present means every check finished and nothing linked to it is open. A gap means an open finding is
+            linked to it. Not assessed means a check could have run but did not finish. Awaiting input means Cyphward has
+            no source for it yet. Clause references marked “pending review” have not been checked against the official texts yet
             ({data.register.references_pending_review} of {total} in register {data.register.version}).
           </p>
           {data.domains.length === 0 && (
-            <p className="text-xs mono text-ink">No verified domain yet. <Link to="/domains" className="text-accent underline">Verify a domain</Link> to start collecting evidence.</p>
+            <p className="text-xs text-ink">You have no verified domain yet. <Link to="/domains" className="text-accent underline">Verify a domain</Link> to start collecting evidence.</p>
           )}
         </div>
-      </div>
+      </details>
 
-      <div className="space-y-5">
-        {data.groups.map(group => (
-          <section key={group.key} className={CARD} aria-label={group.title}>
+      <div className="space-y-5 scroll-mt-5" ref={requirementsRef}>
+        <div className="compliance-register-toolbar">
+          <div><p className="compliance-eyebrow">Requirement register</p><h2 className="text-lg font-semibold mt-1">Find the evidence you need</h2></div>
+          <label className="compliance-search"><Search size={15} aria-hidden="true"/><input aria-label="Search requirements" placeholder="Search requirements…" value={search} onChange={e => setSearch(e.target.value)} /></label>
+          <div className="compliance-filter-row">
+            <select aria-label="Filter by evidence status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All evidence statuses</option><option value="gap">Gaps</option><option value="not_assessed">Not assessed</option><option value="awaiting_input">Awaiting input</option><option value="present">Evidence present</option></select>
+            <select aria-label="Filter by requirement group" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}><option value="all">All requirement groups</option>{data.groups.map(g => <option key={g.key} value={g.key}>{g.title}</option>)}</select>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-soft"><span role="status">{visibleCount} visible requirements{filtering ? ' matching your filters' : ''}</span>{filtering && <button type="button" data-testid="clear-requirement-filters" onClick={clearFilters} className="text-accent min-h-[44px] px-2">Clear filters</button>}</div>
+        </div>
+        {!visibleGroups.length && <div data-testid="requirements-empty" className={`${CARD} p-8 text-center`}><Search size={22} className="mx-auto text-soft mb-3"/><h3 className="font-medium">No requirements match</h3><p className="text-sm text-soft mt-2">Try another search or clear your filters to see the register.</p></div>}
+        {visibleGroups.map(group => (
+          <section key={group.key} className={CARD} aria-label={group.title} data-requirement-group>
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
               <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">{group.title}</h2>
               {group.locked ? (
@@ -370,11 +448,11 @@ export default function Compliance() {
             </div>
             {group.locked ? (
               <div className="px-4 sm:px-5 py-5 text-sm text-soft flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <span>{group.requirement_count} requirements. Their detail is part of the Growth plan; they still count in the readiness figure above.</span>
+                <span>{group.requirement_count} requirements. The detail is part of the Growth plan. They still count in the readiness figure above.</span>
                 <Link to="/settings" className="btn-mini whitespace-nowrap self-start">SEE PLANS</Link>
               </div>
             ) : (
-              <ul>{group.requirements.filter(req => req.status !== 'not_applicable').map(req => (
+              <ul>{!group.requirements.length && <li className="p-5 text-xs text-soft">No applicable requirements in this group. See the exclusions below.</li>}{group.requirements.filter(req => req.status !== 'not_applicable').map(req => (
                 <RequirementRow key={req.key} req={req} zone={zone} told={answersFor(req.key)} />
               ))}</ul>
             )}
@@ -384,8 +462,8 @@ export default function Compliance() {
         {excluded.length > 0 && (
           <section className={CARD} aria-label="Excluded" data-testid="excluded-section">
             <div className="px-4 sm:px-5 py-3.5 border-b border-line">
-              <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">Excluded · not applicable to you</h2>
-              <p className="text-xs text-soft mt-1.5">These left the count above because of your answers. Change the answer and they return.</p>
+              <h2 className="text-[11px] mono uppercase tracking-[.14em] text-soft">Excluded · does not apply to you</h2>
+              <p className="text-xs text-soft mt-1.5">These left the count above because of your answers. If you change an answer, they come back.</p>
             </div>
             <ul>{excluded.map(req => (
               <li key={req.key} className="px-4 sm:px-5 py-3.5 border-t border-line first:border-t-0 space-y-1" data-testid={`excluded-${req.key}`}>
@@ -396,8 +474,65 @@ export default function Compliance() {
           </section>
         )}
       </div>
+    </>
+  );
+
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const keys = tabs.map(t => t.key);
+    // URL navigation may still be committing when a second key arrives.
+    // Move from the focused tab so rapid arrow presses never repeat a step.
+    const focused = (e.target as HTMLElement).closest('[role="tab"]')?.id.replace('tab-', '');
+    const at = keys.indexOf(focused || tab);
+    const next = e.key === 'ArrowRight' ? (at + 1) % keys.length : e.key === 'ArrowLeft' ? (at - 1 + keys.length) % keys.length
+      : e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    selectTab(keys[next]);
+    tabRefs.current[keys[next]]?.focus();
+  };
+
+  return (
+    <div className="compliance-page space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
+      <PageHead
+        title="Compliance readiness"
+        note={`${data.register.title}. Organise evidence, close gaps and prepare for review.`}
+        actions={
+          <>
+          {!canEdit && <span className="compliance-access-label"><Lock size={12} aria-hidden="true"/> View only</span>}
+          <button type="button" onClick={() => void load(true)} aria-label="Refresh" title="Refresh" disabled={loading}
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded text-xs mono border border-line bg-raised hover:border-line-strong hover:text-ink transition-colors min-h-[44px] btn-tactile">
+            <RefreshCw size={14} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> <span>Refresh</span>
+          </button>
+          </>
+        }
+      />
+
+      {error && <ErrorPanel title="Your latest refresh did not finish" message={error} onRetry={() => void load(true)} retrying={loading} />}
+
+      <div role="note" className="flex items-start gap-2.5 p-3.5 rounded border border-accent/30 bg-accent/5 text-xs text-ink leading-relaxed" data-testid="compliance-disclaimer">
+        <Info size={14} className="text-accent flex-none mt-0.5" />
+        <span>{data.disclaimer}</span>
       </div>
-      )}
+
+      <div role="tablist" aria-label="Compliance sections" className="compliance-tabs" onKeyDown={onTabKey}>
+        {tabs.map(t => { const Icon = TAB_ICONS[TABS.indexOf(t)]; return (
+          <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-label={t.label} aria-selected={tab === t.key}
+                  aria-describedby={t.key === 'questions' && renewals > 0 ? 'compliance-renewal-count' : undefined}
+                  aria-controls={`panel-${t.key}`} tabIndex={tab === t.key ? 0 : -1}
+                  ref={el => { tabRefs.current[t.key] = el; }}
+                  onClick={() => selectTab(t.key)}
+                  className={`compliance-tab ${tab === t.key ? 'compliance-tab-active' : ''}`}>
+            <Icon size={15} aria-hidden="true"/><span>{t.label}</span>{t.key === 'questions' && renewals > 0 && <span id="compliance-renewal-count" className="compliance-tab-count"><span aria-hidden="true">{renewals}</span><span className="sr-only">{renewals} {renewals === 1 ? 'answer needs' : 'answers need'} renewal</span></span>}
+          </button>
+        ); })}
+      </div>
+
+      {tabs.filter(t => t.key === tab).map(t => (
+        <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} className="compliance-tab-panel space-y-6">
+          <div className="compliance-section-heading"><div><p className="compliance-eyebrow">Compliance workspace</p><h2>{t.label === 'Packs' ? 'Evidence packs' : t.label}</h2></div><p>{TAB_NOTES[t.key]}</p></div>
+          {t.render({ canEdit, isOwner, zone, readiness, questions })}
+        </div>
+      ))}
     </div>
   );
 }

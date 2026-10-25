@@ -12,6 +12,7 @@ from uuid import UUID
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import get_current_org, require_admin, log_audit
 from backend.app.core.scan_admission import admit_scan, AdmissionConflict
 from backend.app.core.scan_cancel import CANCEL_ACTIVE_SCAN_SQL
@@ -87,7 +88,7 @@ def get_scan_detail(
     }
 
 
-@router.post("/launch")
+@router.post("/launch", dependencies=[Depends(refuse_demo_account)])
 async def launch_scan(
     req: LaunchScanRequest,
     background_tasks: BackgroundTasks,

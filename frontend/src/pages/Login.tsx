@@ -5,7 +5,7 @@ import { ArrowRight, KeyRound, Lock, Eye, EyeOff, Sun, Moon, Globe, AlertCircle 
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { signInWithGooglePopup } from '../lib/googlePopup';
-import { exchangeOtp, mfaStart } from '../lib/api';
+import { demoLoginStatus, exchangeOtp, mfaStart } from '../lib/api';
 import type { MfaChallenge } from '../lib/api';
 import { takeMfaChallenge } from '../lib/session';
 import type { AuthTokens } from '../lib/session';
@@ -15,7 +15,7 @@ import StrataField from '../components/StrataField';
 import CyphwardLogo from '../components/CyphwardLogo';
 
 export default function Login() {
-  const { tenant, signInWithCredentials, completeMfaSignIn, resendMfaCode, completeExternalLogin, onboardingStep } = useAuth();
+  const { tenant, signInWithCredentials, signInAsDemo, completeMfaSignIn, resendMfaCode, completeExternalLogin, onboardingStep } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -23,7 +23,9 @@ export default function Login() {
   const [pw, setPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState('');
+  const [demoEnabled, setDemoEnabled] = useState(false);
   const [theme, setTheme] = useState(getTheme());
   // Admin step-up: password accepted, 6-digit email code pending.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
@@ -150,12 +152,31 @@ export default function Login() {
     };
   }, [tenant]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    demoLoginStatus().then((status) => setDemoEnabled(status.enabled)).catch(() => setDemoEnabled(false));
+  }, []);
+
   if (tenant) {
     if (onboardingStep !== 'none' && onboardingStep !== 'complete') {
       return <Navigate to={`/onboarding${inviteParam}`} replace />;
     }
     return <Navigate to={`/overview${inviteParam}`} replace />;
   }
+
+  const tryDemo = async () => {
+    if (busy) return;
+    setBusy(true);
+    setDemoBusy(true);
+    setError('');
+    const result = await signInAsDemo();
+    if (!result.ok) {
+      setBusy(false);
+      setDemoBusy(false);
+      setError(result.error || 'The demo is not available right now.');
+      return;
+    }
+    finishLogin(result.name || 'Sample Owner', result.onboarding);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -517,6 +538,29 @@ export default function Login() {
                       </Link>
                     </span>
                   </div>
+              {demoEnabled && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={tryDemo}
+                    disabled={busy}
+                    aria-busy={demoBusy}
+                    className="w-full h-11 border border-line rounded-md text-sm font-medium text-ink hover:bg-surface disabled:opacity-60"
+                  >
+                    {demoBusy ? (
+                      <span className="inline-flex items-center gap-1 animate-pulse">
+                        Signing you into the demo
+                        <span aria-hidden="true">...</span>
+                      </span>
+                    ) : (
+                      'Try the demo'
+                    )}
+                  </button>
+                  <p className="text-xs mono text-soft mt-2">
+                    Explore the shared demo workspace. No password or verification code needed.
+                  </p>
+                </div>
+              )}
               </form>
               )}
 

@@ -14,6 +14,7 @@ from backend.app.core.runtime_guard import (
     track_background_task,
 )
 from backend.app.api import (
+    demo_login,
     overview,
     domains,
     assets,
@@ -36,6 +37,9 @@ from backend.app.api import (
     owner_views,
     owner_actions,
     compliance,
+    compliance_reviewer,
+    snapshots,
+    packs,
     billing,
     contact,
 )
@@ -139,6 +143,7 @@ app.include_router(settings.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
 app.include_router(auth.router)
+app.include_router(demo_login.router)
 app.include_router(auth_google.google_router)
 app.include_router(health.router)
 app.include_router(scanner_jobs.router)
@@ -147,6 +152,10 @@ app.include_router(owner.router)
 app.include_router(owner_views.router)
 app.include_router(owner_actions.router)
 app.include_router(compliance.router)
+app.include_router(compliance_reviewer.owner_router)
+app.include_router(compliance_reviewer.router)
+app.include_router(snapshots.router)
+app.include_router(packs.router)
 app.include_router(billing.router)
 app.include_router(contact.router)
 
@@ -204,6 +213,13 @@ async def stop_execution_recovery() -> None:
 _scheduler_task: asyncio.Task | None = None
 _scheduler_stop: asyncio.Event | None = None
 _reminders_task: asyncio.Task | None = None
+
+
+@app.on_event("startup")
+async def warn_if_document_rewording_is_on() -> None:
+    from backend.app.compliance import documents as compliance_documents
+
+    compliance_documents.log_model_path_warning()
 
 
 @app.on_event("startup")

@@ -15,22 +15,15 @@ def _h(auth_headers, user_id, org=None):
     return auth_headers(user_id, email=f"{user_id[:8]}@acme.test", org=org)
 
 
-def test_set_plan_creates_subscription_and_invoice(client, auth_headers, store):
-    resp = client.post("/api/v1/billing/subscription", json={"plan": "Growth"},
-                       headers=_h(auth_headers, ALICE, ORG_A))
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["subscription"]["plan"] == "growth"
-    assert body["subscription"]["status"] == "active"
-    assert body["invoice"]["amount_kobo"] == 2_500_000
-    assert body["invoice"]["currency"] == "NGN"
-
-    got = client.get("/api/v1/billing/subscription", headers=_h(auth_headers, ALICE, ORG_A))
-    assert got.status_code == 200
-    assert got.json()["effective_status"] == "active"
-    assert got.json()["entitlements"]["plan"] == "growth"
-    inv = client.get("/api/v1/billing/invoices", headers=_h(auth_headers, ALICE, ORG_A))
-    assert len(inv.json()["invoices"]) == 1
+def test_customer_cannot_self_activate_or_renew(client, auth_headers, store):
+    before_subs = list(store.subscriptions)
+    for path, body in [("/api/v1/billing/subscription", {"plan": "Growth"}),
+                       ("/api/v1/billing/subscription/renew", None)]:
+        resp = client.post(path, json=body, headers=_h(auth_headers, ALICE, ORG_A))
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "manual_billing_review_required"
+    assert store.subscriptions == before_subs
+    assert store.invoices == []
 
 
 def test_retired_plan_rejected(client, auth_headers, store):
@@ -48,26 +41,28 @@ def test_invalid_plan_rejected_and_member_forbidden(client, auth_headers, store)
                       headers=_h(auth_headers, ADMI, ORG_A)).status_code == 403
 
 
-def test_cancel_and_renew_lifecycle(client, auth_headers, store):
-    client.post("/api/v1/billing/subscription", json={"plan": "growth"},
-                headers=_h(auth_headers, ALICE, ORG_A))
-    cancel = client.post("/api/v1/billing/subscription/cancel",
-                         headers=_h(auth_headers, ALICE, ORG_A))
+def test_cancel_keeps_period_and_renew_does_not_restart_trial(client, auth_headers, store):
+    end = datetime.now(timezone.utc) + timedelta(days=9)
+    store.subscriptions.append({"id": "sub", "org_id": ORG_A, "plan": "growth", "status": "trialing",
+                                "current_period_end": end, "trial_ends_at": end, "cancel_at_period_end": False})
+    cancel = client.post("/api/v1/billing/subscription/cancel", headers=_h(auth_headers, ALICE, ORG_A))
+    assert cancel.status_code == 200
     assert cancel.json()["subscription"]["cancel_at_period_end"] is True
-    renew = client.post("/api/v1/billing/subscription/renew",
-                        headers=_h(auth_headers, ALICE, ORG_A))
-    sub = renew.json()["subscription"]
-    assert sub["cancel_at_period_end"] is False and sub["status"] == "active"
-    assert len(store.invoices) == 2  # set + renew
+    assert client.post("/api/v1/billing/subscription/renew", headers=_h(auth_headers, ALICE, ORG_A)).status_code == 409
+    assert store.subscriptions[0]["status"] == "trialing"
+    assert store.subscriptions[0]["current_period_end"] == end
+    assert store.invoices == []
 
 
-def test_past_due_and_lapsed_fall_back_to_growth_floor():
+def test_expiry_stops_new_work_without_hiding_subscription_state():
     from backend.app.billing.subscriptions import effective_status, resolve_plan
     org = {"id": "x", "plan": "growth"}
     past = {"plan": "growth", "status": "past_due",
             "current_period_end": datetime.now(timezone.utc).isoformat(),
             "cancel_at_period_end": False}
     assert resolve_plan(org, past)["plan"] == "starter"
+    assert resolve_plan(org, past)["monthly_scans"] == 0
+    assert resolve_plan(org, past)["monthly_reports"] == 0
     live = {"plan": "growth", "status": "active",
             "current_period_end": (datetime.now(timezone.utc) + timedelta(days=5)).isoformat(),
             "cancel_at_period_end": False}
@@ -78,3 +73,16 @@ def test_past_due_and_lapsed_fall_back_to_growth_floor():
               "cancel_at_period_end": False}
     assert effective_status(lapsed) == "past_due"
     assert resolve_plan(org, lapsed)["plan"] == "starter"
+
+
+def test_expired_trial_cannot_be_reactivated_by_plan_selection(client, auth_headers, store):
+    end = datetime.now(timezone.utc) - timedelta(days=2)
+    store.subscriptions.append({"id": "sub", "org_id": ORG_A, "plan": "growth", "status": "trialing", "current_period_end": end})
+    response = client.post("/api/v1/billing/subscription", json={"plan": "starter"}, headers=_h(auth_headers, ALICE, ORG_A))
+    assert response.status_code == 409
+    assert store.subscriptions[0]["current_period_end"] == end
+    assert store.subscriptions[0]["plan"] == "growth"
+    response = client.get("/api/v1/billing/subscription", headers=_h(auth_headers, ALICE, ORG_A))
+    assert response.status_code == 200
+    assert response.json()["entitlements"]["monthly_scans"] == 0
+    assert response.json()["billing_mode"] == "manual_confirmation"

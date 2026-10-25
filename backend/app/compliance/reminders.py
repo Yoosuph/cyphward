@@ -68,6 +68,91 @@ ORDER BY lower(p.email)
 """
 
 
+DPO_DUE_SQL = """
+SELECT o.id, o.name, o.plan, o.display_timezone FROM organizations o
+WHERE NOT EXISTS (SELECT 1 FROM dpo_reminders r WHERE r.org_id = o.id AND r.period_key = %s)
+  AND NOT EXISTS (SELECT 1 FROM evidence_packs p WHERE p.org_id = o.id AND p.issued_at >= %s AND p.dpo IS NOT NULL)
+  AND EXISTS (SELECT 1 FROM domains d WHERE d.org_id = o.id AND d.verification_status = 'verified')
+  AND EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = o.id AND m.role IN ('owner', 'admin'))
+ORDER BY o.id
+"""
+
+
+def dpo_period(now: datetime) -> Dict[str, Any]:
+    """The calendar half-year the reminder belongs to: ('2026-H2', start of that half)."""
+    now = now.astimezone(timezone.utc)
+    first = 1 if now.month <= 6 else 7
+    return {"key": f"{now.year}-H{1 if first == 1 else 2}",
+            "start": datetime(now.year, first, 1, tzinfo=timezone.utc)}
+
+
+def dpo_notification_copy() -> Dict[str, str]:
+    return {"title": "Six-monthly data-security report is due",
+            "body": "A DPO's six-monthly report covers data security for the last six months. Issue a data-security "
+                    "section from the Packs area; it is supporting evidence, not a Compliance Audit Return."}
+
+
+def dpo_email_copy(org_name: str, url: str) -> Dict[str, str]:
+    subject = f"Six-monthly data-security report due: {org_name}"[:200]
+    text = (f"The six-monthly data-security report for {org_name} is due this half-year.\n\n"
+            "Open the Packs area to issue a data-security section for your DPO. It lists scans run, coverage, findings "
+            "opened and resolved, and incident counts, and it is supporting evidence for a DPCO. It is not a "
+            f"Compliance Audit Return.\n\nOpen Cyphward: {url}\n\nThis reminder is sent once each half-year. — Cyphward")
+    page = (f'<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;'
+            f'color:#3A352D;line-height:1.65;max-width:520px"><p>The six-monthly data-security report for '
+            f'<strong>{html.escape(org_name)}</strong> is due this half-year.</p><p>Open the Packs area to issue a '
+            f'data-security section for your DPO. It is supporting evidence for a DPCO, not a Compliance Audit Return.</p>'
+            f'<p><a href="{html.escape(url)}" style="display:inline-block;background:#E5532B;color:#fff;'
+            f'text-decoration:none;border-radius:8px;padding:12px 22px;font-weight:700">Open Cyphward</a></p>'
+            f'<p style="font-size:12px;color:#8A8377">This reminder is sent once each half-year.</p></div>')
+    return {"subject": subject, "text": text, "html": page}
+
+
+def _record_dpo_reminder(claim: Dict[str, Any], item: Dict[str, Any], period: str) -> Optional[List[Dict[str, Any]]]:
+    copy = dpo_notification_copy()
+    with database.get_db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                lock_cron_claim(cur, claim)
+                cur.execute("INSERT INTO dpo_reminders (org_id, period_key) VALUES (%s, %s) ON CONFLICT DO NOTHING "
+                            "RETURNING org_id", (item["id"], period))
+                if cur.fetchone() is None:
+                    return None
+                cur.execute("INSERT INTO notifications (org_id, type, title, body, severity, link) "
+                            "VALUES (%s, 'compliance_report_due', %s, %s, 'info', %s)",
+                            (item["id"], copy["title"], copy["body"], LINK_PATH))
+                cur.execute(RECIPIENTS_SQL, (item["id"], None))
+                return cur.fetchall()
+
+
+async def _dpo_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any]) -> None:
+    """Growth organisations that have not issued a pack this half-year get one reminder per half-year."""
+    from backend.app.compliance.status import is_starter
+
+    period = dpo_period(now)
+    due = await asyncio.to_thread(lambda: database.execute_query(DPO_DUE_SQL, (period["key"], period["start"])) or [])
+    for item in due:
+        if await asyncio.to_thread(is_starter, {"id": item["id"], "plan": item["plan"]}):
+            result["dpo_skipped"] += 1
+            continue
+        recipients = await asyncio.to_thread(_record_dpo_reminder, claim, item, period["key"])
+        if recipients is None:
+            result["dpo_skipped"] += 1
+            continue
+        result["dpo_reminded"] += 1
+        email = dpo_email_copy(item["name"], link())
+        for person in recipients:
+            if not await asyncio.to_thread(_claim_is_current, claim):
+                raise ClaimLost("Scheduler claim is no longer current")
+            try:
+                await mailer.send_email_async(person["email"], email["subject"], email["html"], email["text"],
+                                              person.get("full_name"), kind="alerts")
+                result["emails_sent"] += 1
+            except Exception:
+                result["email_failures"] += 1
+                logger.warning("DPO reminder email failed for an organisation member", exc_info=True)
+
+
 def _claimant_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
@@ -160,7 +245,8 @@ def _claim_is_current(claim: Dict[str, Any]) -> bool:
 
 
 async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
-    result = {"due": 0, "reminded": 0, "emails_sent": 0, "email_failures": 0, "skipped": 0}
+    result = {"due": 0, "reminded": 0, "emails_sent": 0, "email_failures": 0, "skipped": 0,
+              "dpo_reminded": 0, "dpo_skipped": 0}
     due = await asyncio.to_thread(_due, now)
     result["due"] = len(due)
     for item in due:
@@ -185,6 +271,7 @@ async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
             except Exception:
                 result["email_failures"] += 1
                 logger.warning("compliance reminder email failed for an organisation member", exc_info=True)
+    await _dpo_sweep(claim, now, result)
     return result
 
 

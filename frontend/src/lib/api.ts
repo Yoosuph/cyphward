@@ -13,6 +13,7 @@ import {
   type SessionUser,
 } from './session';
 import { clearPageCache } from './pageCache';
+import { reportArtifactSchema, type ReportArtifact, type ArtifactContext } from './reportArtifacts';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
   Scan, FindingExplanation, RemediationGuide, ExecutiveSummary, SettingsData,
@@ -109,6 +110,11 @@ export async function getDomains(): Promise<Domain[]> {
   // Empty list on failure — never invent domains for the tenant.
   const data = await apiFetch<Domain[]>('/domains');
   return data ?? [];
+}
+
+/** Like getDomains, but a failed request throws so a page can show an error state instead of "no domains". */
+export async function getDomainsStrict(): Promise<Domain[]> {
+  return (await apiFetch<Domain[]>('/domains', undefined, true)) ?? [];
 }
 
 export async function addDomain(domain: string): Promise<{ domain: Domain; dns_instructions: any }> {
@@ -267,16 +273,7 @@ export async function explainFinding(findingId?: string, finding?: any): Promise
   });
   if (data) return data;
 
-  return {
-    title: finding?.title || 'Security Finding Explanation',
-    severity: (finding?.severity || 'HIGH').toUpperCase(),
-    category: finding?.category || 'Security Configuration',
-    what_is_this: 'Detailed technical description of the evaluated attack surface vector.',
-    why_it_matters: 'The identified security configuration gap exposes services to unauthorized access or communication hijacking.',
-    evidence_analysis: 'Observation telemetry recorded from non-destructive probe handshake.',
-    what_happens_if_ignored: 'Heightened risk of exploitation, data loss, and regulatory non-compliance.',
-    sovereign_advisory: 'Roll the recommended change out in a test environment first, then apply it in production.',
-  };
+  throw new Error('The finding explanation could not be loaded.');
 }
 
 export async function getRemediation(findingId?: string, targetStack: string = 'nginx', finding?: any): Promise<RemediationGuide> {
@@ -286,16 +283,7 @@ export async function getRemediation(findingId?: string, targetStack: string = '
   });
   if (data) return data;
 
-  return {
-    title: finding?.title || 'Remediation Blueprint',
-    target_stack: targetStack,
-    summary: `Step-by-step remediation guide for ${targetStack.toUpperCase()}.`,
-    prerequisites: ['Administrative access to host', 'Access to reload reverse proxy'],
-    steps: ['Open config file', 'Add security directive', 'Test configuration', 'Reload service'],
-    code_snippet: `# Configuration for ${targetStack}\n# Add appropriate directive here`,
-    verification_command: 'curl -I https://example.com',
-    estimated_time_minutes: 15,
-  };
+  throw new Error('The remediation guide could not be loaded.');
 }
 
 export async function getExecutiveSummary(): Promise<ExecutiveSummary | null> {
@@ -444,6 +432,10 @@ export interface ReportRow {
   created_at: string;
   updated_at: string;
   html?: string | null;
+  snapshot_id?: string | null;
+  report_version?: string | null;
+  integrity?: 'snapshot' | 'legacy';
+  integrity_label?: string;
 }
 
 export async function listReports(): Promise<{ reports: ReportRow[]; total: number }> {
@@ -452,7 +444,12 @@ export async function listReports(): Promise<{ reports: ReportRow[]; total: numb
   return { reports: [], total: 0 };
 }
 
-export async function createReport(payload?: { domain_id?: string; title?: string }): Promise<{ report: ReportRow } | null> {
+/** Like listReports, but a failed request throws so a page can show an error state instead of "no reports". */
+export async function listReportsStrict(): Promise<{ reports: ReportRow[]; total: number }> {
+  return (await apiFetch<{ reports: ReportRow[]; total: number }>('/reports', undefined, true)) ?? { reports: [], total: 0 };
+}
+
+export async function createReport(payload?: { domain_id?: string; title?: string; request_key?: string }): Promise<{ report: ReportRow } | null> {
   return apiFetch('/reports', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -502,12 +499,19 @@ export interface CyphBotResponse {
   q?: string;
   a?: string;
   answer: string;
+  artifact?: ReportArtifact;
   sources?: Array<{ id: string; label: string }>;
   actions?: Array<{ label: string; kind?: string; path?: string; toast?: string }>;
 }
 
+export type CyphBotActivityStep = 'request_sent' | 'reading_workspace' | 'reviewing_request' | 'building_report' | 'querying_period' | 'writing_answer' | 'retrying_provider';
+const ACTIVITY_STEPS: CyphBotActivityStep[] = ['reading_workspace', 'reviewing_request', 'building_report', 'querying_period', 'writing_answer', 'retrying_provider'];
+
 export interface CyphBotStreamCallbacks {
   onToken: (token: string) => void;
+  onArtifact?: (artifact: ReportArtifact) => void;
+  onArtifactStatus?: () => void;
+  onActivity?: (step: CyphBotActivityStep) => void;
   onComplete: (meta: { sources?: Array<{ id: string; label: string }>; actions?: Array<{ label: string; kind?: string; path?: string; toast?: string }> }) => void;
   onError: (err: any) => void;
 }
@@ -515,7 +519,8 @@ export interface CyphBotStreamCallbacks {
 export async function streamCyphBot(
   message: string,
   history: CyphBotMessage[] = [],
-  callbacks: CyphBotStreamCallbacks
+  callbacks: CyphBotStreamCallbacks,
+  options: { artifact_context?: ArtifactContext; signal?: AbortSignal } = {},
 ): Promise<void> {
   const token = await getAccessToken();
   const orgId = getActiveOrgId();
@@ -523,6 +528,7 @@ export async function streamCyphBot(
   try {
     const response = await fetch('/api/v1/ai/chat/stream', {
       method: 'POST',
+      signal: options.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -530,6 +536,7 @@ export async function streamCyphBot(
       },
       body: JSON.stringify({
         message,
+        artifact_context: options.artifact_context,
         history: history.map(h => ({
           role: h.role === 'assistant' ? 'model' : 'user',
           content: h.content,
@@ -538,71 +545,74 @@ export async function streamCyphBot(
     });
 
     if (!response.ok || !response.body) {
+      const failure = await response.json().catch(() => null);
+      if (typeof failure?.detail === 'string') throw new Error(failure.detail);
       throw new Error(`Stream request failed: ${response.status}`);
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    const consume = (line: string): boolean => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return false;
+      const data = JSON.parse(trimmed.slice(5).trim());
+      if (data.error) throw new Error(String(data.error));
+      if (data.type === 'assistant-status' && ACTIVITY_STEPS.includes(data.step)) callbacks.onActivity?.(data.step);
+      if (data.type === 'artifact-status') callbacks.onArtifactStatus?.();
+      if (data.type === 'artifact') {
+        const artifact = reportArtifactSchema.parse(data.artifact);
+        if (artifact.org_id !== orgId) throw new Error('Report workspace mismatch');
+        callbacks.onArtifact?.(artifact);
+      }
+      if (data.token) callbacks.onToken(data.token);
+      if (data.done) {
+        callbacks.onComplete({ sources: data.sources, actions: data.actions });
+        return true;
+      }
+      return false;
+    };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          if (buffer.trim() && consume(buffer)) return;
+          throw new Error('CyphBot disconnected before finishing. Please retry.');
+        }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > 2_000_000) throw new Error('The response was too large to display. Try a smaller report.');
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-            if (data.token) {
-              callbacks.onToken(data.token);
-            }
-            if (data.done) {
-              callbacks.onComplete({
-                sources: data.sources,
-                actions: data.actions,
-              });
-              return;
-            }
-          } catch (e) {
-            // Ignore partial parse
-          }
+        for (const line of lines) {
+          if (consume(line)) return;
         }
       }
+    } finally {
+      await reader.cancel().catch(() => {});
     }
 
-    callbacks.onComplete({});
   } catch (err) {
-    try {
-      const fallback = await askCyphBot(message, history);
-      const words = fallback.answer.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        callbacks.onToken(words[i] + (i < words.length - 1 ? ' ' : ''));
-        await new Promise(r => setTimeout(r, 16));
-      }
-      callbacks.onComplete({
-        sources: fallback.sources,
-        actions: fallback.actions,
-      });
-    } catch (innerErr) {
-      callbacks.onError(innerErr);
-    }
+    callbacks.onError(err);
+    throw err;
   }
 }
 
 export async function askCyphBot(
   message: string,
-  history: CyphBotMessage[] = []
+  history: CyphBotMessage[] = [],
+  options: { artifact_context?: ArtifactContext; signal?: AbortSignal } = {},
 ): Promise<CyphBotResponse> {
   try {
     const data = await apiFetch<any>('/ai/chat', {
       method: 'POST',
+      signal: options.signal,
       body: JSON.stringify({
         message,
+        artifact_context: options.artifact_context,
         history: history.map(h => ({
           role: h.role === 'assistant' ? 'model' : 'user',
           content: h.content,
@@ -613,11 +623,13 @@ export async function askCyphBot(
       q: message,
       a: data.answer,
       answer: data.answer,
+      artifact: data.artifact ? reportArtifactSchema.parse(data.artifact) : undefined,
       sources: data.sources || [{ id: 's1', label: 'Cyphward Sovereign Defense Core' }],
       actions: data.actions || [{ label: 'View Findings', kind: 'solid', path: '/findings' }],
     };
   } catch (err) {
-    const naturalFallback = `Public sites should use HTTPS (TLS 1.3) and strict email authentication (DMARC p=reject).\n\nYou can see your open issues and security score in the **Findings** section. Would you like me to walk you through fixing your top issues?`;
+    if (options.signal?.aborted) throw err;
+    const naturalFallback = `CyphBot could not load a response. Open the recorded finding and its guidance in **Findings**, or retry. No new assessment or configuration recommendation was produced.`;
     return {
       q: message,
       a: naturalFallback,
@@ -717,6 +729,17 @@ async function authPost<T>(endpoint: string, payload: unknown): Promise<T> {
 
 export async function loginRequest(email: string, password: string): Promise<AuthTokens | MfaChallenge> {
   return authPost<AuthTokens | MfaChallenge>('/auth/login', { email, password });
+}
+
+/** Whether the server offers its configured demo sign-in. */
+export async function demoLoginStatus(): Promise<{ enabled: boolean }> {
+  const res = await apiFetch<{ enabled: boolean }>('/auth/demo-login', undefined, false);
+  return { enabled: Boolean(res?.enabled) };
+}
+
+/** Demo sign-in. The browser sends no account credentials. */
+export async function demoLoginRequest(): Promise<AuthTokens> {
+  return authPost<AuthTokens>('/auth/demo-login', {});
 }
 
 export interface MfaChallenge {
@@ -1021,9 +1044,33 @@ export interface ComplianceRequirement {
   findings: ComplianceFindingRef[];
   informational_findings: ComplianceFindingRef[];
   policy_mentions?: { domain: string; state: 'mentioned' | 'not_found'; url: string | null }[];
-  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string }[];
+  sources?: { source: string; source_label: string; status: ComplianceStatus; status_label: string; reason: string; reason_text: string; headline?: boolean }[];
   answers?: { question_key: string; status: ComplianceStatus; reason: string; reason_text: string; answered: boolean;
-              owner_name: string | null; expires_at: string | null }[];
+              owner_name: string | null; expires_at: string | null; value?: string | null; date?: string | null }[];
+  /** A practitioner's note that they reviewed this requirement (C6). Never changes the status. */
+  /** Reviewers receive a count instead of finding details. */
+  open_finding_count?: number;
+  practitioner_review?: PractitionerReview | null;
+  /** This organisation's practitioner overlay on the clause reference (C6). */
+  clause_review?: ClauseReview | null;
+}
+
+export interface PractitionerReview {
+  outcome: 'reviewed' | 'reviewed_with_comments';
+  outcome_label: string;
+  reviewer_name: string;
+  reviewer_domain?: string | null;
+  reviewed_at: string;
+  comment: string | null;
+  label: string;
+}
+
+export interface ClauseReview {
+  verified: boolean;
+  reviewer_name: string;
+  at: string;
+  note: string | null;
+  label: string;
 }
 
 export interface ComplianceReadiness {
@@ -1185,3 +1232,228 @@ export const createIncident = (body: IncidentCreate) =>
 
 export const updateIncident = (id: string, changes: IncidentChanges) =>
   apiFetch<Incident>(`/compliance/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }, true) as Promise<Incident>;
+
+// ============================================================================
+// Evidence packs (packet C4). Growth plan; members read, owners and admins issue.
+// ============================================================================
+export type PackKind = 'readiness_pack' | 'dpo_section';
+
+export interface EvidencePack {
+  id: string;
+  snapshot_id: string;
+  kind: PackKind;
+  pack_version: string;
+  issued_at: string;
+  issued_by: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  html_sha256: string;
+  pdf_sha256: string;
+  retain_until: string;
+}
+
+export interface PackList {
+  packs: EvidencePack[];
+  total: number;
+  notice: string;
+  retention_months: number;
+  retention: string;
+}
+
+export const listPacks = () => apiFetch<PackList>('/packs', undefined, true) as Promise<PackList>;
+
+export const issuePack = (body: { kind: PackKind; include_dpo?: boolean; request_key?: string }) =>
+  apiFetch<{ pack: EvidencePack; created: boolean }>('/packs', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ pack: EvidencePack; created: boolean }>;
+
+/** The stored bytes of an issued pack. A plain link cannot send the session headers, so this fetches a Blob. */
+export async function downloadPack(id: string, format: 'html' | 'pdf'): Promise<Blob> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  const res = await fetch(`${API_BASE}/packs/${encodeURIComponent(id)}/${format}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(orgId ? { 'X-Organization-Id': orgId } : {}) },
+  });
+  if (!res.ok) throw new Error(res.status === 403 ? 'Evidence packs are part of the Growth plan.' : 'The download failed. Try again.');
+  return res.blob();
+}
+
+// How long issued snapshots (and packs) are kept. Members read it; the owner sets it.
+export interface EvidenceRetention { retention_months: number; retention: string }
+export const getEvidenceRetention = () =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', undefined, true) as Promise<EvidenceRetention>;
+export const setEvidenceRetention = (months: number) =>
+  apiFetch<EvidenceRetention>('/snapshots/retention', { method: 'PUT', body: JSON.stringify({ months }) }, true) as Promise<EvidenceRetention>;
+
+// ---- AI-drafted documents (C5) ----
+export type DocumentKind = 'privacy_policy' | 'cookie_notice' | 'breach_response_plan' | 'retention_schedule';
+export type DocumentStatus = 'not_generated' | 'draft' | 'approved';
+
+export interface DocumentPlaceholder { key: string; text: string }
+export interface DocumentApproval { approved_by: string | null; approved_at: string; source: 'customer_attested'; open_placeholders: number }
+
+export interface DocumentVersion {
+  id: string;
+  version: number;
+  generated_at: string;
+  generated_by: string | null;
+  generator: string;
+  fallback_reason: string | null;
+  placeholders: DocumentPlaceholder[];
+  open_placeholders: number;
+  approval: DocumentApproval | null;
+  stale?: boolean;
+}
+
+export interface DocumentSummary {
+  kind: DocumentKind;
+  title: string;
+  status: DocumentStatus;
+  latest: DocumentVersion | null;
+  history: DocumentVersion[];
+}
+
+export interface DocumentList { label: string; daily_cap: number; generated_today: number; documents: DocumentSummary[] }
+export interface DocumentFull extends DocumentVersion { kind: DocumentKind; title: string; label: string; text: string; is_latest: boolean }
+
+export const listDocuments = () => apiFetch<DocumentList>('/compliance/documents', undefined, true) as Promise<DocumentList>;
+export const getDocument = (id: string) =>
+  apiFetch<DocumentFull>(`/compliance/documents/${encodeURIComponent(id)}`, undefined, true) as Promise<DocumentFull>;
+export const generateDocument = (kind: DocumentKind) =>
+  apiFetch<{ id: string; version: number }>(`/compliance/documents/${kind}/generate`, { method: 'POST' }, true) as Promise<{ id: string; version: number }>;
+export const approveDocument = (id: string) =>
+  apiFetch<{ id: string; approved_at: string }>(`/compliance/documents/${encodeURIComponent(id)}/approve`, { method: 'POST' }, true) as Promise<{ id: string; approved_at: string }>;
+
+// ---- Evidence files attached to questionnaire answers (C6) ----
+export interface EvidenceFile {
+  id: string;
+  question_key: string;
+  display_name: string;
+  content_type: string;
+  type_label: string;
+  size_bytes: number;
+  uploaded_at: string | null;
+  uploaded_by: string | null;
+}
+export interface EvidenceFileList {
+  files: EvidenceFile[];
+  usage: { files: number; bytes: number };
+  limits: { max_bytes: number; max_files: number; max_total_bytes: number; extensions: string[]; label: string };
+  uploads_available: boolean;
+}
+
+export const listEvidenceFiles = () =>
+  apiFetch<EvidenceFileList>('/compliance/evidence-files', undefined, true) as Promise<EvidenceFileList>;
+
+export const getEvidenceFileLink = (id: string) =>
+  apiFetch<{ url: string; expires_in: number; display_name: string }>(
+    `/compliance/evidence-files/${encodeURIComponent(id)}/download`, { cache: 'no-store' }, true);
+
+export const removeEvidenceFile = (id: string) =>
+  apiFetch<{ id: string; removed: boolean }>(`/compliance/evidence-files/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
+
+/** The file goes up as the raw request body (no multipart); XMLHttpRequest gives upload progress. */
+export async function uploadEvidenceFile(
+  questionKey: string, file: File, onProgress: (fraction: number) => void,
+): Promise<EvidenceFile> {
+  const token = await ensureFreshAccessToken();
+  const orgId = getActiveOrgId();
+  return new Promise<EvidenceFile>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/compliance/evidence-files?question_key=${encodeURIComponent(questionKey)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (orgId) xhr.setRequestHeader('X-Organization-Id', orgId);
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onerror = () => reject(new Error('The upload could not be sent. Check your connection and try again.'));
+    xhr.onload = () => {
+      let body: any = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        clearPageCache();
+        resolve(body as EvidenceFile);
+        return;
+      }
+      const detail = typeof body?.detail === 'string' ? body.detail : `The upload failed (status ${xhr.status}).`;
+      const error: any = new Error(detail);
+      error.status = xhr.status;
+      reject(error);
+    };
+    xhr.send(file);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reviewer access (C6): an owner grants a DPCO practitioner time-limited, read-only review access
+// ---------------------------------------------------------------------------
+
+export type ReviewerGrantStatus = 'pending' | 'active' | 'expired' | 'revoked';
+
+export interface ReviewerGrant {
+  id: string;
+  reviewer_email: string;
+  purpose: string;
+  status: ReviewerGrantStatus;
+  granted_at: string;
+  granted_by_name: string | null;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
+export interface ReviewerActivity {
+  kind: 'review' | 'clause';
+  id: string;
+  requirement_key: string;
+  requirement_title: string;
+  reviewer_name: string;
+  at: string;
+  outcome: string | null;
+  outcome_label: string | null;
+  verified: boolean | null;
+  text: string | null;
+}
+
+export interface ReviewerGrantList {
+  grants: ReviewerGrant[];
+  activity: ReviewerActivity[];
+  audit: { action: string; at: string; grant_id: string | null; by: string | null }[];
+  note: string;
+  limits: { min_days: number; default_days: number; max_days: number; purpose_max: number };
+  can_grant: boolean;
+}
+
+export const listReviewerGrants = () =>
+  apiFetch<ReviewerGrantList>('/compliance/reviewer-grants', undefined, true) as Promise<ReviewerGrantList>;
+export const createReviewerGrant = (body: { email: string; days: number; purpose: string }) =>
+  apiFetch<{ grant: ReviewerGrant }>('/compliance/reviewer-grants', { method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ grant: ReviewerGrant }>;
+export const revokeReviewerGrant = (id: string) =>
+  apiFetch<{ revoked: boolean }>(`/compliance/reviewer-grants/${encodeURIComponent(id)}/revoke`, { method: 'POST' }, true) as Promise<{ revoked: boolean }>;
+
+export interface MyReviewGrant { org_id: string; org_name: string; purpose: string; expires_at: string }
+
+/** The organisations this account may review right now. Never throws: no grant simply means an empty list. */
+export async function getMyReviewGrants(): Promise<MyReviewGrant[]> {
+  try {
+    const res = await apiFetch<{ grants: MyReviewGrant[] }>('/compliance/reviewer/grants', undefined, true);
+    return res?.grants ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export interface ReviewerOverview extends ComplianceOverview {
+  organisation: { id: string; name: string };
+  grant: { id: string; purpose: string; expires_at: string };
+  reviewer_note: string;
+}
+
+// The reviewed organisation is named per call; it overrides the header of the signed-in account's own workspace.
+const forOrg = (orgId: string): RequestInit => ({ headers: { 'X-Organization-Id': orgId } });
+
+export const getReviewerOverview = (orgId: string) =>
+  apiFetch<ReviewerOverview>('/compliance/reviewer/overview', forOrg(orgId), true) as Promise<ReviewerOverview>;
+export const recordPractitionerReview = (orgId: string, key: string, body: { outcome: string; comment: string | null }) =>
+  apiFetch<{ practitioner_review: PractitionerReview }>(`/compliance/reviewer/requirements/${encodeURIComponent(key)}/review`,
+    { ...forOrg(orgId), method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ practitioner_review: PractitionerReview }>;
+export const recordClauseReference = (orgId: string, key: string, body: { verified: boolean; note: string | null }) =>
+  apiFetch<{ clause_review: ClauseReview }>(`/compliance/reviewer/requirements/${encodeURIComponent(key)}/clause-reference`,
+    { ...forOrg(orgId), method: 'POST', body: JSON.stringify(body) }, true) as Promise<{ clause_review: ClauseReview }>;

@@ -197,16 +197,16 @@ def test_invite_enforces_member_limit(client, auth_headers, store, monkeypatch):
     assert resp.status_code == 402
 
 
-def test_patch_plan_change_validated_and_audited(client, auth_headers, store):
+def test_profile_cannot_bypass_billing_plan_review(client, auth_headers, store):
     store.organizations[ORG_A]["plan"] = "starter"
     resp = client.patch("/api/v1/organizations/current", json={"plan": "Growth"},
                         headers=_h(auth_headers, ALICE, ORG_A))
-    assert resp.status_code == 200
-    assert resp.json()["organization"]["plan"] == "growth"
+    assert resp.status_code == 409
+    assert store.organizations[ORG_A]["plan"] == "starter"
     bad = client.patch("/api/v1/organizations/current", json={"plan": "Platinum"},
                        headers=_h(auth_headers, ALICE, ORG_A))
     assert bad.status_code == 422
-    assert store.organizations[ORG_A]["plan"] == "growth"
+    assert store.organizations[ORG_A]["plan"] == "starter"
 
 
 def test_entitlements_for_legacy_text():

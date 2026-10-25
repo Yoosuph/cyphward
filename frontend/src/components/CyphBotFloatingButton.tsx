@@ -25,6 +25,7 @@ export const CyphBotFloatingButton = memo(function CyphBotFloatingButton({
       className="cyphbot-fab sm:hidden"
       title="Ask CyphBot"
       aria-label="Open CyphBot"
+      data-tour="cyphbot"
     >
       <Sparkles size={19} strokeWidth={2} aria-hidden="true" />
       <span className="cyphbot-fab-dot" aria-hidden="true" />

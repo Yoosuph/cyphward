@@ -1,5 +1,5 @@
 {
-  "version": "ndpa-gaid-v1.1",
+  "version": "ndpa-gaid-v1.2",
   "title": "NDPA 2023 / GAID 2025 readiness register",
   "note": "Clause references come from secondary legal summaries and are pending review against the official NDPA and GAID texts. Correct an entry here and bump the version.",
   "groups": [
@@ -156,7 +156,7 @@
       "title": "Email anti-spoofing records",
       "clause": "NDPA 2023 s.39(1)–(2)",
       "clause_verified": false,
-      "summary": "The domain publishes SPF and an enforcing DMARC policy, which makes forged email harder to deliver.",
+      "summary": "Published SPF and DMARC policies provide limited evidence about email authentication configuration; they do not establish actual mail delivery or mailbox security.",
       "applies_to": "all",
       "evidence_types": [
         "tool_observed"
@@ -176,7 +176,7 @@
       "checks_performed": "The SPF record and DMARC policy published for the scanned domain.",
       "not_checked": "DKIM, every SPF mechanism and DMARC reporting, and subdomains other than the scanned domain.",
       "freshness_days": 30,
-      "remediation_hint": "Publish SPF ending in -all and move DMARC to p=quarantine or p=reject."
+      "remediation_hint": "Inventory legitimate senders and validate SPF/DKIM alignment. Start a new DMARC rollout in monitoring mode; configure reporting, review normal sending cycles, then increase enforcement gradually. Do not blindly change SPF to -all or DMARC to reject; legitimate mail can be blocked."
     },
     {
       "key": "ndpa.s39.periodic_risk_assessment",

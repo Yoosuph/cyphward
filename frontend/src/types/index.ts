@@ -265,7 +265,7 @@ export interface RemediationGuide {
   steps: string[];
   code_snippet: string;
   verification_command: string;
-  estimated_time_minutes: number;
+  estimated_time_minutes: number | null;
 }
 
 export interface ExecutiveSummary {

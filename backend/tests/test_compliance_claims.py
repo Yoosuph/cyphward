@@ -135,7 +135,7 @@ def test_disclaimer_is_the_plan_text_and_is_always_returned(monkeypatch):
 
 def test_compliance_page_copy_has_no_verdict_language():
     pages = ROOT / "frontend" / "src" / "pages"
-    for path in [pages / "Compliance.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
+    for path in [pages / "Compliance.tsx", pages / "Reviews.tsx", *sorted((pages / "compliance").glob("*.tsx"))]:
         source = path.read_text()
         # User-visible text: JSX text nodes and string literals.
         texts = re.findall(r">([^<>{}]+)<", source) + re.findall(r"'([^'\n]{3,})'|`([^`\n]{3,})`|\"([^\"\n]{3,})\"", source)
@@ -151,3 +151,37 @@ def test_scan_page_privacy_copy_has_no_verdict_language():
     texts = re.findall(r">([^<>{}]+)<", section) + re.findall(r"\"([^\"\n]{3,})\"", section)
     _assert_clean(texts, "Scans.tsx privacy")
     assert "Heuristic" in section
+
+
+def test_document_draft_copy_has_no_verdict_language():
+    """Packet C5: the fixed copy of the AI-drafted documents, before and after any model wording."""
+    from backend.app.compliance import documents as docs
+    fixed = [docs.LABEL, docs.FOOTER, *docs.TITLES.values(), *docs.SOURCE_LABELS.values()]
+    for gaps in docs.FIXED_GAPS.values():
+        fixed += [label for _, label in gaps]
+    _assert_clean(fixed, "document copy")
+    assert docs.LABEL == "Draft — not legal advice"
+    for kind in docs.KINDS:
+        inputs = docs.build_inputs(kind, {"org_name": "Acme", "domains": [], "answers": {}, "observed": {}})
+        _assert_clean([docs.build_template(inputs), docs.reviewer_notes(inputs)], kind)
+
+
+C5B_BANNED = ("compliant", "certified", "certification", "satisfies", "satisfied", "passes audit", "pass the audit",
+              "compliance score", "fully meets", "meets the requirement", "is met", "partial compliance",
+              "fully compliant", "is compliant", "satisfy ndpa", "adequate", "adequacy", "guarantee")
+
+
+def test_c5b_copy_has_no_verdict_language():
+    """Packet C5b: the note shown when a value cannot be used, the instruction to the model, the startup warning
+    and the fixed rewording check's own explanation. Banned wording appears only in the data of negative tests."""
+    from backend.app.compliance import document_check as check
+    from backend.app.compliance import documents as docs
+    texts = [docs.WORDING_NOTE, docs.SYSTEM_PROMPT, check.__doc__]
+    inputs = docs.build_inputs("privacy_policy", {"org_name": "Customer Satisfaction Ltd", "domains": ["x.example"],
+                                                  "answers": {}, "observed": {}})
+    texts += [docs.build_template(inputs), docs.reviewer_notes(inputs)]
+    for text in texts:
+        lowered = text.lower()
+        for phrase in C5B_BANNED:
+            assert phrase not in lowered, f"C5b copy: {phrase!r}"
+        assert docs.banned_hits(text) == []

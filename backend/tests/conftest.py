@@ -121,6 +121,9 @@ class FakeConn:
     def cursor(self):
         return FakeCursor(self._store)
 
+    def execute(self, sql: str, params=()):
+        return FakeCursor(self._store).execute(sql, params)
+
     def transaction(self):
         return nullcontext(self)
 
@@ -192,6 +195,12 @@ class FakeStore:
 
         if s.startswith("SELECT DISTINCT a.hostname AS host, f.evidence"):
             return []  # nuclei re-verification targets; the real query runs in the PostgreSQL tests
+
+        if s.startswith("SELECT count(*) AS n FROM assessment_snapshots s WHERE s.org_id = %s"):
+            # Snapshots no report belongs to count toward the monthly reports quota (the real query runs in PostgreSQL).
+            referenced = {r.get("snapshot_id") for r in self.reports}
+            return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x
+                              and x["id"] not in referenced and _in_current_month(x.get("created_at")))}]
 
         if s == 'SELECT clock_timestamp() AS claim_now':
             return [{'claim_now': datetime.now(timezone.utc)}]
@@ -420,13 +429,13 @@ class FakeStore:
         # --- own auth: sessions ------------------------------------------
         # get_current_user: profile JOIN its own session (single query).
         # Never creates rows — a deleted profile must stay deleted (P1).
-        if s.startswith("SELECT p.*, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at FROM profiles p"):
+        if s.startswith("SELECT p.*, s.id AS session_id, s.revoked_at AS session_revoked_at, s.expires_at AS session_expires_at FROM profiles p"):
             sid, uid = params
             prof = self.profiles.get(str(uid))
             sess = next((x for x in self.sessions if x["id"] == sid and str(x["user_id"]) == str(uid)), None)
             if prof is None or sess is None:
                 return []
-            return [{**prof, "session_revoked_at": sess.get("revoked_at"),
+            return [{**prof, "session_id": sess["id"], "session_revoked_at": sess.get("revoked_at"),
                      "session_expires_at": sess.get("expires_at")}]
 
         if s.startswith("INSERT INTO auth_sessions"):
@@ -1096,7 +1105,7 @@ class FakeStore:
             if sub is None:
                 sub = {"id": str(uuid.uuid4()), "org_id": org_id, "created_at": now}
                 self.subscriptions.append(sub)
-            sub.update({"plan": plan, "status": "active" if sub.get("status") != "canceled" else "active",
+            sub.update({"plan": plan, "status": "trialing" if "'trialing'" in s else "active",
                         "provider": "manual", "cancel_at_period_end": False,
                         "current_period_start": now,
                         "current_period_end": now + timedelta(days=30),
@@ -1559,16 +1568,42 @@ class FakeStore:
             return rows
 
         if s.startswith("INSERT INTO reports"):
-            org_id, domain_id, title, html, summary, created_by = params
+            org_id, domain_id, title, html, summary, created_by, snapshot_id, report_version = params
             row = {
                 "id": f"rep-{len(self.reports) + 1}", "org_id": org_id,
                 "domain_id": domain_id, "title": title, "status": "ready",
                 "summary": summary, "created_at": "2026-10-04T00:00:00",
-                "updated_at": "2026-10-04T00:00:00",
+                "updated_at": "2026-10-04T00:00:00", "snapshot_id": snapshot_id, "report_version": report_version,
             }
             self.reports.append(row)
-            return [{k: row[k] for k in ("id", "org_id", "domain_id", "title",
-                                         "status", "summary", "created_at", "updated_at")}]
+            return [{"id": row["id"]}]
+
+        # --- assessment snapshots (the real write path runs in the PostgreSQL tests) ---
+        if s.startswith("SELECT pg_advisory_xact_lock") or s.startswith("SET LOCAL lock_timeout"):
+            return []
+        if s.startswith("SELECT count(*) AS n FROM evidence_packs WHERE org_id = %s"):
+            return [{"n": 0}]
+        if s == "SELECT count(*) AS n FROM assessment_snapshots WHERE org_id = %s":
+            return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x)}]
+        if s.startswith("SELECT id, org_id, seq") and "request_key = %s" in s:
+            return [x for x in self.snapshots if x["org_id"] == params[0] and x.get("request_key") == params[1]][:1]
+        if s.startswith("SELECT coalesce(max(seq), 0) + 1 AS seq"):
+            return [{"seq": 1 + len([x for x in self.snapshots if x["org_id"] == params[0]])}]
+        if s.startswith("INSERT INTO assessment_snapshots"):
+            org_id, seq, version, content, sha, request_key, created_by, created_at = params
+            row = {"id": f"snap-{len(self.snapshots) + 1}", "org_id": org_id, "seq": seq, "schema_version": version,
+                   "scope": "organization", "content_sha256": sha, "request_key": request_key,
+                   "created_by": created_by, "created_at": created_at, "content": content.obj}
+            self.snapshots.append(row)
+            return [{k: v for k, v in row.items() if k != "content"}]
+        if s.startswith("INSERT INTO audit_log") and "snapshot.created" in s:
+            return []
+        if s.startswith("SELECT id, org_id, domain_id, title, status, summary, snapshot_id, report_version"):
+            rid, org_id = params
+            return [r for r in self.reports if r["id"] == rid and r["org_id"] == org_id]
+        if s.startswith("SELECT id, domain, verification_status FROM domains WHERE id = %s AND org_id = %s"):
+            did, org_id = params
+            return [d for d in self.domains if d["id"] == did and d["org_id"] == org_id][:1]
 
         if "SELECT * FROM domains WHERE org_id" in s:
             org_id = params[0]
@@ -1925,6 +1960,7 @@ class FakeStore:
         self.password_reset_tokens = []
         self.organization_invites = []
         self.reports = []
+        self.snapshots = []
 
 
 # ---------------------------------------------------------------------------
@@ -1941,6 +1977,20 @@ def store(monkeypatch):
         yield FakeConn(st)
 
     monkeypatch.setattr(database, "get_db", fake_get_db)
+    # Snapshot gathering reads many tables; the PostgreSQL tests exercise the real queries.
+    import backend.app.snapshots.builder as snapshot_builder
+    monkeypatch.setattr(snapshot_builder, "fence", lambda org_id: "fence")
+    monkeypatch.setattr(snapshot_builder, "_domain_sections", lambda org_id: [
+        {"domain_id": d["id"], "domain": d["domain"], "scan_id": None, "observed_at": None,
+         "coverage": {"recorded": False}, "tools": {}}
+        for d in st.domains if d["org_id"] == org_id and d.get("verification_status") == "verified"])
+    monkeypatch.setattr(snapshot_builder, "_finding_rows", lambda org_id: [
+        f for f in st.findings if f["org_id"] == org_id and f["status"] != "resolved"])
+    monkeypatch.setattr(snapshot_builder, "_compliance", lambda org_id, now: {
+        "disclaimer": "", "register": {"version": "t", "title": "t", "references_pending_review": 0},
+        "questionnaire_version": "t", "readiness": {"with_evidence": 0, "present": 0, "gap": 0, "awaiting_input": 0,
+                                                    "not_assessed": 0, "applicable": 0},
+        "groups": [], "requirements": [], "attestations": []})
     import backend.app.core.scan_admission as scan_admission_mod
     monkeypatch.setattr(scan_admission_mod, "get_db", fake_get_db)
     import backend.app.core.scan_execution as execution_mod
@@ -2011,3 +2061,21 @@ def _no_live_privacy_fetches(request, monkeypatch):
     for target in ("backend.app.workflows.inngest_workflow.run_privacy_batch",
                    "scanner.runner.run_privacy_batch"):
         monkeypatch.setattr(target, stand_in, raising=False)
+
+
+# ---------------------------------------------------------------------------
+# File storage (packet C6): every test uses the in-memory fake. No test can reach Supabase Storage, even on a
+# machine whose environment or .env holds real settings.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def fake_file_storage(monkeypatch):
+    from backend.app import storage as file_storage
+    from backend.app.storage.memory import MemoryStorage
+
+    for name in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EVIDENCE_UPLOADS_ENABLED", "true")
+    fake = MemoryStorage()
+    file_storage.set_storage(fake)
+    yield fake
+    file_storage.set_storage(None)

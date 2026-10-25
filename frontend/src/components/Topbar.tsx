@@ -5,6 +5,7 @@ import { getTheme, toggleTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
 import { useToast } from './Toast';
 import CyphwardLogo from './CyphwardLogo';
+import { useReviewGrants } from '../lib/reviewerGrants';
 
 const modKey = /mac/i.test(navigator.platform || '') ? '⌘K' : 'CTRL·K';
 
@@ -29,6 +30,7 @@ export default function Topbar({
 }: Props) {
   const [theme, setTheme] = useState(getTheme());
   const { signOut } = useAuth();
+  const reviewGrants = useReviewGrants();
   const nav = useNavigate();
   const toast = useToast();
 
@@ -88,11 +90,19 @@ export default function Topbar({
               onClick={handleAiClick}
               title="Open CyphBot (Ctrl+J)"
               aria-label="Open CyphBot"
+              data-tour="cyphbot"
             >
               <Sparkles size={13} className="text-accent" />
               <span className={`${mobileAi ? 'hidden sm:inline' : ''} font-semibold`}>CYPHBOT</span>
               <span className={`${mobileAi ? 'hidden sm:inline' : ''} tag text-[9px] py-0 px-1`}>⌘J</span>
             </button>
+          )}
+
+          {reviewGrants.length > 0 && (
+            <Link to="/reviews" className="inline-flex items-center py-1 px-2.5 rounded border border-line bg-inset/40 hover:border-accent hover:text-ink text-soft text-xs mono transition-colors hover-lift"
+                  data-testid="reviews-link">
+              <span className="font-semibold">REVIEWS</span>
+            </Link>
           )}
 
           <button className="icon-btn hover-lift" onClick={toggleTheme} aria-label="Toggle color theme" title="Toggle theme">
