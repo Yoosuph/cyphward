@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import random
 from typing import Optional
 from urllib.parse import urlsplit
@@ -84,12 +85,17 @@ async def run_job(client: CoreClient, job: BrowserJob, cfg: BrowserConfig, polic
         try:
             raw = work.result()
             ConsentObservation.model_validate(raw)  # never send what Core would refuse
+        except asyncio.CancelledError:
+            raise
         except ObservationFailed as exc:
             return await _report_failure(client, job, exc.reason, str(exc))
         except Refused as exc:
             return await _report_failure(client, job, exc.reason if exc.reason in ("refused_address", "off_scope_redirect") else "invalid_job", str(exc))
         except ValueError as exc:
             return await _report_failure(client, job, "browser_error", f"result failed local validation: {str(exc)[:200]}")
+        except Exception as exc:  # noqa: BLE001 - one job's browser fault must never end the worker or burn the job's attempts
+            logger.exception("job=%s unexpected browser fault", job.job_id)
+            return await _report_failure(client, job, "browser_error", f"unexpected {type(exc).__name__}")
         try:
             await client.result(job, raw)
         except JobLost:
@@ -125,6 +131,9 @@ async def main_loop(cfg: BrowserConfig, once: bool = False) -> None:
                 except CoreError as exc:
                     outcome = "error"
                     logger.warning("job=%s could not report: %s", job.job_id, exc)
+                except Exception:  # noqa: BLE001 - keep serving; the lease expires and Core retries or fails the job
+                    outcome = "error"
+                    logger.exception("job=%s crashed", job.job_id)
                 logger.info("job=%s outcome=%s", job.job_id, outcome)
                 if once:
                     return
@@ -141,5 +150,6 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="claim at most one job, then exit")
     args = parser.parse_args()
     cfg = load_config()
+    os.environ.pop("BROWSER_API_KEY", None)  # nothing started from here on (driver, browser) inherits the key
     logging.basicConfig(level=cfg.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     asyncio.run(main_loop(cfg, once=args.once))

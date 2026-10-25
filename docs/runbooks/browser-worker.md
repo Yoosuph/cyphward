@@ -67,7 +67,8 @@ Worker (`browser_worker/.env.example` lists them with comments). Put them in `/e
 | `BROWSER_POLL_INTERVAL_SECONDS` | Idle poll interval (default 30). |
 | `BROWSER_HEARTBEAT_SECONDS` | Lease heartbeat while working (default 20). |
 | `BROWSER_CHROMIUM_PATH` | Chromium path inside the image (default `/usr/bin/chromium`). |
-| `BROWSER_CHROMIUM_SANDBOX` | `0` (default) or `1`. See section 8, "Sandbox". |
+| `BROWSER_CHROMIUM_SANDBOX` | `1` turns Chromium's sandbox on. With `0` (default) the worker refuses to start unless the next variable is `1`. See section 8, "Sandbox". |
+| `BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL` | Set to `1` only after the mandatory egress firewall in section 8 is installed and checked. Required when the sandbox is off. |
 | `BROWSER_LOG_LEVEL` | `INFO` by default. |
 
 Core (set on the Core service, for example in Render):
@@ -152,28 +153,58 @@ with no swap, 1 CPU, 256 processes, 256 MiB `/dev/shm`. The image holds no secre
 only through the env file.
 
 **Sandbox (a decision, not a quiet default).** Chromium's own sandbox needs unprivileged user
-namespaces, which Docker's default profile blocks for a container without extra privileges. The image
-therefore runs Chromium with `--no-sandbox` unless `BROWSER_CHROMIUM_SANDBOX=1`. The container, the
-non-root user, the dropped capabilities, the read-only filesystem and the filtering proxy are the
-boundary instead. If your host allows the sandbox (for example Podman rootless, or Docker with a
-seccomp profile that permits `clone` with user namespaces), set `BROWSER_CHROMIUM_SANDBOX=1` and keep
-everything else. Do not add `--privileged` or `SYS_ADMIN` to make the sandbox work.
+namespaces, which Docker's default profile blocks for an unprivileged container. With the sandbox off, a
+browser exploit would run as the same user (uid 10001) as the Python worker and could read the worker's
+environment through `/proc`, including `BROWSER_API_KEY`. The worker therefore **refuses to start** with the
+sandbox off unless `BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL=1` says the mandatory firewall below is in place.
+Better: set `BROWSER_CHROMIUM_SANDBOX=1` on a host that allows it (Podman rootless, or Docker with a seccomp
+profile that permits `clone` with user namespaces) and keep everything else. Never add `--privileged` or
+`SYS_ADMIN` to make the sandbox work. What the code does regardless: the worker removes the key from its
+own environment after reading it, and Chromium is started with every variable that looks like a secret
+(`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`) removed; the first is tested, the second is tested. The
+process environment the kernel recorded at start-up is not erasable, so treat the key as exposed to a
+browser exploit when the sandbox is off, keep it single-purpose (it can only claim and answer browser jobs),
+and rotate it on any suspicion.
 
-**Egress firewall (recommended, outside the code).** Add a host firewall rule that drops outbound
-traffic from the container to private ranges, `169.254.0.0/16` and the VM's own addresses, in case the
-in-process checks ever have a bug. Example for Docker hosts using `DOCKER-USER`:
+**Egress firewall (MANDATORY when the sandbox is off, recommended otherwise).** In-process checks refuse
+private, loopback, link-local, metadata (including Azure's `168.63.129.16`) and reserved addresses, but
+the host must refuse them as well. Install these before setting the acknowledgement variable, and persist
+them across reboots with your distribution's tooling. Allow DNS and HTTPS to Core first if your resolver or
+Core sit in a private range.
 
 ```bash
-for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10; do
+# IPv4 (Docker hosts): DOCKER-USER is evaluated before Docker's own rules
+for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 168.63.129.16/32 192.0.0.0/24 198.18.0.0/15; do
   iptables -I DOCKER-USER -d "$net" -j DROP
+done
+# IPv6: unique-local (includes AWS fd00:ec2::254), link-local, site-local; if you do not use IPv6, disable it for the container instead
+for net in fc00::/7 fe80::/10 fec0::/10 ::1/128; do
+  ip6tables -I DOCKER-USER -d "$net" -j DROP
 done
 ```
 
-Allow DNS and HTTPS to Core before those rules if your resolver lives in a private range.
+Check from inside a throwaway container with the same network: `curl -m 3 http://169.254.169.254/` and
+`curl -m 3 http://168.63.129.16/` must time out or fail, and the same over IPv6 if enabled.
+
+**What the observation can and cannot show.** A page controls what it serves, and the user agent names
+Cyphward by design (site owners can see who visited), so a site can serve a different, cleaner page to this
+browser than to other visitors, and the banner detection runs in the page's own context and could be made
+to answer as a site wishes. Every "present" sentence therefore ends with "This is what the page showed
+Cyphward's browser on one visit; a page can behave differently for other visitors", and the Compliance page
+note says the same. Treat the observation as one dated data point, not a measurement of every visitor's
+experience.
+
+**Redirect hops.** The browser follows an off-scope redirect's first request before the worker sees it and
+stops the visit; that one request goes to a public host only (the proxy refuses private addresses), and no
+page content from it is recorded. A browser-internal list of hosts Chromium contacts in the background
+(including `accounts.google.com` and `www.google.com`) is refused at the proxy; pages that rely on those
+hosts for a feature (for example a Google CAPTCHA) will show those requests as failed in the browser, and
+they still appear in the third-party host list.
 
 **Secrets.** `BROWSER_API_KEY` is the only secret on the VM. Rotate it by changing it on Core and in
-the env file, then `docker restart cyphward-browser`. The scanner key cannot authenticate to the
-browser endpoints and the browser key cannot authenticate to the scanner endpoints.
+the env file, then restarting the container. It must differ from `SCANNER_API_KEY` (Core refuses to start
+otherwise), the scanner key cannot authenticate to the browser endpoints, and the browser key cannot
+authenticate to the scanner endpoints.
 
 ## 9. How the two workers stay apart
 

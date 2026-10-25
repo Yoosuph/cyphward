@@ -12,6 +12,7 @@ heartbeats it, and each call here is one short transaction.
 import json
 import logging
 import secrets
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -153,12 +154,35 @@ def heartbeat(job_id: str, claim_: JobClaim, lease_seconds: Optional[int] = None
                             "WHERE id = %s", (lease_seconds or config.BROWSER_LEASE_SECONDS, job_id))
 
 
+def _ineligible(cur, row, observation: ConsentObservation) -> Optional[str]:
+    """Why a finished observation must not become evidence: the domain was revoked or unverified while the
+    browser was working, or the page ended up outside the verified domain. Checked under the job lock."""
+    cur.execute("SELECT domain, verification_status, revoked_at FROM domains WHERE id = %s AND org_id = %s FOR SHARE",
+                (row["domain_id"], row["org_id"]))
+    domain = cur.fetchone()
+    if not domain or domain["verification_status"] != "verified" or domain["revoked_at"] is not None:
+        return "domain no longer verified"
+    host = (urlsplit(observation.final_url).hostname or "").lower().rstrip(".")
+    name = domain["domain"].lower().rstrip(".")
+    if host != name and not host.endswith("." + name):
+        return "final address outside the verified domain"
+    return None
+
+
 def complete(job_id: str, claim_: JobClaim, observation: ConsentObservation) -> int:
-    """Store the validated result and the evidence rows in one transaction; returns the row count."""
+    """Store the validated result and the evidence rows in one transaction; returns the row count.
+
+    Returns 0 (and fails the job) when the domain is no longer eligible or the page ended outside it."""
     with get_db() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
                 row = _lock(cur, job_id, claim_)
+                reason = _ineligible(cur, row, observation)
+                if reason:
+                    cur.execute(
+                        """UPDATE privacy_browser_jobs SET status='failed', error_message=%s, completed_at=clock_timestamp(),
+                        claimed_by=NULL, claim_token=NULL, lease_expires_at=NULL WHERE id=%s""", (reason, job_id))
+                    return 0
                 now = datetime.now(timezone.utc)
                 rows = browser_observation.evidence_rows(
                     observation, org_id=str(row["org_id"]), domain_id=str(row["domain_id"]),

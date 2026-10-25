@@ -153,6 +153,33 @@ def test_a_download_is_not_saved_and_does_not_crash(site):
         run(site, "download.test")
 
 
+def test_a_popup_does_not_break_the_visit(site):
+    obs = valid(run(site, "popup.test"))
+    assert obs.final_url == site.url("popup.test")
+
+
+def test_a_script_redirect_off_scope_after_load_is_reported_not_raised_raw(site):
+    with pytest.raises(ObservationFailed) as caught:
+        run(site, "script-redirect.test", limits=Limits(page_timeout_seconds=6, job_timeout_seconds=40, settle_seconds=1.5))
+    assert caught.value.reason in ("off_scope_redirect", "browser_error")
+
+
+def test_the_browser_process_does_not_inherit_the_workers_key(site, monkeypatch):
+    from browser_worker import observer
+    monkeypatch.setenv("BROWSER_API_KEY", "super-secret-worker-key")
+    monkeypatch.setenv("SOME_SERVICE_TOKEN", "t")
+    seen = {}
+    real = observer.browser_env
+
+    def spy(environ=None):
+        seen.update(real(environ))
+        return real(environ)
+
+    monkeypatch.setattr(observer, "browser_env", spy)
+    valid(run(site, "clean.test"))
+    assert seen and "BROWSER_API_KEY" not in seen and "SOME_SERVICE_TOKEN" not in seen and "PATH" in seen
+
+
 def test_hard_ceilings_override_a_generous_job():
     wide = Limits(page_timeout_seconds=9999, job_timeout_seconds=9999, max_requests=10 ** 6, max_total_bytes=10 ** 12,
                   settle_seconds=99).clamped()

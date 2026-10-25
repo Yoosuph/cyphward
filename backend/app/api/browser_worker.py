@@ -14,6 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from backend.app.core import browser_jobs, config
 from backend.app.core.auth import log_audit, require_admin
@@ -130,7 +131,10 @@ async def submit_result(job_id: str, request: Request, claim: JobAuthority) -> d
         observation = ConsentObservation.model_validate_json(body)
     except ValidationError:
         raise HTTPException(422, "Result does not match the observation schema.")
-    rows = _guard(browser_jobs.complete, job_id, claim, observation)
+    # complete() takes a pooled connection and waits on database locks: never run it on the event loop.
+    rows = await run_in_threadpool(_guard, browser_jobs.complete, job_id, claim, observation)
+    if rows == 0:
+        raise HTTPException(409, "The domain is no longer eligible; the observation was not stored.")
     return {"ok": True, "evidence_rows": rows}
 
 

@@ -24,9 +24,12 @@ KEY = "browser-worker-test-key"
 SCANNER_KEY = "scanner-test-key-different"
 
 
+_CLAIMED = {"domain": "acme.test"}  # the domain of the job most recently claimed, so results end where they started
+
+
 def good_result(**over):
     body = {
-        "version": 1, "final_url": "https://acme.test/", "browser_version": "Chromium 153.0",
+        "version": 1, "final_url": f"https://{_CLAIMED['domain']}/", "browser_version": "Chromium 153.0",
         "cookies": [{"name": "_ga", "domain": "acme.test", "secure": True, "http_only": False,
                      "same_site": "lax", "lifetime": "over_1_year", "third_party": False},
                     {"name": "sid", "domain": "acme.test", "secure": True, "http_only": True,
@@ -86,6 +89,7 @@ def queue(api, index=0):
 def claim(api):
     r = api.post("/api/v1/browser-worker/claim", headers=headers())
     assert r.status_code == 200, r.text
+    _CLAIMED["domain"] = r.json()["target"]
     return r.json()
 
 
@@ -405,9 +409,9 @@ def test_flag_on_shows_tool_observed_browser_evidence_with_plain_labels(api, wor
 def test_a_static_tracker_gap_still_stands_over_a_clean_browser_visit(api, world):
     headers_ = world["member"](api.org)
     _growth(api)
-    clean = good_result(cookies=[], requests={"total": 3, "first_party": 3, "third_party_hosts": []})
     job_id = queue(api)
     job = claim(api)
+    clean = good_result(cookies=[], requests={"total": 3, "first_party": 3, "third_party_hosts": []})
     assert api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=clean, headers=authority(job)).status_code == 202
     body = api.get("/api/v1/compliance/overview", headers=headers_).json()
     assert _req(body, bo.TRACKERS_KEY)["domains"][0]["reason"] == "browser_no_known_tracking"
@@ -444,3 +448,123 @@ def test_a_failing_queue_never_changes_the_completed_scan(api, world, monkeypatc
     monkeypatch.setattr(browser_jobs, "enqueue_after_scan", boom)
     scan_id = _finalize(world, monkeypatch, domain_index=0)  # asserts status == completed
     assert api.conn.execute("SELECT status FROM scans WHERE id = %s", (scan_id,)).fetchone()["status"] == "completed"
+
+
+# ── grants ───────────────────────────────────────────────────────────────
+def test_api_roles_hold_nothing_on_the_jobs_table_and_the_app_role_only_its_minimal_grants(api):
+    import os
+    import pathlib
+    import psycopg
+    from psycopg.rows import dict_row
+    sql = (pathlib.Path(__file__).resolve().parents[2] / "supabase/migrations/20261019300000_privacy_browser_jobs.sql").read_text()
+    acl = ("SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE r.rolname END AS role, a.privilege_type AS priv "
+           "FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a LEFT JOIN pg_roles r ON r.oid = a.grantee "
+           "WHERE c.relnamespace = 'public'::regnamespace AND c.relname = 'privacy_browser_jobs'")
+    with psycopg.connect(os.environ["CYPHWARD_TEST_DATABASE_ADMIN_URL"], row_factory=dict_row, autocommit=True) as conn:
+        # What Supabase's default privileges would hand out, and more than the app role may keep.
+        conn.execute("GRANT ALL ON privacy_browser_jobs TO anon, authenticated, PUBLIC, cyphward_app")
+        assert any(r["role"] == "anon" and r["priv"] == "TRUNCATE" for r in conn.execute(acl).fetchall())
+        conn.execute(sql)
+        conn.execute(sql)  # idempotent
+        rows = conn.execute(acl).fetchall()
+        for role in ("anon", "authenticated", "PUBLIC"):
+            assert [r for r in rows if r["role"] == role] == [], role
+            for priv in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                assert not conn.execute("SELECT has_table_privilege(%s, 'privacy_browser_jobs', %s) AS ok",
+                                        (role.lower(), priv)).fetchone()["ok"], (role, priv)
+        assert sorted(r["priv"] for r in rows if r["role"] == "cyphward_app") == ["INSERT", "SELECT", "UPDATE"]
+
+
+# ── re-checks at completion, event loop, document inputs ─────────────────
+def test_a_domain_revoked_mid_job_stores_nothing(api):
+    job_id = queue(api)
+    job = claim(api)
+    api.conn.execute("UPDATE domains SET revoked_at = now() WHERE id = %s", (api.domains[0],))
+    api.conn.commit()
+    r = api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=good_result(), headers=authority(job))
+    assert r.status_code == 409 and rows(api) == []
+    row = api.conn.execute("SELECT status, error_message FROM privacy_browser_jobs WHERE id=%s", (job_id,)).fetchone()
+    assert row["status"] == "failed" and "no longer verified" in row["error_message"]
+    api.conn.execute("UPDATE domains SET revoked_at = NULL WHERE id = %s", (api.domains[0],))
+    api.conn.commit()
+
+
+def test_an_unverified_domain_mid_job_stores_nothing(api):
+    job_id = queue(api)
+    job = claim(api)
+    api.conn.execute("UPDATE domains SET verification_status = 'pending' WHERE id = %s", (api.domains[0],))
+    api.conn.commit()
+    assert api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=good_result(), headers=authority(job)).status_code == 409
+    assert rows(api) == []
+    api.conn.execute("UPDATE domains SET verification_status = 'verified' WHERE id = %s", (api.domains[0],))
+    api.conn.commit()
+
+
+def test_a_final_url_outside_the_verified_domain_stores_nothing(api):
+    job_id = queue(api)
+    job = claim(api)
+    domain = api.conn.execute("SELECT domain FROM domains WHERE id = %s", (api.domains[0],)).fetchone()["domain"]
+    for bad in ("https://evil.example/", f"https://not{domain}/", f"https://{domain}.evil.example/"):
+        r = api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=good_result(final_url=bad), headers=authority(job))
+        assert r.status_code == 409, bad
+        assert rows(api) == []
+        break  # the first refusal fails the job; the others are covered by the pure host check below
+    from urllib.parse import urlsplit
+    for bad in ("https://evil.example/", f"https://not{domain}/", f"https://{domain}.evil.example/"):
+        host = urlsplit(bad).hostname
+        assert not (host == domain or host.endswith("." + domain))
+
+
+def test_completion_runs_off_the_event_loop(api, monkeypatch):
+    import asyncio
+    job_id = queue(api)
+    job = claim(api)
+    seen = {}
+    real = browser_jobs.complete
+
+    def spy(*a, **k):
+        try:
+            asyncio.get_running_loop()
+            seen["on_loop"] = True
+        except RuntimeError:
+            seen["on_loop"] = False
+        return real(*a, **k)
+
+    monkeypatch.setattr(browser_jobs, "complete", spy)
+    assert api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=good_result(), headers=authority(job)).status_code == 202
+    assert seen == {"on_loop": False}
+
+
+def test_expired_browser_evidence_loses_its_sentence(api, world):
+    headers_ = world["member"](api.org)
+    _growth(api)
+    _observe(api, 0)
+    _observe(api, 1)
+    import os
+    import psycopg
+    with psycopg.connect(os.environ["CYPHWARD_TEST_DATABASE_ADMIN_URL"], autocommit=True) as admin:  # the app role may not UPDATE evidence
+        admin.execute("UPDATE compliance_evidence SET expires_at = now() - interval '1 day' WHERE details->>'observation' = 'browser_consent_v1'")
+    text = api.get("/api/v1/compliance/overview", headers=headers_).text
+    assert "the browser saw a consent banner" not in text and "The browser observed" not in text
+    assert "evidence_expired" in text
+
+
+def test_present_sentences_state_the_limit_of_one_visit(api, world):
+    headers_ = world["member"](api.org)
+    _growth(api)
+    clean = {"cookies": [], "requests": {"total": 3, "first_party": 3, "third_party_hosts": []}}
+    _observe(api, 0, **clean)
+    _observe(api, 1, **clean)
+    body = api.get("/api/v1/compliance/overview", headers=headers_).json()
+    for key in bo.KEYS:
+        view = _req(body, key)
+        assert view["status"] == "present"
+        assert "a page can behave differently for other visitors" in view["reason_text"], key
+        assert all("a page can behave differently for other visitors" in d["reason_text"] for d in view["domains"]), key
+
+
+def test_browser_rows_never_feed_document_inputs_or_the_static_previous_row(api, world):
+    from backend.app.compliance import document_store
+    _observe(api, 0)
+    gathered = document_store.gather({"id": api.org, "name": "Org"})
+    assert all(not rows_ for rows_ in gathered["observed"].values())

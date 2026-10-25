@@ -15,6 +15,7 @@ class BrowserConfig:
     http_timeout_seconds: int = 30
     chromium_path: str = ""
     chromium_sandbox: bool = False
+    no_sandbox_acknowledged: bool = False
     log_level: str = "INFO"
 
 
@@ -28,6 +29,7 @@ def load_config(require: bool = True) -> BrowserConfig:
         http_timeout_seconds=int(os.getenv("BROWSER_HTTP_TIMEOUT_SECONDS", "30")),
         chromium_path=os.getenv("BROWSER_CHROMIUM_PATH", "").strip(),
         chromium_sandbox=os.getenv("BROWSER_CHROMIUM_SANDBOX", "0").strip() in ("1", "true", "yes"),
+        no_sandbox_acknowledged=os.getenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "0").strip() == "1",
         log_level=os.getenv("BROWSER_LOG_LEVEL", "INFO").upper(),
     )
     if require:
@@ -37,4 +39,11 @@ def load_config(require: bool = True) -> BrowserConfig:
         local = parts.hostname in ("localhost", "127.0.0.1", "::1")
         if parts.scheme != "https" and not (parts.scheme == "http" and local):
             raise SystemExit("BROWSER_CORE_URL must be https (http is accepted for localhost only).")
+        if not cfg.chromium_sandbox and not cfg.no_sandbox_acknowledged:
+            # Without Chromium's sandbox a renderer exploit runs as the worker's user and could read the
+            # worker's key. Starting that way needs an explicit statement that the mandatory egress
+            # firewall from the runbook is in place; there is no silent default.
+            raise SystemExit("Chromium's sandbox is off. Either set BROWSER_CHROMIUM_SANDBOX=1, or confirm the "
+                             "mandatory egress firewall from docs/runbooks/browser-worker.md is in place with "
+                             "BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL=1.")
     return cfg

@@ -63,7 +63,8 @@ REASON_TEXT = {
 REASON_TEXT.update(attestations.REASON_TEXT)
 REASON_TEXT.update(browser_observation.REASON_TEXT)
 BROWSER_NOTE = (" A separate browser worker also loads your homepage once on a first visit, with no interaction, and "
-                "records the cookies it sees, the banner it detects and whether a reject control sits beside accept.")
+                "records the cookies it sees, the banner it detects and whether a reject control sits beside accept. "
+                "A page can show a different version to other visitors, so treat this as one observation.")
 
 
 def _plan(org: Dict[str, Any]) -> str:

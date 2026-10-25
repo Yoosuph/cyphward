@@ -105,6 +105,9 @@ SCANNER_NUCLEI_MAX_HOSTS = int(os.getenv("SCANNER_NUCLEI_MAX_HOSTS", "50"))
 # The separate browser worker has its own key; the scanner key cannot authenticate to it.
 BROWSER_CONSENT_ENABLED = os.getenv("BROWSER_CONSENT_ENABLED", "false").lower() in ("true", "1", "yes")
 BROWSER_WORKER_API_KEY = os.getenv("BROWSER_WORKER_API_KEY", "")
+if BROWSER_WORKER_API_KEY and BROWSER_WORKER_API_KEY == SCANNER_API_KEY:
+    # One key for both workers would let either claim the other's work. Refuse to start.
+    raise RuntimeError("BROWSER_WORKER_API_KEY must differ from SCANNER_API_KEY.")
 BROWSER_LEASE_SECONDS = int(os.getenv("BROWSER_LEASE_SECONDS", "180"))
 BROWSER_MAX_ATTEMPTS = int(os.getenv("BROWSER_MAX_ATTEMPTS", "3"))
 BROWSER_JOB_COOLDOWN_HOURS = int(os.getenv("BROWSER_JOB_COOLDOWN_HOURS", "20"))

@@ -46,6 +46,21 @@ ALTER TABLE privacy_browser_jobs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS cyphward_app_all ON privacy_browser_jobs;
 CREATE POLICY cyphward_app_all ON privacy_browser_jobs FOR ALL TO cyphward_app USING (true) WITH CHECK (true);
 
+-- Convention: REVOKE ALL, then only what is needed. Supabase's default privileges give PUBLIC-like API roles
+-- (anon, authenticated) ALL on new tables, TRUNCATE included, which row-level security does not stop.
+-- service_role is left alone on purpose (Supabase's admin credential, never given to the API; same on every table).
+REVOKE ALL ON privacy_browser_jobs FROM PUBLIC;
+
+DO $$
+DECLARE r text;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+      EXECUTE format('REVOKE ALL ON privacy_browser_jobs FROM %I', r);
+    END IF;
+  END LOOP;
+END $$;
+
 -- The app role never deletes: rows leave only with their organisation or domain (cascade).
 REVOKE ALL ON privacy_browser_jobs FROM cyphward_app;
 GRANT SELECT, INSERT, UPDATE ON privacy_browser_jobs TO cyphward_app;

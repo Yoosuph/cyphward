@@ -128,6 +128,41 @@ def normalise_banner(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.I)
+
+
+def browser_env(environ: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """The environment Chromium inherits: the worker's, minus anything that looks like a secret.
+
+    The worker's API key must never be readable from the browser process's environment."""
+    import os
+    source = os.environ if environ is None else environ
+    return {k: v for k, v in source.items() if not _SECRET_NAME.search(k)}
+
+
+def _is_main_frame(request) -> bool:
+    """True for a navigation of the top frame. A request whose frame is already gone (pop-ups, closing
+    pages) is treated as not main: it cannot be ours, and the proxy still checks where it connects."""
+    from playwright.async_api import Error as PlaywrightError
+    try:
+        return bool(request.is_navigation_request() and request.frame.parent_frame is None)
+    except PlaywrightError:
+        return False
+
+
+def _spawn(awaitable) -> None:
+    """Fire and forget a page action (close, cancel, dismiss) whose target may already be gone."""
+    from playwright.async_api import Error as PlaywrightError
+
+    async def run():
+        try:
+            await awaitable
+        except PlaywrightError:
+            pass
+
+    asyncio.ensure_future(run())
+
+
 async def observe(url: str, scope: Sequence[str], policy: EgressPolicy, *, limits: Limits = Limits(),
                   chromium_path: Optional[str] = None, sandbox: bool = False, allow_http: bool = False) -> Dict[str, Any]:
     """Return a ConsentObservation-shaped dict, or raise ObservationFailed / Refused."""
@@ -162,7 +197,8 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
             if not sandbox:
                 args.append("--no-sandbox")  # see docs/runbooks/browser-worker.md, "Sandbox"
             try:
-                browser = await pw.chromium.launch(executable_path=chromium_path, headless=True, args=args)
+                browser = await pw.chromium.launch(executable_path=chromium_path, headless=True, args=args,
+                                                   env=browser_env())
             except PlaywrightError as exc:
                 raise ObservationFailed("browser_error", f"browser did not start: {str(exc)[:200]}")
             try:
@@ -173,27 +209,30 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
                 async def on_route(route):
                     nonlocal first_party, total, requests_capped
                     request = route.request
-                    is_main = request.is_navigation_request() and request.frame.parent_frame is None
+                    is_main = _is_main_frame(request)
                     try:
-                        host = check_url(request.url, policy, scope=scope, main_frame=is_main, allow_http=allow_http or not is_main)
-                    except Refused as refusal:
-                        refusals.append(refusal)
-                        await route.abort("blockedbyclient")
-                        return
-                    if total >= limits.max_requests:
-                        requests_capped = True
-                        await route.abort("blockedbyclient")
-                        return
-                    total += 1
-                    if host_in_scope(host, scope):
-                        first_party += 1
-                    elif ":" not in host and (host in third_party or len(third_party) < MAX_THIRD_PARTY_HOSTS):
-                        third_party[host] += 1
-                    await route.continue_()
+                        try:
+                            host = check_url(request.url, policy, scope=scope, main_frame=is_main, allow_http=allow_http or not is_main)
+                        except Refused as refusal:
+                            refusals.append(refusal)
+                            await route.abort("blockedbyclient")
+                            return
+                        if total >= limits.max_requests:
+                            requests_capped = True
+                            await route.abort("blockedbyclient")
+                            return
+                        total += 1
+                        if host_in_scope(host, scope):
+                            first_party += 1
+                        elif ":" not in host and (host in third_party or len(third_party) < MAX_THIRD_PARTY_HOSTS):
+                            third_party[host] += 1
+                        await route.continue_()
+                    except PlaywrightError:
+                        pass  # the page or request went away (closed, navigated, popup): nothing left to answer
 
                 await context.route("**/*", on_route)
                 page = await context.new_page()
-                context.on("page", lambda popup: asyncio.ensure_future(popup.close()) if popup != page else None)
+                context.on("page", lambda popup: _spawn(popup.close()) if popup != page else None)
                 contacted = set()
 
                 def on_request(request):
@@ -203,17 +242,17 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
                         pass
                     # Redirect hops of the main frame are announced here before the next one is followed:
                     # leaving the verified scope stops the visit at once instead of after the page loaded.
-                    if request.is_navigation_request() and request.frame.parent_frame is None:
+                    if _is_main_frame(request):
                         try:
                             check_url(request.url, policy, scope=scope, main_frame=True, allow_http=allow_http)
                         except Refused as refusal:
                             refusals.append(refusal)
-                            asyncio.ensure_future(page.close())
+                            _spawn(page.close())
 
                 page.on("request", on_request)
-                page.on("download", lambda d: asyncio.ensure_future(d.cancel()))
+                page.on("download", lambda d: _spawn(d.cancel()))
                 page.on("filechooser", lambda chooser: None)  # never answered: no file is ever chosen
-                page.on("dialog", lambda dialog: asyncio.ensure_future(dialog.dismiss()))
+                page.on("dialog", lambda dialog: _spawn(dialog.dismiss()))
 
                 caps = {"requests": False, "bytes": False, "cookies": False, "page_timeout": False}
                 nav_start = time.monotonic()
@@ -228,24 +267,31 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
                     if chosen:
                         raise ObservationFailed(chosen.reason, f"navigation refused: {chosen.detail or chosen.reason}")
                     raise ObservationFailed("navigation_failed", f"navigation failed: {str(exc).splitlines()[0][:200]}")
-                navigation_ms = int((time.monotonic() - nav_start) * 1000)
+                try:
+                    navigation_ms = int((time.monotonic() - nav_start) * 1000)
 
-                settle_start = time.monotonic()
-                remaining = max(0.5, limits.page_timeout_seconds - (settle_start - nav_start))
-                try:
-                    await page.wait_for_load_state("load", timeout=min(remaining, 10) * 1000)
-                except PlaywrightTimeout:
-                    caps["page_timeout"] = True
-                await asyncio.sleep(limits.settle_seconds)  # late scripts and tag managers get their moment
-                raw_banner = await page.evaluate(BANNER_SCRIPT)
-                raw_cookies = await context.cookies()
-                final_url = page.url
-                settle_ms = int((time.monotonic() - settle_start) * 1000)
-                try:
-                    check_url(final_url, policy, scope=scope, main_frame=True, allow_http=allow_http)
-                except Refused as refusal:
-                    raise ObservationFailed(refusal.reason if refusal.reason in ("off_scope_redirect", "refused_address") else "navigation_failed",
-                                            f"final address refused: {refusal}")
+                    settle_start = time.monotonic()
+                    remaining = max(0.5, limits.page_timeout_seconds - (settle_start - nav_start))
+                    try:
+                        await page.wait_for_load_state("load", timeout=min(remaining, 10) * 1000)
+                    except PlaywrightTimeout:
+                        caps["page_timeout"] = True
+                    await asyncio.sleep(limits.settle_seconds)  # late scripts and tag managers get their moment
+                    raw_banner = await page.evaluate(BANNER_SCRIPT)
+                    raw_cookies = await context.cookies()
+                    final_url = page.url
+                    settle_ms = int((time.monotonic() - settle_start) * 1000)
+                    try:
+                        check_url(final_url, policy, scope=scope, main_frame=True, allow_http=allow_http)
+                    except Refused as refusal:
+                        raise ObservationFailed(refusal.reason if refusal.reason in ("off_scope_redirect", "refused_address") else "navigation_failed",
+                                                f"final address refused: {refusal}")
+                except PlaywrightError as exc:
+                    # The page was closed under us (an off-scope navigation after load, a crash): say why.
+                    chosen = next((r for r in refusals if r.reason in ("off_scope_redirect", "refused_address")), None)
+                    if chosen:
+                        raise ObservationFailed(chosen.reason, f"navigation refused: {chosen.detail or chosen.reason}")
+                    raise ObservationFailed("browser_error", f"the page stopped responding: {str(exc).splitlines()[0][:200]}")
                 version = f"Chromium {browser.version}"
             finally:
                 await browser.close()

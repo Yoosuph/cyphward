@@ -1016,7 +1016,7 @@ async def _queue_browser_observation(scan_id: str) -> None:
     can never change the scan."""
     try:
         await asyncio.to_thread(browser_jobs.enqueue_after_scan, scan_id)
-    except psycopg.Error:
+    except Exception:  # noqa: BLE001 - best effort after the commit; nothing here may skip the emails that follow
         logger.warning('scan=%s browser observation not queued', scan_id, exc_info=True)
 
 

@@ -23,7 +23,7 @@ from psycopg.types.json import Jsonb
 from starlette.concurrency import run_in_threadpool
 
 from backend.app.ai.factory import get_ai_provider
-from backend.app.compliance import attestation_store
+from backend.app.compliance import attestation_store, browser_observation
 from backend.app.compliance import documents as docs
 from backend.app.core import database
 from backend.app.core.database import execute_query
@@ -63,8 +63,9 @@ def gather(org: Dict[str, Any]) -> Dict[str, Any]:
         rows = execute_query(
             "SELECT DISTINCT ON (requirement_key, domain_id) requirement_key, domain_id, status, expires_at "
             "FROM compliance_evidence WHERE org_id = %s AND domain_id = ANY(%s::uuid[]) AND requirement_key = ANY(%s) "
+            "AND COALESCE(details->>'observation', '') <> %s "  # C2b browser rows are merged on the status page only
             "ORDER BY requirement_key, domain_id, observed_at DESC, created_at DESC",
-            (org_id, [str(d["id"]) for d in domains], list(docs.OBSERVED_KEYS))) or []
+            (org_id, [str(d["id"]) for d in domains], list(docs.OBSERVED_KEYS), browser_observation.OBSERVATION_MARKER)) or []
     observed: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for row in rows:
         observed.setdefault(row["requirement_key"], {})[str(row["domain_id"])] = row

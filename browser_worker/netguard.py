@@ -37,7 +37,8 @@ _HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]
 # services), outside anything the page asked for. No page needs them, so the proxy refuses them:
 # they would only leak the worker's address to a third party and add noise to the observation.
 BROWSER_INTERNAL_HOSTS = ("clients2.google.com", "update.googleapis.com", "android.clients.google.com",
-                          "clients1.google.com", "optimizationguide-pa.googleapis.com", "safebrowsing.googleapis.com")
+                          "clients1.google.com", "optimizationguide-pa.googleapis.com", "safebrowsing.googleapis.com",
+                          "accounts.google.com", "www.google.com")
 
 
 class Refused(Exception):
@@ -47,6 +48,24 @@ class Refused(Exception):
         super().__init__(f"{reason}: {detail}" if detail else reason)
         self.reason = reason
         self.detail = detail
+
+
+# Addresses that pass the scanner's is_public_ip but must still never be reached from this worker:
+# Azure's WireServer (168.63.129.16), the deprecated IPv6 site-local range, and the metadata/link-local
+# ranges named explicitly so a change in the shared helper can never drop them.
+_EXTRA_BLOCKED = tuple(ipaddress.ip_network(n) for n in (
+    "168.63.129.16/32", "169.254.0.0/16", "fe80::/10", "fec0::/10", "fd00:ec2::254/128", "fc00::/7", "100.64.0.0/10",
+    "192.0.0.0/24", "198.18.0.0/15"))
+
+
+def worker_allow_ip(ip: str) -> bool:
+    """Production address rule: the scanner's public-address test, plus explicit refusals."""
+    if not is_public_ip(ip):
+        return False
+    addr = ipaddress.ip_address(str(ip).strip().strip("[]"))
+    mapped = getattr(addr, "ipv4_mapped", None)
+    addr = mapped or addr
+    return not any(addr.version == net.version and addr in net for net in _EXTRA_BLOCKED)
 
 
 Resolver = Callable[[str], Awaitable[List[str]]]
@@ -71,7 +90,7 @@ class EgressPolicy:
     """What the worker may connect to. The default is the production policy."""
     resolver: Resolver = system_resolver
     allowed_ports: Sequence[int] = DEFAULT_PORTS
-    allow_ip: Callable[[str], bool] = is_public_ip
+    allow_ip: Callable[[str], bool] = worker_allow_ip
 
     async def resolve(self, host: str) -> List[str]:
         """Addresses to connect to. Raises Refused unless every address passes."""

@@ -377,7 +377,15 @@ def test_config_requires_https_core_and_a_key(monkeypatch):
     with pytest.raises(SystemExit):
         load_config()
     monkeypatch.setenv("BROWSER_CORE_URL", "http://localhost:8000")
+    with pytest.raises(SystemExit):  # sandbox off needs the explicit egress-firewall acknowledgement
+        load_config()
+    monkeypatch.setenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "1")
     assert load_config().chromium_sandbox is False
+    monkeypatch.delenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL")
+    monkeypatch.setenv("BROWSER_CHROMIUM_SANDBOX", "1")
+    assert load_config().chromium_sandbox is True
+    monkeypatch.delenv("BROWSER_CHROMIUM_SANDBOX")
+    monkeypatch.setenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "1")
     monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
     assert load_config().core_url == "https://core.example"
 
@@ -398,3 +406,74 @@ def test_proxy_refuses_browser_internal_services(host):
         return ["8.8.8.8"]
     head, proxy = _proxy_request(EgressPolicy(resolver=resolver), f"CONNECT {host}:443 HTTP/1.1\r\n\r\n".encode())
     assert head.startswith(b"HTTP/1.1 403") and proxy.refused[0].reason == "browser_internal" and proxy.connected == []
+
+
+@pytest.mark.parametrize("ip", ["168.63.129.16", "::ffff:168.63.129.16", "fec0::1", "fd00:ec2::254", "fe80::1", "169.254.169.254",
+                                "100.100.100.200", "100.64.0.1", "10.0.0.1", "127.0.0.1", "::1", "198.18.0.1", "192.0.0.192"])
+def test_extra_cloud_and_reserved_addresses_are_refused(ip):
+    assert netguard.worker_allow_ip(ip) is False
+    with pytest.raises(Refused):
+        asyncio.run(EgressPolicy(resolver=lambda h: asyncio.sleep(0, result=[ip])).resolve("acme.test"))
+
+
+def test_ordinary_public_addresses_still_pass():
+    assert netguard.worker_allow_ip("93.184.216.34") and netguard.worker_allow_ip("2606:2800:220:1:248:1893:25c8:1946")
+
+
+def test_browser_environment_drops_anything_that_looks_like_a_secret():
+    from browser_worker.observer import browser_env
+    env = browser_env({"PATH": "/bin", "HOME": "/tmp", "BROWSER_API_KEY": "k", "DB_PASSWORD": "p", "X_TOKEN": "t", "MY_SECRET": "s",
+                       "TMPDIR": "/tmp"})
+    assert env == {"PATH": "/bin", "HOME": "/tmp", "TMPDIR": "/tmp"}
+
+
+def test_any_unexpected_fault_in_one_job_is_reported_and_the_worker_survives(monkeypatch):
+    posted = []
+
+    def handler(request):
+        posted.append((request.url.path.rsplit("/", 1)[-1], request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    async def explode(*a, **k):
+        raise RuntimeError("Frame for this navigation request is not available")
+
+    monkeypatch.setattr(runner, "observe", explode)
+
+    async def go():
+        client = fake_core(handler)
+        try:
+            return await runner.run_job(client, make_job(), CFG)
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(go()) == "failed"
+    assert posted[-1][0] == "fail" and b"browser_error" in posted[-1][1]
+
+    # main_loop: a crash while processing a job does not end the loop
+    calls = []
+
+    async def claim(self):
+        calls.append(1)
+        return make_job() if len(calls) == 1 else None
+
+    async def crash(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(runner.CoreClient, "claim", claim)
+    monkeypatch.setattr(runner, "run_job", crash)
+    asyncio.run(runner.main_loop(CFG.__class__(**{**CFG.__dict__, "poll_interval_seconds": 5}), once=False)) if False else None
+    cfg = CFG.__class__(**{**CFG.__dict__})
+    asyncio.run(runner.main_loop(cfg, once=True))
+    assert len(calls) == 1  # processed the job, did not raise
+
+
+def test_equal_scanner_and_browser_keys_stop_core_from_starting():
+    import subprocess
+    import sys
+    env = {"PATH": "/usr/bin:/bin", "SCANNER_API_KEY": "same-key-value", "BROWSER_WORKER_API_KEY": "same-key-value"}
+    out = subprocess.run([sys.executable, "-c", "import backend.app.core.config"], env=env, cwd=str(ROOT),
+                         capture_output=True, text=True)
+    assert out.returncode != 0 and "must differ" in out.stderr
+    env["BROWSER_WORKER_API_KEY"] = "another-key-value"
+    ok = subprocess.run([sys.executable, "-c", "import backend.app.core.config"], env=env, cwd=str(ROOT), capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr

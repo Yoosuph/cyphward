@@ -118,6 +118,12 @@ class FixtureServer:
                     except (BrokenPipeError, ConnectionResetError):
                         pass
                     return
+                if host == "popup.test":
+                    return self._send(200, (f'<html><body><script>window.open("http://other.test:{port}/", "_blank");'
+                                            f'document.title="popup";</script><a target="_blank" href="/x">x</a></body></html>').encode(), html)
+                if host == "script-redirect.test":
+                    return self._send(200, (f'<html><body>hello<script>setTimeout(function(){{ location = "http://other.test:{port}/"; }}, 200);'
+                                            f'</script></body></html>').encode(), html)
                 if host == "download.test":
                     return self._send(200, b"binary", [("Content-Type", "application/octet-stream"),
                                                        ("Content-Disposition", "attachment; filename=x.bin")])

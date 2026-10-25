@@ -35,14 +35,19 @@ TRACKER_HOSTS = (
 
 # Plain-language text. Shown beside the requirement; the per-observation sentences with counts are
 # built in `evidence_rows` and stored as details.browser_label.
+# A page controls what its visitors see, so a browser that announces itself can be shown a different page
+# from the one other visitors get. Every "present" sentence says so; the limit is never left implicit.
+LIMIT_NOTE = ("This is what the page showed Cyphward's browser on one visit; a page can behave differently for "
+              "other visitors.")
+
 REASON_TEXT = {
-    "browser_banner_in_first_view": "On a first visit the browser saw a consent banner in the first screen.",
+    "browser_banner_in_first_view": "On a first visit the browser saw a consent banner in the first screen. " + LIMIT_NOTE,
     "browser_banner_below_first_view": "On a first visit the browser detected a consent banner, but not in the "
                                        "first screen.",
     "browser_banner_not_detected": "On a first visit the browser did not detect a consent banner. Banners built "
                                    "with unusual markup can be missed.",
     "browser_accept_and_reject_same_level": "On a first visit the browser saw an accept control and a reject control "
-                                            "at the same level.",
+                                            "at the same level. " + LIMIT_NOTE,
     "browser_reject_less_prominent": "On a first visit the browser saw a reject control, but it was smaller or "
                                      "less prominent than the accept control.",
     "browser_no_reject_control": "On a first visit the browser saw an accept control but no reject control at the "
@@ -53,7 +58,7 @@ REASON_TEXT = {
     "browser_cookies_unclassified": "The browser observed cookies before any choice was made, and Cyphward could "
                                     "not tell whether they are essential.",
     "browser_no_known_tracking": "On a first visit the browser observed no known analytics or advertising cookies "
-                                 "or requests before any choice was made.",
+                                 "or requests before any choice was made. " + LIMIT_NOTE,
     "browser_observation_capped": "The browser stopped watching this page early at a safety limit, so what it "
                                   "saw may be incomplete.",
     "no_browser_observation": "No browser observation has run for this domain yet.",
@@ -143,7 +148,7 @@ def _tracker_result(obs: ConsentObservation, facts: Dict[str, Any]) -> Dict[str,
                  f"essential or not; review them in your cookie list.")
         return {"status": mapping.NOT_ASSESSED, "reason": "browser_cookies_unclassified", "label": label}
     label = (f"The browser observed {cookies} set before any choice was made; none matched known analytics "
-             f"or advertising services, and no requests to such services were seen.")
+             f"or advertising services, and no requests to such services were seen. " + LIMIT_NOTE)
     return {"status": mapping.PRESENT, "reason": "browser_no_known_tracking", "label": label}
 
 
@@ -188,7 +193,7 @@ def evidence_rows(obs: ConsentObservation, *, org_id: str, domain_id: str, job_i
                 "heuristic": True, "cms_marker": obs.banner.cms_marker,
                 "cookie_count": facts["cookie_count"], "third_party_host_count": facts["third_party_host_count"],
                 "tracker_cookies": facts["tracker_cookies"][:20], "tracker_hosts": facts["tracker_hosts"],
-                "capped": obs.caps.model_dump(),
+                "capped": obs.caps.model_dump(), "limit": LIMIT_NOTE,
             },
         })
     return rows
@@ -217,7 +222,8 @@ def requirement_status(requirement: Dict[str, Any], domains: List[Dict[str, Any]
         if row is None:
             results.append(prior or mapping._domain_result(mapping.NOT_ASSESSED, "no_browser_observation", domain))
         elif expires is not None and expires <= now:
-            results.append(mapping._domain_result(mapping.NOT_ASSESSED, "evidence_expired", domain, row))
+            stale = {**row, "details": {k: v for k, v in (row.get("details") or {}).items() if k != "browser_label"}}
+            results.append(mapping._domain_result(mapping.NOT_ASSESSED, "evidence_expired", domain, stale))
         elif requirement["key"] == TRACKERS_KEY and prior and prior["status"] == mapping.GAP:
             results.append(prior)
         else:
