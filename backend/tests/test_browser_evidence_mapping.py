@@ -193,3 +193,17 @@ def test_contract_size_caps_and_unknown_fields():
     hosts = [{"host": f"h{i}.example", "count": 1} for i in range(101)]
     with pytest.raises(Exception):
         ConsentObservation.model_validate({**base, "requests": {"total": 500, "first_party": 0, "third_party_hosts": hosts}})
+
+
+def test_a_fresh_static_tracker_gap_is_not_hidden_by_an_expired_browser_row():
+    tracker_req = requirement(bo.TRACKERS_KEY)
+    static_gap = {"status": "gap", "reason": "tracker_before_consent", "unlinked_finding_ids": [],
+                  "domains": [mapping._domain_result("gap", "tracker_before_consent", D1, {"details": {}}, source="externally_observed")]}
+    old = row(bo.TRACKERS_KEY, "present", "browser_no_known_tracking", expires=NOW - timedelta(days=1))
+    out = bo.requirement_status(tracker_req, [D1], {D1["id"]: old}, static_gap, NOW)
+    assert out["status"] == "gap" and out["domains"][0]["reason"] == "tracker_before_consent"
+    # Without a static gap the expired browser row reads as expired, with no sentence left over.
+    open_ = {"status": "not_assessed", "reason": "needs_browser_test", "unlinked_finding_ids": [],
+             "domains": [mapping._domain_result("not_assessed", "needs_browser_test", D1, {"details": {}}, source="externally_observed")]}
+    out = bo.requirement_status(tracker_req, [D1], {D1["id"]: old}, open_, NOW)
+    assert out["domains"][0]["reason"] == "evidence_expired" and "browser_label" not in out["domains"][0]["details"]

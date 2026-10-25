@@ -135,6 +135,7 @@ jobs:
         run: |
           test "$(docker run --rm cyphward-browser:ci id -u)" = "10001"
           docker run --rm cyphward-browser:ci /usr/bin/chromium --version
-          docker run --rm --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m --memory-swap 768m \
+          # The sandbox is on by default; the CI host's default container profile cannot run it, so this smoke run states --no-sandbox explicitly.
+          docker run --rm -e BROWSER_CHROMIUM_SANDBOX=0 --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m --memory-swap 768m \
             --cap-drop ALL --security-opt no-new-privileges:true --init cyphward-browser:ci python -m browser_worker.smoke
           ! docker run --rm cyphward-browser:ci python -m browser_worker

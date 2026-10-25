@@ -125,6 +125,9 @@ async def main_loop(cfg: BrowserConfig, once: bool = False) -> None:
             except CoreError as exc:
                 logger.warning("claim failed: %s", exc)
                 job = None
+            except Exception:  # noqa: BLE001 - nothing a claim can raise may end the worker; back off and retry
+                logger.exception("claim crashed")
+                job = None
             if job is not None:
                 try:
                     outcome = await run_job(client, job, cfg)
@@ -150,6 +153,6 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="claim at most one job, then exit")
     args = parser.parse_args()
     cfg = load_config()
-    os.environ.pop("BROWSER_API_KEY", None)  # nothing started from here on (driver, browser) inherits the key
+    os.environ.pop("BROWSER_API_KEY", None)  # belt and braces: read_api_key already removed it
     logging.basicConfig(level=cfg.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     asyncio.run(main_loop(cfg, once=args.once))

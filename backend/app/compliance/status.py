@@ -269,8 +269,10 @@ def requirement_detail(org: Dict[str, Any], key: str) -> Optional[Dict[str, Any]
         "SELECT e.id, e.domain_id, d.domain, e.status, e.source, e.observed_at, e.expires_at, e.scan_id, "
         "e.finding_ids, e.register_version, e.details->>'reason' AS reason "
         "FROM compliance_evidence e LEFT JOIN domains d ON d.id = e.domain_id AND d.org_id = e.org_id "
-        "WHERE e.org_id = %s AND e.requirement_key = %s ORDER BY e.observed_at DESC, e.created_at DESC LIMIT 50",
-        (org_id, key)) or []
+        "WHERE e.org_id = %s AND e.requirement_key = %s "
+        "AND (%s OR COALESCE(e.details->>'observation', '') <> %s) "  # browser rows show only while the feature is on
+        "ORDER BY e.observed_at DESC, e.created_at DESC LIMIT 50",
+        (org_id, key, browser_observation.enabled(), browser_observation.OBSERVATION_MARKER)) or []
     view["history"] = [{
         **{k: (str(v) if k in ("id", "domain_id", "scan_id") and v else v) for k, v in row.items() if k != "finding_ids"},
         "finding_ids": [str(i) for i in row.get("finding_ids") or []],

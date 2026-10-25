@@ -102,8 +102,25 @@ def protocol(worker: Worker) -> dict:
             "job_types": ["cookie_consent_observation"]}
 
 
+_last_claim: dict = {}
+
+
+def _claim_rate_limit(worker: str) -> None:
+    """At most one claim attempt per worker every BROWSER_CLAIM_MIN_INTERVAL_SECONDS (per API process)."""
+    interval = config.BROWSER_CLAIM_MIN_INTERVAL_SECONDS
+    now = time.monotonic()
+    if interval > 0:
+        if len(_last_claim) > 1000:
+            _last_claim.clear()
+        previous = _last_claim.get(worker)
+        if previous is not None and now - previous < interval:
+            raise HTTPException(429, "Claiming too often.", headers={"Retry-After": str(max(1, int(interval)))})
+    _last_claim[worker] = now
+
+
 @router.post("/claim", response_model=BrowserJob, responses={204: {"description": "Queue empty"}})
 def claim_job(worker: Worker):
+    _claim_rate_limit(worker)
     job = browser_jobs.claim(worker)
     if job is None:
         return Response(status_code=204)

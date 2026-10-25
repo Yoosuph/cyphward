@@ -142,6 +142,8 @@ class ConsentObservation(_Strict):
         # Query strings and fragments can carry tokens; the worker strips them.
         if "?" in v or "#" in v:
             raise ValueError("final_url must not carry a query or fragment")
+        if "\\" in v or "@" in v.split("/", 3)[2]:
+            raise ValueError("final_url must not carry credentials or backslashes")
         return v
 
 

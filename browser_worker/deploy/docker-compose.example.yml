@@ -5,7 +5,11 @@ services:
   browser-worker:
     image: cyphward-browser:local          # built on the VM: docker build -f Dockerfile.browser -t cyphward-browser:local .
     restart: unless-stopped
-    env_file: /etc/cyphward-browser/env    # names in browser_worker/.env.example; mode 0600
+    env_file: /etc/cyphward-browser/env    # names in browser_worker/.env.example; mode 0600; holds no key
+    environment:
+      BROWSER_API_KEY_FILE: /run/secrets/browser_api_key   # weaker than stdin (see the systemd example); a file any process of the same user can read
+    secrets: [browser_api_key]
+    dns: [1.1.1.1, 9.9.9.9]                # not the cloud's resolver, which may sit behind a blocked metadata address
     user: "10001:10001"
     read_only: true
     tmpfs:
@@ -18,7 +22,12 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+      - seccomp=/etc/cyphward-browser/chromium-seccomp.json   # allows Chromium's sandbox user namespaces; see the runbook
     init: true
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
+
+secrets:
+  browser_api_key:
+    file: /etc/cyphward-browser/api-key    # one line, mode 0600, owned by root

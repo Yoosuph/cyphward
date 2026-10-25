@@ -219,13 +219,13 @@ def requirement_status(requirement: Dict[str, Any], domains: List[Dict[str, Any]
         prior = static.get(did)
         row = browser_rows.get(did)
         expires = mapping._aware(row.get("expires_at")) if row else None
-        if row is None:
+        if requirement["key"] == TRACKERS_KEY and prior and prior["status"] == mapping.GAP:
+            results.append(prior)  # a tracker gap the static check saw stands, whatever the browser row says or when it expired
+        elif row is None:
             results.append(prior or mapping._domain_result(mapping.NOT_ASSESSED, "no_browser_observation", domain))
         elif expires is not None and expires <= now:
             stale = {**row, "details": {k: v for k, v in (row.get("details") or {}).items() if k != "browser_label"}}
             results.append(mapping._domain_result(mapping.NOT_ASSESSED, "evidence_expired", domain, stale))
-        elif requirement["key"] == TRACKERS_KEY and prior and prior["status"] == mapping.GAP:
-            results.append(prior)
         else:
             results.append(mapping._domain_result(row["status"], (row.get("details") or {}).get("reason") or row["status"],
                                                   domain, row, source=mapping.TOOL_SOURCE))

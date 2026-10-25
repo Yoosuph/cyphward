@@ -108,6 +108,7 @@ BROWSER_WORKER_API_KEY = os.getenv("BROWSER_WORKER_API_KEY", "")
 if BROWSER_WORKER_API_KEY and BROWSER_WORKER_API_KEY == SCANNER_API_KEY:
     # One key for both workers would let either claim the other's work. Refuse to start.
     raise RuntimeError("BROWSER_WORKER_API_KEY must differ from SCANNER_API_KEY.")
+BROWSER_CLAIM_MIN_INTERVAL_SECONDS = float(os.getenv("BROWSER_CLAIM_MIN_INTERVAL_SECONDS", "2"))
 BROWSER_LEASE_SECONDS = int(os.getenv("BROWSER_LEASE_SECONDS", "180"))
 BROWSER_MAX_ATTEMPTS = int(os.getenv("BROWSER_MAX_ATTEMPTS", "3"))
 BROWSER_JOB_COOLDOWN_HOURS = int(os.getenv("BROWSER_JOB_COOLDOWN_HOURS", "20"))

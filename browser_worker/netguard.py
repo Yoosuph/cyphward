@@ -55,7 +55,7 @@ class Refused(Exception):
 # ranges named explicitly so a change in the shared helper can never drop them.
 _EXTRA_BLOCKED = tuple(ipaddress.ip_network(n) for n in (
     "168.63.129.16/32", "169.254.0.0/16", "fe80::/10", "fec0::/10", "fd00:ec2::254/128", "fc00::/7", "100.64.0.0/10",
-    "192.0.0.0/24", "198.18.0.0/15"))
+    "192.0.0.0/24", "198.18.0.0/15", "64:ff9b::/96", "64:ff9b:1::/48"))
 
 
 def worker_allow_ip(ip: str) -> bool:

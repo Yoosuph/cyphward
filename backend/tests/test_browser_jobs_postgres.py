@@ -72,6 +72,7 @@ def api(execution_db, disposable_postgres_url, monkeypatch):
     monkeypatch.setattr(browser_jobs, "get_db", get_db)
     monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", True)
     monkeypatch.setattr(config, "BROWSER_WORKER_API_KEY", KEY)
+    monkeypatch.setattr(config, "BROWSER_CLAIM_MIN_INTERVAL_SECONDS", 0)  # the rate-limit test turns it on
     monkeypatch.setattr(sj, "SCANNER_MODE", "remote")
     monkeypatch.setattr(sj, "SCANNER_API_KEY", SCANNER_KEY)
     monkeypatch.setattr(sj, "SCANNER_CLAIMS_ENABLED", True)
@@ -568,3 +569,95 @@ def test_browser_rows_never_feed_document_inputs_or_the_static_previous_row(api,
     _observe(api, 0)
     gathered = document_store.gather({"id": api.org, "name": "Org"})
     assert all(not rows_ for rows_ in gathered["observed"].values())
+
+
+# ── claim limits ─────────────────────────────────────────────────────────
+def test_claims_are_rate_limited_per_worker(api, monkeypatch):
+    from backend.app.api import browser_worker as bw
+    bw._last_claim.clear()
+    monkeypatch.setattr(config, "BROWSER_CLAIM_MIN_INTERVAL_SECONDS", 30)
+    assert api.post("/api/v1/browser-worker/claim", headers=headers()).status_code == 204
+    again = api.post("/api/v1/browser-worker/claim", headers=headers())
+    assert again.status_code == 429 and again.headers["retry-after"]
+    assert api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-2")).status_code == 204  # another worker is not throttled
+    bw._last_claim.clear()
+
+
+def test_a_worker_holding_a_live_job_gets_no_second_one_and_another_worker_gets_it(api):
+    first, second = queue(api, 0), queue(api, 1)
+    job = claim(api)
+    assert api.post("/api/v1/browser-worker/claim", headers=headers()).status_code == 204       # same worker: one at a time
+    other = api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-2"))
+    assert other.status_code == 200 and other.json()["job_id"] not in (job["job_id"],) and {job["job_id"], other.json()["job_id"]} == {first, second}
+
+
+def test_concurrent_claims_never_return_the_same_job_twice(api, disposable_postgres_url, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    job_id = queue(api)
+    barrier = Barrier(4)
+
+    def attempt(n):
+        barrier.wait(timeout=10)
+        return browser_jobs.claim(f"racer-{n}")
+
+    with ThreadPoolExecutor(4) as pool:
+        results = list(pool.map(attempt, range(4)))
+    won = [r for r in results if r is not None]
+    assert len(won) == 1 and won[0].job_id == job_id and won[0].claim_generation == 1
+
+
+def test_a_claim_only_ever_returns_jobs_for_verified_unrevoked_domains_of_their_own_org(api, world):
+    other = world["other_org"]()
+    other_domain = api.conn.execute("SELECT id FROM domains WHERE org_id=%s", (other,)).fetchone()["id"]
+    foreign = browser_jobs.enqueue(other, str(other_domain), cooldown_hours=0)
+    api.conn.execute("UPDATE domains SET verification_status='pending' WHERE id=%s", (other_domain,))
+    api.conn.commit()
+    mine = queue(api, 0)
+    job = claim(api)
+    assert job["job_id"] == mine and job["organization_id"] == api.org and job["domain_id"] == api.domains[0]
+    assert api.conn.execute("SELECT status FROM privacy_browser_jobs WHERE id=%s", (foreign,)).fetchone()["status"] in ("queued", "failed")
+    r = api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-2"))
+    assert r.status_code == 204   # the other organisation's job is for an unverified domain: nobody receives it
+
+
+# ── result hygiene ───────────────────────────────────────────────────────
+@pytest.mark.parametrize("bad", ["https://user:pw@{d}/", "https://{d}@evil.example/", "https://{d}\\@evil.example/", "https://evil.example\\.{d}/"])
+def test_final_urls_with_credentials_or_backslashes_are_refused(api, bad):
+    job_id = queue(api)
+    job = claim(api)
+    r = api.post(f"/api/v1/browser-worker/jobs/{job_id}/result", json=good_result(final_url=bad.format(d=_CLAIMED["domain"])), headers=authority(job))
+    assert r.status_code == 422 and rows(api) == []
+
+
+def test_core_side_check_rejects_userinfo_even_if_the_schema_were_bypassed(api):
+    from shared.browser_contracts import ConsentObservation
+    obs = ConsentObservation.model_validate(good_result())
+    job_id = queue(api)
+    claim(api)
+    row = api.conn.execute("SELECT * FROM privacy_browser_jobs WHERE id=%s", (job_id,)).fetchone()
+    cur = api.conn.cursor()
+    for url in (f"https://u:p@{_CLAIMED['domain']}/", f"https://{_CLAIMED['domain']}\\@evil.example/"):
+        object.__setattr__(obs, "final_url", url)
+        assert browser_jobs._ineligible(cur, row, obs) == "final address is malformed"
+
+
+# ── history and previous-row lookups ─────────────────────────────────────
+def test_requirement_history_hides_browser_rows_while_the_flag_is_off(api, world, monkeypatch):
+    headers_ = world["member"](api.org)
+    _growth(api)
+    _observe(api, 0)
+    path = f"/api/v1/compliance/requirements/{bo.BANNER_KEY}"
+    assert len(api.get(path, headers=headers_).json()["history"]) == 1
+    monkeypatch.setattr(config, "BROWSER_CONSENT_ENABLED", False)
+    assert api.get(path, headers=headers_).json()["history"] == []
+
+
+def test_the_static_checks_previous_row_lookup_ignores_browser_rows(api, monkeypatch):
+    from backend.app.compliance import mapping, scan_evidence
+    _observe(api, 0)
+    captured = {}
+    monkeypatch.setattr(mapping, "privacy_rows", lambda reqs, obs, **kw: captured.update(kw["previous"]) or [])
+    scan_evidence.evidence_for_scan(org_id=api.org, domain_id=api.domains[0], scan_id=str(uuid4()), coverage=None,
+                                    observations={"privacy": {"privacy_observations": []}}, completed_at=None)
+    assert bo.TRACKERS_KEY not in captured

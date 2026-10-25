@@ -48,7 +48,7 @@ Check the image before configuring anything:
 docker run --rm cyphward-browser:local python -c "import browser_worker.runner; print('ok')"
 docker run --rm cyphward-browser:local /usr/bin/chromium --version
 docker run --rm cyphward-browser:local id    # must show uid=10001, not root
-# Self-check with the production hardening: visits a tiny page it serves on loopback, no network, no Core.
+# Self-check with the production hardening (add `-e BROWSER_CHROMIUM_SANDBOX=0` only if your host cannot run the sandbox): visits a tiny page it serves on loopback, no network, no Core.
 docker run --rm --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m --memory-swap 768m \
   --cap-drop ALL --security-opt no-new-privileges:true --init cyphward-browser:local python -m browser_worker.smoke
 # expected: {"ok": true, "browser": "Chromium ...", "cookies": 1, ...}
@@ -62,12 +62,14 @@ Worker (`browser_worker/.env.example` lists them with comments). Put them in `/e
 | Name | Purpose |
 | --- | --- |
 | `BROWSER_CORE_URL` | Core base URL, `https://...` |
-| `BROWSER_API_KEY` | The browser worker's key. Not the scanner key. |
+| `BROWSER_API_KEY_STDIN` | `1` (preferred): the worker reads the key from one line of standard input at start-up. It then exists only in the worker's memory: in no environment and in no file inside the container. |
+| `BROWSER_API_KEY_FILE` | Path of a mounted secret file holding the key. Weaker: any process of the same user can read the file. |
+| `BROWSER_API_KEY` | Last resort: the key in the environment. The worker removes it from its own environment at start-up and never passes it to Chromium, but the kernel keeps the start-up environment readable by the same user. Not for production. |
 | `BROWSER_WORKER_ID` | Name shown in Core's job rows, 64 characters at most. |
 | `BROWSER_POLL_INTERVAL_SECONDS` | Idle poll interval (default 30). |
 | `BROWSER_HEARTBEAT_SECONDS` | Lease heartbeat while working (default 20). |
 | `BROWSER_CHROMIUM_PATH` | Chromium path inside the image (default `/usr/bin/chromium`). |
-| `BROWSER_CHROMIUM_SANDBOX` | `1` turns Chromium's sandbox on. With `0` (default) the worker refuses to start unless the next variable is `1`. See section 8, "Sandbox". |
+| `BROWSER_CHROMIUM_SANDBOX` | `1` (default) keeps Chromium's sandbox on. With `0` the worker refuses to start unless the next variable is `1`. See section 8, "Sandbox". |
 | `BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL` | Set to `1` only after the mandatory egress firewall in section 8 is installed and checked. Required when the sandbox is off. |
 | `BROWSER_LOG_LEVEL` | `INFO` by default. |
 
@@ -78,17 +80,23 @@ Core (set on the Core service, for example in Render):
 | `BROWSER_WORKER_API_KEY` | Same secret as the worker's `BROWSER_API_KEY`. Generate a long random value, different from `SCANNER_API_KEY`. |
 | `BROWSER_CONSENT_ENABLED` | Feature flag, default `false`. |
 | `BROWSER_LEASE_SECONDS` | Job lease, default 180 (the job limit is 90). |
+| `BROWSER_CLAIM_MIN_INTERVAL_SECONDS` | Minimum gap between claim attempts of one worker, default 2 (HTTP 429 otherwise). |
 | `BROWSER_MAX_ATTEMPTS` | Expired leases before a job is failed, default 3. |
 | `BROWSER_JOB_COOLDOWN_HOURS` | Minimum gap between automatic observations of a domain, default 20. |
 
 ## 5. Run it
 
-Use the compose example (`browser_worker/deploy/docker-compose.example.yml`) or the systemd unit
-(`browser_worker/deploy/cyphward-browser-worker.service`). Both apply the same limits:
+Use the systemd unit (`browser_worker/deploy/cyphward-browser-worker.service`, which feeds the key on
+standard input and is the preferred form) or the compose example
+(`browser_worker/deploy/docker-compose.example.yml`, key as a mounted file). The plain command below uses the
+same limits with the key as a mounted file (for this form only: `chown 10001 /etc/cyphward-browser/api-key && chmod 400` it, so the container user can read it):
 
 ```bash
 docker run -d --name cyphward-browser --restart unless-stopped \
   --env-file /etc/cyphward-browser/env \
+  --mount type=bind,src=/etc/cyphward-browser/api-key,dst=/run/secrets/browser_api_key,ro \
+  -e BROWSER_API_KEY_FILE=/run/secrets/browser_api_key \
+  --security-opt seccomp=/etc/cyphward-browser/chromium-seccomp.json --dns 1.1.1.1 --dns 9.9.9.9 \
   --user 10001:10001 --read-only --tmpfs /tmp:size=256m,mode=1777,noexec,nosuid \
   --shm-size 256m --memory 768m --memory-swap 768m --cpus 1.0 --pids-limit 256 \
   --cap-drop ALL --security-opt no-new-privileges:true --init \
@@ -152,39 +160,55 @@ third-party hosts, a result body of at most 64 KiB, and one job at a time.
 with no swap, 1 CPU, 256 processes, 256 MiB `/dev/shm`. The image holds no secrets; the key arrives
 only through the env file.
 
-**Sandbox (a decision, not a quiet default).** Chromium's own sandbox needs unprivileged user
-namespaces, which Docker's default profile blocks for an unprivileged container. With the sandbox off, a
-browser exploit would run as the same user (uid 10001) as the Python worker and could read the worker's
-environment through `/proc`, including `BROWSER_API_KEY`. The worker therefore **refuses to start** with the
-sandbox off unless `BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL=1` says the mandatory firewall below is in place.
-Better: set `BROWSER_CHROMIUM_SANDBOX=1` on a host that allows it (Podman rootless, or Docker with a seccomp
-profile that permits `clone` with user namespaces) and keep everything else. Never add `--privileged` or
-`SYS_ADMIN` to make the sandbox work. What the code does regardless: the worker removes the key from its
-own environment after reading it, and Chromium is started with every variable that looks like a secret
-(`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`) removed; the first is tested, the second is tested. The
-process environment the kernel recorded at start-up is not erasable, so treat the key as exposed to a
-browser exploit when the sandbox is off, keep it single-purpose (it can only claim and answer browser jobs),
-and rotate it on any suspicion.
+**Sandbox and the key (the main risk of this worker).** A browser is the part most likely to be
+exploited, and it runs next to the worker's API key. Three layers, in order of strength:
 
-**Egress firewall (MANDATORY when the sandbox is off, recommended otherwise).** In-process checks refuse
-private, loopback, link-local, metadata (including Azure's `168.63.129.16`) and reserved addresses, but
-the host must refuse them as well. Install these before setting the acknowledgement variable, and persist
-them across reboots with your distribution's tooling. Allow DNS and HTTPS to Core first if your resolver or
-Core sit in a private range.
+1. **Chromium's sandbox is on by default** (`BROWSER_CHROMIUM_SANDBOX=1`). It needs unprivileged user
+   namespaces, which Docker's default seccomp profile blocks. Make the container able to use them with one of:
+   - **rootless Podman** (`podman run ...` with the same flags as the Docker examples); or
+   - **Docker with a seccomp profile that allows user namespaces**, for example the Chrome profile
+     published at `https://raw.githubusercontent.com/jfrazelle/dotfiles/master/etc/docker/seccomp/chrome.json`,
+     saved on the VM as `/etc/cyphward-browser/chromium-seccomp.json` and passed with
+     `--security-opt seccomp=/etc/cyphward-browser/chromium-seccomp.json` (the deploy examples show the line).
+   Never `--privileged`, never `SYS_ADMIN`. Prove it works on your host with the smoke check in section 3
+   run *without* `-e BROWSER_CHROMIUM_SANDBOX=0`: it must print `"ok": true`. **This repository could not
+   test a sandboxed container** (no container engine was available when it was written), so this step is
+   yours; if the smoke check fails with the sandbox on, do not turn the feature on.
+2. **The key never touches the browser's environment.** Use `BROWSER_API_KEY_STDIN=1` and feed the key to the
+   container's standard input (the systemd example does this with `StandardInput=file:`). The worker also
+   removes any key variable from its own environment, and starts Chromium with every variable whose name
+   contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` removed. Tested: the environment handed to
+   the browser launch holds none of them, and the stdin and file sources leave nothing in the environment.
+   Not built: a separate Linux user for Chromium (it would need privilege-dropping capabilities this
+   container deliberately does not have).
+3. **Only if the host cannot run the sandbox:** set `BROWSER_CHROMIUM_SANDBOX=0` **and**
+   `BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL=1`. The worker refuses to start otherwise. A browser exploit then
+   runs as the worker's own user and could read the key from the worker's memory or files; the firewall below
+   is then **mandatory**, and so is rotating the key at any suspicion.
+
+**Egress firewall (MANDATORY for any run with the sandbox off, recommended otherwise).** In-process checks
+refuse private, loopback, link-local, metadata (including Azure's `168.63.129.16`) and reserved addresses,
+but the host must refuse them too. Install these before setting the acknowledgement variable and persist
+them across reboots with your distribution's tooling.
 
 ```bash
 # IPv4 (Docker hosts): DOCKER-USER is evaluated before Docker's own rules
 for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 168.63.129.16/32 192.0.0.0/24 198.18.0.0/15; do
   iptables -I DOCKER-USER -d "$net" -j DROP
 done
-# IPv6: unique-local (includes AWS fd00:ec2::254), link-local, site-local; if you do not use IPv6, disable it for the container instead
-for net in fc00::/7 fe80::/10 fec0::/10 ::1/128; do
+# IPv6: unique-local (includes AWS fd00:ec2::254), link-local, site-local, NAT64; if you do not use IPv6, disable it for the container instead
+for net in fc00::/7 fe80::/10 fec0::/10 64:ff9b::/96 64:ff9b:1::/48 ::1/128; do
   ip6tables -I DOCKER-USER -d "$net" -j DROP
 done
 ```
 
-Check from inside a throwaway container with the same network: `curl -m 3 http://169.254.169.254/` and
-`curl -m 3 http://168.63.129.16/` must time out or fail, and the same over IPv6 if enabled.
+**DNS on Azure.** Azure's resolver and its WireServer are the same address, `168.63.129.16`. Dropping it as
+above also drops the VM's default DNS for the container. Give the container another resolver with
+`--dns 1.1.1.1 --dns 9.9.9.9` (and in compose `dns: [1.1.1.1, 9.9.9.9]`) instead of allowing a hole to
+`168.63.129.16`. On other clouds, check which address the default resolver uses before you drop ranges.
+
+Check from a throwaway container with the same network and flags: `curl -m 3 http://169.254.169.254/` and
+`curl -m 3 http://168.63.129.16/` must fail, and the same over IPv6 if enabled.
 
 **What the observation can and cannot show.** A page controls what it serves, and the user agent names
 Cyphward by design (site owners can see who visited), so a site can serve a different, cleaner page to this
@@ -201,8 +225,8 @@ page content from it is recorded. A browser-internal list of hosts Chromium cont
 hosts for a feature (for example a Google CAPTCHA) will show those requests as failed in the browser, and
 they still appear in the third-party host list.
 
-**Secrets.** `BROWSER_API_KEY` is the only secret on the VM. Rotate it by changing it on Core and in
-the env file, then restarting the container. It must differ from `SCANNER_API_KEY` (Core refuses to start
+**Secrets.** The browser worker's key is the only secret on the VM. Rotate it by changing it on Core and in
+the key file, then restarting the container. It must differ from `SCANNER_API_KEY` (Core refuses to start
 otherwise), the scanner key cannot authenticate to the browser endpoints, and the browser key cannot
 authenticate to the scanner endpoints.
 

@@ -368,26 +368,28 @@ def test_worker_imports_only_what_the_image_contains():
 
 
 def test_config_requires_https_core_and_a_key(monkeypatch):
-    for k in ("BROWSER_CORE_URL", "BROWSER_API_KEY"):
+    for k in ("BROWSER_CORE_URL", "BROWSER_API_KEY", "BROWSER_API_KEY_FILE", "BROWSER_API_KEY_STDIN",
+              "BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "BROWSER_CHROMIUM_SANDBOX"):
         monkeypatch.delenv(k, raising=False)
+
+    def load(url, **env):
+        for name in ("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "BROWSER_CHROMIUM_SANDBOX"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("BROWSER_API_KEY", "k")  # read_api_key removes it on every load
+        monkeypatch.setenv("BROWSER_CORE_URL", url)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        return load_config()
+
     with pytest.raises(SystemExit):
         load_config()
-    monkeypatch.setenv("BROWSER_API_KEY", "k")
-    monkeypatch.setenv("BROWSER_CORE_URL", "http://core.example")
     with pytest.raises(SystemExit):
-        load_config()
-    monkeypatch.setenv("BROWSER_CORE_URL", "http://localhost:8000")
+        load("http://core.example")
     with pytest.raises(SystemExit):  # sandbox off needs the explicit egress-firewall acknowledgement
-        load_config()
-    monkeypatch.setenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "1")
-    assert load_config().chromium_sandbox is False
-    monkeypatch.delenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL")
-    monkeypatch.setenv("BROWSER_CHROMIUM_SANDBOX", "1")
-    assert load_config().chromium_sandbox is True
-    monkeypatch.delenv("BROWSER_CHROMIUM_SANDBOX")
-    monkeypatch.setenv("BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL", "1")
-    monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
-    assert load_config().core_url == "https://core.example"
+        load("http://localhost:8000", BROWSER_CHROMIUM_SANDBOX="0")
+    assert load("http://localhost:8000", BROWSER_CHROMIUM_SANDBOX="0", BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL="1").chromium_sandbox is False
+    assert load("https://core.example").chromium_sandbox is True
+    assert load("https://core.example").core_url == "https://core.example"
 
 
 def test_cookies_left_by_the_browsers_own_background_services_are_not_reported():
@@ -477,3 +479,70 @@ def test_equal_scanner_and_browser_keys_stop_core_from_starting():
     env["BROWSER_WORKER_API_KEY"] = "another-key-value"
     ok = subprocess.run([sys.executable, "-c", "import backend.app.core.config"], env=env, cwd=str(ROOT), capture_output=True, text=True)
     assert ok.returncode == 0, ok.stderr
+
+
+def test_the_sandbox_is_on_unless_someone_turns_it_off(monkeypatch):
+    from browser_worker.observer import chromium_args
+    monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
+    monkeypatch.setenv("BROWSER_API_KEY", "k")
+    for var in ("BROWSER_CHROMIUM_SANDBOX", "BROWSER_ACK_NO_SANDBOX_EGRESS_FIREWALL"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = load_config()
+    assert cfg.chromium_sandbox is True
+    assert "--no-sandbox" not in chromium_args(1234, cfg.chromium_sandbox)
+    assert "--no-sandbox" not in chromium_args(1234, True)
+    assert "--no-sandbox" in chromium_args(1234, False)
+    import inspect
+    from browser_worker.observer import observe
+    assert inspect.signature(observe).parameters["sandbox"].default is True
+
+
+def test_the_key_can_arrive_by_stdin_and_then_exists_in_no_environment(monkeypatch):
+    import io
+    import os
+    monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
+    monkeypatch.delenv("BROWSER_API_KEY", raising=False)
+    monkeypatch.setenv("BROWSER_API_KEY_STDIN", "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO("stdin-secret-key-value\n"))
+    cfg = load_config()
+    assert cfg.api_key == "stdin-secret-key-value"
+    assert not any("stdin-secret-key-value" in v for v in os.environ.values())
+
+
+def test_the_key_from_a_file_or_the_environment_is_removed_from_the_environment(monkeypatch, tmp_path):
+    import os
+    monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
+    monkeypatch.delenv("BROWSER_API_KEY_STDIN", raising=False)
+    monkeypatch.setenv("BROWSER_API_KEY", "env-secret-key-value")
+    assert load_config().api_key == "env-secret-key-value" and "BROWSER_API_KEY" not in os.environ
+    key = tmp_path / "key"
+    key.write_text("file-secret-key-value\n")
+    monkeypatch.setenv("BROWSER_API_KEY_FILE", str(key))
+    assert load_config().api_key == "file-secret-key-value"
+    monkeypatch.setenv("BROWSER_API_KEY_FILE", str(tmp_path / "missing"))
+    with pytest.raises(SystemExit):
+        load_config()
+
+
+def test_nat64_prefix_is_refused():
+    assert netguard.worker_allow_ip("64:ff9b::7f00:1") is False
+
+
+def test_a_claim_that_crashes_with_any_error_does_not_end_the_worker(monkeypatch):
+    class Stop(Exception):
+        pass
+
+    calls = []
+
+    async def claim(self):
+        calls.append(1)
+        raise RuntimeError("not a network error")
+
+    async def sleep(_):
+        raise Stop()
+
+    monkeypatch.setattr(runner.CoreClient, "claim", claim)
+    monkeypatch.setattr(runner.asyncio, "sleep", sleep)
+    with pytest.raises(Stop):  # reached the back-off sleep instead of dying on the claim error
+        asyncio.run(runner.main_loop(CFG))
+    assert calls == [1]

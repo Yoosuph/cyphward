@@ -92,6 +92,11 @@ def claim(worker_id: str, lease_seconds: Optional[int] = None) -> Optional[Brows
         with conn.transaction():
             with conn.cursor() as cur:
                 _timeouts(cur)
+                # One job at a time per worker identity: a worker that still holds a live lease gets nothing more.
+                cur.execute("SELECT 1 FROM privacy_browser_jobs WHERE claimed_by = %s AND status = 'running' "
+                            "AND lease_expires_at > clock_timestamp() LIMIT 1", (worker_id,))
+                if cur.fetchone():
+                    return None
                 # Housekeeping first: jobs that can never succeed leave the queue.
                 cur.execute(
                     """UPDATE privacy_browser_jobs j SET status='failed', completed_at=clock_timestamp(),
@@ -162,7 +167,12 @@ def _ineligible(cur, row, observation: ConsentObservation) -> Optional[str]:
     domain = cur.fetchone()
     if not domain or domain["verification_status"] != "verified" or domain["revoked_at"] is not None:
         return "domain no longer verified"
-    host = (urlsplit(observation.final_url).hostname or "").lower().rstrip(".")
+    if "\\" in observation.final_url:
+        return "final address is malformed"
+    parts = urlsplit(observation.final_url)
+    if parts.username is not None or parts.password is not None or parts.scheme not in ("http", "https"):
+        return "final address is malformed"
+    host = (parts.hostname or "").lower().rstrip(".")
     name = domain["domain"].lower().rstrip(".")
     if host != name and not host.endswith("." + name):
         return "final address outside the verified domain"

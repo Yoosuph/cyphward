@@ -131,6 +131,14 @@ def normalise_banner(raw: Dict[str, Any]) -> Dict[str, Any]:
 _SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.I)
 
 
+def chromium_args(proxy_port: int, sandbox: bool) -> List[str]:
+    """Launch flags. The sandbox is on unless the caller explicitly turned it off."""
+    args = list(CHROMIUM_FLAGS) + [f"--proxy-server=http://127.0.0.1:{proxy_port}"]
+    if not sandbox:
+        args.append("--no-sandbox")  # only with the acknowledgement; see docs/runbooks/browser-worker.md, "Sandbox"
+    return args
+
+
 def browser_env(environ: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """The environment Chromium inherits: the worker's, minus anything that looks like a secret.
 
@@ -164,7 +172,7 @@ def _spawn(awaitable) -> None:
 
 
 async def observe(url: str, scope: Sequence[str], policy: EgressPolicy, *, limits: Limits = Limits(),
-                  chromium_path: Optional[str] = None, sandbox: bool = False, allow_http: bool = False) -> Dict[str, Any]:
+                  chromium_path: Optional[str] = None, sandbox: bool = True, allow_http: bool = False) -> Dict[str, Any]:
     """Return a ConsentObservation-shaped dict, or raise ObservationFailed / Refused."""
     limits = limits.clamped()
     try:
@@ -193,9 +201,7 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
     requests_capped = False
     try:
         async with async_playwright() as pw:
-            args = list(CHROMIUM_FLAGS) + [f"--proxy-server=http://127.0.0.1:{proxy.port}"]
-            if not sandbox:
-                args.append("--no-sandbox")  # see docs/runbooks/browser-worker.md, "Sandbox"
+            args = chromium_args(proxy.port, sandbox)
             try:
                 browser = await pw.chromium.launch(executable_path=chromium_path, headless=True, args=args,
                                                    env=browser_env())

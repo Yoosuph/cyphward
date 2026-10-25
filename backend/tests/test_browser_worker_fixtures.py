@@ -180,6 +180,30 @@ def test_the_browser_process_does_not_inherit_the_workers_key(site, monkeypatch)
     assert seen and "BROWSER_API_KEY" not in seen and "SOME_SERVICE_TOKEN" not in seen and "PATH" in seen
 
 
+def test_the_environment_handed_to_chromium_never_holds_the_workers_key(site, monkeypatch):
+    """Checks what is actually passed to the browser launch, with the key in the worker's own environment.
+
+    (Reading /proc/<pid>/environ of the live browser was tried and rejected: Chromium rewrites its
+    environment block, so a positive control marker did not even show up there.)"""
+    from playwright._impl import _browser_type
+    secret = "super-secret-worker-key-for-launch-test"
+    monkeypatch.setenv("BROWSER_API_KEY", secret)
+    monkeypatch.setenv("UPSTREAM_SERVICE_TOKEN", secret)
+    monkeypatch.setenv("CYPHWARD_CONTROL_MARKER", "visible-to-chromium")
+    launched = []
+    real = _browser_type.BrowserType.launch
+
+    async def spy(self, **kwargs):
+        launched.append(kwargs.get("env"))
+        return await real(self, **kwargs)
+
+    monkeypatch.setattr(_browser_type.BrowserType, "launch", spy)
+    valid(run(site, "clean.test"))
+    assert len(launched) == 1 and isinstance(launched[0], dict)
+    assert secret not in " ".join(launched[0].values()) and "BROWSER_API_KEY" not in launched[0]
+    assert launched[0].get("CYPHWARD_CONTROL_MARKER") == "visible-to-chromium" and "PATH" in launched[0]  # the control: it is the real environment
+
+
 def test_hard_ceilings_override_a_generous_job():
     wide = Limits(page_timeout_seconds=9999, job_timeout_seconds=9999, max_requests=10 ** 6, max_total_bytes=10 ** 12,
                   settle_seconds=99).clamped()
