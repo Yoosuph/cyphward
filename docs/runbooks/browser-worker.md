@@ -63,7 +63,7 @@ Worker (`browser_worker/.env.example` lists them with comments). Put them in `/e
 | --- | --- |
 | `BROWSER_CORE_URL` | Core base URL, `https://...` |
 | `BROWSER_API_KEY_STDIN` | `1` (preferred): the worker reads the key from one line of standard input at start-up. It then exists only in the worker's memory: in no environment and in no file inside the container. |
-| `BROWSER_API_KEY_FILE` | Path of a mounted secret file holding the key. Weaker: any process of the same user can read the file. |
+| `BROWSER_API_KEY_FILE` | Path of a mounted secret file holding the key; `chown 10001` and `chmod 400` it on the host so the container user can read it. Weaker: any process of the same user can read the file. |
 | `BROWSER_API_KEY` | Last resort: the key in the environment. The worker removes it from its own environment at start-up and never passes it to Chromium, but the kernel keeps the start-up environment readable by the same user. Not for production. |
 | `BROWSER_WORKER_ID` | Name shown in Core's job rows, 64 characters at most. |
 | `BROWSER_POLL_INTERVAL_SECONDS` | Idle poll interval (default 30). |
@@ -80,7 +80,9 @@ Core (set on the Core service, for example in Render):
 | `BROWSER_WORKER_API_KEY` | Same secret as the worker's `BROWSER_API_KEY`. Generate a long random value, different from `SCANNER_API_KEY`. |
 | `BROWSER_CONSENT_ENABLED` | Feature flag, default `false`. |
 | `BROWSER_LEASE_SECONDS` | Job lease, default 180 (the job limit is 90). |
-| `BROWSER_CLAIM_MIN_INTERVAL_SECONDS` | Minimum gap between claim attempts of one worker, default 2 (HTTP 429 otherwise). |
+| `BROWSER_CLAIM_MIN_INTERVAL_SECONDS` | Minimum gap between claim attempts across all callers, default 2 (HTTP 429 otherwise). Per API process. |
+| `BROWSER_MAX_RUNNING_JOBS` | Global cap on live browser jobs, default 1. The worker id is chosen by the caller, so no limit depends on it. |
+| `BROWSER_WORKER_IDS` | Optional comma-separated allowlist of worker ids; others get 403. |
 | `BROWSER_MAX_ATTEMPTS` | Expired leases before a job is failed, default 3. |
 | `BROWSER_JOB_COOLDOWN_HOURS` | Minimum gap between automatic observations of a domain, default 20. |
 
@@ -166,10 +168,14 @@ exploited, and it runs next to the worker's API key. Three layers, in order of s
 1. **Chromium's sandbox is on by default** (`BROWSER_CHROMIUM_SANDBOX=1`). It needs unprivileged user
    namespaces, which Docker's default seccomp profile blocks. Make the container able to use them with one of:
    - **rootless Podman** (`podman run ...` with the same flags as the Docker examples); or
-   - **Docker with a seccomp profile that allows user namespaces**, for example the Chrome profile
-     published at `https://raw.githubusercontent.com/jfrazelle/dotfiles/master/etc/docker/seccomp/chrome.json`,
-     saved on the VM as `/etc/cyphward-browser/chromium-seccomp.json` and passed with
+   - **Docker with the repository's seccomp profile** `browser_worker/deploy/chromium-seccomp.json`, copied to
+     `/etc/cyphward-browser/chromium-seccomp.json` and passed with
      `--security-opt seccomp=/etc/cyphward-browser/chromium-seccomp.json` (the deploy examples show the line).
+     It is a deny-list that allows user namespaces and refuses syscalls a browser does not need; it is weaker
+     than Docker's default for what it does not name. Read `browser_worker/deploy/README.md` for exactly what
+     it does and does not do.
+   Docker's default profile cannot run the sandbox: the CI job proves that by running the smoke check with the
+   sandbox on under the default profile and requiring it to fail.
    Never `--privileged`, never `SYS_ADMIN`. Prove it works on your host with the smoke check in section 3
    run *without* `-e BROWSER_CHROMIUM_SANDBOX=0`: it must print `"ok": true`. **This repository could not
    test a sandboxed container** (no container engine was available when it was written), so this step is

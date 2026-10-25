@@ -204,6 +204,61 @@ def test_the_environment_handed_to_chromium_never_holds_the_workers_key(site, mo
     assert launched[0].get("CYPHWARD_CONTROL_MARKER") == "visible-to-chromium" and "PATH" in launched[0]  # the control: it is the real environment
 
 
+@pytest.mark.parametrize("sandbox", [True, False])
+def test_the_browser_process_command_line_follows_the_sandbox_setting(site, sandbox):
+    """Reads the real command line of the Chromium that observe() starts (the one place Playwright can add --no-sandbox itself)."""
+    import pathlib
+    seen = []
+
+    def chromium_main_processes():
+        found = {}
+        for proc in pathlib.Path("/proc").iterdir():
+            if not proc.name.isdigit():
+                continue
+            try:
+                cmd = (proc / "cmdline").read_bytes()
+            except OSError:
+                continue
+            first = cmd.split(b"\0", 1)[0]
+            if b"chrom" in first and b"--remote-debugging-pipe" in cmd and b"--proxy-server=http://127.0.0.1:" in cmd \
+                    and b"--type=" not in cmd:
+                found[proc.name] = b"--no-sandbox" in cmd.replace(b"\0", b" ").split()  # Chromium rewrites its title with spaces
+        return found
+
+    async def go():
+        before = set(chromium_main_processes())  # leftovers of an earlier test are not ours
+        task = asyncio.ensure_future(observe(site.url("slow.test"), ["slow.test"], site.policy(),
+                                             limits=Limits(page_timeout_seconds=5, job_timeout_seconds=15, settle_seconds=0.2),
+                                             chromium_path=CHROMIUM, sandbox=sandbox, allow_http=True))
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            seen.extend(flag for pid, flag in chromium_main_processes().items() if pid not in before)
+            if seen:
+                break
+        try:
+            await task
+        except ObservationFailed:
+            pass  # the slow site times out; only the command line matters here
+
+    asyncio.run(go())
+    assert seen, "found no Chromium process to inspect"
+    assert set(seen) == {not sandbox}
+
+
+def test_launch_is_told_the_sandbox_choice(site, monkeypatch):
+    from playwright._impl import _browser_type
+    seen = []
+    real = _browser_type.BrowserType.launch
+
+    async def spy(self, **kwargs):
+        seen.append(kwargs.get("chromiumSandbox"))
+        return await real(self, **kwargs)
+
+    monkeypatch.setattr(_browser_type.BrowserType, "launch", spy)
+    valid(run(site, "clean.test"))  # run() passes sandbox=False
+    assert seen == [False]
+
+
 def test_hard_ceilings_override_a_generous_job():
     wide = Limits(page_timeout_seconds=9999, job_timeout_seconds=9999, max_requests=10 ** 6, max_total_bytes=10 ** 12,
                   settle_seconds=99).clamped()

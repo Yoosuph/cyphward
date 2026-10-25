@@ -572,23 +572,33 @@ def test_browser_rows_never_feed_document_inputs_or_the_static_previous_row(api,
 
 
 # ── claim limits ─────────────────────────────────────────────────────────
-def test_claims_are_rate_limited_per_worker(api, monkeypatch):
+def test_claims_are_rate_limited_globally_so_rotating_ids_gains_nothing(api, monkeypatch):
     from backend.app.api import browser_worker as bw
-    bw._last_claim.clear()
+    bw._last_claim["at"] = None
     monkeypatch.setattr(config, "BROWSER_CLAIM_MIN_INTERVAL_SECONDS", 30)
     assert api.post("/api/v1/browser-worker/claim", headers=headers()).status_code == 204
     again = api.post("/api/v1/browser-worker/claim", headers=headers())
     assert again.status_code == 429 and again.headers["retry-after"]
-    assert api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-2")).status_code == 204  # another worker is not throttled
-    bw._last_claim.clear()
+    for n in range(20):  # a fresh identity every time
+        assert api.post("/api/v1/browser-worker/claim", headers=headers(worker=f"rotating-{n}")).status_code == 429
+    bw._last_claim["at"] = None
 
 
-def test_a_worker_holding_a_live_job_gets_no_second_one_and_another_worker_gets_it(api):
-    first, second = queue(api, 0), queue(api, 1)
+def test_the_running_job_cap_is_global_and_rotating_ids_does_not_raise_it(api, monkeypatch):
+    queue(api, 0), queue(api, 1)
     job = claim(api)
-    assert api.post("/api/v1/browser-worker/claim", headers=headers()).status_code == 204       # same worker: one at a time
+    for n in range(5):
+        assert api.post("/api/v1/browser-worker/claim", headers=headers(worker=f"rotating-{n}")).status_code == 204
+    assert api.conn.execute("SELECT count(*) AS n FROM privacy_browser_jobs WHERE status='running'").fetchone()["n"] == 1
+    monkeypatch.setattr(config, "BROWSER_MAX_RUNNING_JOBS", 2)  # an operator raising the cap lets a second worker in
     other = api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-2"))
-    assert other.status_code == 200 and other.json()["job_id"] not in (job["job_id"],) and {job["job_id"], other.json()["job_id"]} == {first, second}
+    assert other.status_code == 200 and other.json()["job_id"] != job["job_id"]
+
+
+def test_an_allowlist_of_worker_ids_is_enforced_when_configured(api, monkeypatch):
+    monkeypatch.setattr(config, "BROWSER_WORKER_IDS", ["vm-browser-1"])
+    assert api.post("/api/v1/browser-worker/claim", headers=headers(worker="intruder")).status_code == 403
+    assert api.post("/api/v1/browser-worker/claim", headers=headers(worker="vm-browser-1")).status_code == 204
 
 
 def test_concurrent_claims_never_return_the_same_job_twice(api, disposable_postgres_url, monkeypatch):

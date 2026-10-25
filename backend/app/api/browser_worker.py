@@ -59,6 +59,8 @@ def require_browser_worker(
         raise HTTPException(401, "Timestamp outside allowed window")
     if x_browser_protocol != str(BROWSER_PROTOCOL_VERSION):
         raise HTTPException(426, "Browser protocol v1 is required.")
+    if config.BROWSER_WORKER_IDS and worker not in config.BROWSER_WORKER_IDS:
+        raise HTTPException(403, "Worker id is not allowed.")
     capabilities = {c.strip() for c in (x_capabilities or "").split(",") if c.strip()}
     if PRIVACY_BROWSER_CAPABILITY not in capabilities:
         raise HTTPException(403, "The privacy_browser capability is required.")
@@ -102,25 +104,25 @@ def protocol(worker: Worker) -> dict:
             "job_types": ["cookie_consent_observation"]}
 
 
-_last_claim: dict = {}
+_last_claim = {"at": None}
 
 
-def _claim_rate_limit(worker: str) -> None:
-    """At most one claim attempt per worker every BROWSER_CLAIM_MIN_INTERVAL_SECONDS (per API process)."""
+def _claim_rate_limit() -> None:
+    """At most one claim attempt every BROWSER_CLAIM_MIN_INTERVAL_SECONDS across ALL callers (per API process).
+
+    The worker id is whatever the caller sends, so nothing here is keyed on it. Together with the global
+    running-jobs cap in the database, rotating ids gains nothing."""
     interval = config.BROWSER_CLAIM_MIN_INTERVAL_SECONDS
     now = time.monotonic()
-    if interval > 0:
-        if len(_last_claim) > 1000:
-            _last_claim.clear()
-        previous = _last_claim.get(worker)
-        if previous is not None and now - previous < interval:
-            raise HTTPException(429, "Claiming too often.", headers={"Retry-After": str(max(1, int(interval)))})
-    _last_claim[worker] = now
+    previous = _last_claim["at"]
+    if interval > 0 and previous is not None and now - previous < interval:
+        raise HTTPException(429, "Claiming too often.", headers={"Retry-After": str(max(1, int(interval)))})
+    _last_claim["at"] = now
 
 
 @router.post("/claim", response_model=BrowserJob, responses={204: {"description": "Queue empty"}})
 def claim_job(worker: Worker):
-    _claim_rate_limit(worker)
+    _claim_rate_limit()
     job = browser_jobs.claim(worker)
     if job is None:
         return Response(status_code=204)

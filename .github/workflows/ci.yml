@@ -135,6 +135,15 @@ jobs:
         run: |
           test "$(docker run --rm cyphward-browser:ci id -u)" = "10001"
           docker run --rm cyphward-browser:ci /usr/bin/chromium --version
+          # Under Docker's default seccomp profile Chromium's sandbox cannot start, so the sandbox-on smoke run must fail.
+          # (This is what the runbook means by "the sandbox needs a host or profile that allows user namespaces".)
+          ! docker run --rm --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m \
+            --cap-drop ALL --security-opt no-new-privileges:true --init cyphward-browser:ci python -m browser_worker.smoke
+          # With the repository's profile the sandbox may start; the runner's own kernel and AppArmor rules decide, so this
+          # step reports the result without failing the job. The founder's host check in the runbook is the gate.
+          docker run --rm --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m \
+            --cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp="$PWD/browser_worker/deploy/chromium-seccomp.json" \
+            --init cyphward-browser:ci python -m browser_worker.smoke || echo "sandbox did not start with the repository profile on this runner"
           # The sandbox is on by default; the CI host's default container profile cannot run it, so this smoke run states --no-sandbox explicitly.
           docker run --rm -e BROWSER_CHROMIUM_SANDBOX=0 --read-only --tmpfs /tmp:size=256m,mode=1777 --shm-size 256m --memory 768m --memory-swap 768m \
             --cap-drop ALL --security-opt no-new-privileges:true --init cyphward-browser:ci python -m browser_worker.smoke

@@ -203,7 +203,7 @@ async def _observe(url, scope, policy, limits: Limits, chromium_path, sandbox, a
         async with async_playwright() as pw:
             args = chromium_args(proxy.port, sandbox)
             try:
-                browser = await pw.chromium.launch(executable_path=chromium_path, headless=True, args=args,
+                browser = await pw.chromium.launch(executable_path=chromium_path, headless=True, args=args, chromium_sandbox=sandbox,
                                                    env=browser_env())
             except PlaywrightError as exc:
                 raise ObservationFailed("browser_error", f"browser did not start: {str(exc)[:200]}")

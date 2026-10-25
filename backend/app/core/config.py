@@ -108,6 +108,10 @@ BROWSER_WORKER_API_KEY = os.getenv("BROWSER_WORKER_API_KEY", "")
 if BROWSER_WORKER_API_KEY and BROWSER_WORKER_API_KEY == SCANNER_API_KEY:
     # One key for both workers would let either claim the other's work. Refuse to start.
     raise RuntimeError("BROWSER_WORKER_API_KEY must differ from SCANNER_API_KEY.")
+# Optional allowlist of worker ids (X-Scanner-Id). The id is chosen by the caller, so the limits below never
+# depend on it: they are global.
+BROWSER_WORKER_IDS = [w.strip() for w in os.getenv("BROWSER_WORKER_IDS", "").split(",") if w.strip()]
+BROWSER_MAX_RUNNING_JOBS = max(1, int(os.getenv("BROWSER_MAX_RUNNING_JOBS", "1")))
 BROWSER_CLAIM_MIN_INTERVAL_SECONDS = float(os.getenv("BROWSER_CLAIM_MIN_INTERVAL_SECONDS", "2"))
 BROWSER_LEASE_SECONDS = int(os.getenv("BROWSER_LEASE_SECONDS", "180"))
 BROWSER_MAX_ATTEMPTS = int(os.getenv("BROWSER_MAX_ATTEMPTS", "3"))

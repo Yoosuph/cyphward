@@ -546,3 +546,37 @@ def test_a_claim_that_crashes_with_any_error_does_not_end_the_worker(monkeypatch
     with pytest.raises(Stop):  # reached the back-off sleep instead of dying on the claim error
         asyncio.run(runner.main_loop(CFG))
     assert calls == [1]
+
+
+def test_the_repository_seccomp_profile_allows_user_namespaces_and_denies_what_a_browser_never_needs():
+    import json
+    profile = json.loads((ROOT / "browser_worker/deploy/chromium-seccomp.json").read_text())
+    assert profile["defaultAction"] == "SCMP_ACT_ALLOW"
+    denied = set()
+    for rule in profile["syscalls"]:
+        assert rule["action"] == "SCMP_ACT_ERRNO" and "args" not in rule
+        assert len(set(rule["names"])) == len(rule["names"])
+        denied |= set(rule["names"])
+    for needed in ("clone", "clone3", "unshare", "prctl", "seccomp", "socket", "connect", "futex", "mmap"):
+        assert needed not in denied, needed  # Chromium's sandbox and normal operation need these
+    for forbidden in ("mount", "umount2", "ptrace", "process_vm_readv", "process_vm_writev", "bpf", "kexec_load",
+                      "init_module", "finit_module", "reboot", "keyctl", "perf_event_open", "open_by_handle_at", "setns"):
+        assert forbidden in denied, forbidden
+
+
+def test_an_unreadable_key_file_stops_the_worker(monkeypatch, tmp_path):
+    import os
+    monkeypatch.setenv("BROWSER_CORE_URL", "https://core.example")
+    monkeypatch.delenv("BROWSER_API_KEY", raising=False)
+    monkeypatch.delenv("BROWSER_API_KEY_STDIN", raising=False)
+    key = tmp_path / "key"
+    key.write_text("secret\n")
+    key.chmod(0o000)
+    monkeypatch.setenv("BROWSER_API_KEY_FILE", str(key))
+    try:
+        if os.access(key, os.R_OK):  # running as a user that bypasses file modes: nothing to prove
+            pytest.skip("file modes are not enforced for this user")
+        with pytest.raises(SystemExit):
+            load_config()
+    finally:
+        key.chmod(0o600)

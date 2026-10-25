@@ -92,10 +92,10 @@ def claim(worker_id: str, lease_seconds: Optional[int] = None) -> Optional[Brows
         with conn.transaction():
             with conn.cursor() as cur:
                 _timeouts(cur)
-                # One job at a time per worker identity: a worker that still holds a live lease gets nothing more.
-                cur.execute("SELECT 1 FROM privacy_browser_jobs WHERE claimed_by = %s AND status = 'running' "
-                            "AND lease_expires_at > clock_timestamp() LIMIT 1", (worker_id,))
-                if cur.fetchone():
+                # A global cap on live jobs. It cannot be raised by presenting another worker id.
+                cur.execute("SELECT count(*) AS n FROM privacy_browser_jobs WHERE status = 'running' "
+                            "AND lease_expires_at > clock_timestamp()")
+                if cur.fetchone()["n"] >= config.BROWSER_MAX_RUNNING_JOBS:
                     return None
                 # Housekeeping first: jobs that can never succeed leave the queue.
                 cur.execute(
