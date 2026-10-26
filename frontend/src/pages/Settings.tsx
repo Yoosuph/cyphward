@@ -181,7 +181,9 @@ export default function Settings() {
       setCacRc(res.organization.cac_rc || '');
       setSector(res.organization.sector || '');
     } catch (e) {
+      // First load: the page shows an error with a retry. A later refresh keeps the page and says so.
       setLoadError(e);
+      if (data) toast('Could not refresh settings. Showing what was loaded before.');
     } finally {
       setLoading(false);
     }

@@ -94,7 +94,7 @@ export default function Findings() {
     } catch (err) {
       // Keep whatever is already on screen; with nothing to show, the list becomes an error state with a retry.
       setLoadError(err);
-      if (cached) toast('Could not refresh issues. Showing the last list loaded.');
+      toast('Could not load issues. Try again in a moment.');
     } finally {
       setLoading(false);
     }

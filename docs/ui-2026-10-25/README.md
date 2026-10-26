@@ -184,6 +184,7 @@ All commands ran from `frontend/` on Node 26.9.0 with Chromium at `/usr/bin/chro
 | `node scripts/check-compliance-layout.mjs` | pass | pass |
 | `node scripts/check-cyphbot-tables.mjs` | pass | pass |
 | `npm run test:ui-refine` (new) | fails (see above) | pass |
+| tour geometry from `check-product-tour.mjs`, re-run on fixtures (one-off, see below) | — | pass |
 | `pytest backend/tests/test_scanner_identity.py backend/tests/test_evidence_files.py` (these read frontend files) | — | 71 passed |
 
 `test:cyphbot-artifacts`, `test:cyphbot-custom`, `test:cyphbot-preview`, `test:cyphbot-resilience` and
@@ -191,6 +192,22 @@ All commands ran from `frontend/` on Node 26.9.0 with Chromium at `/usr/bin/chro
 They fail the same way on `main` without one, so they were not run. Starting a backend was out of scope. The
 `ECONNREFUSED` lines the browser suites print come from Vite's `/api` proxy before request interception is in place.
 They are harmless and also appear on `main`.
+
+These five suites are therefore checked only statically and partly:
+
+- **Selectors.** I grepped them for selectors this change touched. They find the demo button by
+  `textContent.includes('Try the demo')`, which still matches: the button now uses the uppercase `.btn` look, but
+  its `textContent` is unchanged. None of them select `h3`/`h4`, `.page` or the drawer's close label.
+- **Tour geometry.** The topbar, dock and icon-button sizes changed, so I re-ran `test:product-tour`'s geometry
+  loop with this harness's fixtures instead of the demo backend, at 1280×900, 390×844 (menu open), 320×568 and
+  844×390. At each size I checked that:
+  - the tour card fits with an 8 px margin on every step
+  - nothing covers the card
+  - the page does not scroll sideways
+  - the Next button is reachable
+  - the spotlight covers the Domains target (the Menu button on phones)
+
+  All of these passed. The suite's content assertions, which depend on the demo data, were not exercised.
 
 ## Known limitations
 
