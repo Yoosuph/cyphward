@@ -159,7 +159,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-line bg-inset/70">
           <div className="flex items-center gap-2 min-w-0">
             <CyphwardLogo variant="cyph" size={15} />
-            <span className="text-line text-xs select-none">/</span>
+            <span className="text-line text-xs select-none" aria-hidden="true">/</span>
             <span className="text-[10.5px] font-mono font-bold tracking-wider text-ink uppercase truncate">
               MORE PAGES
             </span>

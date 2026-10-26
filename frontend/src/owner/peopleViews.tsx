@@ -80,7 +80,7 @@ export function OverviewView() {
               </ul>
             )}
           </Panel>
-          <Panel title="Recent customer activity" className="lg:col-span-2" right={<Link to="/logs" className="text-[10px] mono text-soft hover:text-accent">ALL LOGS →</Link>}>
+          <Panel title="Recent customer activity" className="lg:col-span-2" right={<Link to="/logs" className="tap-row text-[10px] mono text-soft hover:text-accent">ALL LOGS →</Link>}>
             {(data?.recent_activity || []).length === 0 ? <Empty>No activity recorded.</Empty> : (
               <Table head={['Action', 'Organization', 'User', 'When']}>
                 {(data!.recent_activity as Row[]).map((r, i) => (

@@ -233,7 +233,7 @@ ${summary.key_strengths.map(s => `• ${s}`).join('\n')}
 WHAT THE BOARD SHOULD DO:
 ${summary.critical_action_items.map(a => `[${a.priority}] ${a.title} (Owner: ${a.owner})\n  Impact: ${a.impact}`).join('\n')}
 
-COMPLIANCE READINESS NOTE (technical evidence — not a certification or DPCO filing):
+COMPLIANCE READINESS NOTE (technical evidence — not a compliance determination or DPCO filing):
 ${summary.compliance_verdict}
     `.trim();
 
@@ -459,7 +459,7 @@ ${summary.compliance_verdict}
             </div>
             <p className="text-ink leading-relaxed">{summary.compliance_verdict}</p>
             <p className="text-soft text-[10.5px] mt-1">
-              Technical evidence for your compliance programme — not a certification or DPCO filing.
+              Technical evidence for your compliance programme — not a compliance determination or DPCO filing.
             </p>
           </div>
 

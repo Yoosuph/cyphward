@@ -67,7 +67,7 @@ const STEPS: Step[] = [
   {
     id: 'compliance', targets: ['[data-tour="nav-comply"]'], placement: 'right', desktopOnly: true,
     title: 'Compliance workspace',
-    body: 'Organise readiness answers, documents and evidence. These records support a professional review; they are not a compliance certification.',
+    body: 'Organise readiness answers, documents and evidence. These records support a professional review; they are not legal advice or a compliance determination.',
   },
   {
     id: 'cyphbot', targets: ['[data-tour="cyphbot"]'],

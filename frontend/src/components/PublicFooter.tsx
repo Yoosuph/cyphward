@@ -21,7 +21,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
                 Built in Nigeria. Find external weaknesses, coordinate supported fixes,
                 and prepare evidence for customer security and data-protection reviews.
               </p>
-              <div className="flex items-center gap-2.5 mt-4">
+              <div className="footer-social flex items-center gap-2.5 mt-4">
                 <a
                   href="https://x.com/cyphward"
                   target="_blank"
@@ -83,7 +83,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
                 <li>NDPA 2023 (Nigeria)</li>
                 <li>Evidence preparation and source-labelled records</li>
                 <li>Requirement references pending professional review</li>
-                <li className="pt-1">Scans provide technical evidence, not a compliance certification.</li>
+                <li className="pt-1">Scans provide technical evidence, not legal advice or a compliance determination.</li>
               </ul>
             </div>
           </div>
@@ -92,7 +92,7 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
             <div>
               © 2026 CYPHWARD LTD · ALL RIGHTS RESERVED · PLATFORM v0.1.0
             </div>
-            <div className="flex items-center gap-4">
+            <div className="footer-legal flex items-center gap-4">
               <Link to="/terms" className="hover:text-ink transition-colors">TERMS</Link>
               <Link to="/privacy" className="hover:text-ink transition-colors">PRIVACY</Link>
               <Link to="/health" className="flex items-center gap-2 hover:text-ink transition-colors">

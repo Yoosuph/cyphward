@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useRef } from 'react';
+import { ReactNode, useEffect, useId, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { lockScroll, unlockScroll } from '../lib/scrollLock';
@@ -30,6 +30,9 @@ export default function Drawer({
   const [cachedTitle, setCachedTitle] = useState<ReactNode>(title);
   const [cachedEyebrow, setCachedEyebrow] = useState<string>(eyebrow);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartRef.current = {
@@ -58,9 +61,33 @@ export default function Drawer({
     }
   }, [open, children, title, eyebrow]);
 
+  // Keyboard: a closed drawer is inert (its off-screen controls leave the Tab order); an open one takes focus,
+  // keeps Tab inside, and hands focus back to whatever opened it when it closes.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    (panel as HTMLElement & { inert: boolean }).inert = !open;
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const id = window.setTimeout(() => closeRef.current?.focus({ preventScroll: true }), 0);
+    return () => {
+      window.clearTimeout(id);
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open) onClose();
+      if (e.key === 'Tab' && open && panelRef.current) {
+        const items = [...panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!panelRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -99,13 +126,17 @@ export default function Drawer({
         aria-hidden="true"
       />
       <aside
+        ref={panelRef}
         className={`drawer ${sizeClass} ${open ? 'open' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-hidden={!open}
+        aria-labelledby={displayTitle ? titleId : undefined}
+        aria-label={displayTitle ? undefined : displayEyebrow}
       >
         <div
           className="drawer-handle md:hidden"
+          aria-hidden="true"
           onClick={onClose}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
@@ -121,16 +152,18 @@ export default function Drawer({
             <div>
               {displayEyebrow && <p className="eyebrow">{displayEyebrow}</p>}
               {displayTitle && (
-                <h3 className="mono font-bold text-sm text-ink uppercase tracking-wider mt-0.5">
+                <h2 id={titleId} className="mono font-bold text-sm text-ink uppercase tracking-wider mt-0.5">
                   {displayTitle}
-                </h3>
+                </h2>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {headerExtra}
             <button
-              className="icon-btn min-w-[36px] min-h-[36px] flex items-center justify-center"
+              ref={closeRef}
+              type="button"
+              className="icon-btn min-w-[44px] min-h-[44px] flex items-center justify-center"
               onClick={onClose}
               aria-label="Close detail drawer"
             >

@@ -121,18 +121,24 @@ export default function Landing() {
               </div>
               <div className="preview-tabs flex gap-2">
                 <button
+                  type="button"
+                  aria-pressed={previewTab === 'telemetry'}
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'telemetry' ? 'on' : ''}`}
                   onClick={() => setPreviewTab('telemetry')}
                 >
                   SCORE
                 </button>
                 <button
+                  type="button"
+                  aria-pressed={previewTab === 'findings'}
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'findings' ? 'on' : ''}`}
                   onClick={() => setPreviewTab('findings')}
                 >
                   FINDINGS
                 </button>
                 <button
+                  type="button"
+                  aria-pressed={previewTab === 'fixes'}
                   className={`chip text-[10px] py-0.5 px-2 ${previewTab === 'fixes' ? 'on' : ''}`}
                   onClick={() => setPreviewTab('fixes')}
                 >
@@ -234,8 +240,8 @@ export default function Landing() {
               <span className="text-xs mono text-soft flex items-center gap-2">
                 <Terminal size={13} className="text-accent" /> SAMPLE DATA · YOUR WORKSPACE SHOWS YOUR OWN SCANS
               </span>
-              <button className="stat-link text-xs" onClick={handleGetStarted}>
-                GET STARTED <ArrowRight size={12} />
+              <button type="button" className="stat-link tap-row text-xs" onClick={handleGetStarted}>
+                GET STARTED <ArrowRight size={12} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -278,6 +284,7 @@ export default function Landing() {
                 key={layer.idx}
                 type="button"
                 className={`layer-tab-btn ${activeLayer === i ? 'active' : ''}`}
+                aria-pressed={activeLayer === i}
                 onClick={() => setActiveLayer(i)}
               >
                 <layer.icon size={13} className="inline mr-1.5" />
@@ -378,7 +385,7 @@ export default function Landing() {
               </ul>
               <div className="panel p-5 text-sm text-soft leading-relaxed">
                 <p>Tool observations, customer answers and reviewer notes keep their own source labels.</p>
-                <p className="mt-3">Requirement references are pending professional review. Evidence packs support preparation; they are not a compliance certification or a Compliance Audit Return. Ask a qualified adviser about applicability and filing.</p>
+                <p className="mt-3">Requirement references are pending professional review. Evidence packs support preparation; they are not legal advice, a compliance determination or a Compliance Audit Return. Ask a qualified adviser about applicability and filing.</p>
                 <Link className="btn btn-solid mt-5" to="/pricing">SEE GROWTH <ArrowRight size={14} /></Link>
               </div>
             </div>
