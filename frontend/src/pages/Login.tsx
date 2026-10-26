@@ -1,7 +1,7 @@
 import { FormEvent, useState, useEffect, useRef } from 'react';
 import AuthSidePanel from '../components/AuthSidePanel';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowRight, KeyRound, Lock, Eye, EyeOff, Sun, Moon, Globe, AlertCircle } from 'lucide-react';
+import { ArrowRight, KeyRound, Lock, Eye, EyeOff, Sun, Moon, Globe, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth, IDLE_REASON_KEY } from '../lib/auth';
 import { startGoogleOneTap } from '../lib/googleOneTap';
 import { signInWithGooglePopup } from '../lib/googlePopup';
@@ -545,12 +545,13 @@ export default function Login() {
                     onClick={tryDemo}
                     disabled={busy}
                     aria-busy={demoBusy}
-                    className="w-full h-11 border border-line rounded-md text-sm font-medium text-ink hover:bg-surface disabled:opacity-60"
+                    className="btn btn-ghost w-full justify-center !mt-0 min-h-[44px] disabled:opacity-60"
                   >
+                    {/* Same quiet spinner as the other busy buttons; reduced motion stops it (index.css). */}
                     {demoBusy ? (
-                      <span className="inline-flex items-center gap-1 animate-pulse">
-                        Signing you into the demo
-                        <span aria-hidden="true">...</span>
+                      <span className="inline-flex items-center gap-2" role="status">
+                        <RefreshCw size={13} className="animate-spin" aria-hidden="true" />
+                        Signing you into the demo…
                       </span>
                     ) : (
                       'Try the demo'

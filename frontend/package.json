@@ -19,7 +19,8 @@
     "test:cyphbot-custom": "node scripts/check-cyphbot-custom-questions.mjs",
     "test:cyphbot-preview": "node scripts/check-cyphbot-preview.mjs",
     "test:cyphbot-resilience": "node scripts/check-cyphbot-resilience.mjs",
-    "test:product-tour": "node scripts/check-product-tour.mjs"
+    "test:product-tour": "node scripts/check-product-tour.mjs",
+    "test:ui-refine": "node scripts/check-ui-refine.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",
