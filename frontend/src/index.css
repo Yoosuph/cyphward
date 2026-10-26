@@ -2029,6 +2029,13 @@ input[type="date"]:focus-within, input[type="datetime-local"]:focus-within{outli
 .skip-link:focus{top:12px; outline:2px solid var(--accent); outline-offset:2px}
 main.page:focus{outline:none}
 
+/* Drawers: on opening, visibility flips at once (so focus can move in on the first frame); on closing it waits
+   for the slide-out to finish. Reduced motion keeps its own rule (no transitions at all). */
+.drawer:focus{outline:none}
+@media (prefers-reduced-motion: no-preference){
+  .drawer.open{transition:transform .32s cubic-bezier(.16,1,.3,1), visibility 0s !important}
+}
+
 /* Password show/hide toggle: a full 44px target that sits inside the field. */
 .pw-toggle-btn{right:0; min-width:44px; min-height:44px}
 .pw-input-wrap input{padding-right:48px !important}

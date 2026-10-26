@@ -73,9 +73,18 @@ export default function Drawer({
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
     enterLayer(layerId, panel);
-    const id = window.setTimeout(() => closeRef.current?.focus({ preventScroll: true }), 0);
+    // Move focus in. The panel can still be hidden for a frame while the open transition starts, so keep trying
+    // once per frame until focus lands inside (bounded: about half a second), then stop.
+    let frame = 0;
+    let tries = 0;
+    const focusIn = () => {
+      if (panel.contains(document.activeElement)) return;
+      (closeRef.current ?? panel).focus({ preventScroll: true });
+      if (!panel.contains(document.activeElement) && ++tries < 30) frame = window.requestAnimationFrame(focusIn);
+    };
+    frame = window.requestAnimationFrame(focusIn);
     return () => {
-      window.clearTimeout(id);
+      window.cancelAnimationFrame(frame);
       leaveLayer(layerId);
       (panel as HTMLElement & { inert: boolean }).inert = true;
       if (opener && opener.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
@@ -135,6 +144,7 @@ export default function Drawer({
       />
       <aside
         ref={panelRef}
+        tabIndex={-1}
         className={`drawer ${sizeClass} ${open ? 'open' : ''}`}
         role="dialog"
         aria-modal="true"

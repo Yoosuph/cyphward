@@ -128,39 +128,46 @@ try {
     await page.keyboard.press("End");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "settings-tab-auth", "End moves to the last tab");
 
-    await page.goto(`${h.origin}/findings`, { waitUntil: "domcontentloaded" });
-    await settle(page, 700);
-    const drawerFocusable = await page.evaluate(() => { const d = document.querySelector("aside.drawer"); return d ? d.inert : null; });
-    assert.equal(drawerFocusable, true, "a closed drawer is inert");
-    await page.focus("main h2 button");
-    await page.keyboard.press("Enter");
-    await settle(page, 400);
-    const opened = await page.evaluate(() => {
-      const d = document.querySelector("aside.drawer.open");
-      const label = d && document.getElementById(d.getAttribute("aria-labelledby") || "")?.textContent;
-      return { inside: !!d && d.contains(document.activeElement), label };
-    });
-    assert.ok(opened.inside, "opening an issue moves focus into the drawer");
-    assert.ok(opened.label, "the drawer is labelled by its title");
-    await page.keyboard.press("Escape");
-    await settle(page, 300);
-    assert.equal(await page.evaluate(() => document.activeElement?.closest("h2")?.textContent?.trim()), "Missing Email DMARC Authentication Policy", "closing returns focus to the issue");
     await close();
   }
 
-  // 5. Layered overlays: only the top layer handles Tab and Escape.
+  // 5. Drawers and layered overlays, with normal motion and with reduced motion.
+  //    Open focus: the same page opens and closes the issue drawer 15 times; each open must move focus inside
+  //    (waiting at most 1s, never relying on a fresh page), each close must hand it back to the issue.
   //    A: issue drawer -> "Ask CyphBot" dialog on top. B: issue drawer -> "How to fix" drawer on top.
-  {
-    const { page, close } = await h.newPage();
+  for (const reducedMotion of [false, true]) {
+    const mode = reducedMotion ? "reduced motion" : "normal motion";
+    const { page, close } = await h.newPage({ reducedMotion });
     await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`${h.origin}/findings`, { waitUntil: "domcontentloaded" });
     await settle(page, 700);
+    const focusInside = (sel) => page.waitForFunction((sel) => { const d = document.querySelector(sel); return !!d && d.contains(document.activeElement); }, { timeout: 1000 }, sel).then(() => true, () => false);
+    const focusOnIssue = () => page.waitForFunction(() => document.activeElement?.closest("main h2")?.textContent?.trim() === "Missing Email DMARC Authentication Policy", { timeout: 1000 }).then(() => true, () => false);
     const openIssue = async () => {
       await page.focus("main h2 button");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => document.querySelector("aside.drawer.open"));
-      await settle(page, 300);
+      assert.ok(await focusInside("aside.drawer.open"), `${mode}: opening an issue moves focus into the drawer`);
+      await settle(page, 400);
     };
+    assert.equal(await page.evaluate(() => document.querySelector("aside.drawer")?.inert), true, `${mode}: a closed drawer is inert`);
+    // A slower CPU widens the window in which an opening drawer is still hidden, so a focus call that is not
+    // retried misses it reliably instead of now and then.
+    await page.emulateCPUThrottling(4);
+    let landed = 0;
+    for (let i = 0; i < 15; i++) {
+      await page.focus("main h2 button");
+      await page.keyboard.press("Enter");
+      if (await focusInside("aside.drawer.open")) landed++;
+      const labelled = await page.evaluate(() => { const d = document.querySelector("aside.drawer.open"); return !!(d && document.getElementById(d.getAttribute("aria-labelledby") || "")?.textContent); });
+      assert.ok(labelled, `${mode}: the drawer is labelled by its title`);
+      await page.keyboard.press("Escape");
+      assert.ok(await focusOnIssue(), `${mode}: closing returns focus to the issue (open ${i + 1})`);
+      await page.waitForFunction(() => !document.querySelector("aside.drawer.open"));
+    }
+    assert.equal(landed, 15, `${mode}: focus moved into the drawer on ${landed} of 15 opens`);
+    await page.emulateCPUThrottling(1);
+    await settle(page, 400);
     /** Focus a button by its exact text inside the given drawer (the first open one by default) and press Enter. */
     const pressIn = async (scope, text) => {
       const ok = await page.evaluate((scope, text) => {
@@ -186,24 +193,25 @@ try {
       if (shift) await page.keyboard.down("Shift");
       await page.keyboard.press("Tab");
       if (shift) await page.keyboard.up("Shift");
-      assert.ok(await activeIn(".dialog-panel"), `A: Tab stays inside the dialog over the drawer (now on "${await activeText()}")`);
+      assert.ok(await activeIn(".dialog-panel"), `${mode} A: Tab stays inside the dialog over the drawer (now on "${await activeText()}")`);
     }
     await page.keyboard.press("Escape");
     await settle(page, 400);
-    assert.equal(await page.$(".dialog-panel"), null, "A: first Escape closes the dialog");
-    assert.deepEqual(await openDrawers(), ["Issue details"], "A: the issue drawer stays open under it");
-    assert.equal(await activeText(), "Ask CyphBot", "A: focus returns to the drawer button that opened the dialog");
+    assert.equal(await page.$(".dialog-panel"), null, `${mode} A: first Escape closes the dialog`);
+    assert.deepEqual(await openDrawers(), ["Issue details"], `${mode} A: the issue drawer stays open under it`);
+    assert.equal(await activeText(), "Ask CyphBot", `${mode} A: focus returns to the drawer button that opened the dialog`);
     await page.keyboard.press("Tab");
-    assert.ok(await activeIn("aside.drawer.open"), "A: Tab then moves inside the issue drawer again");
+    assert.ok(await activeIn("aside.drawer.open"), `${mode} A: Tab then moves inside the issue drawer again`);
     await page.keyboard.press("Escape");
     await settle(page, 400);
-    assert.deepEqual(await openDrawers(), [], "A: second Escape closes the issue drawer");
-    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", "A: focus returns to the issue");
+    assert.deepEqual(await openDrawers(), [], `${mode} A: second Escape closes the issue drawer`);
+    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", `${mode} A: focus returns to the issue`);
 
     // B: a drawer over a drawer: Tab reaches the top drawer's controls; Escape closes the top one first.
     await openIssue();
     await pressIn("drawer", "How to fix");
     await page.waitForFunction(() => document.querySelectorAll("aside.drawer.open").length === 2);
+    assert.ok(await focusInside('aside.drawer.open:not([inert])'), `${mode} B: opening the fix drawer moves focus into it`);
     await settle(page, 400);
     const fixDrawer = 'aside.drawer.open[aria-labelledby]:not([inert])';
     const reached = new Set();
@@ -214,19 +222,19 @@ try {
         const d = a?.closest("aside.drawer");
         return { title: d && document.getElementById(d.getAttribute("aria-labelledby") || "")?.textContent?.trim(), text: a?.textContent?.replace(/\s+/g, " ").trim() };
       });
-      assert.equal(where.title, "How to fix this", `B: Tab stays in the top drawer (step ${i}: "${where.text}" in "${where.title}")`);
+      assert.equal(where.title, "How to fix this", `${mode} B: Tab stays in the top drawer (step ${i}: "${where.text}" in "${where.title}")`);
       reached.add(where.text);
     }
-    for (const want of ["nginx", "apache", "cloudflare", "aws"]) assert.ok(reached.has(want), `B: the setup choice "${want}" is reachable by Tab`);
-    assert.ok(await page.$(fixDrawer), "B: the top drawer is not inert");
+    for (const want of ["nginx", "apache", "cloudflare", "aws"]) assert.ok(reached.has(want), `${mode} B: the setup choice "${want}" is reachable by Tab`);
+    assert.ok(await page.$(fixDrawer), `${mode} B: the top drawer is not inert`);
     await page.keyboard.press("Escape");
     await settle(page, 400);
-    assert.deepEqual(await openDrawers(), ["Issue details"], "B: first Escape closes only the top drawer");
-    assert.equal(await activeText(), "How to fix", "B: focus returns to the button that opened the top drawer");
+    assert.deepEqual(await openDrawers(), ["Issue details"], `${mode} B: first Escape closes only the top drawer`);
+    assert.equal(await activeText(), "How to fix", `${mode} B: focus returns to the button that opened the top drawer`);
     await page.keyboard.press("Escape");
     await settle(page, 400);
-    assert.deepEqual(await openDrawers(), [], "B: second Escape closes the issue drawer");
-    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", "B: focus returns to the issue");
+    assert.deepEqual(await openDrawers(), [], `${mode} B: second Escape closes the issue drawer`);
+    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", `${mode} B: focus returns to the issue`);
     await close();
   }
 } finally {
@@ -236,4 +244,4 @@ if (problems.length) {
   console.error(problems.join("\n"));
   process.exit(1);
 }
-console.log("ui-refine: 10 main pages at 1440/390/320 (dark) and 1440/390 (light) passed overflow, touch-target, label, name, heading, focus-ring, contrast and claim-wording checks; shared error/empty states; skip link, Settings tabs and issue drawer by keyboard; dialog-over-drawer and drawer-over-drawer Tab/Escape order");
+console.log("ui-refine: 10 main pages at 1440/390/320 (dark) and 1440/390 (light) passed overflow, touch-target, label, name, heading, focus-ring, contrast and claim-wording checks; shared error/empty states; skip link, Settings tabs and issue drawer focus on 15/15 opens and dialog-over-drawer / drawer-over-drawer Tab and Escape order, each with normal and reduced motion");

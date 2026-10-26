@@ -125,6 +125,16 @@ capture extends below the viewport. On a real phone they sit at the bottom of th
   Before this change, every open drawer ran its own window-level Tab trap. A drawer under the "Ask CyphBot" dialog
   pulled focus back to its own close button, and with two drawers open the fix guide's setup buttons could not be
   reached by keyboard.
+- **Drawer focus on open.** Added after review of `d8b47ea`. With normal motion, the drawer was still hidden by its
+  opening transition when `setTimeout(0)` tried to focus its close button. Focus fell to the inert page instead.
+  Two changes fix it:
+  - The open state now switches `visibility` at once (`.drawer.open { transition: …, visibility 0s }`, only under
+    `prefers-reduced-motion: no-preference`). Closing still waits for the slide-out to finish.
+  - The drawer retries focus once per animation frame until focus lands inside it, giving up after 30 frames. The
+    panel itself (`tabindex="-1"`) is the fallback target.
+
+  Measured on 15 opens in a row on the same page: 15/15 at 1440 and 390, with normal and with reduced motion.
+  Focus landed within 48 ms every time.
 - **One `<main>`.** `LoadingScreen` is now a plain status region instead of a `<main>`, so it never nests inside
   `main#main`.
 - **`aria-controls`.** The Settings and Compliance tabs set it only on the selected tab, whose panel exists. Inactive
@@ -182,6 +192,10 @@ theme. It also checks:
     returns focus to the issue.
   - Drawer over drawer: issue → "How to fix". Tab stays in the top drawer and reaches nginx, apache, cloudflare and
     aws. Escape closes the top drawer and then the issue drawer, each time returning focus to its opener.
+  - Both scenarios run twice, once with normal motion and once with reduced motion. Each run first opens and
+    closes the issue drawer 15 times on the same page, with a 4× CPU slowdown. Every open must move focus inside
+    within 1 s, and every close must return focus to the issue. On `d8b47ea` this failed with normal motion
+    (`focus moved into the drawer on 13 of 15 opens`; 14 of 15 on another run).
   - On `d351d07`, both scenarios failed: `A: Tab stays inside the dialog over the drawer` and
     `B: the setup choice "nginx" is reachable by Tab`.
 - **Keyboard.**
