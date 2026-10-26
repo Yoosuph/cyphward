@@ -76,7 +76,14 @@ capture extends below the viewport. On a real phone they sit at the bottom of th
   - Settings: error (this page used to stay on its skeleton forever)
   - Owner console: `ViewState` loading and error, plus `Empty`
 
-  The owner console also stops showing raw server text such as "Internal Server Error".
+  The owner console also stops showing raw server text such as "Internal Server Error". Page-load errors on
+  Findings, Settings and the owner console call `humanError(…, { passDetail: false })`, so a 4xx `detail` from the
+  API is never shown there; only the reviewed wording is. The default for other callers is unchanged.
+- **Client behaviour change in Findings.** The page now calls `getFindingsStrict` (new in `lib/api.ts`) instead of
+  `getFindings`. A failed request now throws, and the page shows an error with a retry. Before, the failure was
+  swallowed and the page showed an empty list, "No open issues". A failed refresh while issues are already on screen
+  keeps them and shows a toast. `getFindings` itself still returns an empty list on failure, and Remediation still
+  uses it. The API is unchanged.
 
 ### Accessibility
 
@@ -108,6 +115,20 @@ capture extends below the viewport. On a real phone they sit at the bottom of th
 - **Decorative characters.** The "/" separators in the topbar, auth pages and mobile menu are now `aria-hidden`.
 - **Reduced motion** was already handled globally (`@media (prefers-reduced-motion: reduce)` in `index.css`).
   Nothing new animates outside that rule.
+
+- **Overlay stack.** Added after review of `d351d07`. Drawers now join the shared dialog's layer stack: Dialog.tsx
+  exports `enterLayer`, `leaveLayer` and `isTopLayer`. As a result:
+  - only the top overlay, whether a dialog or a drawer, handles Tab and Escape
+  - the page and every layer underneath are `inert`
+  - Escape closes the top layer first and focus goes back to the control that opened it
+
+  Before this change, every open drawer ran its own window-level Tab trap. A drawer under the "Ask CyphBot" dialog
+  pulled focus back to its own close button, and with two drawers open the fix guide's setup buttons could not be
+  reached by keyboard.
+- **One `<main>`.** `LoadingScreen` is now a plain status region instead of a `<main>`, so it never nests inside
+  `main#main`.
+- **`aria-controls`.** The Settings and Compliance tabs set it only on the selected tab, whose panel exists. Inactive
+  panels are not rendered.
 
 ### Mobile (up to 900 px)
 
@@ -151,6 +172,18 @@ theme. It also checks:
   console fails, the page shows an error with a retry. It never goes blank, never shows "No open issues", never
   shows raw server text, and never uses banned wording.
 - **Empty states.** Empty lists on Findings and owner users use the shared empty panel.
+- **Reviewed error wording.** A 422 page-load error on Findings, Settings or the owner console does not show the
+  API's detail text.
+- **Landmarks and references.** Every audited page has at most one `<main>` and none is nested, including
+  `/remediation`, `/assets` and `/domains` while they load. Every `aria-controls` names an element that exists.
+- **Layered overlays.**
+  - Dialog over drawer: Findings → issue → "Ask CyphBot". Tab and Shift+Tab stay inside the dialog. The first
+    Escape closes only the dialog and returns focus to "Ask CyphBot" in the drawer; the second closes the drawer and
+    returns focus to the issue.
+  - Drawer over drawer: issue → "How to fix". Tab stays in the top drawer and reaches nginx, apache, cloudflare and
+    aws. Escape closes the top drawer and then the issue drawer, each time returning focus to its opener.
+  - On `d351d07`, both scenarios failed: `A: Tab stays inside the dialog over the drawer` and
+    `B: the setup choice "nginx" is reachable by Tab`.
 - **Keyboard.**
   - The skip link is the first Tab stop and moves focus to `<main>`.
   - Settings tabs respond to the arrow and End keys.

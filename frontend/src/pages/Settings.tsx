@@ -446,7 +446,7 @@ export default function Settings() {
     return (
       <div className="space-y-6 max-w-5xl mx-auto pb-12 content-fade-in">
         <PageHead title="Settings" note="Company profile, team, billing and sign-in." />
-        <ErrorPanel title="We could not load your settings" message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.')} onRetry={loadSettings} />
+        <ErrorPanel title="We could not load your settings" message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.', { passDetail: false })} onRetry={loadSettings} />
       </div>
     );
   }
@@ -465,7 +465,7 @@ export default function Settings() {
           role="tab"
           id="settings-tab-general"
           aria-selected={activeTab === 'general'}
-          aria-controls="settings-panel-general"
+          aria-controls={activeTab === 'general' ? 'settings-panel-general' : undefined}
           tabIndex={activeTab === 'general' ? 0 : -1}
           onClick={() => setActiveTab('general')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
@@ -481,7 +481,7 @@ export default function Settings() {
           role="tab"
           id="settings-tab-team"
           aria-selected={activeTab === 'team'}
-          aria-controls="settings-panel-team"
+          aria-controls={activeTab === 'team' ? 'settings-panel-team' : undefined}
           tabIndex={activeTab === 'team' ? 0 : -1}
           onClick={() => setActiveTab('team')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
@@ -497,7 +497,7 @@ export default function Settings() {
           role="tab"
           id="settings-tab-auth"
           aria-selected={activeTab === 'auth'}
-          aria-controls="settings-panel-auth"
+          aria-controls={activeTab === 'auth' ? 'settings-panel-auth' : undefined}
           tabIndex={activeTab === 'auth' ? 0 : -1}
           onClick={() => setActiveTab('auth')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${

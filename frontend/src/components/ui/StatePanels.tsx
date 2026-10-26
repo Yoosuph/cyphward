@@ -52,9 +52,10 @@ export function ErrorPanel({ title, message, onRetry, retrying = false }: { titl
 
 /**
  * A message that is safe to show: never a status line, a stack or the server's own wording for a 5xx.
- * Short, plain 4xx messages from the API (for example "That time does not exist in Africa/Lagos") pass through.
+ * Short, plain 4xx messages from the API (for example "That time does not exist in Africa/Lagos") pass through,
+ * unless `passDetail` is false: page-load errors use that, so only reviewed wording reaches the screen.
  */
-export function humanError(e: unknown, fallback: string): string {
+export function humanError(e: unknown, fallback: string, { passDetail = true }: { passDetail?: boolean } = {}): string {
   const err = e as { status?: number; message?: string } | null;
   const status = err?.status;
   const text = (err?.message || '').trim();
@@ -66,6 +67,6 @@ export function humanError(e: unknown, fallback: string): string {
   if (status === 429) return 'Too many requests. Wait a moment and try again.';
   if (status && status >= 500) return fallback;
   const raw = /^request failed|status \d{3}|traceback|internal server error|unprocessable|bad request|^\{|^\[/i.test(text);
-  if (status && status >= 400 && text && text.length <= 240 && !raw) return text;
+  if (passDetail && status && status >= 400 && text && text.length <= 240 && !raw) return text;
   return fallback;
 }

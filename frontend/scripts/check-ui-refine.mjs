@@ -11,7 +11,7 @@ import { AUTH_PAGES, PUBLIC_PAGES, OWNER_PAGES, WIDTHS, UI_BANNED, startHarness,
 const h = await startHarness();
 const problems = [];
 const check = (label, r) => {
-  for (const key of ["small", "unlabelled", "nameless", "skips", "noRing", "lowContrast", "bannedHits", "pageErrors"]) {
+  for (const key of ["small", "unlabelled", "nameless", "skips", "noRing", "lowContrast", "bannedHits", "landmarks", "pageErrors"]) {
     if (r[key]?.length) problems.push(`${label}: ${key} ${JSON.stringify(r[key].slice(0, 6))}`);
   }
   if (r.overflow > 0) problems.push(`${label}: horizontal overflow ${r.overflow}px`);
@@ -66,6 +66,37 @@ try {
   }
   h.state.failures.clear();
 
+  // 2b. A page-load error shows reviewed wording only: a 4xx detail from the API is not passed through.
+  for (const [route, fail] of [["/findings", "/findings"], ["/settings", "/settings"], ["/admin", "/owner/overview"]]) {
+    Object.assign(h.state, { failStatus: 422, failDetail: "Raw backend detail for review" });
+    h.state.failures.clear();
+    h.state.failures.add(fail);
+    const { page, close } = await h.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(`${h.origin}${route}`, { waitUntil: "domcontentloaded" });
+    await settle(page, 900);
+    const text = await page.evaluate(() => document.body.innerText);
+    assert.ok(await page.$('[data-testid="state-error"]'), `${route}: a 4xx load error shows the error state`);
+    assert.ok(!text.includes("Raw backend detail"), `${route}: a 4xx detail is not shown on a page-load error`);
+    await close();
+  }
+  Object.assign(h.state, { failStatus: 500, failDetail: "Internal Server Error" });
+  h.state.failures.clear();
+
+  // 2c. Pages outside the audited set that render inside the shell keep a single, un-nested <main>.
+  for (const route of ["/remediation", "/assets", "/domains"]) {
+    const { page, close } = await h.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(`${h.origin}${route}`, { waitUntil: "domcontentloaded" });
+    for (let i = 0; i < 6; i++) {
+      const n = await page.evaluate(() => ({ nested: document.querySelectorAll("main main").length, mains: document.querySelectorAll("main").length }));
+      assert.equal(n.nested, 0, `${route}: no <main> inside <main> (sample ${i})`);
+      assert.ok(n.mains <= 1, `${route}: at most one <main> (sample ${i})`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    await close();
+  }
+
   // 3. Empty states use the shared panel.
   h.state.empty = true;
   for (const route of ["/findings", "/admin/users"]) {
@@ -116,6 +147,88 @@ try {
     assert.equal(await page.evaluate(() => document.activeElement?.closest("h2")?.textContent?.trim()), "Missing Email DMARC Authentication Policy", "closing returns focus to the issue");
     await close();
   }
+
+  // 5. Layered overlays: only the top layer handles Tab and Escape.
+  //    A: issue drawer -> "Ask CyphBot" dialog on top. B: issue drawer -> "How to fix" drawer on top.
+  {
+    const { page, close } = await h.newPage();
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.goto(`${h.origin}/findings`, { waitUntil: "domcontentloaded" });
+    await settle(page, 700);
+    const openIssue = async () => {
+      await page.focus("main h2 button");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.querySelector("aside.drawer.open"));
+      await settle(page, 300);
+    };
+    /** Focus a button by its exact text inside the given drawer (the first open one by default) and press Enter. */
+    const pressIn = async (scope, text) => {
+      const ok = await page.evaluate((scope, text) => {
+        const root = scope === "dialog" ? document.querySelector(".dialog-panel") : document.querySelector("aside.drawer.open");
+        const b = root && [...root.querySelectorAll("button")].find((x) => x.textContent.replace(/\s+/g, " ").trim() === text);
+        if (b) b.focus();
+        return !!b && document.activeElement === b;
+      }, scope, text);
+      assert.ok(ok, `found and focused "${text}"`);
+      await page.keyboard.press("Enter");
+      await settle(page, 400);
+    };
+    const activeIn = (sel) => page.evaluate((sel) => { const n = document.querySelector(sel); return !!n && n.contains(document.activeElement) && document.activeElement !== document.body; }, sel);
+    const activeText = () => page.evaluate(() => document.activeElement?.textContent?.replace(/\s+/g, " ").trim());
+    const openDrawers = () => page.evaluate(() => [...document.querySelectorAll("aside.drawer.open")].map((d) => document.getElementById(d.getAttribute("aria-labelledby") || "")?.textContent?.trim()));
+
+    // A: a dialog over a drawer keeps Tab and Shift+Tab inside the dialog; Escape closes the dialog first.
+    await openIssue();
+    await pressIn("drawer", "Ask CyphBot");
+    await page.waitForSelector(".dialog-panel");
+    await settle(page, 300);
+    for (const shift of [false, false, false, false, false, false, true, true, true]) {
+      if (shift) await page.keyboard.down("Shift");
+      await page.keyboard.press("Tab");
+      if (shift) await page.keyboard.up("Shift");
+      assert.ok(await activeIn(".dialog-panel"), `A: Tab stays inside the dialog over the drawer (now on "${await activeText()}")`);
+    }
+    await page.keyboard.press("Escape");
+    await settle(page, 400);
+    assert.equal(await page.$(".dialog-panel"), null, "A: first Escape closes the dialog");
+    assert.deepEqual(await openDrawers(), ["Issue details"], "A: the issue drawer stays open under it");
+    assert.equal(await activeText(), "Ask CyphBot", "A: focus returns to the drawer button that opened the dialog");
+    await page.keyboard.press("Tab");
+    assert.ok(await activeIn("aside.drawer.open"), "A: Tab then moves inside the issue drawer again");
+    await page.keyboard.press("Escape");
+    await settle(page, 400);
+    assert.deepEqual(await openDrawers(), [], "A: second Escape closes the issue drawer");
+    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", "A: focus returns to the issue");
+
+    // B: a drawer over a drawer: Tab reaches the top drawer's controls; Escape closes the top one first.
+    await openIssue();
+    await pressIn("drawer", "How to fix");
+    await page.waitForFunction(() => document.querySelectorAll("aside.drawer.open").length === 2);
+    await settle(page, 400);
+    const fixDrawer = 'aside.drawer.open[aria-labelledby]:not([inert])';
+    const reached = new Set();
+    for (let i = 0; i < 14; i++) {
+      await page.keyboard.press("Tab");
+      const where = await page.evaluate(() => {
+        const a = document.activeElement;
+        const d = a?.closest("aside.drawer");
+        return { title: d && document.getElementById(d.getAttribute("aria-labelledby") || "")?.textContent?.trim(), text: a?.textContent?.replace(/\s+/g, " ").trim() };
+      });
+      assert.equal(where.title, "How to fix this", `B: Tab stays in the top drawer (step ${i}: "${where.text}" in "${where.title}")`);
+      reached.add(where.text);
+    }
+    for (const want of ["nginx", "apache", "cloudflare", "aws"]) assert.ok(reached.has(want), `B: the setup choice "${want}" is reachable by Tab`);
+    assert.ok(await page.$(fixDrawer), "B: the top drawer is not inert");
+    await page.keyboard.press("Escape");
+    await settle(page, 400);
+    assert.deepEqual(await openDrawers(), ["Issue details"], "B: first Escape closes only the top drawer");
+    assert.equal(await activeText(), "How to fix", "B: focus returns to the button that opened the top drawer");
+    await page.keyboard.press("Escape");
+    await settle(page, 400);
+    assert.deepEqual(await openDrawers(), [], "B: second Escape closes the issue drawer");
+    assert.equal(await activeText(), "Missing Email DMARC Authentication Policy", "B: focus returns to the issue");
+    await close();
+  }
 } finally {
   await h.close();
 }
@@ -123,4 +236,4 @@ if (problems.length) {
   console.error(problems.join("\n"));
   process.exit(1);
 }
-console.log("ui-refine: 10 main pages at 1440/390/320 (dark) and 1440/390 (light) passed overflow, touch-target, label, name, heading, focus-ring, contrast and claim-wording checks; shared error/empty states; skip link, Settings tabs and issue drawer by keyboard");
+console.log("ui-refine: 10 main pages at 1440/390/320 (dark) and 1440/390 (light) passed overflow, touch-target, label, name, heading, focus-ring, contrast and claim-wording checks; shared error/empty states; skip link, Settings tabs and issue drawer by keyboard; dialog-over-drawer and drawer-over-drawer Tab/Escape order");

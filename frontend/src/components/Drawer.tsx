@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useId, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { lockScroll, unlockScroll } from '../lib/scrollLock';
+import { enterLayer, isTopLayer, leaveLayer } from './ui/Dialog';
 
 interface Props {
   open: boolean;
@@ -33,6 +34,7 @@ export default function Drawer({
   const panelRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
+  const layerId = useId();
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartRef.current = {
@@ -61,25 +63,31 @@ export default function Drawer({
     }
   }, [open, children, title, eyebrow]);
 
-  // Keyboard: a closed drawer is inert (its off-screen controls leave the Tab order); an open one takes focus,
-  // keeps Tab inside, and hands focus back to whatever opened it when it closes.
+  // Keyboard: a closed drawer is inert (its off-screen controls leave the Tab order). An open one joins the shared
+  // overlay stack (components/ui/Dialog.tsx), so the page and any layer under it are inert and only the top layer
+  // handles Tab and Escape; it takes focus, and hands focus back to whatever opened it when it closes.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
     (panel as HTMLElement & { inert: boolean }).inert = !open;
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
+    enterLayer(layerId, panel);
     const id = window.setTimeout(() => closeRef.current?.focus({ preventScroll: true }), 0);
     return () => {
       window.clearTimeout(id);
-      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+      leaveLayer(layerId);
+      (panel as HTMLElement & { inert: boolean }).inert = true;
+      if (opener && opener.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
     };
-  }, [open]);
+  }, [open, layerId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) onClose();
-      if (e.key === 'Tab' && open && panelRef.current) {
+      // A dialog or a later drawer on top of this one owns the keyboard.
+      if (!open || !isTopLayer(layerId)) return;
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab' && panelRef.current) {
         const items = [...panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
         if (items.length === 0) return;
         const first = items[0];
@@ -91,7 +99,7 @@ export default function Drawer({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, layerId]);
 
   useEffect(() => {
     if (open) {

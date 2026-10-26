@@ -31,7 +31,7 @@ export function useOwnerView<T>(path: string, params?: Record<string, string | n
     } catch (e) {
       const err = e as OwnerApiError;
       if (err.status === 401) onSessionEnded();
-      else if (latest.current === key) setError(humanError(err, 'The console could not load this view. Try again in a moment.'));
+      else if (latest.current === key) setError(humanError(err, 'The console could not load this view. Try again in a moment.', { passDetail: false }));
     } finally {
       if (latest.current === key) setLoading(false);
     }

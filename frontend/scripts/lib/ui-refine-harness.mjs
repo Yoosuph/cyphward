@@ -86,7 +86,7 @@ export async function startHarness() {
   await server.listen();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   const browser = await puppeteer.launch({ executablePath: process.env.CHROME_BIN || "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
-  const state = { failures: new Set(), empty: false };
+  const state = { failures: new Set(), empty: false, failStatus: 500, failDetail: "Internal Server Error" };
   const json = (r, status, body) => void r.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
 
   async function newPage({ theme = "dark", signedIn = true, reducedMotion = true } = {}) {
@@ -101,7 +101,7 @@ export async function startHarness() {
       if (!url.pathname.startsWith("/api/")) return url.origin === origin ? void request.continue() : void request.abort();
       const p = url.pathname;
       const method = request.method();
-      if ([...state.failures].some((k) => p.endsWith(k))) return json(request, 500, { detail: "Internal Server Error" });
+      if ([...state.failures].some((k) => p.endsWith(k))) return json(request, state.failStatus, { detail: state.failDetail });
       if (p.startsWith("/api/v1/owner")) {
         if (p.endsWith("/me")) return json(request, 200, owner.me);
         if (p.endsWith("/overview")) return json(request, 200, owner.overview);
@@ -137,6 +137,10 @@ export async function startHarness() {
       if (p.endsWith("/auth/mfa/status")) return json(request, 200, { enrolled: true, email_verified: true, totp_enrolled: false });
       if (p.endsWith("/snapshots/retention")) return json(request, 200, { retention_months: 36, retention: "Issued records are kept for 36 months, then removed." });
       if (p.endsWith("/remediation")) return json(request, 200, { tasks: [], total: 0 });
+      if (p.endsWith("/ai/explain")) return json(request, 200, { title: "Missing Email DMARC Authentication Policy", severity: "critical", category: "DNS & Email Security",
+        what_is_this: "Your domain has no DMARC record.", why_it_matters: "Others can send mail that looks like yours.", evidence_analysis: "No _dmarc TXT record was found.", what_happens_if_ignored: "Spoofed mail is harder to spot." });
+      if (p.endsWith("/ai/remediate")) return json(request, 200, { title: "Publish a DMARC record", target_stack: "nginx", summary: "Start with p=none and review reports.", prerequisites: ["Know every service that sends mail for you."],
+        steps: ["Add a TXT record at _dmarc.acme.ng.", "Review aggregate reports for two weeks."], code_snippet: "v=DMARC1; p=none; rua=mailto:dmarc@acme.ng", verification_command: "dig +short TXT _dmarc.acme.ng", estimated_time_minutes: 20 });
       if (method !== "GET") return json(request, 200, {});
       return json(request, 200, {});
     });
@@ -243,9 +247,18 @@ export async function audit(page, { mobile = false, tabStops = 40 } = {}) {
       const large = size >= 24 || (size >= 18.66 && Number(s.fontWeight) >= 700);
       if (ratio < (large ? 3 : 4.5)) lowContrast.push(`${describe(el)} ${ratio.toFixed(2)}`);
     }
+    // Landmarks and references: one <main>, never nested; every aria-controls names an element that exists.
+    const mains = document.querySelectorAll("main").length;
+    const landmarks = [];
+    if (document.querySelectorAll("main main").length) landmarks.push("nested <main>");
+    if (mains > 1) landmarks.push(`${mains} <main> elements`);
+    for (const el of document.querySelectorAll("[aria-controls]")) {
+      const missing = el.getAttribute("aria-controls").split(/\s+/).filter((id) => id && !document.getElementById(id));
+      if (missing.length) landmarks.push(`${describe(el)} aria-controls → missing #${missing.join(", #")}`);
+    }
     const text = document.body.innerText.toLowerCase();
     const bannedHits = banned.filter((w) => text.includes(w));
-    return { overflow, small, unlabelled, nameless, skips, h1, lowContrast, bannedHits, interactive: interactive.length };
+    return { overflow, small, unlabelled, nameless, skips, h1, lowContrast, bannedHits, landmarks, interactive: interactive.length };
   }, UI_BANNED, mobile);
 
   const noRing = [];

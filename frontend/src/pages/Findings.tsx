@@ -256,7 +256,7 @@ export default function Findings() {
         ) : loadError && findings.length === 0 ? (
           <ErrorPanel
             title="We could not load your issues"
-            message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.')}
+            message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.', { passDetail: false })}
             onRetry={loadFindings}
             retrying={loading}
           />
