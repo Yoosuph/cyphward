@@ -58,12 +58,12 @@
   cursor: wait;
 }
 .scan-button--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
 }
 .scan-button--primary:hover {
-  background: var(--accent-deep);
+  background: var(--accent-fill-hover);
 }
 .scan-button--outline {
   color: var(--accent);
@@ -142,7 +142,7 @@
   background: color-mix(in srgb, var(--warn) 9%, var(--raised));
 }
 .scan-badge--danger {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: var(--accent-soft);
 }

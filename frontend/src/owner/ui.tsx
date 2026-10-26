@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, RefreshCw, Search, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Search, type LucideIcon } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
-import { Loading, PageHead as AppPageHead } from '../components/ui';
+import { PageHead as AppPageHead } from '../components/ui';
+import { ErrorPanel, LoadingPanel, humanError } from '../components/ui/StatePanels';
 import { OwnerApiError, ownerGet } from './ownerApi';
 
 /* ── Session expiry plumbing: any 401 sends the console back to sign-in ── */
@@ -30,7 +31,7 @@ export function useOwnerView<T>(path: string, params?: Record<string, string | n
     } catch (e) {
       const err = e as OwnerApiError;
       if (err.status === 401) onSessionEnded();
-      else if (latest.current === key) setError(err.message);
+      else if (latest.current === key) setError(humanError(err, 'The console could not load this view. Try again in a moment.', { passDetail: false }));
     } finally {
       if (latest.current === key) setLoading(false);
     }
@@ -162,13 +163,13 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
   }, [draft, value, onChange]);
   return (
     <label className="relative w-full md:w-80">
-      <Search size={14} className="absolute left-3 top-2.5 text-soft" />
+      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-soft" aria-hidden="true" />
       <input
         value={draft}
         onChange={e => setDraft(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="w-full pl-9 pr-3 py-1.5 rounded bg-raised border border-line text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
+        className="app-form-control w-full pl-9 pr-3 py-1.5 rounded bg-raised border border-line text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
       />
     </label>
   );
@@ -191,24 +192,15 @@ export function Pager({ offset, limit, total, count, onChange }: { offset: numbe
   );
 }
 
+/** Loading and error states for a console view: the same shared panels the customer app uses. */
 export function ViewState({ loading, error, onRetry, empty, children }: { loading: boolean; error: string | null; onRetry: () => void; empty?: boolean; children: ReactNode }) {
-  if (error) {
-    return (
-      <div className="bg-inset border border-line rounded p-10 text-center space-y-3 content-fade-in">
-        <AlertTriangle size={22} className="mx-auto text-accent" />
-        <p className="text-sm mono">{error}</p>
-        <button type="button" className="btn btn-solid btn-mini hover-lift" onClick={onRetry}>
-          <RefreshCw size={12} className="mr-1" /> RETRY
-        </button>
-      </div>
-    );
-  }
-  if (loading && empty !== false) return <Loading label="OWNER CONSOLE" />;
+  if (error) return <ErrorPanel title="This view did not load" message={error} onRetry={onRetry} retrying={loading} />;
+  if (loading && empty !== false) return <LoadingPanel label="this view" />;
   return <div className="content-fade-in">{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <p className="py-8 text-center text-[11.5px] mono tracking-[.12em] uppercase text-soft">{children}</p>;
+  return <p className="py-8 text-center text-xs text-soft" data-testid="state-empty">{children}</p>;
 }
 
 /** The app's ledger table; rows become labelled cards below 640px (table-stack). */

@@ -78,11 +78,12 @@ export function OwnerShell({ me, signingOut, onSignOut, children }: {
 
   return (
     <div className={`shell relative min-h-screen ${collapsed ? 'sidebar-collapsed' : ''}`}>
+      <a href="#main" className="skip-link">Skip to content</a>
       <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
       <OwnerSidebar me={me} collapsed={collapsed} onToggleCollapse={toggleCollapsed} signingOut={signingOut} onSignOut={onSignOut} />
       <div className="shell-main relative z-10">
         <OwnerTopbar section={section.label} collapsed={collapsed} onToggleSidebar={toggleCollapsed} onSignOut={onSignOut} />
-        <div className="page" key={location.pathname}>{children}</div>
+        <main id="main" tabIndex={-1} className="page" key={location.pathname}>{children}</main>
       </div>
       <OwnerDock onOpenMenu={() => setMenuOpen(true)} />
       <OwnerMenuSheet me={me} open={menuOpen} onClose={() => setMenuOpen(false)} onSignOut={onSignOut} />
@@ -170,12 +171,12 @@ function OwnerTopbar({ section, collapsed, onToggleSidebar, onSignOut }: {
           </button>
           <Link
             to="/"
-            className={`${collapsed ? 'flex' : 'min-[901px]:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
+            className={`topbar-brand ${collapsed ? 'flex' : 'min-[901px]:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
             aria-label="Owner console overview"
           >
             <CyphwardLogo variant="compact" size={32} />
           </Link>
-          <span className={`${collapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`}>/</span>
+          <span className={`${collapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`} aria-hidden="true">/</span>
           <p className="bar-sec truncate hidden min-[400px]:block">{section}</p>
         </div>
         <div className="bar-tools flex-none">
@@ -266,7 +267,7 @@ function OwnerMenuSheet({ me, open, onClose, onSignOut }: { me: OwnerMe; open: b
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-line bg-inset/70">
           <div className="flex items-center gap-2 min-w-0">
             <CyphwardLogo variant="cyph" size={15} />
-            <span className="text-line text-xs select-none">/</span>
+            <span className="text-line text-xs select-none" aria-hidden="true">/</span>
             <span className="text-[10.5px] font-mono font-bold tracking-wider text-ink uppercase truncate">OWNER CONSOLE</span>
           </div>
           <button type="button" onClick={onClose} className="icon-btn" aria-label="Close menu"><X size={14} /></button>

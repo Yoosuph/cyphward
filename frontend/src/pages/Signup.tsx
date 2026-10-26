@@ -179,10 +179,10 @@ export default function Signup() {
         {/* Top Utility Bar */}
         <div className="flex items-center justify-between pb-6 mb-6 border-b border-line">
           <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center text-ink hover:opacity-85 transition-opacity">
+            <Link to="/" className="topbar-brand flex items-center text-ink hover:opacity-85 transition-opacity" aria-label="Cyphward home">
               <CyphwardLogo variant="compact" size={20} />
             </Link>
-            <span className="text-line select-none">/</span>
+            <span className="text-line select-none" aria-hidden="true">/</span>
             <div className="eyebrow flex items-center gap-1.5 text-[10px] hidden sm:flex">
               <span className="live-dot" /> CYPHWARD · SECURE WORKSPACE
             </div>
@@ -201,7 +201,7 @@ export default function Signup() {
 
             <Link
               to="/"
-              className="stat-link text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all"
+              className="stat-link tap-row text-xs flex items-center gap-1.5 py-1 px-2.5 rounded border border-line hover:border-ink transition-all"
             >
               <Globe size={13} className="text-accent" />
               <span>VIEW WEBSITE ↗</span>
@@ -370,7 +370,7 @@ export default function Signup() {
                   <div className="mt-4 pt-3.5 border-t border-line text-center">
                     <span className="text-xs mono text-soft">
                       Already have an account?{' '}
-                      <Link to={`/login${inviteParam}`} className="text-accent underline font-medium ml-1">
+                      <Link to={`/login${inviteParam}`} className="tap-inline text-accent underline font-medium ml-1">
                         Sign In
                       </Link>
                     </span>

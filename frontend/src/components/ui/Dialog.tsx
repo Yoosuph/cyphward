@@ -70,6 +70,25 @@ function syncInert() {
   });
 }
 
+/**
+ * Drawers (components/Drawer.tsx) join the same stack, so a dialog over a drawer, or a drawer over a drawer,
+ * behaves the same way: only the top layer handles Tab and Escape, and the layers under it are inert.
+ */
+export function enterLayer(id: string, node: HTMLElement) {
+  if (!stack.includes(id)) stack.push(id);
+  nodes.set(id, node);
+  syncInert();
+}
+export function leaveLayer(id: string) {
+  const at = stack.indexOf(id);
+  if (at >= 0) stack.splice(at, 1);
+  nodes.delete(id);
+  syncInert();
+}
+export function isTopLayer(id: string) {
+  return stack[stack.length - 1] === id;
+}
+
 function visibleFocusables(panel: HTMLElement): HTMLElement[] {
   return [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(el => {
     if (el.closest('[inert]') !== panel.closest('[inert]')) return false;
@@ -164,7 +183,9 @@ export default function Dialog({
         // The opener, else (if it is gone or disabled) the dialog still open, else the page's tab panel or main area.
         if (usable(opener) && give(opener)) return;
         const topId = stack[stack.length - 1];
-        const top = topId ? nodes.get(topId)?.querySelector<HTMLElement>('.dialog-panel') : null;
+        const topNode = topId ? nodes.get(topId) : null;
+        // The layer underneath may be another dialog (focus its panel) or a drawer (focus the drawer itself).
+        const top = topNode ? (topNode.querySelector<HTMLElement>('.dialog-panel') ?? topNode) : null;
         if (usable(top ?? null) && give(top as HTMLElement)) return;
         const page = latest.current.returnFocusTo?.() ?? document.querySelector<HTMLElement>('[role="tabpanel"], main');
         if (usable(page)) give(page);

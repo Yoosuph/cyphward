@@ -16,8 +16,12 @@
   --accent-deep: #A02E0F;
   --accent-soft: rgba(198, 58, 20, 0.08);
   --ok: #1E6B37; --ok-rgb: 30, 107, 55;
-  --warn: #A16A16; --warn-rgb: 161, 106, 22;
+  --warn: #8A5A10; --warn-rgb: 138, 90, 16;
   --inv-bg: #12110D; --inv-fg: #F8F6F0;
+  /* Solid accent fills (buttons, severity badges) and the label on them; accent used as text on a tinted panel.
+     Kept separate from --accent so the brand colour itself never moves. Both pairs are WCAG AA (4.5:1+). */
+  --accent-fill: #C63A14; --accent-fill-hover: #A02E0F; --on-accent: #FCF9F0;
+  --accent-ink: #A02E0F;
   --glow: rgba(198, 58, 20, 0.12);
   --font-display: 'Fraunces', Georgia, serif;
   --font-body: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
@@ -38,6 +42,8 @@
   --ok: #34D399; --ok-rgb: 52, 211, 153;
   --warn: #FBBF24; --warn-rgb: 251, 191, 36;
   --inv-bg: #F5F2EB; --inv-fg: #0A0907;
+  --accent-fill: #C2441F; --accent-fill-hover: #A8391A; --on-accent: #FCF9F0;
+  --accent-ink: #F27350;
   --glow: rgba(229, 83, 43, 0.22);
 }
 
@@ -359,13 +365,13 @@ html.motion [data-reveal][data-delay="3"]{transition-delay:.24s}
 }
 .btn:active{ transform: scale(0.97); }
 .btn svg{width:14px; height:14px}
-.btn-solid{background:var(--accent); border-color:var(--accent); color:#FCF9F0}
-.btn-solid:hover{background:var(--accent-deep); border-color:var(--accent-deep); color:#FCF9F0; box-shadow:0 4px 16px -2px rgba(198,58,20,0.35)}
+.btn-solid{background:var(--accent-fill); border-color:var(--accent-fill); color:var(--on-accent)}
+.btn-solid:hover{background:var(--accent-fill-hover); border-color:var(--accent-fill-hover); color:var(--on-accent); box-shadow:0 4px 16px -2px rgba(198,58,20,0.35)}
 /* Combined with .btn-mini (defined lower), keep the cream label on the orange
    fill — .btn-mini alone would repaint the text with var(--soft). */
-.btn.btn-solid, .btn.btn-solid:hover, .btn.btn-solid:active{color:#FCF9F0}
-.btn.btn-solid{background:var(--accent); border-color:var(--accent)}
-.btn.btn-solid:hover{background:var(--accent-deep); border-color:var(--accent-deep)}
+.btn.btn-solid, .btn.btn-solid:hover, .btn.btn-solid:active{color:var(--on-accent)}
+.btn.btn-solid{background:var(--accent-fill); border-color:var(--accent-fill)}
+.btn.btn-solid:hover{background:var(--accent-fill-hover); border-color:var(--accent-fill-hover)}
 .btn-solid:disabled{opacity:.6; cursor:default}
 .btn-ghost{border-color:var(--line-strong); color:var(--soft); background:transparent}
 .btn-ghost:hover{border-color:var(--ink); color:var(--ink); background:var(--inset)}
@@ -405,7 +411,7 @@ html.motion [data-reveal][data-delay="3"]{transition-delay:.24s}
 .st i{width:7px; height:7px; border-radius:50%; flex:none}
 .st.ok{color:var(--ok)} .st.ok i{background:var(--ok)}
 .st.warn{color:var(--warn)} .st.warn i{background:var(--warn)}
-.st.bad{color:var(--accent)} .st.bad i{background:var(--accent)}
+.st.bad{color:var(--accent-ink)} .st.bad i{background:var(--accent)}
 .st.idle{color:var(--soft)} .st.idle i{background:var(--soft)}
 
 .meter{display:block; height:3px; background:var(--line); border-radius:2px; position:relative; overflow:hidden}
@@ -1989,4 +1995,68 @@ input[type="date"]:focus-within, input[type="datetime-local"]:focus-within{outli
   html.motion .rise-in, html.motion [data-reveal] { opacity: 1 !important; transform: none !important; }
   .skeleton { background-image: none !important; background-color: var(--inset) !important; }
   .branded-cursor-host { display: none !important; }
+}
+
+
+/* ============ UI refinement 2026-10-25 (docs/ui-2026-10-25) ============
+   One place for the cross-cutting fixes: accent fills routed through --accent-fill, shared severity colours, a
+   visible focus ring on every field, a skip link, and 44px touch targets on phones and tablets. */
+
+/* Ad-hoc "bg-accent text-white" buttons and badges use the same AA fill as .btn-solid. */
+.bg-accent.text-white, .bg-accent.text-\[\#FCF9F0\]{background-color:var(--accent-fill); color:var(--on-accent)}
+
+/* Severity badges (components/ui/SeverityBadge.tsx). Every pair is 4.5:1 or better in both themes. */
+.sev-badge{display:inline-flex; align-items:center; padding:2px 8px; border-radius:3px; font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; line-height:1.5; white-space:nowrap}
+.sev-badge.sev-critical{background:var(--accent-fill); color:var(--on-accent)}
+.sev-badge.sev-high{background:#94560D; color:#FFF}
+.sev-badge.sev-medium{background:#FBBF24; color:#1A1405}
+.sev-badge.sev-low{background:#2563EB; color:#FFF}
+.sev-badge.sev-info{background:#047857; color:#FFF}
+/* Dots (legends) and bar segments (severity mix) share one hue per severity. */
+.sev-dot{display:inline-block; width:8px; height:8px; border-radius:50%; flex:none}
+:is(.sev-dot, .sev-bar).sev-critical{background:var(--accent)} :is(.sev-dot, .sev-bar).sev-high{background:#D97706}
+:is(.sev-dot, .sev-bar).sev-medium{background:#FBBF24} :is(.sev-dot, .sev-bar).sev-low{background:#3B82F6}
+:is(.sev-dot, .sev-bar).sev-info{background:#10B981}
+
+/* Fields: a visible ring on keyboard focus, even where a utility class removed the outline. Composite fields that
+   draw the ring on their wrapper (compliance search, command palette, CyphBot composer) keep their own. */
+:is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea):focus-visible:not(:is(.compliance-search *, .pal-input *, .cyphbot-window *, .chat-input *)){
+  outline:2px solid var(--accent); outline-offset:1px;
+}
+
+/* Skip link: hidden until focused, then the first thing a keyboard user can reach. */
+.skip-link{position:fixed; left:12px; top:-60px; z-index:1000; min-height:44px; display:inline-flex; align-items:center; padding:12px 16px; border-radius:4px; background:var(--inv-bg); color:var(--inv-fg); font-family:var(--font-mono); font-size:12px; letter-spacing:.08em; text-decoration:none; transition:top var(--motion-fast) var(--motion-ease-out)}
+.skip-link:focus{top:12px; outline:2px solid var(--accent); outline-offset:2px}
+main.page:focus{outline:none}
+
+/* Drawers: on opening, visibility flips at once (so focus can move in on the first frame); on closing it waits
+   for the slide-out to finish. Reduced motion keeps its own rule (no transitions at all). */
+.drawer:focus{outline:none}
+@media (prefers-reduced-motion: no-preference){
+  .drawer.open{transition:transform .32s cubic-bezier(.16,1,.3,1), visibility 0s !important}
+}
+
+/* Password show/hide toggle: a full 44px target that sits inside the field. */
+.pw-toggle-btn{right:0; min-width:44px; min-height:44px}
+.pw-input-wrap input{padding-right:48px !important}
+
+/* Touch targets: 44px on phones and tablets (<=900px), where the bottom dock replaces the sidebar. */
+@media (max-width:900px){
+  .topbar{height:56px}
+  .icon-btn{width:44px; height:44px}
+  .topbar-brand{min-height:44px}
+  .plate-btn{min-height:44px}
+  /* App and owner-console page content. Inline links inside running text are exempt (WCAG 2.5.8). */
+  .page :is(button, [role="tab"], select, input:not([type="checkbox"], [type="radio"], [type="range"])),
+  .page a:is(.btn, .btn-mini, .kbd-btn, [class*="rounded"]){min-height:44px}
+  .page button{min-width:44px}
+  .page summary{min-height:44px; padding-block:12px}
+  .landing-nav .btn-mini, .landing-nav .btn{min-height:44px}
+  .landing-brand{min-height:44px; display:inline-flex; align-items:center}
+  .preview-tabs .chip, .layer-tab-btn{min-height:44px}
+  .landing-footer .footer-social a{width:44px; height:44px}
+  .landing-footer .footer-legal a{display:inline-flex; align-items:center; justify-content:center; min-height:44px; min-width:44px}
+  .auth-links a, .form-foot a, .tap-row{display:inline-flex; align-items:center; min-height:44px}
+  /* A link inside a sentence: taller hit area without moving the line around it. */
+  .tap-inline{display:inline-block; padding-block:14px; margin-block:-14px}
 }

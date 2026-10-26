@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageHead } from '../components/ui';
+import { SeverityDot } from '../components/ui/SeverityBadge';
+import { ErrorPanel } from '../components/ui/StatePanels';
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
@@ -171,21 +173,14 @@ export default function Overview() {
 
   if (!data) {
     return (
-      <div className="max-w-7xl mx-auto pb-16 content-fade-in">
-        <div className="bg-inset border border-line rounded p-10 text-center space-y-3">
-          <AlertTriangle size={22} className="mx-auto text-accent" />
-          <p className="text-sm mono">We couldn't load your security overview.</p>
-          <p className="text-xs mono text-soft max-w-md mx-auto">
-            The API didn't respond. Your data is safe — retry below, or this view will
-            refresh automatically every few seconds.
-          </p>
-          <button
-            className="btn btn-solid btn-mini hover-lift"
-            onClick={() => { setLoading(true); loadData(); }}
-          >
-            <RefreshCw size={12} className="mr-1" /> RETRY
-          </button>
-        </div>
+      <div className="max-w-7xl mx-auto pb-16 content-fade-in space-y-6">
+        <PageHead title="Overview" note="Your score, open issues and latest scans." />
+        <ErrorPanel
+          title="We could not load your security overview"
+          message="Cyphward did not respond. Try again, or wait: this page checks again every few seconds."
+          onRetry={() => { setLoading(true); loadData(); }}
+          retrying={loading}
+        />
       </div>
     );
   }
@@ -410,42 +405,32 @@ export default function Overview() {
               />
               <div
                 style={{ width: `${(counts.high / Math.max(1, counts.total_findings)) * 100}%` }}
-                className="bg-amber-600 h-full transition-all"
+                className="sev-bar sev-high h-full transition-all"
                 title={`High: ${counts.high}`}
               />
               <div
                 style={{ width: `${(counts.medium / Math.max(1, counts.total_findings)) * 100}%` }}
-                className="bg-amber-400 h-full transition-all"
+                className="sev-bar sev-medium h-full transition-all"
                 title={`Medium: ${counts.medium}`}
               />
               <div
                 style={{ width: `${(counts.low / Math.max(1, counts.total_findings)) * 100}%` }}
-                className="bg-blue-500 h-full transition-all"
+                className="sev-bar sev-low h-full transition-all"
                 title={`Low: ${counts.low}`}
               />
               <div
                 style={{ width: `${(counts.info / Math.max(1, counts.total_findings)) * 100}%` }}
-                className="bg-emerald-500 h-full rounded-r-full transition-all"
+                className="sev-bar sev-info h-full rounded-r-full transition-all"
                 title={`Info: ${counts.info}`}
               />
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-[11px] mono">
-              <span className="flex items-center gap-1.5 text-accent">
-                <span className="w-2 h-2 rounded-full bg-accent" /> Critical ({counts.critical})
-              </span>
-              <span className="flex items-center gap-1.5 text-amber-600">
-                <span className="w-2 h-2 rounded-full bg-amber-600" /> High ({counts.high})
-              </span>
-              <span className="flex items-center gap-1.5 text-amber-500">
-                <span className="w-2 h-2 rounded-full bg-amber-400" /> Medium ({counts.medium})
-              </span>
-              <span className="flex items-center gap-1.5 text-blue-400">
-                <span className="w-2 h-2 rounded-full bg-blue-500" /> Low ({counts.low})
-              </span>
-              <span className="flex items-center gap-1.5 text-emerald-500">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" /> Info ({counts.info})
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-[11px] mono text-ink">
+              {([['critical', 'Critical', counts.critical], ['high', 'High', counts.high], ['medium', 'Medium', counts.medium], ['low', 'Low', counts.low], ['info', 'Info', counts.info]] as const).map(([key, label, n]) => (
+                <span key={key} className="flex items-center gap-1.5">
+                  <SeverityDot severity={key} /> {label} ({n ?? 0})
+                </span>
+              ))}
             </div>
           </div>
         </div>
@@ -456,9 +441,9 @@ export default function Overview() {
         {/* 4 Pillars Breakdown */}
         <div className="lg:col-span-7 p-5 rounded-lg border border-line bg-raised">
           <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
-            <h3 className="mono text-xs font-semibold tracking-wider text-ink">
+            <h2 className="mono text-xs font-semibold tracking-wider text-ink">
               CATEGORY HEALTH
-            </h3>
+            </h2>
             <span className="text-[10px] mono text-soft">
               {assessed && assessment?.completed_at
                 ? `OUT OF 100 · ASSESSED ${new Date(assessment.completed_at).toLocaleDateString()}`
@@ -501,9 +486,9 @@ export default function Overview() {
         <div className="lg:col-span-5 p-5 rounded-lg border border-line bg-raised flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-line mb-3">
-              <h3 className="mono text-xs font-semibold tracking-wider text-ink">
+              <h2 className="mono text-xs font-semibold tracking-wider text-ink">
                 TOP ISSUES &amp; STRENGTHS
-              </h3>
+              </h2>
               <span className="text-[10px] mono text-soft">WHAT'S AFFECTING YOUR SCORE</span>
             </div>
 
@@ -545,9 +530,9 @@ export default function Overview() {
       <div className="p-5 rounded-lg border border-line bg-raised">
         <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
           <div className="flex items-center gap-2">
-            <h3 className="mono text-xs font-semibold tracking-wider text-ink">
+            <h2 className="mono text-xs font-semibold tracking-wider text-ink">
               RECENT SCANS
-            </h3>
+            </h2>
           </div>
           <button
             onClick={() => navigate('/scans')}
@@ -662,11 +647,12 @@ export default function Overview() {
         </p>
 
         <div className="space-y-1.5 pt-2">
-          <label className="text-xs mono text-soft">CHOOSE A DOMAIN</label>
+          <label htmlFor="scan-domain" className="text-xs mono text-soft">CHOOSE A DOMAIN</label>
           <select
+            id="scan-domain"
             value={selectedDomain}
             onChange={e => setSelectedDomain(e.target.value)}
-            className="w-full bg-inset border border-line rounded px-3 py-2 text-xs mono text-ink focus:outline-none focus:border-accent"
+            className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-xs mono text-ink focus:outline-none focus:border-accent"
           >
             {verifiedDomains.map(d => (
               <option key={d.id} value={d.id}>

@@ -5,14 +5,17 @@ import { Skeleton, SkeletonText } from './Skeleton';
 
 export * from './Skeleton';
 
-/** Consistent, low-motion loading state for app and owner-console handoffs. */
+/**
+ * Consistent, low-motion loading state for app and owner-console handoffs. A plain status region, not a <main>
+ * landmark: it can render inside a shell that already has main#main.
+ */
 export function LoadingScreen({ label = 'Loading your workspace' }: { label?: string }) {
   return (
-    <main className="loading-screen" role="status" aria-live="polite" aria-busy="true">
+    <div className="loading-screen" role="status" aria-live="polite" aria-busy="true">
       <CyphwardLogo variant="mark" size={34} className="loading-screen-mark" />
       <p className="loading-screen-label">{label}</p>
       <div className="loading-track" aria-hidden="true"><span /></div>
-    </main>
+    </div>
   );
 }
 
@@ -44,7 +47,7 @@ export function PageHead({ title, note, actions, meta }: {
 
 export function Loading({ label }: { label: string }) {
   return (
-    <div className="space-y-4 py-4 animate-fade-in w-full" aria-busy="true">
+    <div className="space-y-4 py-4 animate-fade-in w-full" role="status" aria-busy="true">
       <div className="flex items-center gap-2">
         <span className="live-dot" />
         <p className="eyebrow text-accent">LOADING · {label}</p>

@@ -1,7 +1,8 @@
-import { ReactNode, useEffect, useState, useRef } from 'react';
+import { ReactNode, useEffect, useId, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { lockScroll, unlockScroll } from '../lib/scrollLock';
+import { enterLayer, isTopLayer, leaveLayer } from './ui/Dialog';
 
 interface Props {
   open: boolean;
@@ -30,6 +31,10 @@ export default function Drawer({
   const [cachedTitle, setCachedTitle] = useState<ReactNode>(title);
   const [cachedEyebrow, setCachedEyebrow] = useState<string>(eyebrow);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const layerId = useId();
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartRef.current = {
@@ -58,13 +63,52 @@ export default function Drawer({
     }
   }, [open, children, title, eyebrow]);
 
+  // Keyboard: a closed drawer is inert (its off-screen controls leave the Tab order). An open one joins the shared
+  // overlay stack (components/ui/Dialog.tsx), so the page and any layer under it are inert and only the top layer
+  // handles Tab and Escape; it takes focus, and hands focus back to whatever opened it when it closes.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    (panel as HTMLElement & { inert: boolean }).inert = !open;
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    enterLayer(layerId, panel);
+    // Move focus in. The panel can still be hidden for a frame while the open transition starts, so keep trying
+    // once per frame until focus lands inside (bounded: about half a second), then stop.
+    let frame = 0;
+    let tries = 0;
+    const focusIn = () => {
+      if (panel.contains(document.activeElement)) return;
+      (closeRef.current ?? panel).focus({ preventScroll: true });
+      if (!panel.contains(document.activeElement) && ++tries < 30) frame = window.requestAnimationFrame(focusIn);
+    };
+    frame = window.requestAnimationFrame(focusIn);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      leaveLayer(layerId);
+      (panel as HTMLElement & { inert: boolean }).inert = true;
+      if (opener && opener.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
+    };
+  }, [open, layerId]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) onClose();
+      // A dialog or a later drawer on top of this one owns the keyboard.
+      if (!open || !isTopLayer(layerId)) return;
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab' && panelRef.current) {
+        const items = [...panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (!panelRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, layerId]);
 
   useEffect(() => {
     if (open) {
@@ -99,13 +143,18 @@ export default function Drawer({
         aria-hidden="true"
       />
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         className={`drawer ${sizeClass} ${open ? 'open' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-hidden={!open}
+        aria-labelledby={displayTitle ? titleId : undefined}
+        aria-label={displayTitle ? undefined : displayEyebrow}
       >
         <div
           className="drawer-handle md:hidden"
+          aria-hidden="true"
           onClick={onClose}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
@@ -121,16 +170,18 @@ export default function Drawer({
             <div>
               {displayEyebrow && <p className="eyebrow">{displayEyebrow}</p>}
               {displayTitle && (
-                <h3 className="mono font-bold text-sm text-ink uppercase tracking-wider mt-0.5">
+                <h2 id={titleId} className="mono font-bold text-sm text-ink uppercase tracking-wider mt-0.5">
                   {displayTitle}
-                </h3>
+                </h2>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {headerExtra}
             <button
-              className="icon-btn min-w-[36px] min-h-[36px] flex items-center justify-center"
+              ref={closeRef}
+              type="button"
+              className="icon-btn min-w-[44px] min-h-[44px] flex items-center justify-center"
               onClick={onClose}
               aria-label="Close detail drawer"
             >

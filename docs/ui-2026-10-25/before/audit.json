@@ -1,0 +1,1093 @@
+{
+ "landing": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:GET 3.56",
+    "button:GET STARTED 3.56",
+    "button:START YOUR 30-DAY TRIAL 3.56",
+    "button:START YOUR TRIAL 3.56",
+    "a:SEE GROWTH 3.56",
+    "button:INVITE YOUR TEAM 3.56",
+    "a:START YOUR 30-DAY TRIAL 3.56"
+   ],
+   "bannedHits": [
+    "certification"
+   ],
+   "interactive": 47,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARDSTRATA 2.0 100x34",
+    "button:Toggle visual theme 32x32",
+    "button:SCORE 63x35",
+    "button:FINDINGS 85x35",
+    "button:FIX GUIDES 100x35",
+    "button:GET STARTED 71x32",
+    "button:STEP 01 · FIND 167x38",
+    "button:STEP 02 · UNDERSTAND 216x38",
+    "button:STEP 03 · ASSIGN 183x38",
+    "button:STEP 04 · VERIFY 183x38",
+    "button:STEP 05 · EXPORT 183x38",
+    "a:Cyphward on X 32x32",
+    "a:Cyphward on Instagram 32x32",
+    "a:Cyphward on LinkedIn 32x32",
+    "a:TERMS 36x16",
+    "a:PRIVACY 50x16",
+    "a:SYSTEM STATUS 117x16"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:GET STARTED 3.56",
+    "button:START YOUR 30-DAY TRIAL 3.56",
+    "button:START YOUR TRIAL 3.56",
+    "a:SEE GROWTH 3.56",
+    "button:INVITE YOUR TEAM 3.56",
+    "a:START YOUR 30-DAY TRIAL 3.56"
+   ],
+   "bannedHits": [
+    "certification"
+   ],
+   "interactive": 39,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARDSTRATA 2.0 100x34",
+    "button:Toggle visual theme 32x32",
+    "button:GET STARTED 71x32",
+    "button:STEP 01 · FIND 167x38",
+    "button:STEP 02 · UNDERSTAND 216x38",
+    "button:STEP 03 · ASSIGN 183x38",
+    "button:STEP 04 · VERIFY 183x38",
+    "button:STEP 05 · EXPORT 183x38",
+    "a:Cyphward on X 32x32",
+    "a:Cyphward on Instagram 32x32",
+    "a:Cyphward on LinkedIn 32x32",
+    "a:TERMS 36x16",
+    "a:PRIVACY 50x16",
+    "a:SYSTEM STATUS 117x16"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:GET STARTED 3.56",
+    "button:START YOUR 30-DAY TRIAL 3.56",
+    "button:START YOUR TRIAL 3.56",
+    "a:SEE GROWTH 3.56",
+    "button:INVITE YOUR TEAM 3.56",
+    "a:START YOUR 30-DAY TRIAL 3.56"
+   ],
+   "bannedHits": [
+    "certification"
+   ],
+   "interactive": 39,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [
+    "certification"
+   ],
+   "interactive": 47,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "login": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24",
+    "button:SIGN IN 3.56"
+   ],
+   "bannedHits": [],
+   "interactive": 12,
+   "noRing": [
+    "input:email",
+    "input:pw"
+   ],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARD 101x20",
+    "button:Toggle theme 32x32",
+    "a:VIEW WEBSITE ↗ 144x24",
+    "a:FORGOT PASSWORD? 96x16",
+    "button:Show password 23x23",
+    "a:Create Account 101x12"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24",
+    "button:SIGN IN 3.56"
+   ],
+   "bannedHits": [],
+   "interactive": 12,
+   "noRing": [
+    "input:email",
+    "input:pw"
+   ],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARD 101x20",
+    "button:Toggle theme 32x32",
+    "a:VIEW WEBSITE ↗ 119x40",
+    "a:FORGOT PASSWORD? 96x16",
+    "button:Show password 23x23",
+    "a:Create Account 132x36"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24",
+    "button:SIGN IN 3.56"
+   ],
+   "bannedHits": [],
+   "interactive": 12,
+   "noRing": [
+    "input:email",
+    "input:pw"
+   ],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.26"
+   ],
+   "bannedHits": [],
+   "interactive": 12,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "signup": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24"
+   ],
+   "bannedHits": [],
+   "interactive": 14,
+   "noRing": [
+    "input:fullName",
+    "input:regEmail",
+    "input:regPw",
+    "input:confirmPw"
+   ],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARD 101x20",
+    "button:Toggle theme 32x32",
+    "a:VIEW WEBSITE ↗ 144x24",
+    "button:Show password 23x23",
+    "a:Sign In 50x12"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24"
+   ],
+   "bannedHits": [],
+   "interactive": 14,
+   "noRing": [
+    "input:fullName",
+    "input:regEmail",
+    "input:regPw",
+    "input:confirmPw"
+   ],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:CYPHWARD 101x20",
+    "button:Toggle theme 32x32",
+    "a:VIEW WEBSITE ↗ 119x40",
+    "button:Show password 23x23",
+    "a:Sign In 50x12"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.24"
+   ],
+   "bannedHits": [],
+   "interactive": 14,
+   "noRing": [
+    "input:fullName",
+    "input:regEmail",
+    "input:regPw",
+    "input:confirmPw"
+   ],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:/ 1.26"
+   ],
+   "bannedHits": [],
+   "interactive": 14,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "overview": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:START SCAN 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 25,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:Refresh 125x38",
+    "button:GENERATE BOARD REPORT 229x38",
+    "button:START SCAN 362x38",
+    "summary:What this score covers 312x17",
+    "button:See all issues 116x16",
+    "button:See all scans 109x16",
+    "button:Inspect 68x26",
+    "button:Inspect 68x26",
+    "button:Inspect 68x26",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:START SCAN 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 18,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:Refresh 292x38",
+    "button:GENERATE BOARD REPORT 292x38",
+    "button:START SCAN 292x38",
+    "summary:What this score covers 242x17",
+    "button:See all issues 116x16",
+    "button:See all scans 109x16",
+    "button:Inspect 68x26",
+    "button:Inspect 68x26",
+    "button:Inspect 68x26",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:START SCAN 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 18,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:High (2) 2.81",
+    "span:Medium (1) 1.89",
+    "span:Low (1) 2.24",
+    "span:Info (0) 2.24"
+   ],
+   "bannedHits": [],
+   "interactive": 25,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "scans": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Start scan 3.75",
+    "button:View findings 3.75",
+    "span:Failed 4.29"
+   ],
+   "bannedHits": [],
+   "interactive": 39,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Start scan 3.75",
+    "button:View findings 3.75",
+    "span:Failed 4.29"
+   ],
+   "bannedHits": [],
+   "interactive": 32,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Start scan 3.75",
+    "button:View findings 3.75",
+    "span:Failed 4.29"
+   ],
+   "bannedHits": [],
+   "interactive": 32,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 39,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "findings": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [
+    "input:Search issues..."
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:critical 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:low 3.68",
+    "span:How to fix 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 37,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:Refresh 362x30",
+    "button:Open 5 67x24",
+    "button:Resolved 0 96x24",
+    "button:All 5 60x24",
+    "button:all 46x24",
+    "button:critical 84x26",
+    "button:high 55x26",
+    "button:medium 69x26",
+    "button:low 48x26",
+    "button:info 55x26",
+    "input:Search issues... 348x26",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [
+    "input:Search issues..."
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:critical 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:low 3.68",
+    "span:How to fix 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 30,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:Refresh 292x30",
+    "button:Open 5 67x24",
+    "button:Resolved 0 96x24",
+    "button:All 5 60x24",
+    "button:all 46x24",
+    "button:critical 84x26",
+    "button:high 55x26",
+    "button:medium 69x26",
+    "button:low 48x26",
+    "button:info 55x26",
+    "input:Search issues... 278x26",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "button:Ask CyphBot 34x26",
+    "button:How to fix 114x28",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [
+    "input:Search issues..."
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:critical 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:How to fix 3.75",
+    "span:high 3.19",
+    "span:How to fix 3.75",
+    "span:low 3.68",
+    "span:How to fix 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 30,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [
+    "input:Search issues..."
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "span:high 3.19",
+    "span:high 3.19",
+    "span:low 3.68"
+   ],
+   "bannedHits": [],
+   "interactive": 37,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "compliance": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 42,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "summary:Understand your evidence 328x20",
+    "input:Search requirements 314x41",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 35,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "summary:Understand your evidence 258x20",
+    "input:Search requirements 244x41",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 35,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "span:1 NOT ASSESSED 4.23"
+   ],
+   "bannedHits": [],
+   "interactive": 42,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "settings": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [
+    "input:w-full bg-inset border border-line round",
+    "input:e.g. RC-1849204",
+    "input:e.g. Fintech & Digital Commerce",
+    "input:Type 'acme' to confirm"
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "button:Save Organization Profile 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 28,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:GENERAL 104x34",
+    "button:TEAM & ROLES (3) 169x34",
+    "button:AUTHENTICATION 155x34",
+    "input:w-full bg-inset border border-line round 312x34",
+    "input:e.g. RC-1849204 312x34",
+    "input:e.g. Fintech & Digital Commerce 312x34",
+    "button:Save Organization Profile 212x32",
+    "a:ARRANGE PAYMENT OR PLAN CHANGE 242x34",
+    "button:CANCEL 69x30",
+    "button:DOWNLOAD WORKSPACE EXPORT 206x30",
+    "input:Type 'acme' to confirm 181x30",
+    "button:CLOSE WORKSPACE 132x28",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [
+    "input:w-full bg-inset border border-line round",
+    "input:e.g. RC-1849204",
+    "input:e.g. Fintech & Digital Commerce",
+    "input:Type 'acme' to confirm"
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "button:Save Organization Profile 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 21,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "button:GENERAL 104x34",
+    "button:TEAM & ROLES (3) 169x34",
+    "button:AUTHENTICATION 155x34",
+    "input:w-full bg-inset border border-line round 242x34",
+    "input:e.g. RC-1849204 242x34",
+    "input:e.g. Fintech & Digital Commerce 242x34",
+    "button:Save Organization Profile 212x32",
+    "a:ARRANGE PAYMENT OR PLAN CHANGE 242x34",
+    "button:CANCEL 69x30",
+    "button:DOWNLOAD WORKSPACE EXPORT 206x30",
+    "input:Type 'acme' to confirm 181x30",
+    "button:CLOSE WORKSPACE 132x28",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [
+    "input:w-full bg-inset border border-line round",
+    "input:e.g. RC-1849204",
+    "input:e.g. Fintech & Digital Commerce",
+    "input:Type 'acme' to confirm"
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [
+    "button:Save Organization Profile 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 21,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [
+    "input:w-full bg-inset border border-line round",
+    "input:e.g. RC-1849204",
+    "input:e.g. Fintech & Digital Commerce",
+    "input:Type 'acme' to confirm"
+   ],
+   "nameless": [],
+   "skips": [
+    "h1→h3"
+   ],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 28,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "reports": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Generate report 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 24,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:OVERVIEW 67x41",
+    "a:ASSETS 67x41",
+    "a:FINDINGS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Generate report 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 17,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Cyphward dashboard 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:OVERVIEW 53x41",
+    "a:ASSETS 53x41",
+    "a:FINDINGS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [
+    "button:Generate report 3.75"
+   ],
+   "bannedHits": [],
+   "interactive": 17,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 24,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "owner-console": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 20,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Owner console overview 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:ALL LOGS → 60x16",
+    "a:OVERVIEW 67x41",
+    "a:ORGS 67x41",
+    "a:USERS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 16,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Owner console overview 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "a:ALL LOGS → 56x32",
+    "a:OVERVIEW 53x41",
+    "a:ORGS 53x41",
+    "a:USERS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 16,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 20,
+   "noRing": [],
+   "pageErrors": []
+  }
+ },
+ "owner-users": {
+  "dark-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 17,
+   "noRing": [
+    "input:Search email or name"
+   ],
+   "pageErrors": []
+  },
+  "dark-390": {
+   "overflow": 0,
+   "small": [
+    "a:Owner console overview 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "input:Search email or name 362x30",
+    "button:Previous page 38x44",
+    "button:Next page 38x44",
+    "a:OVERVIEW 67x41",
+    "a:ORGS 67x41",
+    "a:USERS 67x41",
+    "a:SCANS 67x41",
+    "button:Open menu 67x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 13,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "dark-320": {
+   "overflow": 0,
+   "small": [
+    "a:Owner console overview 113x32",
+    "button:Toggle color theme 32x32",
+    "button:Sign out 32x32",
+    "input:Search email or name 292x30",
+    "button:Previous page 38x44",
+    "button:Next page 38x44",
+    "a:OVERVIEW 53x41",
+    "a:ORGS 53x41",
+    "a:USERS 53x41",
+    "a:SCANS 53x41",
+    "button:Open menu 53x41"
+   ],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 13,
+   "noRing": [],
+   "pageErrors": []
+  },
+  "light-1440": {
+   "overflow": 0,
+   "small": [],
+   "unlabelled": [],
+   "nameless": [],
+   "skips": [],
+   "h1": 1,
+   "lowContrast": [],
+   "bannedHits": [],
+   "interactive": 17,
+   "noRing": [],
+   "pageErrors": []
+  }
+ }
+}

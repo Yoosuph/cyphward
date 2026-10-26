@@ -100,10 +100,11 @@ export default function Assets() {
           {/* Filter and Search Bar */}
       <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
         <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
-          <Search size={14} className="absolute left-3 top-2.5 text-soft" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-soft" aria-hidden="true" />
           <input
             type="text"
             placeholder="Search hostname or IP..."
+            aria-label="Search hostname or IP"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 rounded bg-raised border border-line text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"

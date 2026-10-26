@@ -518,7 +518,7 @@ export default function Compliance() {
         {tabs.map(t => { const Icon = TAB_ICONS[TABS.indexOf(t)]; return (
           <button key={t.key} type="button" role="tab" id={`tab-${t.key}`} aria-label={t.label} aria-selected={tab === t.key}
                   aria-describedby={t.key === 'questions' && renewals > 0 ? 'compliance-renewal-count' : undefined}
-                  aria-controls={`panel-${t.key}`} tabIndex={tab === t.key ? 0 : -1}
+                  aria-controls={tab === t.key ? `panel-${t.key}` : undefined} tabIndex={tab === t.key ? 0 : -1}
                   ref={el => { tabRefs.current[t.key] = el; }}
                   onClick={() => selectTab(t.key)}
                   className={`compliance-tab ${tab === t.key ? 'compliance-tab-active' : ''}`}>

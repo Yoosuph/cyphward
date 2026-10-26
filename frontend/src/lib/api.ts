@@ -180,7 +180,7 @@ export async function getFindings(params?: {
   status?: string;
   asset_id?: string;
   search?: string;
-}): Promise<{ findings: Finding[]; total: number; categories: Record<string, number> }> {
+}, strict = false): Promise<{ findings: Finding[]; total: number; categories: Record<string, number> }> {
   const query = new URLSearchParams();
   if (params?.severity) query.append('severity', params.severity);
   if (params?.category) query.append('category', params.category);
@@ -188,7 +188,7 @@ export async function getFindings(params?: {
   if (params?.asset_id) query.append('asset_id', params.asset_id);
   if (params?.search) query.append('search', params.search);
 
-  const data = await apiFetch<{ findings: Finding[]; total: number; categories: Record<string, number> }>(`/findings?${query.toString()}`);
+  const data = await apiFetch<{ findings: Finding[]; total: number; categories: Record<string, number> }>(`/findings?${query.toString()}`, undefined, strict);
   if (data) return data;
 
   return {
@@ -197,6 +197,9 @@ export async function getFindings(params?: {
     categories: {},
   };
 }
+
+/** Like getFindings, but a failed request throws so the page can show an error state instead of "no issues". */
+export const getFindingsStrict = (params?: Parameters<typeof getFindings>[0]) => getFindings(params, true);
 
 export async function getFindingDetail(findingId: string): Promise<Finding> {
   const data = await apiFetch<Finding>(`/findings/${findingId}`);

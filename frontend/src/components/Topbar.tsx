@@ -70,13 +70,13 @@ export default function Topbar({
           {/* Full brand remains readable on phones and tablets. */}
           <Link
             to="/overview"
-            className={`${sidebarCollapsed ? 'flex' : 'min-[901px]:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
+            className={`topbar-brand ${sidebarCollapsed ? 'flex' : 'min-[901px]:hidden flex'} items-center text-ink hover:opacity-85 transition-opacity flex-none`}
             title="Cyphward dashboard"
             aria-label="Cyphward dashboard"
           >
             <CyphwardLogo variant="compact" size={32} />
           </Link>
-          <span className={`${sidebarCollapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`}>/</span>
+          <span className={`${sidebarCollapsed ? 'min-[400px]:inline' : 'min-[400px]:inline min-[901px]:hidden'} hidden text-line text-xs select-none`} aria-hidden="true">/</span>
           <p className="bar-sec truncate hidden min-[400px]:block">
             {section.label}
           </p>

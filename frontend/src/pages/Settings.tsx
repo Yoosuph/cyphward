@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -16,6 +16,7 @@ import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import { SettingsSkeleton } from '../components/Skeleton';
+import { ErrorPanel, humanError } from '../components/ui/StatePanels';
 import Modal from '../components/Modal';
 import BoardReportModal from '../components/BoardReportModal';
 import { QRCodeSVG } from 'qrcode.react';
@@ -27,6 +28,7 @@ export default function Settings() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   const [companyName, setCompanyName] = useState('');
   const [cacRc, setCacRc] = useState('');
@@ -173,12 +175,15 @@ export default function Settings() {
     setLoading(true);
     try {
       const res = await getSettings();
+      setLoadError(null);
       setData(res);
       setCompanyName(res.organization.name);
       setCacRc(res.organization.cac_rc || '');
       setSector(res.organization.sector || '');
-    } catch {
-      toast('Failed to load settings');
+    } catch (e) {
+      // First load: the page shows an error with a retry. A later refresh keeps the page and says so.
+      setLoadError(e);
+      if (data) toast('Could not refresh settings. Showing what was loaded before.');
     } finally {
       setLoading(false);
     }
@@ -424,6 +429,28 @@ export default function Settings() {
   const isOwner = myRole === 'owner';
   const canManageRoles = myRole === 'owner' || myRole === 'admin';
 
+  // Arrow keys, Home and End move between the section tabs (WAI-ARIA tabs pattern).
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const order = ['general', 'team', 'auth'] as const;
+    const at = order.indexOf(activeTab as typeof order[number]);
+    const next = e.key === 'ArrowRight' ? order[(at + 1) % order.length]
+      : e.key === 'ArrowLeft' ? order[(at + order.length - 1) % order.length]
+      : e.key === 'Home' ? order[0] : e.key === 'End' ? order[order.length - 1] : null;
+    if (!next) return;
+    e.preventDefault();
+    setActiveTab(next);
+    document.getElementById(`settings-tab-${next}`)?.focus();
+  };
+
+  if (!data && loadError && !loading) {
+    return (
+      <div className="space-y-6 max-w-5xl mx-auto pb-12 content-fade-in">
+        <PageHead title="Settings" note="Company profile, team, billing and sign-in." />
+        <ErrorPanel title="We could not load your settings" message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.', { passDetail: false })} onRetry={loadSettings} />
+      </div>
+    );
+  }
+
   if (loading || !data) {
     return <SettingsSkeleton />;
   }
@@ -432,9 +459,14 @@ export default function Settings() {
     <div className="space-y-6 max-w-5xl mx-auto pb-12 content-fade-in">
       <PageHead title="Settings" note="Company profile, team, billing and sign-in." />
 
-      <div className="flex items-center gap-1 border-b border-line overflow-x-auto pb-px no-scrollbar">
+      <div className="flex items-center gap-1 border-b border-line overflow-x-auto pb-px no-scrollbar" role="tablist" aria-label="Settings sections" onKeyDown={onTabKey}>
         <button
           type="button"
+          role="tab"
+          id="settings-tab-general"
+          aria-selected={activeTab === 'general'}
+          aria-controls={activeTab === 'general' ? 'settings-panel-general' : undefined}
+          tabIndex={activeTab === 'general' ? 0 : -1}
           onClick={() => setActiveTab('general')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
             activeTab === 'general' ? 'border-accent text-ink font-semibold' : 'border-transparent text-soft hover:text-ink'
@@ -446,6 +478,11 @@ export default function Settings() {
 
         <button
           type="button"
+          role="tab"
+          id="settings-tab-team"
+          aria-selected={activeTab === 'team'}
+          aria-controls={activeTab === 'team' ? 'settings-panel-team' : undefined}
+          tabIndex={activeTab === 'team' ? 0 : -1}
           onClick={() => setActiveTab('team')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
             activeTab === 'team' ? 'border-accent text-ink font-semibold' : 'border-transparent text-soft hover:text-ink'
@@ -457,6 +494,11 @@ export default function Settings() {
 
         <button
           type="button"
+          role="tab"
+          id="settings-tab-auth"
+          aria-selected={activeTab === 'auth'}
+          aria-controls={activeTab === 'auth' ? 'settings-panel-auth' : undefined}
+          tabIndex={activeTab === 'auth' ? 0 : -1}
           onClick={() => setActiveTab('auth')}
           className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
             activeTab === 'auth' ? 'border-accent text-ink font-semibold' : 'border-transparent text-soft hover:text-ink'
@@ -468,57 +510,60 @@ export default function Settings() {
       </div>
 
       {activeTab === 'general' && (
-        <div className="space-y-6">
+        <div className="space-y-6" role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
           <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">
               <Building size={16} className="text-accent" />
-              <h3 className="mono font-semibold text-ink text-sm">COMPANY PROFILE</h3>
+              <h2 className="mono font-semibold text-ink text-sm">COMPANY PROFILE</h2>
             </div>
 
             <form onSubmit={handleSaveCompany} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">COMPANY NAME</label>
+                  <label htmlFor="settings-company-name" className="mono text-soft text-[11px]">COMPANY NAME</label>
                   <input
+                    id="settings-company-name"
                     type="text"
                     value={companyName}
                     onChange={e => setCompanyName(e.target.value)}
                     required
-                    className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+                    className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">CORPORATE AFFAIRS COMMISSION (CAC RC)</label>
+                  <label htmlFor="settings-cac-rc" className="mono text-soft text-[11px]">CORPORATE AFFAIRS COMMISSION (CAC RC)</label>
                   <input
+                    id="settings-cac-rc"
                     type="text"
                     value={cacRc}
                     onChange={e => setCacRc(e.target.value)}
                     placeholder="e.g. RC-1849204"
-                    className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+                    className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">INDUSTRY SECTOR</label>
+                  <label htmlFor="settings-sector" className="mono text-soft text-[11px]">INDUSTRY SECTOR</label>
                   <input
+                    id="settings-sector"
                     type="text"
                     value={sector}
                     onChange={e => setSector(e.target.value)}
                     placeholder="e.g. Fintech & Digital Commerce"
-                    className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+                    className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">YOUR ROLE</label>
+                  <p className="mono text-soft text-[11px]">YOUR ROLE</p>
                   <div className="flex items-center gap-2 p-2 rounded bg-inset border border-line mono">
                     <span className="tag">{myRole.toUpperCase()}</span>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="mono text-soft text-[11px]">YOUR PLAN</label>
+                  <p className="mono text-soft text-[11px]">YOUR PLAN</p>
                   <div className="flex items-center gap-2 p-2 rounded bg-inset/50 border border-line/60 mono text-soft">
                     <span className="text-ink font-semibold">{data.organization.plan ? data.organization.plan.charAt(0).toUpperCase() + data.organization.plan.slice(1) : '—'}</span>
                   </div>
@@ -541,7 +586,7 @@ export default function Settings() {
           {isOwner && (
           <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">
-              <h3 className="mono font-semibold text-ink text-sm">BILLING</h3>
+              <h2 className="mono font-semibold text-ink text-sm">BILLING</h2>
               <span className="tag ml-auto">MANUAL PAYMENT CONFIRMATION</span>
             </div>
             {billing ? (
@@ -610,7 +655,7 @@ export default function Settings() {
           {isOwner && (
           <div className="p-6 rounded-lg border border-red-500/30 bg-raised space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-line">
-              <h3 className="mono font-semibold text-ink text-sm">DATA & CLOSURE</h3>
+              <h2 className="mono font-semibold text-ink text-sm">DATA & CLOSURE</h2>
             </div>
             <p className="text-xs text-soft mono leading-relaxed">
               Download everything in this workspace (members, domains, assets, findings,
@@ -631,6 +676,7 @@ export default function Settings() {
               <input
                 type="text"
                 placeholder={`Type '${data?.organization?.slug || 'slug'}' to confirm`}
+                aria-label={`Type the workspace name '${data?.organization?.slug || 'slug'}' to confirm closing it`}
                 value={closeSlug}
                 onChange={e => setCloseSlug(e.target.value)}
                 className="bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-red-500"
@@ -649,11 +695,11 @@ export default function Settings() {
       )}
 
       {activeTab === 'team' && (
-        <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
+        <div className="p-6 rounded-lg border border-line bg-raised space-y-4" role="tabpanel" id="settings-panel-team" aria-labelledby="settings-tab-team">
           <div className="flex items-center justify-between pb-3 border-b border-line">
             <div className="flex items-center gap-2">
               <Users size={16} className="text-accent" />
-              <h3 className="mono font-semibold text-ink text-sm">TEAM & ROLES</h3>
+              <h2 className="mono font-semibold text-ink text-sm">TEAM & ROLES</h2>
             </div>
             {canManageRoles && (
               <button
@@ -692,6 +738,7 @@ export default function Settings() {
                           value={(m.role || 'member').toLowerCase()}
                           disabled={roleBusyId === m.id}
                           onChange={e => handleRoleChange(m.id, e.target.value)}
+                          aria-label={`Role for ${m.email || m.full_name || 'this member'}`}
                           className="bg-inset border border-line rounded px-2 py-1 text-[11px] text-ink mono focus:outline-none focus:border-accent"
                         >
                           <option value="owner">owner</option>
@@ -723,10 +770,10 @@ export default function Settings() {
       )}
 
       {activeTab === 'auth' && (
-        <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
+        <div className="p-6 rounded-lg border border-line bg-raised space-y-4" role="tabpanel" id="settings-panel-auth" aria-labelledby="settings-tab-auth">
           <div className="flex items-center gap-2 pb-3 border-b border-line">
             <Key size={16} className="text-accent" />
-            <h3 className="mono font-semibold text-ink text-sm">AUTHENTICATION</h3>
+            <h2 className="mono font-semibold text-ink text-sm">AUTHENTICATION</h2>
           </div>
           <div className="space-y-3 text-xs text-soft mono leading-relaxed">
             <p className="text-ink">
@@ -752,7 +799,7 @@ export default function Settings() {
           {/* Step-up sign-in (email code) */}
           <div className="pt-4 border-t border-line space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="mono font-semibold text-ink text-xs">STEP-UP SIGN-IN CODE</h4>
+              <h3 className="mono font-semibold text-ink text-xs">STEP-UP SIGN-IN CODE</h3>
               {mfa && (
                 <span className={`px-2 py-0.5 rounded text-[10px] mono border ${
                   mfa.enrolled || mfa.admin_required
@@ -815,6 +862,7 @@ export default function Settings() {
                   type="text"
                   inputMode="numeric"
                   placeholder="123456"
+                  aria-label="Six-digit code from your email"
                   value={mfaCode}
                   onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   className="w-32 bg-inset border border-line rounded px-3 py-1.5 text-ink mono focus:outline-none focus:border-accent"
@@ -833,7 +881,7 @@ export default function Settings() {
           {/* Authenticator app (TOTP) */}
           <div className="pt-4 border-t border-line space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="mono font-semibold text-ink text-xs">AUTHENTICATOR APP</h4>
+              <h3 className="mono font-semibold text-ink text-xs">AUTHENTICATOR APP</h3>
               {mfa && (
                 <span className={`px-2 py-0.5 rounded text-[10px] mono border ${
                   mfa.totp_enrolled
@@ -891,6 +939,7 @@ export default function Settings() {
                     type="text"
                     inputMode="numeric"
                     placeholder="123456"
+                    aria-label="Six-digit code from your authenticator app"
                     value={totpCode}
                     onChange={e => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     className="w-32 bg-inset border border-line rounded px-3 py-1.5 text-ink mono focus:outline-none focus:border-accent"
@@ -911,6 +960,7 @@ export default function Settings() {
                   type="text"
                   inputMode="numeric"
                   placeholder="Current app code"
+                  aria-label="Current code from your authenticator app"
                   value={totpCode}
                   onChange={e => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   className="w-40 bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-accent"
@@ -928,7 +978,7 @@ export default function Settings() {
 
           {/* Self-service account deletion */}
           <div className="pt-4 border-t border-red-500/20 space-y-3">
-            <h4 className="mono font-semibold text-ink text-xs">DELETE MY ACCOUNT</h4>
+            <h3 className="mono font-semibold text-ink text-xs">DELETE MY ACCOUNT</h3>
             <p className="text-xs text-soft mono leading-relaxed">
               Removes your profile, sessions and memberships. Blocked while you solely own a
               workspace — transfer ownership or close it first.
@@ -937,6 +987,7 @@ export default function Settings() {
               <input
                 type="email"
                 placeholder={sessionUser?.email || 'you@example.com'}
+                aria-label="Your email address, to confirm deleting your account"
                 value={delEmail}
                 onChange={e => setDelEmail(e.target.value)}
                 className="flex-1 min-w-[200px] bg-inset border border-line rounded px-3 py-1.5 text-ink mono text-xs focus:outline-none focus:border-red-500"
@@ -945,6 +996,7 @@ export default function Settings() {
                 <input
                   type="password"
                   placeholder="Current password"
+                  aria-label="Current password"
                   value={delPw}
                   onChange={e => setDelPw(e.target.value)}
                   autoComplete="current-password"
@@ -972,34 +1024,37 @@ export default function Settings() {
       >
         <form onSubmit={handleAddMember} className="space-y-3.5 text-xs">
           <div className="space-y-1.5">
-            <label className="mono text-soft">FULL NAME</label>
+            <label htmlFor="invite-name" className="mono text-soft">FULL NAME</label>
             <input
+              id="invite-name"
               type="text"
               placeholder="e.g. Fatima Bello"
               value={memberName}
               onChange={e => setMemberName(e.target.value)}
-              className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+              className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="mono text-soft">EMAIL (they'll get an invite link)</label>
+            <label htmlFor="invite-email" className="mono text-soft">EMAIL (they'll get an invite link)</label>
             <input
+              id="invite-email"
               type="email"
               placeholder="name@organization.ng"
               value={memberEmail}
               onChange={e => setMemberEmail(e.target.value)}
               required
-              className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+              className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="mono text-soft">ROLE</label>
+            <label htmlFor="invite-role" className="mono text-soft">ROLE</label>
             <select
+              id="invite-role"
               value={memberRole}
               onChange={e => setMemberRole(e.target.value)}
-              className="w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
+              className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
             >
               <option value="member">member — view & review</option>
               <option value="admin">admin — manage scans & members</option>

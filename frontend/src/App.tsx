@@ -211,6 +211,7 @@ function AppShell() {
 
   return (
     <div className={`shell relative min-h-screen ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <a href="#main" className="skip-link">Skip to content</a>
       {/* Crisp, clearly visible mini strata dots behind the main app shell */}
       <StrataField variant="mini" opacity={0.88} className="fixed inset-0 pointer-events-none z-0" />
       <Sidebar
@@ -231,10 +232,10 @@ function AppShell() {
         {/* Boundary sits outside the keyed page so later navigations (transitions)
             keep the current page visible instead of re-showing a fallback. */}
         <Suspense fallback={<PageFallback />}>
-          <div className="page" key={location.pathname}>
+          <main id="main" tabIndex={-1} className="page" key={location.pathname}>
             {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
             <Outlet />
-          </div>
+          </main>
         </Suspense>
       </div>
       {/* Mobile Floating Bottom Dock (CMD, ASSETS, FINDINGS, SCANS, MENU) */}

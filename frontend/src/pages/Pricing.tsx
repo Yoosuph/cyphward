@@ -54,7 +54,7 @@ export default function Pricing() {
 
       <p className="text-xs mono text-soft mt-6 text-center">
         Both plans use the external scanner. Growth adds team capacity and the fuller Compliance workflow.
-        Requirement references remain pending professional review; packs support preparation rather than certification.
+        Requirement references remain pending professional review; packs support preparation and are not a compliance determination.
       </p>
 
       <section className="mt-14" data-reveal>

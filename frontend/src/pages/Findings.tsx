@@ -17,13 +17,15 @@ import {
   ExternalLink,
   Layers,
 } from 'lucide-react';
-import { getFindings, updateFindingStatus, explainFinding, getRemediation } from '../lib/api';
+import { getFindingsStrict as getFindings, updateFindingStatus, explainFinding, getRemediation } from '../lib/api';
 import type { Finding, FindingSeverity, FindingStatus, FindingExplanation, RemediationGuide } from '../types';
 import { useToast } from '../components/Toast';
 import { readPageCache, writePageCache } from '../lib/pageCache';
 import { FindingCardSkeleton, Skeleton, SkeletonText, FindingsSkeleton } from '../components/Skeleton';
 import Drawer from '../components/Drawer';
 import Modal from '../components/Modal';
+import { SeverityBadge } from '../components/ui/SeverityBadge';
+import { EmptyPanel, ErrorPanel, humanError } from '../components/ui/StatePanels';
 
 type FindingsCache = { findings: Finding[]; categories: Record<string, number> };
 const FINDINGS_DEFAULT_KEY = 'findings:all:all:';
@@ -32,6 +34,7 @@ export default function Findings() {
   // Last-seen list paints at once on a revisit; loadFindings refreshes it.
   const [findings, setFindings] = useState<Finding[]>(() => readPageCache<FindingsCache>(FINDINGS_DEFAULT_KEY)?.findings ?? []);
   const [loading, setLoading] = useState(() => readPageCache(FINDINGS_DEFAULT_KEY) === undefined);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const shownKey = useRef<string | null>(null); // cache key of the rows on screen
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -82,13 +85,16 @@ export default function Findings() {
       });
       setFindings(res.findings);
       setCategories(res.categories);
+      setLoadError(null);
       writePageCache<FindingsCache>(cacheKey, { findings: res.findings, categories: res.categories });
       if (activeFinding) {
         const updated = res.findings.find(f => f.id === activeFinding.id);
         if (updated) setActiveFinding(updated);
       }
     } catch (err) {
-      toast('Failed to load issues');
+      // Keep whatever is already on screen; with nothing to show, the list becomes an error state with a retry.
+      setLoadError(err);
+      toast('Could not load issues. Try again in a moment.');
     } finally {
       setLoading(false);
     }
@@ -203,11 +209,14 @@ export default function Findings() {
         ))}
       </div>
 
-      {/* Severity Filter Tabs */}
-      <div className="chip-row flex flex-wrap items-center gap-2">
+      {/* Severity filters (scroll sideways on phones) and search (its own full-width row on phones) */}
+      <div className="flex flex-col md:flex-row md:items-center gap-2">
+      <div className="chip-row flex flex-wrap items-center gap-2 min-w-0" role="group" aria-label="Filter by severity">
         {severities.map(sev => (
           <button
             key={sev}
+            type="button"
+            aria-pressed={selectedSeverity === sev}
             onClick={() => setSelectedSeverity(sev)}
             className={`px-3 py-1 rounded text-xs mono uppercase transition-all btn-tactile ${
               selectedSeverity === sev
@@ -223,15 +232,17 @@ export default function Findings() {
           </button>
         ))}
 
-        <div className="ml-auto w-full md:w-64 relative mt-2 md:mt-0">
-          <Search size={13} className="absolute left-3 top-2.5 text-soft" />
+      </div>
+        <div className="md:ml-auto w-full md:w-64 relative shrink-0">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-soft" aria-hidden="true" />
           <input
             type="text"
             placeholder="Search issues..."
+            aria-label="Search issues"
             value={search}
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && loadFindings()}
-            className="w-full pl-8 pr-3 py-1 rounded bg-raised border border-line text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
+            className="app-form-control w-full pl-8 pr-3 py-1 rounded bg-raised border border-line text-xs mono text-ink placeholder:text-soft focus:outline-none focus:border-accent"
           />
         </div>
       </div>
@@ -242,16 +253,19 @@ export default function Findings() {
           Array.from({ length: 5 }).map((_, i) => (
             <FindingCardSkeleton key={i} />
           ))
+        ) : loadError && findings.length === 0 ? (
+          <ErrorPanel
+            title="We could not load your issues"
+            message={humanError(loadError, 'Cyphward did not respond. Try again in a moment.', { passDetail: false })}
+            onRetry={loadFindings}
+            retrying={loading}
+          />
         ) : visible.length === 0 ? (
-          <div className="p-12 text-center border border-line rounded-lg bg-raised">
-            <CheckCircle2 size={24} className="text-ok mx-auto mb-2" />
-            <p className="text-sm text-ink font-semibold">
-              {filtered ? 'Nothing matches these filters.' : statusView === 'resolved' ? 'No resolved issues yet.' : statusView === 'open' ? 'No open issues.' : 'No issues recorded yet.'}
-            </p>
-            {!filtered && statusView === 'open' && (
-              <p className="text-xs text-soft mt-1">New scans add any issues they find here.</p>
-            )}
-          </div>
+          <EmptyPanel
+            icon={<CheckCircle2 size={22} />}
+            title={filtered ? 'Nothing matches these filters.' : statusView === 'resolved' ? 'No resolved issues yet.' : statusView === 'open' ? 'No open issues.' : 'No issues recorded yet.'}
+            help={filtered ? 'Clear a filter or the search to see more issues.' : 'New scans add any issues they find here.'}
+          />
         ) : (
           visible.map((finding, idx) => (
             <div
@@ -268,21 +282,7 @@ export default function Findings() {
             >
               <div className="space-y-1.5 flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] mono uppercase font-bold ${
-                      finding.severity === 'critical'
-                        ? 'bg-accent text-white'
-                        : finding.severity === 'high'
-                        ? 'bg-amber-600 text-white'
-                        : finding.severity === 'medium'
-                        ? 'bg-amber-400 text-black'
-                        : finding.severity === 'low'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-emerald-500 text-white'
-                    }`}
-                  >
-                    {finding.severity}
-                  </span>
+                  <SeverityBadge severity={finding.severity} />
                   <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
                     {finding.category}
                   </span>
@@ -298,9 +298,12 @@ export default function Findings() {
                   )}
                 </div>
 
-                <h3 className="font-semibold text-ink text-sm group-hover:text-accent transition-colors">
-                  {finding.title}
-                </h3>
+                <h2 className="font-semibold text-ink text-sm group-hover:text-accent transition-colors">
+                  {/* The card opens on click; this button gives keyboard and screen-reader users the same action. */}
+                  <button type="button" className="text-left" onClick={e => { e.stopPropagation(); setActiveFinding(finding); }}>
+                    {finding.title}
+                  </button>
+                </h2>
                 <p className="text-xs text-soft line-clamp-2 leading-relaxed">
                   {finding.description}
                 </p>
@@ -311,6 +314,7 @@ export default function Findings() {
                   onClick={() => handleTriggerExplain(finding)}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs mono border border-line bg-inset hover:border-accent text-ink transition-colors"
                   title="Ask CyphBot about this issue"
+                  aria-label="Ask CyphBot about this issue"
                 >
                   <Sparkles size={12} className="text-accent" />
                   <span className="hidden sm:inline">Ask CyphBot</span>
@@ -345,17 +349,7 @@ export default function Findings() {
             {/* Finding Title & Metadata */}
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] mono uppercase font-bold ${
-                    activeFinding.severity === 'critical'
-                      ? 'bg-accent text-white'
-                      : activeFinding.severity === 'high'
-                      ? 'bg-amber-600 text-white'
-                      : 'bg-amber-400 text-black'
-                  }`}
-                >
-                  {activeFinding.severity}
-                </span>
+                <SeverityBadge severity={activeFinding.severity} />
                 <span className="text-[10px] mono px-2 py-0.5 rounded border border-line bg-inset text-soft">
                   {activeFinding.category}
                 </span>
@@ -418,9 +412,9 @@ export default function Findings() {
             {/* Structured Technical Evidence */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="mono text-[11px] font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
+                <h3 className="mono text-[11px] font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
                   <Code size={13} className="text-accent" /> Evidence we collected
-                </h4>
+                </h3>
                 {activeFinding.evidence?.curl_reproduction && (
                   <button
                     onClick={() => copyToClipboard(activeFinding.evidence.curl_reproduction, true)}
@@ -438,9 +432,9 @@ export default function Findings() {
 
             {/* Recommended Remediation Blueprint */}
             <div className="space-y-2">
-              <h4 className="mono text-[11px] font-bold text-ink uppercase tracking-wider">
+              <h3 className="mono text-[11px] font-bold text-ink uppercase tracking-wider">
                 How to fix this
-              </h4>
+              </h3>
               <div className="p-3.5 rounded bg-inset border border-line text-ink leading-relaxed">
                 {activeFinding.remediation}
               </div>
@@ -490,28 +484,28 @@ export default function Findings() {
         ) : (
           <div className="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-1 content-fade-in">
             <div>
-              <h4 className="mono text-[11px] font-bold text-accent uppercase mb-1">1. What is this?</h4>
+              <h3 className="mono text-[11px] font-bold text-accent uppercase mb-1">1. What is this?</h3>
               <p className="text-ink leading-relaxed bg-inset/50 p-2.5 rounded border border-line/60">
                 {explanation.what_is_this}
               </p>
             </div>
 
             <div>
-              <h4 className="mono text-[11px] font-bold text-accent uppercase mb-1">2. Why does it matter?</h4>
+              <h3 className="mono text-[11px] font-bold text-accent uppercase mb-1">2. Why does it matter?</h3>
               <p className="text-ink leading-relaxed bg-inset/50 p-2.5 rounded border border-line/60">
                 {explanation.why_it_matters}
               </p>
             </div>
 
             <div>
-              <h4 className="mono text-[11px] font-bold text-accent uppercase mb-1">3. What is the evidence?</h4>
+              <h3 className="mono text-[11px] font-bold text-accent uppercase mb-1">3. What is the evidence?</h3>
               <p className="text-ink leading-relaxed bg-inset/50 p-2.5 rounded border border-line/60">
                 {explanation.evidence_analysis}
               </p>
             </div>
 
             <div>
-              <h4 className="mono text-[11px] font-bold text-accent uppercase mb-1">4. What happens if ignored?</h4>
+              <h3 className="mono text-[11px] font-bold text-accent uppercase mb-1">4. What happens if ignored?</h3>
               <p className="text-ink leading-relaxed bg-accent-soft/30 p-2.5 rounded border border-accent/20">
                 {explanation.what_happens_if_ignored}
               </p>
@@ -587,7 +581,7 @@ export default function Findings() {
           ) : (
             <div className="space-y-5 content-fade-in">
               <div className="p-3 bg-inset rounded border border-line space-y-1">
-                <h4 className="font-semibold text-ink">{remediationGuide.title}</h4>
+                <h3 className="font-semibold text-ink">{remediationGuide.title}</h3>
                 <p className="text-soft text-[11.5px]">{remediationGuide.summary}</p>
                 <span className="inline-block text-[10px] mono text-ok font-semibold mt-1">
                   {remediationGuide.estimated_time_minutes == null ? 'Allow time for staging and observation before enforcement.' : `Est. time: ~${remediationGuide.estimated_time_minutes} minutes`}
