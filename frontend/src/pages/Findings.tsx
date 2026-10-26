@@ -118,7 +118,7 @@ export default function Findings() {
     setExplainModalOpen(true);
     setExplaining(true);
     try {
-      const exp = await explainFinding(finding.id, finding);
+      const exp = await explainFinding(finding.id);
       if (request === explainRequest.current) setExplanation(exp);
     } catch (e) {
       if (request === explainRequest.current) {
@@ -139,7 +139,7 @@ export default function Findings() {
     setRemediationDrawerOpen(true);
     setRemediating(true);
     try {
-      const guide = await getRemediation(finding.id, stack, finding);
+      const guide = await getRemediation(finding.id, stack);
       if (request === remediationRequest.current) setRemediationGuide(guide);
     } catch (e) {
       if (request === remediationRequest.current) {

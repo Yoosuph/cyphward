@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.app.ai.privacy import sanitize_for_ai, sanitize_text
+from backend.app.core.ai_limits import ORG_BUDGET_EXHAUSTED_MESSAGE, charge_upstream_attempt
 from backend.app.ai.report_artifacts import ArtifactReference, ChartSelection, Severity, CATALOG, build_report, enabled, table_only_requested
 
 
@@ -165,6 +166,9 @@ async def plan_conversation(message: str, history: list, snapshot: dict,
             # retry quota/auth/schema errors, or change the model behind the UI.
             async with asyncio.timeout(65):
                 for attempt in range(3):
+                    # Every attempt, retries included, counts against the organisation's AI allowance.
+                    if not charge_upstream_attempt():
+                        raise LiveAIUnavailable(ORG_BUDGET_EXHAUSTED_MESSAGE)
                     response = await client.post(
                         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                         headers={"x-goog-api-key": key}, json=payload)

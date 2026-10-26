@@ -269,7 +269,7 @@ export interface RemediationGuide {
 }
 
 export interface ExecutiveSummary {
-  org_name: string;
+  org_name?: string | null;
   score: number | null;
   grade: string | null;
   scope_label?: string | null;

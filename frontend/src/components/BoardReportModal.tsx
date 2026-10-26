@@ -7,90 +7,10 @@ import { useToast } from './Toast';
 import { sendReportEmail } from '../lib/api';
 import type { ExecutiveSummary } from '../types';
 
-interface BoardReportModalProps {
-  open: boolean;
-  onClose: () => void;
-  loading: boolean;
-  summary: ExecutiveSummary | null;
-}
+const PRINT_SHELL = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CYPHWARD Board Report</title></head><body></body></html>';
 
-export default function BoardReportModal({
-  open,
-  onClose,
-  loading,
-  summary,
-}: BoardReportModalProps) {
-  const toast = useToast();
-  const [copied, setCopied] = useState(false);
-  const [showEmailInput, setShowEmailInput] = useState(false);
-  const [emailTarget, setEmailTarget] = useState('kankarofi125@gmail.com');
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const nucleiLabel = summary?.coverage?.version === 2 ? summary.coverage.nuclei?.label?.trim() || null : null;
-  const scopeLines = [
-    summary?.scope_label?.trim() && `Scope: ${summary.scope_label.trim()}`,
-    summary?.domain_coverage_line?.trim() && `Domain coverage: ${summary.domain_coverage_line.trim()}`,
-    nucleiLabel,
-  ].filter((line): line is string => Boolean(line));
-
-  const handleEmailDispatch = async () => {
-    if (!emailTarget.trim() || !emailTarget.includes('@')) {
-      toast('Please enter a valid email address');
-      return;
-    }
-    setSendingEmail(true);
-    try {
-      const res = await sendReportEmail({
-        to_email: emailTarget.trim(),
-        recipient_name: 'Board of Directors',
-      });
-      toast(`Report emailed to ${emailTarget.trim()}!`);
-      setShowEmailInput(false);
-    } catch (err: any) {
-      toast(`Failed to send email: ${err.message || 'email service unavailable'}`);
-    } finally {
-      setSendingEmail(false);
-    }
-  };
-
-  const handlePrint = () => {
-    if (!summary) {
-      toast('Please wait for the report to load before printing.');
-      return;
-    }
-
-    try {
-      const reportEl = document.getElementById('cyphward-board-report');
-      if (!reportEl) {
-        window.print();
-        return;
-      }
-
-      // Create an isolated printable iframe to guarantee pristine single-page A4 output
-      const iframe = document.createElement('iframe');
-      iframe.setAttribute('title', 'Cyphward Print Frame');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      iframe.style.opacity = '0';
-      iframe.style.pointerEvents = 'none';
-      document.body.appendChild(iframe);
-
-      const frameDoc = iframe.contentWindow?.document;
-      if (!frameDoc) {
-        window.print();
-        return;
-      }
-
-      frameDoc.open();
-      frameDoc.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>CYPHWARD Board Report — ${summary.org_name}</title>
-  <style>
+// Fixed print stylesheet; nothing is interpolated into it.
+const PRINT_CSS = `
     @page {
       size: A4 portrait;
       margin: 10mm 12mm;
@@ -194,23 +114,109 @@ export default function BoardReportModal({
       border: 1px solid #FDBA74 !important;
     }
     .no-print { display: none !important; }
-  </style>
-</head>
-<body>
-  ${reportEl.outerHTML}
-</body>
-</html>`);
-      frameDoc.close();
+`;
 
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
+interface BoardReportModalProps {
+  open: boolean;
+  onClose: () => void;
+  loading: boolean;
+  summary: ExecutiveSummary | null;
+}
+
+export default function BoardReportModal({
+  open,
+  onClose,
+  loading,
+  summary,
+}: BoardReportModalProps) {
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
+  const [showEmailInput, setShowEmailInput] = useState(false);
+  const [emailTarget, setEmailTarget] = useState('kankarofi125@gmail.com');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  // The server always sets these, but a missing value must never crash the report.
+  const orgName = typeof summary?.org_name === 'string' ? summary.org_name.trim() : '';
+  const postureLabel = summary?.posture_label || 'Not assessed';
+  const nucleiLabel = summary?.coverage?.version === 2 ? summary.coverage.nuclei?.label?.trim() || null : null;
+  const scopeLines = [
+    summary?.scope_label?.trim() && `Scope: ${summary.scope_label.trim()}`,
+    summary?.domain_coverage_line?.trim() && `Domain coverage: ${summary.domain_coverage_line.trim()}`,
+    nucleiLabel,
+  ].filter((line): line is string => Boolean(line));
+
+  const handleEmailDispatch = async () => {
+    if (!emailTarget.trim() || !emailTarget.includes('@')) {
+      toast('Please enter a valid email address');
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const res = await sendReportEmail({
+        to_email: emailTarget.trim(),
+        recipient_name: 'Board of Directors',
+      });
+      toast(`Report emailed to ${emailTarget.trim()}!`);
+      setShowEmailInput(false);
+    } catch (err: any) {
+      toast(`Failed to send email: ${err.message || 'email service unavailable'}`);
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (!summary) {
+      toast('Please wait for the report to load before printing.');
+      return;
+    }
+
+    try {
+      const reportEl = document.getElementById('cyphward-board-report');
+      if (!reportEl) {
+        window.print();
+        return;
+      }
+
+      // Create an isolated printable iframe to guarantee pristine single-page A4 output
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('title', 'Cyphward Print Frame');
+      // No allow-scripts: nothing inside the print document can run. allow-modals permits print().
+      iframe.setAttribute('sandbox', 'allow-same-origin allow-modals');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      // A fixed, standards-mode shell (constant text, nothing interpolated). Everything
+      // else is added with DOM APIs once it has loaded.
+      iframe.srcdoc = PRINT_SHELL;
+      iframe.addEventListener('load', () => {
+        try {
+          const frameDoc = iframe.contentDocument;
+          if (!frameDoc) throw new Error('print frame unavailable');
+          // The title is set as text, the stylesheet is a fixed constant and the report is
+          // a node copy of the rendered (already escaped) DOM, so no organisation or model
+          // text is ever parsed as HTML.
+          frameDoc.title = orgName ? `CYPHWARD Board Report — ${orgName}` : 'CYPHWARD Board Report';
+          const style = frameDoc.createElement('style');
+          style.textContent = PRINT_CSS;
+          frameDoc.head.appendChild(style);
+          frameDoc.body.replaceChildren(frameDoc.importNode(reportEl, true));
+        } catch {
+          iframe.remove();
+          window.print();
+          return;
+        }
         setTimeout(() => {
-          try {
-            document.body.removeChild(iframe);
-          } catch {}
-        }, 1200);
-      }, 300);
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          setTimeout(() => iframe.remove(), 1200);
+        }, 300);
+      }, { once: true });
+      document.body.appendChild(iframe);
     } catch {
       window.print();
     }
@@ -220,18 +226,18 @@ export default function BoardReportModal({
     if (!summary) return;
     const text = `
 CYPHWARD SECURITY REPORT FOR THE BOARD
-Organization: ${summary.org_name}
-Known-risk Score: ${summary.score !== null ? `${summary.score}/100 (${summary.posture_label})` : `${summary.posture_label} (insufficient evaluated evidence)`}
+Organization: ${orgName || '—'}
+Known-risk Score: ${summary.score !== null ? `${summary.score}/100 (${postureLabel})` : `${postureLabel} (insufficient evaluated evidence)`}
 ${scopeLines.map((line) => `${line}\n`).join('')}Date: ${summary.generated_at}
 
 SUMMARY:
 ${summary.board_summary}
 
 WHAT'S WORKING WELL:
-${summary.key_strengths.map(s => `• ${s}`).join('\n')}
+${(summary.key_strengths ?? []).map(s => `• ${s}`).join('\n')}
 
 WHAT THE BOARD SHOULD DO:
-${summary.critical_action_items.map(a => `[${a.priority}] ${a.title} (Owner: ${a.owner})\n  Impact: ${a.impact}`).join('\n')}
+${(summary.critical_action_items ?? []).map(a => `[${a.priority}] ${a.title} (Owner: ${a.owner})\n  Impact: ${a.impact}`).join('\n')}
 
 COMPLIANCE READINESS NOTE (technical evidence — not a certification or DPCO filing):
 ${summary.compliance_verdict}
@@ -370,7 +376,7 @@ ${summary.compliance_verdict}
           <div className="p-3.5 bg-inset rounded border border-line flex items-center justify-between report-card">
             <div>
               <span className="text-[10px] mono text-soft block">ORGANIZATION</span>
-              <h4 className="font-bold text-ink text-base">{summary.org_name}</h4>
+              <h4 className="font-bold text-ink text-base">{orgName || '—'}</h4>
               <span className="text-[10px] mono text-soft">External security review</span>
             </div>
             <div className="text-right">
@@ -381,8 +387,8 @@ ${summary.compliance_verdict}
               </div>
               <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9.5px] mono font-bold bg-accent/10 text-accent border border-accent/25 report-badge">
                 {summary.grade
-                  ? `GRADE ${summary.grade} · ${summary.posture_label.toUpperCase()}`
-                  : summary.posture_label.toUpperCase()}
+                  ? `GRADE ${summary.grade} · ${postureLabel.toUpperCase()}`
+                  : postureLabel.toUpperCase()}
               </span>
             </div>
           </div>
@@ -463,10 +469,9 @@ ${summary.compliance_verdict}
             </p>
           </div>
 
-          {/* Cryptographic Signature Footer */}
+          {/* Issuer footer */}
           <div className="pt-2 border-t border-line/60 flex items-center justify-between text-[9.5px] mono text-soft">
             <span>ISSUER: CYPHWARD SECURITY PLATFORM</span>
-            <span>VERIFICATION HASH: SHA256:{summary.org_name.slice(0, 3).toUpperCase()}-9841B-SECURE</span>
           </div>
         </div>
       )}

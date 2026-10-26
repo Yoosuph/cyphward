@@ -16,8 +16,23 @@ from backend.app.ai.privacy import sanitize_for_ai, sanitize_text
 from backend.app.ai.heuristic_provider import HeuristicAIProvider
 from backend.app.ai.safe_guidance import configuration_topic, curated_chat
 from backend.app.risk.check_set import NUCLEI_LINE
+from backend.app.core.ai_limits import charge_upstream_attempt
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+# Neutral label for the guidance behind a model answer; it names no law or regulator.
+GUIDANCE_SOURCE = {"id": "src_guidance", "label": "Cyphward security guidance"}
 
 logger = logging.getLogger("cyphward.ai")
+
+
+class UpstreamBudgetExhausted(RuntimeError):
+    """The organisation's AI allowance is used up; the upstream request is skipped."""
+
+
+def _charge() -> None:
+    # Before every upstream send, retries included (backend/app/core/ai_limits.py).
+    if not charge_upstream_attempt():
+        raise UpstreamBudgetExhausted()
 
 
 class CloudLLMProvider(AIProvider):
@@ -30,6 +45,10 @@ class CloudLLMProvider(AIProvider):
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.is_openrouter = bool(self.openai_key and self.openai_key.startswith("sk-or-"))
         self._gemini_rate_limited_until = 0.0
+
+    def _gemini_headers(self) -> Dict[str, str]:
+        # The key travels in a header, never in the URL, so it stays out of URL logs.
+        return {"x-goog-api-key": self.gemini_key or ""}
 
     @staticmethod
     def _retry_after(resp: httpx.Response, default: float = 20.0) -> float:
@@ -56,7 +75,8 @@ class CloudLLMProvider(AIProvider):
         """
         resp: httpx.Response | None = None
         for attempt in range(2):
-            resp = await client.post(url, json=payload)
+            _charge()
+            resp = await client.post(url, json=payload, headers=self._gemini_headers())
             if resp.status_code != 429:
                 return resp
             delay = self._retry_after(resp)
@@ -89,6 +109,7 @@ class CloudLLMProvider(AIProvider):
                     "X-Title": "Cyphward Sovereign Security"
                 }
                 async with httpx.AsyncClient(timeout=30.0) as client:
+                    _charge()
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"].strip()
@@ -108,7 +129,7 @@ class CloudLLMProvider(AIProvider):
         now = time.time()
         if self.gemini_key and now > self._gemini_rate_limited_until:
             try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.gemini_key}"
+                url = f"{GEMINI_BASE}/{self.gemini_model}:generateContent"
                 combined = f"{system_prompt}\n\n{user_prompt}"
                 payload = {
                     "contents": [{"parts": [{"text": combined}]}],
@@ -167,6 +188,7 @@ class CloudLLMProvider(AIProvider):
                     "Content-Type": "application/json"
                 }
                 async with httpx.AsyncClient(timeout=30.0) as client:
+                    _charge()
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"]
@@ -290,11 +312,15 @@ class CloudLLMProvider(AIProvider):
         if curated_chat(message, history) or (not self.gemini_key and not self.openai_key):
             return await self.heuristic.chat(message, history, context)
 
-        org_name = context.get("org_name", "Enterprise Enclave")
-        score = context.get("score")
-        domain = context.get("domain") or ""
-        assets_count = context.get("assets_count")
-        findings = context.get("findings", [])
+        # Everything below reaches the model, so it is built from a sanitised copy.
+        # The heuristic fallback keeps the original context (it hands over DNS proof records).
+        display_name = context.get("org_name", "Enterprise Enclave")
+        safe = sanitize_for_ai(context)
+        org_name = safe.get("org_name", "Enterprise Enclave")
+        score = safe.get("score")
+        domain = safe.get("domain") or ""
+        assets_count = safe.get("assets_count")
+        findings = safe.get("findings", [])
 
         # Sanitize finding summaries for privacy
         findings_summary = [
@@ -320,20 +346,20 @@ class CloudLLMProvider(AIProvider):
             "12. Configuration advice requires provider-specific prerequisites, staged testing and rollback. Never prescribe immediate DMARC reject, blanket HSTS subdomains/preload, or an untested enforcing CSP. Direct the user to the recorded finding's curated guide."
         )
 
-        domains = context.get("domains") or (
+        domains = safe.get("domains") or (
             [{"domain": domain, "verified": True}] if domain else []
         )
         domains_line = ", ".join(
             f"{d.get('domain')} ({'verified' if d.get('verified') else 'not verified yet'})"
             for d in domains
         ) or "none"
-        counts = context.get("severity_counts") or {}
+        counts = safe.get("severity_counts") or {}
         totals_line = ", ".join(
             f"{counts.get(sev, 0)} {sev}"
             for sev in ("critical", "high", "medium", "low")
             if counts.get(sev)
         ) or "none"
-        last_scan = context.get("last_scan") or {}
+        last_scan = safe.get("last_scan") or {}
         scan_line = (
             f"Latest Scan: {last_scan.get('status')} at {last_scan.get('created_at')}\n"
             if last_scan.get("status") else ""
@@ -343,7 +369,7 @@ class CloudLLMProvider(AIProvider):
             f"Monitored Domains ({len(domains)}): {domains_line}\n"
             f"Security Score: {str(score) + '/100' if score is not None else 'Not assessed'}\n"
             f"Discovered Assets: {assets_count}\n"
-            f"Open Findings: {context.get('open_findings_total', len(findings))} ({totals_line})\n"
+            f"Open Findings: {safe.get('open_findings_total', len(findings))} ({totals_line})\n"
             f"{scan_line}"
             f"Current Open Findings: {json.dumps(findings_summary, default=str)}\n"
         )
@@ -375,6 +401,7 @@ class CloudLLMProvider(AIProvider):
                     "X-Title": "Cyphward Sovereign Security",
                 }
                 async with httpx.AsyncClient(timeout=30.0) as client:
+                    _charge()
                     resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -383,8 +410,8 @@ class CloudLLMProvider(AIProvider):
                             "answer": reply_text,
                             "sources": [
                                 {"id": "src_claude", "label": "Anthropic Claude Sovereign Intelligence"},
-                                {"id": "src_telemetry", "label": f"{org_name} Live Telemetry"},
-                                {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                {"id": "src_telemetry", "label": f"{display_name} Live Telemetry"},
+                                dict(GUIDANCE_SOURCE),
                             ],
                             "actions": [
                                 {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
@@ -409,7 +436,7 @@ class CloudLLMProvider(AIProvider):
                         gemini_contents.append({"role": role, "parts": [{"text": content}]})
                 gemini_contents.append({"role": "user", "parts": [{"text": message}]})
 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.gemini_key}"
+                url = f"{GEMINI_BASE}/{self.gemini_model}:generateContent"
                 payload = {
                     "contents": gemini_contents,
                     "generationConfig": {
@@ -430,8 +457,8 @@ class CloudLLMProvider(AIProvider):
                                     "answer": reply_text,
                                     "sources": [
                                         {"id": "src_gemini", "label": "Google Gemini Sovereign AI"},
-                                        {"id": "src_enclave", "label": f"{org_name} Live Telemetry"},
-                                        {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                        {"id": "src_enclave", "label": f"{display_name} Live Telemetry"},
+                                        dict(GUIDANCE_SOURCE),
                                     ],
                                     "actions": [
                                         {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
@@ -459,11 +486,15 @@ class CloudLLMProvider(AIProvider):
             async for chunk in self.heuristic.chat_stream(message, history, context):
                 yield chunk
             return
-        org_name = context.get("org_name", "Enterprise Enclave")
-        score = context.get("score")
-        domain = context.get("domain") or ""
-        assets_count = context.get("assets_count")
-        findings = context.get("findings", [])
+        # Everything below reaches the model, so it is built from a sanitised copy.
+        # The heuristic fallback keeps the original context (it hands over DNS proof records).
+        display_name = context.get("org_name", "Enterprise Enclave")
+        safe = sanitize_for_ai(context)
+        org_name = safe.get("org_name", "Enterprise Enclave")
+        score = safe.get("score")
+        domain = safe.get("domain") or ""
+        assets_count = safe.get("assets_count")
+        findings = safe.get("findings", [])
 
         findings_summary = [
             {"title": f.get("title"), "severity": f.get("severity"), "category": f.get("category")}
@@ -488,20 +519,20 @@ class CloudLLMProvider(AIProvider):
             "12. Configuration advice requires provider-specific prerequisites, staged testing and rollback. Never prescribe immediate DMARC reject, blanket HSTS subdomains/preload, or an untested enforcing CSP. Direct the user to the recorded finding's curated guide."
         )
 
-        domains = context.get("domains") or (
+        domains = safe.get("domains") or (
             [{"domain": domain, "verified": True}] if domain else []
         )
         domains_line = ", ".join(
             f"{d.get('domain')} ({'verified' if d.get('verified') else 'not verified yet'})"
             for d in domains
         ) or "none"
-        counts = context.get("severity_counts") or {}
+        counts = safe.get("severity_counts") or {}
         totals_line = ", ".join(
             f"{counts.get(sev, 0)} {sev}"
             for sev in ("critical", "high", "medium", "low")
             if counts.get(sev)
         ) or "none"
-        last_scan = context.get("last_scan") or {}
+        last_scan = safe.get("last_scan") or {}
         scan_line = (
             f"Latest Scan: {last_scan.get('status')} at {last_scan.get('created_at')}\n"
             if last_scan.get("status") else ""
@@ -511,7 +542,7 @@ class CloudLLMProvider(AIProvider):
             f"Monitored Domains ({len(domains)}): {domains_line}\n"
             f"Security Score: {str(score) + '/100' if score is not None else 'Not assessed'}\n"
             f"Discovered Assets: {assets_count}\n"
-            f"Open Findings: {context.get('open_findings_total', len(findings))} ({totals_line})\n"
+            f"Open Findings: {safe.get('open_findings_total', len(findings))} ({totals_line})\n"
             f"{scan_line}"
             f"Current Open Findings: {json.dumps(findings_summary, default=str)}\n"
         )
@@ -542,6 +573,7 @@ class CloudLLMProvider(AIProvider):
                     "HTTP-Referer": "https://cyphward.com",
                     "X-Title": "Cyphward Sovereign Security",
                 }
+                _charge()
                 async with httpx.AsyncClient(timeout=14.0) as client:
                     async with client.stream("POST", url, json=payload, headers=headers) as resp:
                         if resp.status_code == 200:
@@ -567,8 +599,8 @@ class CloudLLMProvider(AIProvider):
                                 "done": True,
                                 "sources": [
                                     {"id": "src_claude", "label": "Anthropic Claude Sovereign Intelligence"},
-                                    {"id": "src_telemetry", "label": f"{org_name} Live Telemetry"},
-                                    {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                    {"id": "src_telemetry", "label": f"{display_name} Live Telemetry"},
+                                    dict(GUIDANCE_SOURCE),
                                 ],
                                 "actions": [
                                     {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
@@ -599,17 +631,15 @@ class CloudLLMProvider(AIProvider):
                         })
                 contents.append({"role": "user", "parts": [{"text": message}]})
 
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}"
-                    f":streamGenerateContent?alt=sse&key={self.gemini_key}"
-                )
+                url = f"{GEMINI_BASE}/{self.gemini_model}:streamGenerateContent?alt=sse"
                 payload = {
                     "contents": contents,
                     "generationConfig": {"temperature": 0.25, "maxOutputTokens": 2048},
                 }
                 async with httpx.AsyncClient(timeout=45.0) as client:
                     for attempt in range(2):
-                        async with client.stream("POST", url, json=payload) as resp:
+                        _charge()
+                        async with client.stream("POST", url, json=payload, headers=self._gemini_headers()) as resp:
                             if resp.status_code == 200:
                                 async for line in resp.aiter_lines():
                                     if not line.startswith("data: "):
@@ -631,8 +661,8 @@ class CloudLLMProvider(AIProvider):
                                         "done": True,
                                         "sources": [
                                             {"id": "src_gemini", "label": "Google Gemini Sovereign AI"},
-                                            {"id": "src_enclave", "label": f"{org_name} Live Telemetry"},
-                                            {"id": "src_ndpa", "label": "NDPA 2023 & CBN Guidelines"},
+                                            {"id": "src_enclave", "label": f"{display_name} Live Telemetry"},
+                                            dict(GUIDANCE_SOURCE),
                                         ],
                                         "actions": [
                                             {"label": "View Related Controls", "kind": "solid", "path": "/comply"},
