@@ -36,11 +36,11 @@ FINDING_NOT_FOUND = "Finding not found."
 class ExplainRequest(BaseModel):
     # Only the id is accepted. Any finding object a browser sends is ignored:
     # the explanation is always built from the stored, organisation-scoped row.
-    finding_id: str = Field(max_length=64)
+    finding_id: str
 
 
 class RemediateRequest(BaseModel):
-    finding_id: str = Field(max_length=64)
+    finding_id: str
     target_stack: Optional[TargetStack] = "nginx"
 
 
@@ -95,40 +95,62 @@ async def remediate_finding(
     return guide
 
 
+# Limits for text the provider writes. Fields taken from the server's own records
+# (organisation, score, scope) are not length-limited.
+_LIMITS = {"priority": 40, "title": 300, "impact": 2000, "owner": 120, "executive_headline": 500,
+           "board_summary": 6000, "strength": 500, "compliance_verdict": 3000, "generated_at": 80}
+
+
 class BoardActionItem(BaseModel):
-    priority: str = Field(min_length=1, max_length=40)
-    title: str = Field(min_length=1, max_length=300)
-    impact: str = Field(max_length=2000)
-    owner: str = Field(max_length=120)
+    priority: str = Field(min_length=1, max_length=_LIMITS["priority"])
+    title: str = Field(min_length=1, max_length=_LIMITS["title"])
+    impact: str = Field(max_length=_LIMITS["impact"])
+    owner: str = Field(max_length=_LIMITS["owner"])
 
 
 class ExecutiveSummaryResponse(BaseModel):
     """The board report contract. Identity, score and scope always come from the
     server's own records; only the narrative fields come from the provider."""
-    org_name: str = Field(max_length=200)
+    org_name: str
     score: Optional[float] = None
-    grade: Optional[str] = Field(default=None, max_length=8)
-    posture_label: str = Field(max_length=120)
-    executive_headline: str = Field(min_length=1, max_length=500)
-    board_summary: str = Field(min_length=1, max_length=6000)
+    grade: Optional[str] = None
+    posture_label: str
+    executive_headline: str = Field(min_length=1, max_length=_LIMITS["executive_headline"])
+    board_summary: str = Field(min_length=1, max_length=_LIMITS["board_summary"])
     key_strengths: List[str] = Field(default_factory=list, max_length=10)
     critical_action_items: List[BoardActionItem] = Field(default_factory=list, max_length=10)
-    compliance_verdict: str = Field(min_length=1, max_length=3000)
-    generated_at: str = Field(max_length=80)
-    scope_label: Optional[str] = Field(default=None, max_length=500)
-    domain_coverage_line: Optional[str] = Field(default=None, max_length=1000)
+    compliance_verdict: str = Field(min_length=1, max_length=_LIMITS["compliance_verdict"])
+    generated_at: str = Field(max_length=_LIMITS["generated_at"])
+    scope_label: Optional[str] = None
+    domain_coverage_line: Optional[str] = None
     coverage: Optional[Dict[str, Any]] = None
 
     @field_validator("key_strengths")
     @classmethod
     def bounded_strengths(cls, value):
-        if any(not isinstance(item, str) or len(item) > 500 for item in value):
+        if any(not isinstance(item, str) or len(item) > _LIMITS["strength"] for item in value):
             raise ValueError("Strengths must be short text.")
         return value
 
 
-def _validated_summary(raw: Any, org: Dict[str, Any], score_data: Dict[str, Any]) -> ExecutiveSummaryResponse:
+def _validated_summary(raw: Any, org: Dict[str, Any], score_data: Dict[str, Any],
+                       clip: bool = False) -> ExecutiveSummaryResponse:
+    """Validate provider output. With clip=True (the deterministic fallback, whose text
+    is copied from stored findings), over-long text is shortened instead of refused."""
     raw = raw if isinstance(raw, dict) else {}
+    if clip:
+        def cut(value, field):
+            return value[:_LIMITS[field]] if isinstance(value, str) else value
+        raw = {
+            **raw,
+            **{field: cut(raw.get(field), field)
+               for field in ("executive_headline", "board_summary", "compliance_verdict", "generated_at")},
+            "key_strengths": [cut(item, "strength") for item in (raw.get("key_strengths") or [])][:10],
+            "critical_action_items": [
+                {key: cut(item.get(key), key) for key in ("priority", "title", "impact", "owner")}
+                for item in (raw.get("critical_action_items") or []) if isinstance(item, dict)
+            ][:10],
+        }
     items = raw.get("critical_action_items")
     return ExecutiveSummaryResponse(
         org_name=str(org.get("name") or "")[:200],
@@ -149,7 +171,7 @@ def _validated_summary(raw: Any, org: Dict[str, Any], score_data: Dict[str, Any]
             for item in (items if isinstance(items, list) else [])
         ],
         compliance_verdict=raw.get("compliance_verdict") or raw.get("compliance_implication"),
-        generated_at=str(raw.get("generated_at") or "Live Telemetry"),
+        generated_at=str(raw.get("generated_at") or "Live Telemetry")[:_LIMITS["generated_at"]],
         scope_label=score_data.get("scope_label"),
         domain_coverage_line=score_data.get("domain_coverage_line"),
         coverage=(score_data.get("assessment") or {}).get("coverage"),
@@ -175,7 +197,7 @@ async def generate_executive_summary(
     except ValidationError:
         # A malformed model answer is replaced by the deterministic summary.
         fallback = await HeuristicAIProvider().generate_executive_summary(org["name"], score_data, findings)
-        validated = _validated_summary(fallback, org, score_data)
+        validated = _validated_summary(fallback, org, score_data, clip=True)
     return validated.model_dump()
 
 

@@ -40,7 +40,9 @@ try {
     const page = await browser.newPage();
     const errors = [];
     const dialogs = [];
+    const consoleLines = [];
     page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => consoleLines.push(message.text()));
     page.on('dialog', dialog => { dialogs.push(dialog.message()); void dialog.dismiss(); });
     await page.setRequestInterception(true);
     page.on('request', request => {
@@ -69,7 +71,7 @@ try {
     const button = await page.waitForSelector('xpath/.//button[.//span[text()="GENERATE BOARD REPORT"]]');
     await button.click();
     await page.waitForSelector('#cyphward-board-report h4');
-    return { page, errors, dialogs };
+    return { page, errors, dialogs, consoleLines };
   }
 
   async function printFrame(page) {
@@ -95,7 +97,7 @@ try {
 
   // 1. Hostile org_name and model text render as text.
   {
-    const { page, errors, dialogs } = await openReport(hostileSummary);
+    const { page, errors, dialogs, consoleLines } = await openReport(hostileSummary);
     const modal = await page.evaluate(() => ({
       heading: document.querySelector('#cyphward-board-report h4')?.textContent,
       injected: document.querySelectorAll('img[src="x"]').length,
@@ -114,6 +116,8 @@ try {
     assert.ok(!frame.text.includes('VERIFICATION HASH'));
     await new Promise(resolve => setTimeout(resolve, 600));
     assert.deepEqual(dialogs, [], 'no script ran');
+    assert.ok(!consoleLines.some(line => /Ignored call to 'print\(\)'|sandboxed/i.test(line)),
+      `the sandbox does not block printing: ${consoleLines.join(' | ')}`);
     assert.deepEqual(errors, []);
     await page.close();
   }

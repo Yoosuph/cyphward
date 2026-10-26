@@ -57,7 +57,7 @@ def test_other_organisations_finding_is_not_found(client, auth_headers, heuristi
         assert "Org B" not in resp.text
 
 
-@pytest.mark.parametrize("bad", ["not-a-uuid", "1' OR '1'='1", "", "f1111111-0000-4000-8000"])
+@pytest.mark.parametrize("bad", ["not-a-uuid", "1' OR '1'='1", "", "f1111111-0000-4000-8000", "x" * 200])
 def test_malformed_finding_id_is_404_not_500(client, auth_headers, heuristic, bad):
     for path in (EXPLAIN, REMEDIATE):
         resp = client.post(path, headers=auth_headers(ALICE, org=ORG_A), json={"finding_id": bad})
@@ -252,6 +252,20 @@ def test_exhausted_org_budget_skips_further_upstream_attempts(client, store, aut
     assert "what_is_this" in resp.json()
 
 
+def test_streaming_upstream_attempts_are_charged(client, store, auth_headers, gemini):
+    # The stream body runs in the response task; the budget must still reach it.
+    line = "data: " + json.dumps(_gemini_text("Streamed."))
+    upstream = _Upstream([httpx.Response(429, text="retry in 0.1s"), httpx.Response(200, text=line + "\n\n")])
+    gemini(upstream)
+    resp = client.post("/api/v1/ai/chat/stream", headers=auth_headers(CAROL, org=ORG_B),
+                       json={"message": "What should I look at first?"})
+    assert resp.status_code == 200
+    assert "Streamed." in resp.text
+    assert len(upstream.requests) == 2
+    assert _bucket(store, f"ai-org:{ORG_B}") == 2
+    assert not [r for r in store.rate_limits if r["bucket_key"].startswith("ai-stream:")]  # lease released
+
+
 def test_live_path_attempts_are_charged_and_refused_when_exhausted(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key-not-real")
     monkeypatch.setattr(live, "charge_upstream_attempt", lambda: False)
@@ -315,6 +329,23 @@ def test_malformed_model_summary_falls_back_to_the_deterministic_one(client, aut
     body = resp.json()
     assert body["org_name"] == "Acme Traders"
     assert body["board_summary"].startswith("Acme Traders has")
+
+
+def test_long_stored_text_never_breaks_the_summary(client, store, auth_headers, heuristic, monkeypatch):
+    finding = next(f for f in store.findings if f["id"] == FINDING_A1)
+    finding.update(title="T" * 400, description="D" * 5000)
+    real_score = ai.compute_risk_score
+
+    def long_scope(*args, **kwargs):
+        return {**real_score(*args, **kwargs), "domain_coverage_line": "d" * 1500, "scope_label": "s" * 800}
+
+    monkeypatch.setattr(ai, "compute_risk_score", long_scope)
+    resp = client.post(SUMMARY, headers=auth_headers(ALICE, org=ORG_A), json={})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["org_name"] == "Acme Traders"
+    assert body["domain_coverage_line"] == "d" * 1500
+    assert all(len(item["impact"]) <= 2000 and len(item["title"]) <= 300 for item in body["critical_action_items"])
 
 
 def test_summary_response_matches_the_contract(client, auth_headers, heuristic):
