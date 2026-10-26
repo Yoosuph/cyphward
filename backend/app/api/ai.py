@@ -4,32 +4,58 @@ Evidence First, AI Second: Explanations, Step-by-step Remediation, and Executive
 """
 import json
 import asyncio
+import uuid
 from uuid import uuid4
 from backend.app.api.demo_login import limit_demo_ai
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional, List
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from typing import Dict, Any, Literal, Optional, List
 
 from backend.app.core.database import execute_one, execute_query
+from backend.app.core.ai_limits import acquire_stream_slot, limit_ai, release_stream_slot
 from backend.app.ai.factory import get_ai_provider
+from backend.app.ai.heuristic_provider import HeuristicAIProvider
 from backend.app.risk.engine import compute_risk_score, latest_assessment
 from backend.app.core.auth import get_current_org
 from backend.app.ai.report_artifacts import ArtifactReference, build_report, wants_report
 from backend.app.ai.artifact_assistant import live_enabled, reply_live, LiveAIUnavailable
 
-router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"], dependencies=[Depends(limit_demo_ai)])
+# The demo account's stricter cap runs first; every account then has per-user,
+# per-organisation and upstream-attempt limits (backend/app/core/ai_limits.py).
+router = APIRouter(prefix="/api/v1/ai", tags=["AI Security Layer"],
+                   dependencies=[Depends(limit_demo_ai), Depends(limit_ai)])
+
+# Short, fixed values only: the stack name reaches model prompts and guide titles.
+TargetStack = Literal["nginx", "apache", "cloudflare", "aws", "none", "nodejs",
+                      "python", "java", "php", "dotnet", "go", "other"]
+
+FINDING_NOT_FOUND = "Finding not found."
 
 
 class ExplainRequest(BaseModel):
-    finding_id: Optional[str] = None
-    finding: Optional[Dict[str, Any]] = None
+    # Only the id is accepted. Any finding object a browser sends is ignored:
+    # the explanation is always built from the stored, organisation-scoped row.
+    finding_id: str
 
 
 class RemediateRequest(BaseModel):
-    finding_id: Optional[str] = None
-    target_stack: Optional[str] = "nginx"
-    finding: Optional[Dict[str, Any]] = None
+    finding_id: str
+    target_stack: Optional[TargetStack] = "nginx"
+
+
+def _stored_finding(finding_id: str, org_id: Any) -> Dict[str, Any]:
+    try:
+        parsed = uuid.UUID(finding_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail=FINDING_NOT_FOUND) from None
+    finding = execute_one(
+        "SELECT * FROM findings WHERE id = %s AND org_id = %s",
+        (str(parsed), org_id),
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail=FINDING_NOT_FOUND)
+    return finding
 
 
 class ExecutiveSummaryRequest(BaseModel):
@@ -48,16 +74,7 @@ async def explain_finding(
     - What is the evidence?
     - What happens if ignored?
     """
-    finding_data = req.finding
-    if not finding_data and req.finding_id:
-        finding_data = execute_one(
-            "SELECT * FROM findings WHERE id = %s AND org_id = %s",
-            (req.finding_id, org["id"]),
-        )
-
-    if not finding_data:
-        raise HTTPException(status_code=400, detail="Must provide valid finding_id or finding object.")
-
+    finding_data = _stored_finding(req.finding_id, org["id"])
     ai = get_ai_provider()
     explanation = await ai.explain_finding(finding_data)
     return explanation
@@ -72,19 +89,93 @@ async def remediate_finding(
     Generate actionable step-by-step fix guides tailored to the target technology stack
     (Nginx, Apache, Cloudflare, AWS CloudFront, etc.).
     """
-    finding_data = req.finding
-    if not finding_data and req.finding_id:
-        finding_data = execute_one(
-            "SELECT * FROM findings WHERE id = %s AND org_id = %s",
-            (req.finding_id, org["id"]),
-        )
-
-    if not finding_data:
-        raise HTTPException(status_code=400, detail="Must provide valid finding_id or finding object.")
-
+    finding_data = _stored_finding(req.finding_id, org["id"])
     ai = get_ai_provider()
     guide = await ai.generate_remediation(finding_data, target_stack=req.target_stack or "nginx")
     return guide
+
+
+# Limits for text the provider writes. Fields taken from the server's own records
+# (organisation, score, scope) are not length-limited.
+_LIMITS = {"priority": 40, "title": 300, "impact": 2000, "owner": 120, "executive_headline": 500,
+           "board_summary": 6000, "strength": 500, "compliance_verdict": 3000, "generated_at": 80}
+
+
+class BoardActionItem(BaseModel):
+    priority: str = Field(min_length=1, max_length=_LIMITS["priority"])
+    title: str = Field(min_length=1, max_length=_LIMITS["title"])
+    impact: str = Field(max_length=_LIMITS["impact"])
+    owner: str = Field(max_length=_LIMITS["owner"])
+
+
+class ExecutiveSummaryResponse(BaseModel):
+    """The board report contract. Identity, score and scope always come from the
+    server's own records; only the narrative fields come from the provider."""
+    org_name: str
+    score: Optional[float] = None
+    grade: Optional[str] = None
+    posture_label: str
+    executive_headline: str = Field(min_length=1, max_length=_LIMITS["executive_headline"])
+    board_summary: str = Field(min_length=1, max_length=_LIMITS["board_summary"])
+    key_strengths: List[str] = Field(default_factory=list, max_length=10)
+    critical_action_items: List[BoardActionItem] = Field(default_factory=list, max_length=10)
+    compliance_verdict: str = Field(min_length=1, max_length=_LIMITS["compliance_verdict"])
+    generated_at: str = Field(max_length=_LIMITS["generated_at"])
+    scope_label: Optional[str] = None
+    domain_coverage_line: Optional[str] = None
+    coverage: Optional[Dict[str, Any]] = None
+
+    @field_validator("key_strengths")
+    @classmethod
+    def bounded_strengths(cls, value):
+        if any(not isinstance(item, str) or len(item) > _LIMITS["strength"] for item in value):
+            raise ValueError("Strengths must be short text.")
+        return value
+
+
+def _validated_summary(raw: Any, org: Dict[str, Any], score_data: Dict[str, Any],
+                       clip: bool = False) -> ExecutiveSummaryResponse:
+    """Validate provider output. With clip=True (the deterministic fallback, whose text
+    is copied from stored findings), over-long text is shortened instead of refused."""
+    raw = raw if isinstance(raw, dict) else {}
+    if clip:
+        def cut(value, field):
+            return value[:_LIMITS[field]] if isinstance(value, str) else value
+        raw = {
+            **raw,
+            **{field: cut(raw.get(field), field)
+               for field in ("executive_headline", "board_summary", "compliance_verdict", "generated_at")},
+            "key_strengths": [cut(item, "strength") for item in (raw.get("key_strengths") or [])][:10],
+            "critical_action_items": [
+                {key: cut(item.get(key), key) for key in ("priority", "title", "impact", "owner")}
+                for item in (raw.get("critical_action_items") or []) if isinstance(item, dict)
+            ][:10],
+        }
+    items = raw.get("critical_action_items")
+    return ExecutiveSummaryResponse(
+        org_name=str(org.get("name") or "")[:200],
+        score=score_data.get("score"),
+        grade=score_data.get("grade"),
+        posture_label=str(score_data.get("posture_label") or "Not assessed"),
+        executive_headline=raw.get("executive_headline"),
+        board_summary=raw.get("board_summary"),
+        key_strengths=raw.get("key_strengths") or [],
+        # The model path names these fields differently from the heuristic one.
+        critical_action_items=[
+            {
+                "priority": item.get("priority"),
+                "title": item.get("title"),
+                "impact": item.get("impact") or item.get("rationale") or "",
+                "owner": item.get("owner") or "Assign an owner",
+            } if isinstance(item, dict) else item
+            for item in (items if isinstance(items, list) else [])
+        ],
+        compliance_verdict=raw.get("compliance_verdict") or raw.get("compliance_implication"),
+        generated_at=str(raw.get("generated_at") or "Live Telemetry")[:_LIMITS["generated_at"]],
+        scope_label=score_data.get("scope_label"),
+        domain_coverage_line=score_data.get("domain_coverage_line"),
+        coverage=(score_data.get("assessment") or {}).get("coverage"),
+    )
 
 
 @router.post("/executive-summary")
@@ -101,16 +192,13 @@ async def generate_executive_summary(
 
     ai = get_ai_provider()
     summary = await ai.generate_executive_summary(org["name"], score_data, findings)
-    if isinstance(summary, dict):
-        # Display-only declared-scope context from the same score; the
-        # provider's own text is never overridden.
-        summary = {
-            "scope_label": score_data.get("scope_label"),
-            "domain_coverage_line": score_data.get("domain_coverage_line"),
-            "coverage": (score_data.get("assessment") or {}).get("coverage"),
-            **summary,
-        }
-    return summary
+    try:
+        validated = _validated_summary(summary, org, score_data)
+    except ValidationError:
+        # A malformed model answer is replaced by the deterministic summary.
+        fallback = await HeuristicAIProvider().generate_executive_summary(org["name"], score_data, findings)
+        validated = _validated_summary(fallback, org, score_data, clip=True)
+    return validated.model_dump()
 
 
 class ChatMessage(BaseModel):
@@ -242,12 +330,40 @@ async def cyphbot_chat(
     return await ai.chat(req.message, req.history or [], context)
 
 
+async def _release_after(body, lease):
+    """Hold the user's stream lease until the body finishes, fails or is closed."""
+    try:
+        async for chunk in body:
+            yield chunk
+    finally:
+        # Synchronous on purpose: an await here could be cancelled with the stream.
+        release_stream_slot(lease)
+
+
 @router.post("/chat/stream")
 async def cyphbot_chat_stream(
     req: CyphBotChatRequest,
     org: Dict[str, Any] = Depends(get_current_org)
 ):
-    """CyphBot streaming analyst: streams tokens progressively over SSE."""
+    """CyphBot streaming analyst: streams tokens progressively over SSE.
+
+    At most two streams per user are open at once (ai_limits.AI_MAX_CONCURRENT_STREAMS).
+    """
+    user_id = str(org.get("current_user_id") or "")
+    if not user_id:
+        # get_current_org always resolves the signed-in user; only in-process callers omit it.
+        return await _chat_stream_response(req, org)
+    lease = acquire_stream_slot(user_id)
+    try:
+        response = await _chat_stream_response(req, org)
+    except BaseException:
+        release_stream_slot(lease)
+        raise
+    response.body_iterator = _release_after(response.body_iterator, lease)
+    return response
+
+
+async def _chat_stream_response(req: CyphBotChatRequest, org: Dict[str, Any]) -> StreamingResponse:
     if live_enabled():
         async def live_events():
             # Only host operation names are exposed, never model thinking text.

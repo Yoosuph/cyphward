@@ -266,20 +266,22 @@ export async function cancelScan(scanId: string): Promise<boolean> {
 // ============================================================================
 // 6. AI Layer (Evidence First, AI Second)
 // ============================================================================
-export async function explainFinding(findingId?: string, finding?: any): Promise<FindingExplanation> {
+// Only the finding id is sent: the server explains its own stored record.
+export async function explainFinding(findingId: string): Promise<FindingExplanation> {
   const data = await apiFetch<FindingExplanation>('/ai/explain', {
     method: 'POST',
-    body: JSON.stringify({ finding_id: findingId, finding }),
+    body: JSON.stringify({ finding_id: findingId }),
   });
   if (data) return data;
 
   throw new Error('The finding explanation could not be loaded.');
 }
 
-export async function getRemediation(findingId?: string, targetStack: string = 'nginx', finding?: any): Promise<RemediationGuide> {
+// The server accepts a fixed list of stack names (nginx, apache, cloudflare, aws, ...).
+export async function getRemediation(findingId: string, targetStack: string = 'nginx'): Promise<RemediationGuide> {
   const data = await apiFetch<RemediationGuide>('/ai/remediate', {
     method: 'POST',
-    body: JSON.stringify({ finding_id: findingId, target_stack: targetStack, finding }),
+    body: JSON.stringify({ finding_id: findingId, target_stack: targetStack }),
   });
   if (data) return data;
 

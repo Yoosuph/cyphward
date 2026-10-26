@@ -787,6 +787,19 @@ class FakeStore:
             return []
 
         # --- shared rate limits (P2 throttling) ---------------------------
+        if s.startswith("INSERT INTO rate_limits") and "RETURNING bucket_key, window_start" in s:
+            # AI stream lease: claim only a missing or expired slot.
+            bucket, lease = params[0], float(params[1])
+            now = datetime.now(timezone.utc)
+            row = next((r for r in self.rate_limits if r["bucket_key"] == bucket), None)
+            if row is not None and (now - row["window_start"]).total_seconds() <= lease:
+                return []
+            if row is None:
+                row = {"bucket_key": bucket}
+                self.rate_limits.append(row)
+            row.update(window_start=now, count=1)
+            return [{"bucket_key": bucket, "window_start": now}]
+
         if s.startswith("INSERT INTO rate_limits"):
             bucket, window = params[0], float(params[1])
             now = datetime.now(timezone.utc)
