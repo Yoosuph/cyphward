@@ -1,7 +1,7 @@
 /**
  * Host-aware routing for the split-domain layout:
  *
- *   cyphward.com      → marketing (/, /privacy, /terms, /pricing, /about, /scanner, /teams, /contact) only
+ *   cyphward.com      → marketing (/, /privacy, /terms, /pricing, /about, /scanner, /teams, /contact, /newsletter*) only
  *   auth.cyphward.com → login / signup / password flows
  *   app.cyphward.com  → authenticated product
  *   admin.cyphward.com → platform owner console (separate app, see main.tsx)
@@ -54,6 +54,9 @@ function isMarketingPath(pathname: string): boolean {
     pathname === '/scanner' ||
     pathname === '/teams' ||
     pathname === '/contact' ||
+    pathname === '/newsletter' ||
+    pathname === '/newsletter/confirmed' ||
+    pathname === '/newsletter/unsubscribed' ||
     pathname === '/health' ||
     pathname === '/landing'
   );

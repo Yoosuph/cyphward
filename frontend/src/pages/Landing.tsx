@@ -490,7 +490,7 @@ export default function Landing() {
       </main>
 
       {/* Footer */}
-      <PublicFooter anchorPrefix="" />
+      <PublicFooter anchorPrefix="" newsletter />
 
       {/* Fixed side social buttons — stacked, small gap */}
       <div className="social-float" aria-label="Cyphward on social media">

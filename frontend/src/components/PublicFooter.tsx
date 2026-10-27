@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom';
 import { Twitter, Instagram, Linkedin } from 'lucide-react';
 import CyphwardLogo from './CyphwardLogo';
+import NewsletterSubscribe from './NewsletterSubscribe';
 
 /**
  * The full landing footer, shared by every public page so the bottom of
  * the site never drifts between routes. `anchorPrefix` is '' on the
  * landing itself and '/' everywhere else (e.g. /pricing links to /#layers).
  */
-export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: string }) {
+export default function PublicFooter({ anchorPrefix = '', newsletter = false }: { anchorPrefix?: string; newsletter?: boolean }) {
   const a = (hash: string) => `${anchorPrefix}${hash}`;
   return (
       <footer className="landing-footer">
@@ -87,6 +88,13 @@ export default function PublicFooter({ anchorPrefix = '' }: { anchorPrefix?: str
               </ul>
             </div>
           </div>
+
+          {/* The landing footer carries the newsletter sign-up; it renders nothing while the flag is off. */}
+          {newsletter && (
+            <div className="footer-newsletter">
+              <NewsletterSubscribe source="landing_footer" />
+            </div>
+          )}
 
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs mono text-soft">
             <div>

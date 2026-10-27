@@ -31,6 +31,8 @@ import Teams from './pages/Teams';
 import Contact from './pages/Contact';
 import Health from './pages/Health';
 import NotFound from './pages/NotFound';
+import Newsletter from './pages/Newsletter';
+import NewsletterResult from './pages/NewsletterResult';
 
 // Route-split pages: loaded on demand so the public landing payload doesn't
 // ship the dashboard, auth screens and chart library (recharts).
@@ -360,6 +362,9 @@ export default function App() {
             <Route path="/scanner" element={<Scanner />} />
             <Route path="/teams" element={<Teams />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/newsletter" element={<Newsletter />} />
+            <Route path="/newsletter/confirmed" element={<NewsletterResult kind="confirmed" />} />
+            <Route path="/newsletter/unsubscribed" element={<NewsletterResult kind="unsubscribed" />} />
 
             {/* Onboarding Routes */}
             <Route path="/onboarding" element={<OnboardingLayout />}>

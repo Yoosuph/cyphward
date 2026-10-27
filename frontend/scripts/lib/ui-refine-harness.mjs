@@ -86,7 +86,7 @@ export async function startHarness() {
   await server.listen();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   const browser = await puppeteer.launch({ executablePath: process.env.CHROME_BIN || "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
-  const state = { failures: new Set(), empty: false, failStatus: 500, failDetail: "Internal Server Error" };
+  const state = { failures: new Set(), empty: false, failStatus: 500, failDetail: "Internal Server Error", route: null };
   const json = (r, status, body) => void r.respond({ status, contentType: "application/json", body: JSON.stringify(body) });
 
   async function newPage({ theme = "dark", signedIn = true, reducedMotion = true } = {}) {
@@ -102,6 +102,9 @@ export async function startHarness() {
       const p = url.pathname;
       const method = request.method();
       if ([...state.failures].some((k) => p.endsWith(k))) return json(request, state.failStatus, { detail: state.failDetail });
+      // A suite can answer its own endpoints first: state.route(path, method, request) -> [status, body] or undefined.
+      const own = state.route?.(p, method, request);
+      if (own) return json(request, own[0], own[1]);
       if (p.startsWith("/api/v1/owner")) {
         if (p.endsWith("/me")) return json(request, 200, owner.me);
         if (p.endsWith("/overview")) return json(request, 200, owner.overview);

@@ -975,15 +975,25 @@ async def send_email_async(
     recipient_name: Optional[str] = None,
     kind: str = DEFAULT_EMAIL_SENDER_KIND,
     reply_to: Optional[str] = None,
+    sender: Optional["tuple[str, str]"] = None,
+    allow_campaign_fallback: bool = True,
+    mail_headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Sends an email using Brevo REST API v3 with automatic failover to Brevo SMTP.
 
     `kind` selects the verified Brevo sender identity from EMAIL_SENDERS
     (system / alerts / reports / support / security / general).
+    `sender` overrides that with an explicit (display name, address) pair; the
+    newsletter passes its own verified address this way, so the defaults above
+    never change. `allow_campaign_fallback=False` skips the third tier, which
+    adds the recipient to a Brevo list and sends a campaign to that whole list:
+    a caller that must not put an address on any list (newsletter double opt-in)
+    turns it off. `mail_headers` adds mail headers (e.g. RFC 8058 List-Unsubscribe)
+    on the REST and SMTP tiers.
     """
     to_email = to_email.strip()
-    sender_name, sender_email = email_sender(kind)
+    sender_name, sender_email = sender if sender is not None else email_sender(kind)
     if not text_content:
         text_content = "Please view this Cyphward Security Report in an HTML-compatible email client."
 
@@ -1014,6 +1024,8 @@ async def send_email_async(
             }
             if reply_to:
                 payload["replyTo"] = {"email": reply_to}
+            if mail_headers:
+                payload["headers"] = dict(mail_headers)
 
             async with httpx.AsyncClient(timeout=12.0) as client:
                 response = await client.post(url, json=payload, headers=headers)
@@ -1056,6 +1068,8 @@ async def send_email_async(
         msg["To"] = to_email
         if reply_to:
             msg["Reply-To"] = reply_to
+        for name, value in (mail_headers or {}).items():
+            msg[name] = value
 
         part1 = MIMEText(text_content, "plain", "utf-8")
         part2 = MIMEText(html_content, "html", "utf-8")
@@ -1085,7 +1099,7 @@ async def send_email_async(
         logger.warning(f"Brevo SMTP relay failed ({err}). Attempting Campaign API failover...")
 
     # 3. Third-Tier Delivery Method: Brevo Campaign Pipeline (bypasses unactivated SMTP relays)
-    if BREVO_API_KEY:
+    if BREVO_API_KEY and allow_campaign_fallback:
         try:
             import time
             camp_headers = {
