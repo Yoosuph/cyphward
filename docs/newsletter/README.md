@@ -35,7 +35,7 @@ Double opt-in sign-up, GrokBot drafts, and admin-approved sends through Brevo. T
 
    Rate limits: 30 requests per hour per IP, which returns 429. Ten attempts per hour per subscriber; beyond that the link reads as not working, with no 429 that would point at the address.
 
-4. **Unsubscribe** (`GET` page, then `POST /api/v1/newsletter/unsubscribe`). One button, no sign-in. Mail providers using RFC 8058 POST `List-Unsubscribe=One-Click` to the same URL, with the token in its query string, and get a plain 200. The address becomes `unsubscribed` at once and is removed from the Brevo list. The visitor is redirected to `/newsletter/unsubscribed?result=ok|invalid`. The address receives nothing more unless it subscribes again; a new subscription starts a new double opt-in and retires the old links.
+4. **Unsubscribe** (`GET` page, then `POST /api/v1/newsletter/unsubscribe`). One button, no sign-in. Mail providers using RFC 8058 POST `List-Unsubscribe=One-Click` to the same URL, with the token in its query string, and get a plain 200. One-click requests have no per-IP limit, because providers send them from a few shared servers and the token authorises each one. A global ceiling of 20,000 per hour applies. The button on the page keeps a limit of 60 per hour per IP. The address becomes `unsubscribed` at once and is removed from the Brevo list. The visitor is redirected to `/newsletter/unsubscribed?result=ok|invalid`. The address receives nothing more unless it subscribes again; a new subscription starts a new double opt-in and retires the old links.
 
    The unsubscribe token is derived with HMAC from `NEWSLETTER_TOKEN_SECRET`, the subscriber id and a generation number. The same link therefore works in the confirmation email and in every issue. Issues get it through the Brevo contact attribute (`{{ contact.CW_UNSUB_TOKEN }}`).
 
@@ -157,6 +157,11 @@ A successful request returns `201 {"id": "<uuid>", "status": "draft", "created_a
   - No template markers (`{{ }}`, `{% %}`).
   - None of these claim words or phrases, matched as whole words, in any case, with plain inflections: compliant, certified, certification, satisfies, adequate, guarantee, passes audit, compliance score, meets the requirement, is met, fully compliant, is compliant.
   - Nothing that the product's shared C6 filter (`backend/app/compliance/practitioner.py`) refuses. That filter also catches, among others, complies, conforms, approved, sufficient, "in line with" and "NDPA ready". It sees through accents, look-alike letters, digits used as letters and split-up words.
+  - A newsletter-only allow-list (`_ALLOWED_NEWS` in `backend/app/core/newsletter.py`) lets two ordinary regulation-news shapes past the C6 check:
+    - a named public body approving something, e.g. "The NDPC approved new guidance";
+    - meeting a date, e.g. "How to meet the NDPA filing date".
+
+    Everything else C6 refuses stays refused, including "Approved by Cyphward" and "meets the NDPA".
 
 ## Operations runbook
 

@@ -928,3 +928,58 @@ def test_mailer_passes_list_unsubscribe_headers_to_brevo(monkeypatch):
     assert payloads[0]["headers"] == h and payloads[0]["sender"]["email"] == "news@cyphward.com"
     assert "api-key" not in payloads[0]["headers"]  # mail headers, never the HTTP ones carrying the API key
     assert "headers" not in payloads[1] and payloads[1]["sender"]["email"] == "no-reply@cyphward.com"
+
+
+
+# ---------------------------------------------------------------------------
+# Re-review fixes
+# ---------------------------------------------------------------------------
+def test_one_click_from_one_provider_ip_is_never_capped(client, nlenv):
+    mails = [confirmed_reader(client, nlenv, f"r{i}@example.com") for i in range(5)]
+    codes = []
+    for i in range(100):  # one provider's shared sending server
+        token = token_from(mails[i % 5]["text"], "unsubscribe")
+        resp = client.post(f"/api/v1/newsletter/unsubscribe?token={token}", content=b"List-Unsubscribe=One-Click",
+                           headers={"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "209.85.220.41"})
+        codes.append(resp.status_code)
+    assert codes == [200] * 100
+    assert all(nlenv.store.by_email(f"r{i}@example.com")["status"] == "unsubscribed" for i in range(5))
+    # The browser button keeps its per-IP limit.
+    browser = [act(client, "unsubscribe", "x", ip="198.51.100.200").status_code for _ in range(61)]
+    assert browser[:60] == [303] * 60 and browser[60] == 429
+
+
+def test_one_click_has_a_global_ceiling(client, nlenv, monkeypatch):
+    monkeypatch.setattr(api, "ONE_CLICK_HOURLY_CEILING", 3)
+    url = "/api/v1/newsletter/unsubscribe?token=" + "0" * 32 + "." + "a" * 43
+    codes = [client.post(url, content=b"List-Unsubscribe=One-Click", headers={
+        "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": f"203.0.113.{i}"}).status_code
+        for i in range(4)]
+    assert codes == [400, 400, 400, 429]
+
+
+def test_confirm_reads_the_token_from_the_form_body_only(client, nlenv):
+    subscribe(client)
+    token = token_from(nlenv.sent[0]["text"], "confirm")
+    resp = client.post(f"/api/v1/newsletter/confirm?token={token}", follow_redirects=False)  # token only in the URL
+    assert resp.status_code == 303 and resp.headers["location"].endswith("result=invalid")
+    resp = client.post(f"/api/v1/newsletter/confirm?token={token}", data={"token": ""}, follow_redirects=False)
+    assert resp.headers["location"].endswith("result=invalid")
+    assert nlenv.store.by_email("reader@example.com")["status"] == "pending" and nlenv.brevo.calls == []
+    assert act(client, "confirm", token).headers["location"].endswith("result=ok")  # the body is what counts
+
+
+@pytest.mark.parametrize("text", ["The NDPC approved new guidance on breach reporting.",
+                                  "How to meet the NDPA filing date", "The regulator has approved the new forms.",
+                                  "Teams must meet the annual audit deadline."])
+def test_ordinary_regulation_news_is_allowed(client, nlenv, text):
+    assert nl.banned_claim(text) is None
+    sec = {**_section(type="regulation", sources=[{"title": "NDPC notice", "url": "https://ndpc.gov.ng/a"}]), "heading": "NDPC update",
+           "body": text}
+    assert post_draft(client, good_draft(sections=[sec])).status_code == 201
+
+
+@pytest.mark.parametrize("text", ["Approved by Cyphward", "Cyphward approved your setup", "Your setup meets the NDPA",
+                                  "This meets the requirement deadline", "The NDPC approved; you are compliant"])
+def test_allow_list_does_not_open_claims(text):
+    assert nl.banned_claim(text)

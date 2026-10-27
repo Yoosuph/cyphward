@@ -62,6 +62,8 @@ SUBSCRIBE_ACCEPTED = {
 # Subscribe and confirm answer no sooner than this, so a fast path cannot be told from a slow one.
 MIN_RESPONSE_SECONDS = 0.35
 _MAX_DRAFT_BYTES = 64 * 1024
+# RFC 8058 one-click unsubscribes across all senders per hour (no per-IP cap; see unsubscribe()).
+ONE_CLICK_HOURLY_CEILING = 20000
 
 
 def require_enabled() -> nl.Settings:
@@ -262,9 +264,14 @@ async def unsubscribe_page(request: Request, token: str = Query("", max_length=2
 async def unsubscribe(request: Request, background: BackgroundTasks, token: str = Query("", max_length=200),
                       s: nl.Settings = Depends(require_enabled)):
     """The page's button (token in the form body) or RFC 8058 one-click (token in the List-Unsubscribe URL)."""
-    await run_in_threadpool(check_rate_limit, f"newsletter:unsubscribe:ip:{_ip_bucket(request)}", 60, 3600)
     fields = await _form_fields(request)
     one_click = fields.get("List-Unsubscribe") == "One-Click"
+    if one_click:
+        # Mail providers send these from a few shared servers, so there is no per-IP cap: the token authorises the
+        # request. A generous global ceiling still bounds the database work.
+        await run_in_threadpool(check_rate_limit, "newsletter:unsubscribe:one-click:all", ONE_CLICK_HOURLY_CEILING, 3600)
+    else:
+        await run_in_threadpool(check_rate_limit, f"newsletter:unsubscribe:ip:{_ip_bucket(request)}", 60, 3600)
     result = await run_in_threadpool(nl.store().unsubscribe, fields.get("token") or token)
     if result.outcome in ("unsubscribed", "already") and result.email:
         background.add_task(_remove_from_list, s, result.email)

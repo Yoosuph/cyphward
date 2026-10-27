@@ -241,18 +241,31 @@ _URL_RE = re.compile(
 )
 
 
+# Ordinary regulation-news wording that the shared C6 filter would otherwise refuse: a named public body
+# approving something ("The NDPC approved new guidance"), and meeting a date ("meet the NDPA filing date").
+# Only these exact shapes are set aside, and only for the C6 pass; the brief's own list above is checked first on
+# the whole text, so "meets the requirement" and the rest stay refused.
+_ALLOWED_NEWS = re.compile(
+    r"\b(?:the\s+)?(?:ndpc|nitda|cbn|sec|ncc|regulator|regulators|commission|government|ministry|minister|"
+    r"national\s+assembly|senate|parliament|court|agency|authority)\s+(?:has\s+|have\s+|had\s+)?approved\b"
+    r"|\bmeet(?:s|ing)?\s+the\s+(?:[a-z0-9]+\s+){0,3}(?:date|dates|deadline|deadlines|timeline|timelines)\b",
+    re.IGNORECASE,
+)
+
+
 def banned_claim(text: str) -> Optional[str]:
     """The claim wording in this text, or None.
 
     Two checks: the brief's list as whole words, then the product's shared C6 filter (practitioner.violation),
     which also catches complies/conforms/approved/sufficient and disguises such as accents, look-alike letters,
-    digits for letters and split-up words.
+    digits for letters and split-up words. Before the C6 pass, the newsletter allow-list (_ALLOWED_NEWS) sets aside
+    ordinary regulation-news wording.
     """
     normalised = unicodedata.normalize("NFKC", text or "")
     m = _BANNED_RE.search(normalised)
     if m:
         return m.group(0)
-    return c6_violation(normalised)
+    return c6_violation(_ALLOWED_NEWS.sub(" ", normalised))
 
 
 def _screen_text(value: str, *, multiline: bool = False) -> str:
