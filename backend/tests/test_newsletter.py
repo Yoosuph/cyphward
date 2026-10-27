@@ -979,7 +979,25 @@ def test_ordinary_regulation_news_is_allowed(client, nlenv, text):
     assert post_draft(client, good_draft(sections=[sec])).status_code == 201
 
 
-@pytest.mark.parametrize("text", ["Approved by Cyphward", "Cyphward approved your setup", "Your setup meets the NDPA",
-                                  "This meets the requirement deadline", "The NDPC approved; you are compliant"])
+ALLOW_LIST_CLAIMS = [
+    "Approved by Cyphward", "Cyphward approved your setup", "Your setup meets the NDPA",
+    "This meets the requirement deadline", "The NDPC approved; you are compliant",
+    "The NDPC approved your setup", "The NDPC approved Cyphward", "Regulators approved this product",
+    "The commission has approved your organisation", "The regulator approved your security programme",
+    "Your organisation meets the NDPA compliance deadline", "Cyphward customers meet the NDPC filing deadline",
+    "meet the conforming sufficient deadline", "The NDPC approved the new platform", "You meet the NDPA filing date",
+    "The regulator approved new guidance and your setup is compliant",
+]
+
+
+@pytest.mark.parametrize("text", ALLOW_LIST_CLAIMS + [t.replace(" ", "\u00a0") for t in ALLOW_LIST_CLAIMS]
+                         + [t.replace(" ", "  ") for t in ALLOW_LIST_CLAIMS])
 def test_allow_list_does_not_open_claims(text):
     assert nl.banned_claim(text)
+
+
+@pytest.mark.parametrize("text", ["The NDPC approved new guidance", "How to meet the NDPA filing date",
+                                  "The\u00a0NDPC  approved new\u00a0guidance", "The regulator has approved the new forms",
+                                  "The commission approved revised regulations"])
+def test_allow_list_keeps_ordinary_news(text):
+    assert nl.banned_claim(text) is None

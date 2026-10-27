@@ -241,16 +241,63 @@ _URL_RE = re.compile(
 )
 
 
-# Ordinary regulation-news wording that the shared C6 filter would otherwise refuse: a named public body
-# approving something ("The NDPC approved new guidance"), and meeting a date ("meet the NDPA filing date").
-# Only these exact shapes are set aside, and only for the C6 pass; the brief's own list above is checked first on
-# the whole text, so "meets the requirement" and the rest stay refused.
-_ALLOWED_NEWS = re.compile(
-    r"\b(?:the\s+)?(?:ndpc|nitda|cbn|sec|ncc|regulator|regulators|commission|government|ministry|minister|"
-    r"national\s+assembly|senate|parliament|court|agency|authority)\s+(?:has\s+|have\s+|had\s+)?approved\b"
-    r"|\bmeet(?:s|ing)?\s+the\s+(?:[a-z0-9]+\s+){0,3}(?:date|dates|deadline|deadlines|timeline|timelines)\b",
-    re.IGNORECASE,
-)
+# Ordinary regulation-news wording that the shared C6 filter would otherwise refuse, set aside one TRIGGER WORD at a
+# time (never a whole phrase), so C6 still reads every other word of the sentence:
+#   "approved": only when a public body approved it ("The NDPC [has] approved [new] guidance") and the next noun
+#               is a legal instrument. Never when a refused word follows ("approved your setup", "approved Cyphward").
+#   "meet":     only the plain verb (not meets/meeting) before "the ... date/deadline/timeline", and never when the
+#               subject is you, your, customers, Cyphward or an organisation ("Cyphward customers meet the ...").
+_NEWS_WORD = re.compile(r"[A-Za-z0-9']+")
+_PUBLIC_BODIES = frozenset({"ndpc", "nitda", "cbn", "sec", "ncc", "regulator", "regulators", "commission", "government",
+                            "ministry", "minister", "assembly", "senate", "parliament", "court", "agency", "authority"})
+_INSTRUMENTS = frozenset({"guidance", "guidelines", "regulation", "regulations", "rules", "framework", "code", "bill",
+                          "act", "amendment", "amendments", "forms"})
+_INSTRUMENT_MODIFIERS = frozenset({"a", "an", "the", "new", "updated", "revised", "draft", "final", "its", "their"})
+_REFUSED_AFTER_APPROVED = frozenset({"you", "your", "yours", "cyphward", "organisation", "organisations", "organization",
+                                     "organizations", "setup", "product", "products", "platform", "programme", "program",
+                                     "customers", "customer"})
+_REFUSED_MEET_SUBJECTS = frozenset({"you", "your", "yours", "customers", "customer", "cyphward", "organisation",
+                                    "organisations", "organization", "organizations"})
+_DATE_WORDS = frozenset({"date", "dates", "deadline", "deadlines", "timeline", "timelines"})
+
+
+_MEET_FORMS = frozenset({"meet", "meets", "meeting", "met"})
+
+
+def _meet_claim(text: str) -> Optional[str]:
+    """Newsletter-only: any form of "meet" with the reader, Cyphward's customers or an organisation as its subject
+    is a claim, whatever follows ("Cyphward customers meet the NDPC filing deadline")."""
+    low = [w.group(0).lower() for w in _NEWS_WORD.finditer(text)]
+    for i, word in enumerate(low):
+        if word in _MEET_FORMS and set(low[max(0, i - 3):i]) & _REFUSED_MEET_SUBJECTS:
+            return word
+    return None
+
+
+def _set_aside_news_wording(text: str) -> str:
+    words = list(_NEWS_WORD.finditer(text))
+    low = [w.group(0).lower() for w in words]
+    drop = []
+    for i, word in enumerate(low):
+        if word == "approved":
+            j = i - 1
+            if j >= 0 and low[j] in ("has", "have", "had"):
+                j -= 1
+            if j < 0 or low[j] not in _PUBLIC_BODIES:
+                continue
+            k = i + 1
+            while k < len(low) and k - i <= 2 and low[k] in _INSTRUMENT_MODIFIERS:
+                k += 1
+            if k < len(low) and low[k] in _INSTRUMENTS and not set(low[i + 1:k + 1]) & _REFUSED_AFTER_APPROVED:
+                drop.append(words[i].span())
+        elif word == "meet":
+            if set(low[max(0, i - 3):i]) & _REFUSED_MEET_SUBJECTS:
+                continue
+            if i + 1 < len(low) and low[i + 1] == "the" and set(low[i + 2:i + 6]) & _DATE_WORDS:
+                drop.append(words[i].span())
+    for a, b in reversed(drop):
+        text = text[:a] + " " + text[b:]
+    return text
 
 
 def banned_claim(text: str) -> Optional[str]:
@@ -258,14 +305,14 @@ def banned_claim(text: str) -> Optional[str]:
 
     Two checks: the brief's list as whole words, then the product's shared C6 filter (practitioner.violation),
     which also catches complies/conforms/approved/sufficient and disguises such as accents, look-alike letters,
-    digits for letters and split-up words. Before the C6 pass, the newsletter allow-list (_ALLOWED_NEWS) sets aside
-    ordinary regulation-news wording.
+    digits for letters and split-up words. Before the C6 pass, the newsletter allow-list (_set_aside_news_wording)
+    removes only the trigger word of two ordinary regulation-news shapes; every other word is still checked.
     """
     normalised = unicodedata.normalize("NFKC", text or "")
     m = _BANNED_RE.search(normalised)
     if m:
         return m.group(0)
-    return c6_violation(_ALLOWED_NEWS.sub(" ", normalised))
+    return _meet_claim(normalised) or c6_violation(_set_aside_news_wording(normalised))
 
 
 def _screen_text(value: str, *, multiline: bool = False) -> str:

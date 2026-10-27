@@ -157,11 +157,13 @@ A successful request returns `201 {"id": "<uuid>", "status": "draft", "created_a
   - No template markers (`{{ }}`, `{% %}`).
   - None of these claim words or phrases, matched as whole words, in any case, with plain inflections: compliant, certified, certification, satisfies, adequate, guarantee, passes audit, compliance score, meets the requirement, is met, fully compliant, is compliant.
   - Nothing that the product's shared C6 filter (`backend/app/compliance/practitioner.py`) refuses. That filter also catches, among others, complies, conforms, approved, sufficient, "in line with" and "NDPA ready". It sees through accents, look-alike letters, digits used as letters and split-up words.
-  - A newsletter-only allow-list (`_ALLOWED_NEWS` in `backend/app/core/newsletter.py`) lets two ordinary regulation-news shapes past the C6 check:
-    - a named public body approving something, e.g. "The NDPC approved new guidance";
-    - meeting a date, e.g. "How to meet the NDPA filing date".
+  - A newsletter-only allow-list (`_set_aside_news_wording` in `backend/app/core/newsletter.py`) lets two ordinary regulation-news shapes past the C6 check. It removes only the trigger word, so C6 still checks every other word:
+    - **"approved"** passes only when a public body approved it and the next noun is an instrument: guidance, guidelines, regulation(s), rules, framework, code, bill, act, amendment or forms. An example is "The NDPC approved new guidance".
+    - **"meet"** passes only as the plain verb before "the … date/deadline/timeline", and never with you, your, customers, Cyphward or an organisation as the subject. An example is "How to meet the NDPA filing date".
 
-    Everything else C6 refuses stays refused, including "Approved by Cyphward" and "meets the NDPA".
+    "The NDPC approved your setup", "Regulators approved this product", "meets the NDPA" and "Cyphward customers meet the NDPC filing deadline" stay refused.
+
+    Separately, the newsletter also refuses any form of "meet" whose subject is you, your, customers, Cyphward or an organisation, whatever follows.
 
 ## Operations runbook
 
