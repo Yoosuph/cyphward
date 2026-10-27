@@ -21,15 +21,25 @@ Double opt-in sign-up, GrokBot drafts, and admin-approved sends through Brevo. T
 
    Rate limits: 10 requests per hour per IP, which returns 429. Three confirmation emails per hour per address; beyond that the request is dropped silently and still gets the same 202. Bucket keys hold hashes, not addresses or IPs.
 
-2. **Confirmation email.** It is sent from `news@cyphward.com` through the existing mailer, with the sender passed as a parameter and the mailer's list-2 campaign fallback switched off. It carries the confirm link, which is valid for 72 hours, a one-click unsubscribe link and the postal line. It adds no images and no tracking.
+2. **Confirmation email.** It is sent from `news@cyphward.com` through the existing mailer, with the sender passed as a parameter and the mailer's list-2 campaign fallback switched off. It carries:
+   - the confirm link, valid for 72 hours;
+   - an unsubscribe link;
+   - the postal line;
+   - RFC 8058 `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers pointing at the unsubscribe endpoint.
 
-3. **Confirm** (`GET /api/v1/newsletter/confirm?token=`). The address becomes `confirmed` and is added to the Brevo newsletter list, with its unsubscribe token in the contact attribute. The visitor is redirected to `/newsletter/confirmed?result=ok|expired|invalid`. An unconfirmed address is never put on the list.
+   It adds no images and no tracking.
+
+   **Links never act on a GET.** Mail scanners and link previews open links, so a GET on a confirm or unsubscribe link changes nothing. It shows a small page whose button POSTs the token in the form body, and the POST does the work. The page sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and a CSP without scripts. Access logs mask `token=` values.
+
+3. **Confirm** (`GET` page, then `POST /api/v1/newsletter/confirm` with the token in the body). The address becomes `confirmed` and is added to the Brevo newsletter list, with its unsubscribe token in the contact attribute. The visitor is redirected to `/newsletter/confirmed?result=ok|expired|invalid`. An unconfirmed address is never put on the list.
 
    Rate limits: 30 requests per hour per IP, which returns 429. Ten attempts per hour per subscriber; beyond that the link reads as not working, with no 429 that would point at the address.
 
-4. **Unsubscribe** (`GET /api/v1/newsletter/unsubscribe?token=`). One click, no sign-in. The address becomes `unsubscribed` at once and is removed from the Brevo list. The visitor is redirected to `/newsletter/unsubscribed?result=ok|invalid`. The address receives nothing more unless it subscribes again; a new subscription starts a new double opt-in and retires the old links.
+4. **Unsubscribe** (`GET` page, then `POST /api/v1/newsletter/unsubscribe`). One button, no sign-in. Mail providers using RFC 8058 POST `List-Unsubscribe=One-Click` to the same URL, with the token in its query string, and get a plain 200. The address becomes `unsubscribed` at once and is removed from the Brevo list. The visitor is redirected to `/newsletter/unsubscribed?result=ok|invalid`. The address receives nothing more unless it subscribes again; a new subscription starts a new double opt-in and retires the old links.
 
    The unsubscribe token is derived with HMAC from `NEWSLETTER_TOKEN_SECRET`, the subscriber id and a generation number. The same link therefore works in the confirmation email and in every issue. Issues get it through the Brevo contact attribute (`{{ contact.CW_UNSUB_TOKEN }}`).
+
+   **Mail headers on issues.** Brevo's campaign API has no option for custom mail headers; it offers only `header`/`footer` HTML and `unsubscriptionPageId`. Cyphward therefore cannot put its own `List-Unsubscribe` header on campaigns. Brevo adds its own List-Unsubscribe to marketing campaigns, pointing at Brevo's unsubscribe. A Brevo-side unsubscribe blocks the contact in Brevo at once, and the next send's reconciliation marks it unsubscribed here. Check the actual headers on the first test-send.
 
 5. **Drafts.** GrokBot creates drafts with `POST /api/v1/newsletter/drafts`. The draft key can create drafts and do nothing else.
 
@@ -146,6 +156,7 @@ A successful request returns `201 {"id": "<uuid>", "status": "draft", "created_a
   - No control or invisible characters, such as zero-width or bidi controls.
   - No template markers (`{{ }}`, `{% %}`).
   - None of these claim words or phrases, matched as whole words, in any case, with plain inflections: compliant, certified, certification, satisfies, adequate, guarantee, passes audit, compliance score, meets the requirement, is met, fully compliant, is compliant.
+  - Nothing that the product's shared C6 filter (`backend/app/compliance/practitioner.py`) refuses. That filter also catches, among others, complies, conforms, approved, sufficient, "in line with" and "NDPA ready". It sees through accents, look-alike letters, digits used as letters and split-up words.
 
 ## Operations runbook
 

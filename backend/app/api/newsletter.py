@@ -10,14 +10,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import html
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
@@ -33,6 +36,23 @@ from backend.app.services.mailer import send_email_async
 logger = logging.getLogger("cyphward.newsletter")
 
 router = APIRouter(prefix="/api/v1/newsletter", tags=["Newsletter"])
+
+
+class _RedactTokens(logging.Filter):
+    """Access logs record the request line; newsletter links carry their token in the query, so it is masked."""
+    _pattern = re.compile(r"(/api/v1/newsletter/[a-z]+\?(?:[^ \"]*&)?token=)[^&\s\"]+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(self._pattern.sub(r"\1REDACTED", a) if isinstance(a, str) else a for a in record.args)
+        elif isinstance(record.msg, str):
+            record.msg = self._pattern.sub(r"\1REDACTED", record.msg)
+        return True
+
+
+ACCESS_LOG_FILTER = _RedactTokens()
+if not any(isinstance(f, _RedactTokens) for f in logging.getLogger("uvicorn.access").filters):
+    logging.getLogger("uvicorn.access").addFilter(ACCESS_LOG_FILTER)
 
 NEWSLETTER_SCOPE = "platform:newsletter"
 SUBSCRIBE_ACCEPTED = {
@@ -97,6 +117,7 @@ async def _send_confirmation(s: nl.Settings, issued: nl.Issued) -> None:
         result = await send_email_async(
             issued.email, mail["subject"], mail["html"], mail["text"],
             recipient_name=issued.email.split("@")[0], sender=s.sender, allow_campaign_fallback=False,
+            mail_headers=mail["headers"],
         )
         if not result.get("success"):
             logger.warning("newsletter confirmation not delivered (subscriber %s)", issued.subscriber_id)
@@ -150,11 +171,67 @@ async def _remove_from_list(s: nl.Settings, email: str) -> None:
         logger.warning("newsletter: removing an unsubscribed address from the list failed: %s", exc)
 
 
+# Email links are opened by mail scanners and link previewers, so a GET never changes anything: it shows a small
+# page whose button POSTs the token in the form body. RFC 8058 one-click (List-Unsubscribe-Post) POSTs to the
+# unsubscribe URL itself, with the token in its query string.
+_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; "
+             "base-uri 'none'")
+_PAGE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex",
+                 "Content-Security-Policy": _PAGE_CSP}
+_PAGES = {
+    "confirm": ("Confirm your subscription", "Press the button to start receiving the Cyphward newsletter.",
+                "Confirm subscription"),
+    "unsubscribe": ("Unsubscribe", "Press the button to stop the Cyphward newsletter for this address. "
+                    "No sign-in is needed.", "Unsubscribe"),
+}
+
+
+def _action_page(kind: str, token: str) -> HTMLResponse:
+    title, lede, button = _PAGES[kind]
+    page = (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\">"
+        f"<title>{html.escape(title)} - Cyphward</title><style>"
+        "body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;color:#111827}"
+        "main{max-width:480px;margin:12vh auto;padding:28px 24px;background:#fff;border-radius:8px}"
+        "h1{font-size:22px;margin:0 0 12px}p{font-size:15px;line-height:1.6;margin:0 0 20px}"
+        "button{min-height:44px;min-width:44px;padding:12px 20px;border:0;border-radius:6px;background:#111827;"
+        "color:#fff;font-size:15px;font-weight:bold;cursor:pointer}"
+        "button:focus-visible{outline:3px solid #c63a14;outline-offset:3px}"
+        "</style></head><body><main>"
+        f"<p style=\"font-size:12px;letter-spacing:.08em;color:#4b5563;margin:0 0 8px\">CYPHWARD NEWS</p>"
+        f"<h1>{html.escape(title)}</h1><p>{html.escape(lede)}</p>"
+        f"<form method=\"post\" action=\"/api/v1/newsletter/{kind}\">"
+        f"<input type=\"hidden\" name=\"token\" value=\"{html.escape(token, quote=True)}\">"
+        f"<button type=\"submit\">{html.escape(button)}</button></form>"
+        "</main></body></html>"
+    )
+    return HTMLResponse(page, headers=_PAGE_HEADERS)
+
+
+async def _form_fields(request: Request) -> Dict[str, str]:
+    """application/x-www-form-urlencoded body, read without python-multipart; small bodies only."""
+    raw = await request.body()
+    if len(raw) > 2048:
+        raise HTTPException(status_code=413, detail="Request too large.")
+    fields = parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True, max_num_fields=8)
+    return {k: v[0] for k, v in fields.items() if v}
+
+
 @router.get("/confirm")
-async def confirm(request: Request, background: BackgroundTasks, token: str = Query("", max_length=200),
-                  s: nl.Settings = Depends(require_enabled)):
+async def confirm_page(request: Request, token: str = Query("", max_length=200),
+                       s: nl.Settings = Depends(require_enabled)):
+    await run_in_threadpool(check_rate_limit, f"newsletter:page:ip:{_ip_bucket(request)}", 120, 3600)
+    if nl.token_subscriber_id(token) is None:
+        return _result_redirect(s, "confirmed", "invalid")
+    return _action_page("confirm", token)  # no database change: the button POSTs
+
+
+@router.post("/confirm")
+async def confirm(request: Request, background: BackgroundTasks, s: nl.Settings = Depends(require_enabled)):
     started = time.monotonic()
     await run_in_threadpool(check_rate_limit, f"newsletter:confirm:ip:{_ip_bucket(request)}", 30, 3600)
+    token = (await _form_fields(request)).get("token", "")
     result = nl.ConfirmResult("invalid")
     sid = nl.token_subscriber_id(token)
     if sid is not None:
@@ -173,13 +250,29 @@ async def confirm(request: Request, background: BackgroundTasks, token: str = Qu
 
 
 @router.get("/unsubscribe")
+async def unsubscribe_page(request: Request, token: str = Query("", max_length=200),
+                           s: nl.Settings = Depends(require_enabled)):
+    await run_in_threadpool(check_rate_limit, f"newsletter:page:ip:{_ip_bucket(request)}", 120, 3600)
+    if nl.token_subscriber_id(token) is None:
+        return _result_redirect(s, "unsubscribed", "invalid")
+    return _action_page("unsubscribe", token)  # no database change: the button POSTs
+
+
+@router.post("/unsubscribe")
 async def unsubscribe(request: Request, background: BackgroundTasks, token: str = Query("", max_length=200),
                       s: nl.Settings = Depends(require_enabled)):
+    """The page's button (token in the form body) or RFC 8058 one-click (token in the List-Unsubscribe URL)."""
     await run_in_threadpool(check_rate_limit, f"newsletter:unsubscribe:ip:{_ip_bucket(request)}", 60, 3600)
-    result = await run_in_threadpool(nl.store().unsubscribe, token)
+    fields = await _form_fields(request)
+    one_click = fields.get("List-Unsubscribe") == "One-Click"
+    result = await run_in_threadpool(nl.store().unsubscribe, fields.get("token") or token)
     if result.outcome in ("unsubscribed", "already") and result.email:
         background.add_task(_remove_from_list, s, result.email)
-    return _result_redirect(s, "unsubscribed", "ok" if result.outcome != "invalid" else "invalid")
+    ok = result.outcome != "invalid"
+    if one_click:  # a mail provider, not a person: a plain answer, no redirect
+        return PlainTextResponse("Unsubscribed." if ok else "Link not recognised.", status_code=200 if ok else 400,
+                                 headers={"Cache-Control": "no-store"})
+    return _result_redirect(s, "unsubscribed", "ok" if ok else "invalid")
 
 
 # ---------------------------------------------------------------------------

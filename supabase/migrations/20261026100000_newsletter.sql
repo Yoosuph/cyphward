@@ -119,5 +119,7 @@ REVOKE ALL ON newsletter_issues FROM cyphward_app;
 GRANT SELECT, INSERT ON newsletter_issues TO cyphward_app;
 GRANT UPDATE (status, sent_at, brevo_campaign_id, approved_by, approved_at, send_claimed_at, send_error)
   ON newsletter_issues TO cyphward_app;
+-- The trigger fires for the app role without EXECUTE on its function; nobody but the owner may call it.
+REVOKE ALL ON FUNCTION newsletter_issues_guard() FROM cyphward_app;
 
 COMMIT;

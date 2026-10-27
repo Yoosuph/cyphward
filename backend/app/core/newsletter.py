@@ -35,6 +35,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.app.compliance.practitioner import violation as c6_violation
 from backend.app.core import config, database
 
 CONSENT_WORDING = (
@@ -241,8 +242,17 @@ _URL_RE = re.compile(
 
 
 def banned_claim(text: str) -> Optional[str]:
-    m = _BANNED_RE.search(unicodedata.normalize("NFKC", text or ""))
-    return m.group(0) if m else None
+    """The claim wording in this text, or None.
+
+    Two checks: the brief's list as whole words, then the product's shared C6 filter (practitioner.violation),
+    which also catches complies/conforms/approved/sufficient and disguises such as accents, look-alike letters,
+    digits for letters and split-up words.
+    """
+    normalised = unicodedata.normalize("NFKC", text or "")
+    m = _BANNED_RE.search(normalised)
+    if m:
+        return m.group(0)
+    return c6_violation(normalised)
 
 
 def _screen_text(value: str, *, multiline: bool = False) -> str:
@@ -421,7 +431,8 @@ def render_confirmation(s: Settings, issued: Issued) -> Dict[str, str]:
     subject = "Confirm your Cyphward newsletter subscription"
     intro = ("Someone, hopefully you, asked to receive the Cyphward newsletter at this address: "
              "news about the product, security tips and regulation updates.")
-    act = f"To start receiving it, confirm within {CONFIRM_TTL_HOURS} hours."
+    act = (f"To start receiving it, open the link below within {CONFIRM_TTL_HOURS} hours and press "
+           "the Confirm button on the page it opens.")
     ignore = "If this was not you, ignore this email. Nothing more will be sent unless the address is confirmed."
     rows = (
         "<tr><td style=\"padding:8px 28px 4px;font-size:22px;font-weight:bold\">Confirm your subscription</td></tr>"
@@ -437,7 +448,12 @@ def render_confirmation(s: Settings, issued: Issued) -> Dict[str, str]:
         f"{intro}\n\n{act}\n\nConfirm: {c_url}\n\n{ignore}\n\n"
         f"Unsubscribe in one click: {u_url}\n{s.postal_line}\n"
     )
-    return {"subject": subject, "html": html_body, "text": text}
+    return {"subject": subject, "html": html_body, "text": text, "headers": list_unsubscribe_headers(u_url)}
+
+
+def list_unsubscribe_headers(unsub_url: str) -> Dict[str, str]:
+    """RFC 8058 one-click: mail providers POST "List-Unsubscribe=One-Click" to this URL."""
+    return {"List-Unsubscribe": f"<{unsub_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
 
 
 def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] = None) -> Dict[str, str]:

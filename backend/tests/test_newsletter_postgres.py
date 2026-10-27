@@ -5,14 +5,17 @@ unsubscribe, the send-once claim under a real race, the trigger and column grant
 issue sent, and the privileges: no DELETE for the app role, nothing at all for anon/authenticated.
 The app role cannot delete, so every test uses fresh addresses and never counts rows it did not make.
 """
+import os
 import re
 import threading
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 
 import backend.app.api.newsletter as api
@@ -81,6 +84,10 @@ def subscribe(pg, address):
     return resp
 
 
+def act(pg, kind, token):
+    return pg.post(f"/api/v1/newsletter/{kind}", data={"token": token}, follow_redirects=False)
+
+
 def test_double_opt_in_end_to_end_with_hashes_only(pg):
     address = email()
     subscribe(pg, address)
@@ -94,12 +101,12 @@ def test_double_opt_in_end_to_end_with_hashes_only(pg):
     assert re.fullmatch(r"s1\$[0-9a-f]{32}\$[0-9a-f]{64}", row["confirm_token_hash"])
     assert pg.brevo.calls == []
 
-    resp = pg.get(f"/api/v1/newsletter/confirm?token={confirm}", follow_redirects=False)
+    resp = act(pg, "confirm", confirm)
     assert resp.headers["location"] == f"{BASE}/newsletter/confirmed?result=ok"
     assert row_for(pg, address)["status"] == "confirmed"
     assert pg.brevo.contacts[address]["attributes"]["CW_UNSUB_TOKEN"] == unsub
 
-    resp = pg.get(f"/api/v1/newsletter/unsubscribe?token={unsub}", follow_redirects=False)
+    resp = act(pg, "unsubscribe", unsub)
     assert resp.headers["location"] == f"{BASE}/newsletter/unsubscribed?result=ok"
     final = row_for(pg, address)
     assert final["status"] == "unsubscribed" and final["unsubscribed_at"] and final["confirm_token_hash"] is None
@@ -111,7 +118,7 @@ def test_expired_link_does_not_confirm(pg):
     subscribe(pg, address)
     pg.conn.execute("UPDATE newsletter_subscribers SET confirm_expires_at = now() - interval '1 minute' "
                     "WHERE email_normalised = %s", (address,))
-    resp = pg.get(f"/api/v1/newsletter/confirm?token={token_from(pg.sent[-1]['text'], 'confirm')}", follow_redirects=False)
+    resp = act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
     assert resp.headers["location"].endswith("result=expired")
     assert row_for(pg, address)["status"] == "pending"
 
@@ -127,7 +134,7 @@ def test_expiry_is_72_hours(pg):
 def test_a_confirmed_address_is_left_untouched(pg):
     address = email()
     subscribe(pg, address)
-    pg.get(f"/api/v1/newsletter/confirm?token={token_from(pg.sent[-1]['text'], 'confirm')}")
+    act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
     before = row_for(pg, address)
     sent_before = len(pg.sent)
     subscribe(pg, address)
@@ -161,7 +168,7 @@ def _draft(pg, **over):
 def test_send_once_through_the_api_with_audit(pg):
     address = email()
     subscribe(pg, address)
-    pg.get(f"/api/v1/newsletter/confirm?token={token_from(pg.sent[-1]['text'], 'confirm')}")
+    act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
     iid = _draft(pg)
     origin = {"Origin": "https://admin.cyphward.test"}
     resp = pg.post(f"/api/v1/newsletter/drafts/{iid}/send", json={"approve": True, "subject": "Cyphward notes for October"},
@@ -231,21 +238,95 @@ def test_the_app_role_never_deletes(pg):
         pg.conn.execute("TRUNCATE newsletter_subscribers")
 
 
-def test_public_roles_have_no_access(pg):
-    for role in ("anon", "authenticated", "public"):
-        for table in ("newsletter_subscribers", "newsletter_issues"):
-            for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"):
-                if role == "public":
-                    granted = pg.conn.execute(
-                        "SELECT count(*) AS n FROM information_schema.role_table_grants "
-                        "WHERE grantee = 'PUBLIC' AND table_name = %s", (table,)).fetchone()["n"] > 0
-                else:
-                    granted = pg.conn.execute("SELECT has_table_privilege(%s, %s, %s) AS g",
-                                              (role, table, privilege)).fetchone()["g"]
-                assert not granted, (role, table, privilege)
-    rls = {r["relname"]: r["relrowsecurity"] for r in pg.conn.execute(
-        "SELECT relname, relrowsecurity FROM pg_class WHERE relname IN ('newsletter_subscribers', 'newsletter_issues')")}
-    assert rls == {"newsletter_subscribers": True, "newsletter_issues": True}
+MIGRATION = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261026100000_newsletter.sql"
+TABLES = ("newsletter_subscribers", "newsletter_issues")
+GUARD = "newsletter_issues_guard()"
+EXPECTED_TABLE_PRIVILEGES = {
+    ("cyphward_app", "newsletter_subscribers", "INSERT"), ("cyphward_app", "newsletter_subscribers", "SELECT"),
+    ("cyphward_app", "newsletter_subscribers", "UPDATE"),
+    ("cyphward_app", "newsletter_issues", "INSERT"), ("cyphward_app", "newsletter_issues", "SELECT"),
+}
+EXPECTED_ISSUE_UPDATE_COLUMNS = {"status", "sent_at", "brevo_campaign_id", "approved_by", "approved_at",
+                                 "send_claimed_at", "send_error"}
+
+
+@pytest.fixture
+def admin():
+    """The test database's administrator (CI sets it; it is the role that applies migrations)."""
+    url = os.environ.get("CYPHWARD_TEST_DATABASE_ADMIN_URL")
+    if not url:
+        pytest.skip("Set CYPHWARD_TEST_DATABASE_ADMIN_URL to check the migration's grants")
+    info = conninfo_to_dict(url)
+    if info.get("dbname") != "cyphward_test" or info.get("host") not in {"127.0.0.1", "localhost", "::1"}:
+        pytest.fail("Refusing grant checks outside the local cyphward_test database")
+    conn = psycopg.connect(url, row_factory=dict_row, autocommit=True)
+    try:
+        yield conn
+    finally:
+        conn.execute(MIGRATION.read_text())  # always leave the real grants in place
+        conn.close()
+
+
+def _supabase_defaults(admin):
+    """What Supabase's default privileges hand out on a new table, plus an over-broad app grant to take back."""
+    for table in TABLES:
+        for role in ("PUBLIC", "anon", "authenticated", "cyphward_app"):
+            admin.execute(f"GRANT ALL ON {table} TO {role}")
+    for role in ("PUBLIC", "anon", "authenticated", "cyphward_app"):
+        admin.execute(f"GRANT EXECUTE ON FUNCTION {GUARD} TO {role}")
+
+
+def _grant_problems(admin):
+    """Every privilege that differs from the intended list, read from the catalogue as the administrator."""
+    owner_and_admin = {"postgres", "service_role", "supabase_admin"}
+    rows = admin.execute(
+        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee, "
+        "c.relname, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a WHERE c.relname = ANY(%s)",
+        (list(TABLES),)).fetchall()
+    actual = {(r["grantee"], r["relname"], r["privilege_type"]) for r in rows if r["grantee"] not in owner_and_admin}
+    problems = [f"extra {p}" for p in sorted(actual - EXPECTED_TABLE_PRIVILEGES)]
+    problems += [f"missing {p}" for p in sorted(EXPECTED_TABLE_PRIVILEGES - actual)]
+    cols = admin.execute(
+        "SELECT c.relname, a.attname, CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END AS grantee, "
+        "x.privilege_type FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid, aclexplode(a.attacl) x "
+        "WHERE c.relname = ANY(%s)", (list(TABLES),)).fetchall()
+    col_actual = {(r["grantee"], r["relname"], r["attname"], r["privilege_type"]) for r in cols
+                  if r["grantee"] not in owner_and_admin}
+    col_expected = {("cyphward_app", "newsletter_issues", c, "UPDATE") for c in EXPECTED_ISSUE_UPDATE_COLUMNS}
+    problems += [f"extra column {p}" for p in sorted(col_actual - col_expected)]
+    problems += [f"missing column {p}" for p in sorted(col_expected - col_actual)]
+    fn = admin.execute(
+        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee "
+        "FROM pg_proc p, aclexplode(p.proacl) a WHERE p.proname = 'newsletter_issues_guard'").fetchall()
+    problems += [f"function EXECUTE for {r['grantee']}" for r in fn if r["grantee"] not in owner_and_admin]
+    rls = admin.execute("SELECT relname FROM pg_class WHERE relname = ANY(%s) AND NOT relrowsecurity", (list(TABLES),)).fetchall()
+    problems += [f"RLS off on {r['relname']}" for r in rls]
+    return problems
+
+
+def test_migration_takes_back_supabase_default_grants(pg, admin):
+    _supabase_defaults(admin)
+    assert _grant_problems(admin), "the setup must start from over-broad grants"
+    admin.execute(MIGRATION.read_text())
+    assert _grant_problems(admin) == []
+    for role in ("anon", "authenticated"):
+        for table in TABLES:
+            for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                assert not admin.execute("SELECT has_table_privilege(%s, %s, %s) AS g", (role, table, privilege)).fetchone()["g"]
+
+
+REVOKE_LINES = [line for line in MIGRATION.read_text().splitlines()
+                if "REVOKE ALL" in line and not line.lstrip().startswith("--")]
+
+
+@pytest.mark.parametrize("line", REVOKE_LINES)
+def test_removing_any_revoke_fails_the_grant_check(pg, admin, line):
+    assert len(REVOKE_LINES) == 9
+    mutated = MIGRATION.read_text().replace(line + "\n", "", 1)
+    assert mutated != MIGRATION.read_text()
+    _supabase_defaults(admin)
+    admin.execute(mutated)
+    assert _grant_problems(admin), f"removing this line went unnoticed: {line.strip()}"
 
 
 def test_constraints_refuse_raw_tokens_and_unnormalised_addresses(pg):
@@ -266,3 +347,34 @@ def test_flag_off_on_the_real_database(pg, monkeypatch):
     address = email()
     assert pg.post("/api/v1/newsletter/subscribe", json={"email": address, **CONSENT}).status_code == 404
     assert row_for(pg, address) is None
+
+
+def test_a_get_changes_nothing_on_the_real_database(pg):
+    address = email()
+    subscribe(pg, address)
+    mail = pg.sent[-1]
+    for kind in ("confirm", "unsubscribe"):
+        page = pg.get(f"/api/v1/newsletter/{kind}?token={token_from(mail['text'], kind)}", follow_redirects=False)
+        assert page.status_code == 200 and 'method="post"' in page.text
+    assert row_for(pg, address)["status"] == "pending" and pg.brevo.calls == []
+    act(pg, "confirm", token_from(mail["text"], "confirm"))
+    assert row_for(pg, address)["status"] == "confirmed"
+
+
+def test_claim_condition_alone_on_the_real_database(pg, monkeypatch):
+    store = nl.PostgresNewsletterStore()
+    actor = {"kind": "owner", "user_id": OWNER_ID}
+    claimed = _draft(pg)
+    assert store.claim_issue(claimed, actor) is not None
+    assert store.claim_issue(claimed, actor) is None  # already claimed
+    sent = _draft(pg)
+    pg.conn.execute("UPDATE newsletter_issues SET send_claimed_at = now(), brevo_campaign_id = '9', status = 'sent', "
+                    "sent_at = now() WHERE id = %s", (sent,))
+    assert store.claim_issue(sent, actor) is None  # sent
+    # The route's pre-check sees a stale "draft, unclaimed" copy; the claim still refuses and nothing reaches Brevo.
+    stale = store.get_issue(claimed)
+    stale["send_claimed_at"] = None
+    monkeypatch.setattr(nl.PostgresNewsletterStore, "get_issue", lambda self, _id: dict(stale))
+    resp = pg.post(f"/api/v1/newsletter/drafts/{claimed}/send", json={"approve": True, "subject": "Cyphward notes for October"},
+                   headers={"Origin": "https://admin.cyphward.test"})
+    assert resp.status_code == 409 and pg.brevo.calls == []
