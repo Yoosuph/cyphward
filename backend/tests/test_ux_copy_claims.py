@@ -31,6 +31,10 @@ FILES = (
     "components/ui/DateTimeField.tsx",
     "components/ui/StatePanels.tsx",
     "lib/datetime.ts",
+    "components/NewsletterSubscribe.tsx",
+    "pages/Newsletter.tsx",
+    "pages/NewsletterResult.tsx",
+    "lib/newsletter.ts",
 )
 
 

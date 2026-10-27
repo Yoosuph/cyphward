@@ -145,3 +145,23 @@ DEFAULT_EMAIL_SENDER_KIND = "system"
 # Inbox for the public contact form. The address shown on the site is
 # info@cyphward.com; delivery goes here so a person reads it.
 CONTACT_INBOX = os.getenv("CONTACT_INBOX", "cyphward@gmail.com")
+
+# Newsletter (docs/newsletter/README.md). Off by default: with the flag off every
+# /api/v1/newsletter endpoint returns 404. Turning it on without the list id, the
+# postal line, the token secret or a Brevo API key also leaves it off (fails closed).
+# The newsletter sender is passed to the mailer explicitly; it is not an
+# EMAIL_SENDERS kind, so transactional mail can never pick it by accident.
+NEWSLETTER_ENABLED = os.getenv("NEWSLETTER_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+NEWSLETTER_SENDER: Tuple[str, str] = ("Cyphward News", "news@cyphward.com")
+# Only GrokBot holds this key; it can create drafts and nothing else.
+NEWSLETTER_DRAFT_API_KEY = os.getenv("NEWSLETTER_DRAFT_API_KEY", "")
+# Keys the derived unsubscribe tokens (so issues can carry a per-subscriber link). At least 32 characters.
+NEWSLETTER_TOKEN_SECRET = os.getenv("NEWSLETTER_TOKEN_SECRET", "")
+# The Brevo contact list that holds confirmed subscribers only. Never list 2 (the mailer's transactional fallback).
+NEWSLETTER_BREVO_LIST_ID = os.getenv("NEWSLETTER_BREVO_LIST_ID", "").strip()
+# The Brevo contact attribute (type text) that carries each subscriber's unsubscribe token into campaigns.
+NEWSLETTER_BREVO_UNSUB_ATTRIBUTE = os.getenv("NEWSLETTER_BREVO_UNSUB_ATTRIBUTE", "CW_UNSUB_TOKEN").strip()
+# The sender's postal/contact line printed at the foot of every newsletter email.
+NEWSLETTER_POSTAL_LINE = os.getenv("NEWSLETTER_POSTAL_LINE", "").strip()
+# Public site that serves /newsletter/* pages and proxies /api/* to this API.
+NEWSLETTER_PUBLIC_BASE_URL = os.getenv("NEWSLETTER_PUBLIC_BASE_URL", "https://cyphward.com").strip().rstrip("/")

@@ -43,6 +43,7 @@ from backend.app.api import (
     packs,
     billing,
     contact,
+    newsletter,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -161,6 +162,7 @@ app.include_router(snapshots.router)
 app.include_router(packs.router)
 app.include_router(billing.router)
 app.include_router(contact.router)
+app.include_router(newsletter.router)
 
 # ---------------------------------------------------------------------------
 # Startup recovery for legacy unleased local work. New local/Core executions

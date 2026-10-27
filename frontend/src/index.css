@@ -1229,6 +1229,26 @@ body.drawer-open {
 .contact-sheet .c-field textarea:focus{outline:none; border-color:var(--accent)}
 .contact-honey{position:absolute; left:-10000px; width:1px; height:1px; overflow:hidden}
 .contact-error{color:var(--accent); font-size:14px; margin-bottom:12px}
+/* Newsletter sign-up (landing footer and /newsletter) */
+.footer-newsletter{padding:32px 0; border-bottom:1px solid var(--line)}
+.footer-newsletter:empty{display:none}
+.newsletter-box{max-width:560px}
+.newsletter-heading{font-family:var(--font-mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink); margin:0 0 8px}
+.newsletter-lede{font-size:14px; color:var(--soft); line-height:1.6; margin:0 0 16px}
+.newsletter-form{display:flex; flex-direction:column; gap:10px}
+.newsletter-label{font-family:var(--font-mono); font-size:11px; letter-spacing:.12em; color:var(--soft)}
+.newsletter-input{width:100%; min-height:44px; background:var(--inset); border:1px solid var(--line-strong); border-radius:4px; color:var(--ink); padding:10px 14px; font:inherit; font-size:16px}
+.newsletter-input:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent)}
+.newsletter-input[aria-invalid="true"]{border-color:var(--accent)}
+.newsletter-consent{display:flex; align-items:flex-start; gap:12px; min-height:44px; padding:6px 0; font-size:14px; line-height:1.5; color:var(--ink); cursor:pointer}
+.newsletter-consent input{flex:none; width:22px; height:22px; margin-top:1px; accent-color:var(--accent-fill); cursor:pointer}
+.newsletter-consent input:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.newsletter-error{color:var(--accent); font-size:14px; margin:0}
+.newsletter-submit{align-self:flex-start; min-width:44px; justify-content:center}
+.newsletter-submit:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.newsletter-done{display:flex; align-items:flex-start; gap:10px; font-size:14px; line-height:1.6; color:var(--ink)}
+.newsletter-done p{margin:0}
+@media (max-width:640px){ .newsletter-submit{align-self:stretch} }
 .contact-sent h2{font-family:var(--font-display); font-weight:500; font-size:clamp(2.2rem,4vw,3.2rem); letter-spacing:-.03em; line-height:1; margin:0 0 12px}
 .contact-sent p{color:var(--soft); font-size:16px}
 @media (max-width:640px){
