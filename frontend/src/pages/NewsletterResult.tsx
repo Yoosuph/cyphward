@@ -8,17 +8,17 @@ const COPY: Record<Kind, Record<string, { eyebrow: string; title: string; lede: 
     ok: {
       eyebrow: 'SUBSCRIPTION CONFIRMED',
       title: 'You are subscribed.',
-      lede: 'Thank you for confirming. The next issue will come from news@cyphward.com, and every issue has a one-click unsubscribe link.',
+      lede: 'Thank you. The next issue will come from news@cyphward.com, about once a month, and every issue has a one-click unsubscribe link.',
     },
     expired: {
       eyebrow: 'LINK EXPIRED',
       title: 'That link has expired.',
-      lede: 'Confirmation links work for 72 hours. Subscribe again and we will send a new one.',
+      lede: 'This is an older confirmation link. There is no link to click any more: subscribe again and you are subscribed straight away.',
     },
     invalid: {
       eyebrow: 'LINK NOT RECOGNISED',
       title: 'That link did not work.',
-      lede: 'It may have been replaced by a newer email or already used to unsubscribe. Subscribe again to get a fresh link.',
+      lede: 'It may come from an older email or have been used to unsubscribe. Subscribing again takes one step and needs no link.',
     },
   },
   unsubscribed: {
@@ -35,7 +35,7 @@ const COPY: Record<Kind, Record<string, { eyebrow: string; title: string; lede: 
   },
 };
 
-/** /newsletter/confirmed and /newsletter/unsubscribed: where the email links land (no sign-in). */
+/** /newsletter/confirmed (older confirm links only) and /newsletter/unsubscribed: where email links land (no sign-in). */
 export default function NewsletterResult({ kind }: { kind: Kind }) {
   const [params] = useSearchParams();
   const result = params.get('result') || 'invalid';

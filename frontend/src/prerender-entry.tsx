@@ -15,6 +15,7 @@ import Scanner from './pages/Scanner';
 import Teams from './pages/Teams';
 import Contact from './pages/Contact';
 import Health from './pages/Health';
+import Newsletter from './pages/Newsletter';
 
 export function render(url: string): string {
   return renderToString(
@@ -29,6 +30,7 @@ export function render(url: string): string {
         <Route path="/teams" element={<Teams />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/health" element={<Health />} />
+        <Route path="/newsletter" element={<Newsletter />} />
       </Routes>
     </StaticRouter>
   );

@@ -1,6 +1,7 @@
 """Newsletter endpoints (docs/newsletter/README.md). Every route returns 404 while the feature is off.
 
-Public:   POST /subscribe (always the same 202), GET /confirm, GET /unsubscribe (one click), GET /status
+Public:   POST /subscribe (single opt-in; always the same 202), GET /unsubscribe (one click), GET /status,
+          GET /confirm (kept only for links sent under the earlier double opt-in)
 GrokBot:  POST /drafts with NEWSLETTER_DRAFT_API_KEY (creates drafts; nothing else)
 Admin:    GET /drafts (preview) and POST /drafts/{id}/send (explicit approval, once) for the platform owner
           (console cookie) or platform staff holding the platform:newsletter scope.
@@ -55,9 +56,9 @@ if not any(isinstance(f, _RedactTokens) for f in logging.getLogger("uvicorn.acce
     logging.getLogger("uvicorn.access").addFilter(ACCESS_LOG_FILTER)
 
 NEWSLETTER_SCOPE = "platform:newsletter"
+# The same answer for every address state (new, subscribed, unsubscribed, rate-limited, honeypot).
 SUBSCRIBE_ACCEPTED = {
-    "message": "Thank you. If this address can receive the newsletter, a confirmation email is on its way. "
-               "Open the link in it within 72 hours to finish subscribing.",
+    "message": "You are subscribed. We have sent a confirmation email with an unsubscribe link.",
 }
 # Subscribe and confirm answer no sooner than this, so a fast path cannot be told from a slow one.
 MIN_RESPONSE_SECONDS = 0.35
@@ -110,21 +111,35 @@ assert nl.CONSENT_WORDING_VERSION == "2026-10-26.v1"  # keep the Literal above i
 @router.get("/status")
 def newsletter_status(s: nl.Settings = Depends(require_enabled)) -> Dict[str, Any]:
     return {"enabled": True, "consent_wording": nl.CONSENT_WORDING,
-            "consent_wording_version": nl.CONSENT_WORDING_VERSION, "confirm_hours": nl.CONFIRM_TTL_HOURS}
+            "consent_wording_version": nl.CONSENT_WORDING_VERSION}
 
 
-async def _send_confirmation(s: nl.Settings, issued: nl.Issued) -> None:
-    mail = nl.render_confirmation(s, issued)
+async def _send_confirmation(s: nl.Settings, sub: nl.Subscribed) -> None:
+    """The one "you are subscribed" email: at most one per address per 24 hours, checked here (after the
+    response, so the check adds no timing signal). Over the limit, the address stays subscribed and simply
+    gets no second email; every issue carries the unsubscribe link anyway."""
+    try:
+        await run_in_threadpool(check_rate_limit, f"newsletter:confirmation:email:{nl.email_bucket(sub.email)}", 1,
+                                nl.CONFIRMATION_EMAIL_WINDOW_SECONDS)
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
+        return
+    except Exception:
+        # Fail closed: without the check there is no email (the address is subscribed either way).
+        logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
+        return
+    mail = nl.render_confirmation(s, sub)
     try:
         result = await send_email_async(
-            issued.email, mail["subject"], mail["html"], mail["text"],
-            recipient_name=issued.email.split("@")[0], sender=s.sender, allow_campaign_fallback=False,
+            sub.email, mail["subject"], mail["html"], mail["text"],
+            recipient_name=sub.email.split("@")[0], sender=s.sender, allow_campaign_fallback=False,
             mail_headers=mail["headers"],
         )
         if not result.get("success"):
-            logger.warning("newsletter confirmation not delivered (subscriber %s)", issued.subscriber_id)
+            logger.warning("newsletter confirmation not delivered (subscriber %s)", sub.subscriber_id)
     except Exception:
-        logger.warning("newsletter confirmation failed (subscriber %s)", issued.subscriber_id)
+        logger.warning("newsletter confirmation failed (subscriber %s)", sub.subscriber_id)
 
 
 @router.post("/subscribe", status_code=202)
@@ -135,17 +150,20 @@ async def subscribe(body: SubscribeIn, request: Request, background: BackgroundT
     await run_in_threadpool(check_rate_limit, f"newsletter:subscribe:ip:{_ip_bucket(request)}", 10, 3600)
     if not body.website.strip():
         email = nl.normalise_email(str(body.email))
-        issued: Optional[nl.Issued] = None
+        sub: Optional[nl.Subscribed] = None
         try:
             # Per address: silently dropped when exhausted, so the answer never differs by input.
             await run_in_threadpool(check_rate_limit, f"newsletter:subscribe:email:{nl.email_bucket(email)}", 3, 3600)
-            issued = await run_in_threadpool(
+            # Single opt-in: the consent is recorded and the address confirmed in one transaction.
+            sub = await run_in_threadpool(
                 nl.store().subscribe, email, body.consent_wording_version, body.source, s.token_secret)
         except HTTPException as exc:
             if exc.status_code != 429:
                 raise
-        if issued is not None:
-            background.add_task(_send_confirmation, s, issued)  # after the response: no timing signal
+        if sub is not None:
+            # After the response (no timing signal): onto the Brevo list once, then the one confirmation email.
+            background.add_task(_add_to_list, s, sub.email, sub.subscriber_id, sub.generation)
+            background.add_task(_send_confirmation, s, sub)
     await _pad(started)
     return SUBSCRIBE_ACCEPTED
 
@@ -154,14 +172,14 @@ def _result_redirect(s: nl.Settings, page: str, result: str) -> RedirectResponse
     return RedirectResponse(f"{s.base_url}/newsletter/{page}?result={result}", status_code=303)
 
 
-async def _add_to_list(s: nl.Settings, result: nl.ConfirmResult) -> None:
+async def _add_to_list(s: nl.Settings, email: str, subscriber_id: str, generation: int) -> None:
+    """Called only after the row is confirmed with its consent recorded (subscribe, or a legacy confirm link)."""
     try:
         client = newsletter_brevo.get_client(s.list_id, s.unsub_attribute)
-        await client.upsert_list_contact(result.email,
-                                         nl.unsubscribe_token(s.token_secret, result.subscriber_id, result.generation))
+        await client.upsert_list_contact(email, nl.unsubscribe_token(s.token_secret, subscriber_id, generation))
     except Exception as exc:
         # The list is reconciled before every send, so a confirmed address missed here is added then.
-        logger.warning("newsletter: adding confirmed subscriber %s to the list failed: %s", result.subscriber_id, exc)
+        logger.warning("newsletter: adding confirmed subscriber %s to the list failed: %s", subscriber_id, exc)
 
 
 async def _remove_from_list(s: nl.Settings, email: str) -> None:
@@ -229,6 +247,7 @@ async def confirm_page(request: Request, token: str = Query("", max_length=200),
     return _action_page("confirm", token)  # no database change: the button POSTs
 
 
+# Legacy: confirm links sent under the earlier double opt-in. New subscriptions never need it.
 @router.post("/confirm")
 async def confirm(request: Request, background: BackgroundTasks, s: nl.Settings = Depends(require_enabled)):
     started = time.monotonic()
@@ -245,7 +264,7 @@ async def confirm(request: Request, background: BackgroundTasks, s: nl.Settings 
             if exc.status_code != 429:
                 raise
     if result.outcome == "confirmed":
-        background.add_task(_add_to_list, s, result)
+        background.add_task(_add_to_list, s, result.email, result.subscriber_id, result.generation)
     await _pad(started)
     page = {"confirmed": "ok", "already": "ok", "expired": "expired"}.get(result.outcome, "invalid")
     return _result_redirect(s, "confirmed", page)

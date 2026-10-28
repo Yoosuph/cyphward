@@ -23,7 +23,7 @@ export default function Privacy() {
           How we handle <em>your data.</em>
         </>
       }
-      effective="1 October 2026"
+      effective="27 October 2026"
     >
       <Section n="01" heading="Who we are">
         <p>
@@ -69,15 +69,32 @@ export default function Privacy() {
           links, scan reports — is sent through <span className="text-ink">Brevo</span>,
           our email provider. Brevo processes your name, email address, and the message
           content solely to deliver it on our behalf. We never rent or sell mailing
-          lists, and we don't send marketing email unless you opt in.
+          lists, and we don't send marketing email unless you opt in (see Newsletter below).
         </p>
       </Section>
 
-      <Section n="05" heading="Who else touches your data">
+      <Section n="05" heading="Newsletter">
+        <p>
+          You can subscribe to the Cyphward newsletter on the <Link to="/newsletter" className="text-accent underline">newsletter page</Link> or
+          in the site footer. Ticking the consent box and pressing Subscribe subscribes you straight away; we then
+          send one confirmation email saying so.
+        </p>
+        <p><span className="text-ink">What we collect:</span> your email address, the time you gave consent, the wording version of the consent box you ticked, and the source page (the newsletter page or the site footer). Nothing else about you.</p>
+        <p><span className="text-ink">Why:</span> to send you monthly product, security and regulation updates, which is what you agreed to.</p>
+        <p><span className="text-ink">Who processes it:</span> <span className="text-ink">Brevo</span> sends the newsletter from news@cyphward.com and manages the mailing list on our behalf.</p>
+        <p><span className="text-ink">How to withdraw:</span> use the one-click unsubscribe link in every newsletter email, including the confirmation email, or ask us through the <Link to="/contact" className="text-accent underline">contact form</Link>. No sign-in is needed, and you are taken off the list at once.</p>
+        <p><span className="text-ink">How long we keep it:</span> until you unsubscribe. After that we keep only the unsubscribe record, and only as needed to honour the unsubscribe.</p>
+        <p>
+          Cyphward is not a law firm. Regulation updates in the newsletter are general information, not
+          legal advice.
+        </p>
+      </Section>
+
+      <Section n="06" heading="Who else touches your data">
         <p>We use a small set of processors to run the platform:</p>
         <ul className="space-y-1.5 pl-4 list-disc marker:text-accent">
           <li><span className="text-ink">Supabase</span> — hosts our database (your account and scan data)</li>
-          <li><span className="text-ink">Brevo</span> — sends transactional email</li>
+          <li><span className="text-ink">Brevo</span> — sends transactional email and the newsletter, and manages the newsletter list</li>
           <li><span className="text-ink">Google</span> — optional sign-in only</li>
           <li><span className="text-ink">Cloud AI providers</span> — when you ask CyphBot or an “explain finding” action to summarise a finding, the relevant finding text is processed to generate that answer</li>
           <li><span className="text-ink">Hosting &amp; CDN</span> — serves the app and blocks abuse</li>
@@ -90,7 +107,7 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="06" heading="How long we keep it">
+      <Section n="07" heading="How long we keep it">
         <p>
           We keep account data while your account is open. Scan history and findings
           stay while the account is active so your reports remain complete.
@@ -107,7 +124,7 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="07" heading="Security">
+      <Section n="08" heading="Security">
         <p>
           Passwords are stored with argon2id (one-way). Sessions are signed JWTs with
           rotating refresh tokens you can revoke. Traffic is encrypted in transit
@@ -121,7 +138,7 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="08" heading="Your rights">
+      <Section n="09" heading="Your rights">
         <p>
           Under the NDPA 2023 (and similar laws) you can ask us to:
         </p>
@@ -139,7 +156,7 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="09" heading="Cookies and local storage">
+      <Section n="10" heading="Cookies and local storage">
         <p>
           We don't run advertising trackers. We use essential browser storage only:
           to stay signed in, remember your theme (light/dark), and keep your
@@ -147,14 +164,14 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="10" heading="Children">
+      <Section n="11" heading="Children">
         <p>
           Cyphward is built for businesses. It is not directed at children under 16,
           and we do not knowingly collect their data.
         </p>
       </Section>
 
-      <Section n="11" heading="Changes to this policy">
+      <Section n="12" heading="Changes to this policy">
         <p>
           When we make a material change, we will update the date at the top and, for
           significant changes, notify you by email or in the product before the change
@@ -162,7 +179,7 @@ export default function Privacy() {
         </p>
       </Section>
 
-      <Section n="12" heading="Contact">
+      <Section n="13" heading="Contact">
         <p>
           CYPHWARD LTD — Data protection questions:{' '}
           <span className="text-ink mono">privacy@cyphward.com</span>

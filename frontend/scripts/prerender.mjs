@@ -59,6 +59,13 @@ const PAGES = [
     canonical: 'https://cyphward.com/contact',
   },
   {
+    url: '/newsletter',
+    file: 'newsletter/index.html',
+    title: 'Newsletter — Cyphward',
+    description: 'Product news, practical security tips and regulation updates from Cyphward, about once a month. Subscribe in one step; every email has a one-click unsubscribe link.',
+    canonical: 'https://cyphward.com/newsletter',
+  },
+  {
     url: '/health',
     file: 'health/index.html',
     title: 'System Status — Cyphward',

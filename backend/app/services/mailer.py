@@ -988,7 +988,7 @@ async def send_email_async(
     newsletter passes its own verified address this way, so the defaults above
     never change. `allow_campaign_fallback=False` skips the third tier, which
     adds the recipient to a Brevo list and sends a campaign to that whole list:
-    a caller that must not put an address on any list (newsletter double opt-in)
+    a caller that must not put an address on any list (the newsletter confirmation email)
     turns it off. `mail_headers` adds mail headers (e.g. RFC 8058 List-Unsubscribe)
     on the REST and SMTP tiers.
     """

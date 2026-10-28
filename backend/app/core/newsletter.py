@@ -1,4 +1,4 @@
-"""Cyphward newsletter: consent, double opt-in, GrokBot drafts and send-once issues.
+"""Cyphward newsletter: consent, single opt-in, GrokBot drafts and send-once issues.
 
 Rules (docs/newsletter/README.md):
 
@@ -6,13 +6,18 @@ Rules (docs/newsletter/README.md):
   key are configured. Off means every /api/v1/newsletter endpoint returns 404.
 * A subscriber row holds the normalised email, the consent record (time, wording version,
   source page) and only salted hashes of the confirm and unsubscribe tokens.
-* The confirm token is random and valid for 72 hours. The unsubscribe token is derived with
-  HMAC from NEWSLETTER_TOKEN_SECRET, the subscriber id and a generation number, so the same
-  one-click link works in the confirmation email and in every issue (it reaches campaigns
-  through a Brevo contact attribute). A new subscription bumps the generation, which retires
-  older links. The database stores a salted hash of it, never the token.
-* Only confirmed subscribers are ever put on the Brevo list. An issue is sent once: the
-  claim is a single conditional UPDATE, written in the same transaction as its audit row.
+* Single opt-in: ticking the consent box and submitting subscribes the address at once
+  (status 'confirmed'). One branded confirmation email says so; it has no link to click.
+  Rows left 'pending' by the earlier double opt-in are upgraded on their next subscribe,
+  and their old confirm links (random, 72 hours) keep working until then.
+* The unsubscribe token is derived with HMAC from NEWSLETTER_TOKEN_SECRET, the subscriber
+  id and a generation number, so the same one-click link works in the confirmation email
+  and in every issue (it reaches campaigns through a Brevo contact attribute). A new
+  subscription bumps the generation, which retires older links. The database stores a
+  salted hash of it, never the token.
+* Only confirmed subscribers, with their consent recorded, are ever put on the Brevo list.
+  An issue is sent once: the claim is a single conditional UPDATE, written in the same
+  transaction as its audit row.
 
 Pure decision functions sit beside the PostgreSQL store so the unit tests' in-memory store
 and the real store make the same choices.
@@ -44,8 +49,13 @@ CONSENT_WORDING = (
 )
 CONSENT_WORDING_VERSION = "2026-10-26.v1"
 SOURCES = ("landing_footer", "newsletter_page")
+# Only for confirm links already sent under the earlier double opt-in (rows still 'pending').
 CONFIRM_TTL = timedelta(hours=72)
 CONFIRM_TTL_HOURS = 72
+# At most one confirmation email per address in this many seconds (api.newsletter enforces it).
+CONFIRMATION_EMAIL_WINDOW_SECONDS = 24 * 3600
+# What the confirmation email and the privacy policy promise about frequency.
+SEND_FREQUENCY = "about once a month"
 # Brevo keeps list 2 for the mailer's transactional campaign fallback; the newsletter list must differ.
 RESERVED_BREVO_LIST_IDS = frozenset({2})
 
@@ -155,8 +165,10 @@ def token_matches(token: str, stored: Optional[str]) -> bool:
 def subscribe_generation(row: Optional[Dict[str, Any]]) -> Optional[int]:
     """New token generation for a subscribe request, or None when nothing changes.
 
-    A confirmed address is left exactly as it is (no email, no new tokens), so the request
-    looks the same from outside whether or not the address is subscribed.
+    Single opt-in: a new, pending (left by the earlier double opt-in) or unsubscribed address
+    becomes confirmed with this generation. A confirmed address is left exactly as it is (no
+    email, no list call, no new tokens), so the request looks the same from outside whether or
+    not the address is subscribed.
     """
     if row is None:
         return 1
@@ -193,12 +205,14 @@ def unsubscribe_decision(row: Optional[Dict[str, Any]], token: str) -> Unsubscri
 
 
 @dataclass(frozen=True)
-class Issued:
-    """Tokens minted by a subscribe request; held only long enough to send the email."""
+class Subscribed:
+    """An address a subscribe request just made confirmed; held only long enough to add it to the
+    list and send the confirmation email. The token itself is never stored, only its hash."""
     subscriber_id: str
     email: str
-    confirm_token: str
     unsubscribe_token: str
+    generation: int
+    consent_wording_version: str
 
 
 @dataclass(frozen=True)
@@ -439,9 +453,23 @@ class DraftIn(_Strict):
 
 
 # ---------------------------------------------------------------------------
-# Rendering (everything escaped; no images, no tracking of our own)
+# Rendering: one branded wrapper for the confirmation email and every issue.
+# Inline styles only; no images, no SVG, no remote fonts, no scripts, no tracking of our own.
+# Every interpolated value is escaped. Colours are the dark tokens in frontend/src/index.css.
 # ---------------------------------------------------------------------------
 SECTION_LABELS = {"product": "Product", "security_tip": "Security tip", "regulation": "Regulation"}
+
+BRAND = {
+    "bg": "#0A0907",          # --bg (dark)
+    "raised": "#14130F",      # --raised (dark)
+    "line": "#24211A",        # --line (dark)
+    "ink": "#F5F2EB",         # --ink (dark)
+    "soft": "#A8A190",        # --soft (dark)
+    "accent": "#E5532B",      # --accent (dark): the brand orange
+    "accent_ink": "#F27350",  # --accent-ink (dark): links on the dark card
+}
+_FONT = "'Helvetica Neue',Helvetica,Arial,sans-serif"  # system fonts only
+NOT_A_LAW_FIRM = "Cyphward is not a law firm. Regulation updates are general information, not legal advice."
 
 
 def confirm_url(s: Settings, token: str) -> str:
@@ -457,58 +485,102 @@ def campaign_unsubscribe_url(s: Settings) -> str:
     return f"{s.base_url}/api/v1/newsletter/unsubscribe?token={{{{ contact.{s.unsub_attribute} }}}}"
 
 
-def _footer_html(s: Settings, unsub_href: str, reason: str) -> str:
+def _p(text: str, style: str = "margin:0 0 12px") -> str:
+    return f'<p style="{style}">{escape(text)}</p>'
+
+
+def _logo_html() -> str:
+    """The Cyphward mark as text: an orange tile with a C, then the wordmark. Never an image."""
     return (
-        '<tr><td style="padding:20px 28px 28px;border-top:1px solid #e5e7eb;font-size:12px;line-height:1.6;color:#4b5563">'
-        f"<p style=\"margin:0 0 8px\">{escape(reason)}</p>"
-        f'<p style="margin:0 0 8px"><a href="{escape(unsub_href, quote=True)}" style="color:#1d4ed8">'
-        "Unsubscribe in one click</a> (no sign-in needed).</p>"
-        f'<p style="margin:0">{escape(s.postal_line)}</p>'
-        "</td></tr>"
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
+        f'<td width="28" height="28" align="center" valign="middle" style="width:28px;height:28px;'
+        f'background:{BRAND["accent"]};border-radius:6px;color:{BRAND["bg"]};font-size:16px;font-weight:bold;'
+        f'line-height:28px;font-family:{_FONT}">C</td>'
+        f'<td style="padding-left:10px;font-size:15px;font-weight:bold;letter-spacing:.18em;color:{BRAND["ink"]};'
+        f'font-family:{_FONT}">CYPHWARD</td>'
+        "</tr></table>"
+    )
+
+
+def _footer_html(s: Settings, unsub_href: str, reason: str) -> str:
+    """The one place the unsubscribe link appears in the HTML part."""
+    soft = f"margin:0 0 8px;color:{BRAND['soft']}"
+    return (
+        f'<tr><td style="padding:20px 28px 28px;border-top:1px solid {BRAND["line"]};font-size:12px;line-height:1.6;'
+        f'color:{BRAND["soft"]}">'
+        + _p(reason, soft)
+        + f'<p style="{soft}"><a href="{escape(unsub_href, quote=True)}" style="color:{BRAND["accent_ink"]};'
+          'text-decoration:underline">Unsubscribe in one click</a> (no sign-in needed).</p>'
+        + _p(NOT_A_LAW_FIRM, soft)
+        + _p(s.postal_line, f"margin:0;color:{BRAND['soft']}")
+        + "</td></tr>"
     )
 
 
 def _shell(title: str, preheader: str, rows: str) -> str:
     return (
-        "<!doctype html><html><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">'
         f"<title>{escape(title)}</title></head>"
-        "<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827\">"
-        f"<div style=\"display:none;max-height:0;overflow:hidden\">{escape(preheader)}</div>"
-        "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f3f4f6\">"
-        "<tr><td align=\"center\" style=\"padding:24px 12px\">"
-        "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" "
-        "style=\"max-width:600px;background:#ffffff;border-radius:8px\">"
-        "<tr><td style=\"padding:24px 28px 8px;font-size:13px;letter-spacing:.08em;color:#4b5563\">CYPHWARD NEWS</td></tr>"
+        f'<body style="margin:0;padding:0;background:{BRAND["bg"]};font-family:{_FONT};color:{BRAND["ink"]}">'
+        f'<div style="display:none;max-height:0;overflow:hidden;opacity:0">{escape(preheader)}</div>'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BRAND["bg"]}">'
+        '<tr><td align="center" style="padding:24px 12px">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'style="max-width:600px;background:{BRAND["raised"]};border:1px solid {BRAND["line"]};border-radius:8px">'
+        f'<tr><td style="height:4px;line-height:4px;font-size:4px;background:{BRAND["accent"]};'
+        'border-radius:8px 8px 0 0">&nbsp;</td></tr>'
+        '<tr><td style="padding:22px 28px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'border="0"><tr><td>{_logo_html()}</td>'
+        f'<td align="right" style="font-size:11px;letter-spacing:.2em;color:{BRAND["soft"]};font-family:{_FONT}">UPDATES</td>'
+        "</tr></table></td></tr>"
         f"{rows}"
         "</table></td></tr></table></body></html>"
     )
 
 
-def render_confirmation(s: Settings, issued: Issued) -> Dict[str, str]:
-    c_url = confirm_url(s, issued.confirm_token)
-    u_url = unsubscribe_url(s, issued.unsubscribe_token)
-    subject = "Confirm your Cyphward newsletter subscription"
-    intro = ("Someone, hopefully you, asked to receive the Cyphward newsletter at this address: "
-             "news about the product, security tips and regulation updates.")
-    act = (f"To start receiving it, open the link below within {CONFIRM_TTL_HOURS} hours and press "
-           "the Confirm button on the page it opens.")
-    ignore = "If this was not you, ignore this email. Nothing more will be sent unless the address is confirmed."
+CONFIRMATION_SUBJECT = "You are subscribed to Cyphward updates"
+CONFIRMATION_RECEIVE = "Product news, practical security tips and regulation updates for software teams in Nigeria."
+CONFIRMATION_LEAVE = ("Every email, this one included, has a one-click unsubscribe link at the bottom. "
+                      "No sign-in is needed.")
+CONFIRMATION_NOT_YOU = "Did not ask for this? Use the unsubscribe link and nothing more will be sent."
+
+
+def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
+    """The one email a new subscriber gets: they are subscribed already, so there is no link to click."""
+    u_url = unsubscribe_url(s, sub.unsubscribe_token)
+    often = f"{SEND_FREQUENCY[0].upper()}{SEND_FREQUENCY[1:]}, from {s.sender[1]}."
+    consent = (f"You ticked a box agreeing to this wording (version {sub.consent_wording_version}): "
+               f"“{CONSENT_WORDING}”")
+    preheader = f"Product, security and regulation updates, {SEND_FREQUENCY}. Unsubscribe in one click."
+    label = f"margin:0 0 2px;font-size:11px;letter-spacing:.16em;color:{BRAND['soft']}"
+    body = f"margin:0 0 16px;color:{BRAND['ink']}"
     rows = (
-        "<tr><td style=\"padding:8px 28px 4px;font-size:22px;font-weight:bold\">Confirm your subscription</td></tr>"
-        f"<tr><td style=\"padding:8px 28px;font-size:15px;line-height:1.6\"><p style=\"margin:0 0 12px\">{escape(intro)}</p>"
-        f"<p style=\"margin:0 0 20px\">{escape(act)}</p>"
-        f"<a href=\"{escape(c_url, quote=True)}\" style=\"display:inline-block;background:#111827;color:#ffffff;"
-        "text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold\">Confirm subscription</a>"
-        f"<p style=\"margin:20px 0 0;font-size:13px;color:#4b5563\">{escape(ignore)}</p></td></tr>"
-        + _footer_html(s, u_url, "You are getting this one email because this address was entered on cyphward.com.")
+        f'<tr><td style="padding:12px 28px 4px;font-size:24px;line-height:1.3;font-weight:bold;color:{BRAND["ink"]}">'
+        "You are subscribed</td></tr>"
+        f'<tr><td style="padding:8px 28px 12px;font-size:15px;line-height:1.6;color:{BRAND["ink"]}">'
+        + _p("Thank you. This address now receives Cyphward updates. There is nothing more to do.", body)
+        + _p("WHAT YOU WILL RECEIVE", label) + _p(CONFIRMATION_RECEIVE, body)
+        + _p("HOW OFTEN", label) + _p(often, body)
+        + _p("LEAVING", label) + _p(CONFIRMATION_LEAVE, body)
+        + _p("YOUR CONSENT", label) + _p(consent, body)
+        + _p(CONFIRMATION_NOT_YOU, f"margin:0;font-size:13px;color:{BRAND['soft']}")
+        + "</td></tr>"
+        + _footer_html(s, u_url, "You are getting this because this address was subscribed on cyphward.com.")
     )
-    html_body = _shell(subject, act, rows)
     text = (
-        f"{intro}\n\n{act}\n\nConfirm: {c_url}\n\n{ignore}\n\n"
-        f"Unsubscribe in one click: {u_url}\n{s.postal_line}\n"
+        f"{CONFIRMATION_SUBJECT}.\n\n"
+        f"What you will receive: {CONFIRMATION_RECEIVE}\n"
+        f"How often: {often}\n"
+        f"Leaving: {CONFIRMATION_LEAVE}\n"
+        f"Your consent: {consent}\n\n"
+        f"{CONFIRMATION_NOT_YOU}\n"
+        f"Unsubscribe in one click: {u_url}\n\n"
+        f"{NOT_A_LAW_FIRM}\n{s.postal_line}\n"
     )
-    return {"subject": subject, "html": html_body, "text": text, "headers": list_unsubscribe_headers(u_url)}
+    return {"subject": CONFIRMATION_SUBJECT, "html": _shell(CONFIRMATION_SUBJECT, preheader, rows), "text": text,
+            "headers": list_unsubscribe_headers(u_url)}
 
 
 def list_unsubscribe_headers(unsub_url: str) -> Dict[str, str]:
@@ -520,39 +592,43 @@ def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] =
     """HTML and text for an issue. `unsub_href` defaults to the per-recipient Brevo placeholder."""
     d = DraftIn.model_validate(draft)  # stored drafts are re-checked before they are shown or sent
     href = unsub_href or campaign_unsubscribe_url(s)
+    link = f"color:{BRAND['accent_ink']};text-decoration:underline"
+    label_style = f"margin:0 0 4px;font-size:11px;letter-spacing:.16em;color:{BRAND['accent']}"
     rows, text = [], [d.subject, "", d.preview, ""]
     for sec in d.sections:
         label = SECTION_LABELS[sec.type]
         paras = [p.strip() for p in sec.body.split("\n") if p.strip()]
-        body_html = "".join(f"<p style=\"margin:0 0 12px\">{escape(p)}</p>" for p in paras)
+        body_html = "".join(_p(p) for p in paras)
         extra = ""
         if sec.links:
             items = "".join(
-                f"<li style=\"margin:0 0 6px\"><a href=\"{escape(l.url, quote=True)}\" style=\"color:#1d4ed8\">{escape(l.label)}</a></li>"
+                f'<li style="margin:0 0 6px"><a href="{escape(l.url, quote=True)}" style="{link}">{escape(l.label)}</a></li>'
                 for l in sec.links)
-            extra += f"<ul style=\"margin:0 0 12px;padding-left:18px\">{items}</ul>"
+            extra += f'<ul style="margin:0 0 12px;padding-left:18px">{items}</ul>'
         if sec.sources:
             items = "".join(
-                f"<li style=\"margin:0 0 6px\"><a href=\"{escape(src.url, quote=True)}\" style=\"color:#1d4ed8\">{escape(src.title)}</a></li>"
+                f'<li style="margin:0 0 6px"><a href="{escape(src.url, quote=True)}" style="{link}">{escape(src.title)}</a></li>'
                 for src in sec.sources)
-            extra += ("<p style=\"margin:0 0 6px;font-size:12px;letter-spacing:.06em;color:#4b5563\">SOURCES</p>"
-                      f"<ul style=\"margin:0 0 12px;padding-left:18px;font-size:13px\">{items}</ul>")
+            extra += (_p("SOURCES", f"margin:0 0 6px;font-size:11px;letter-spacing:.16em;color:{BRAND['soft']}")
+                      + f'<ul style="margin:0 0 12px;padding-left:18px;font-size:13px">{items}</ul>')
         rows.append(
-            f"<tr><td style=\"padding:16px 28px 4px\"><p style=\"margin:0 0 4px;font-size:12px;letter-spacing:.06em;color:#4b5563\">{escape(label.upper())}</p>"
-            f"<h2 style=\"margin:0 0 10px;font-size:18px\">{escape(sec.heading)}</h2>"
-            f"<div style=\"font-size:15px;line-height:1.6\">{body_html}{extra}</div></td></tr>"
+            f'<tr><td style="padding:16px 28px 4px;border-top:1px solid {BRAND["line"]}">'
+            + _p(label.upper(), label_style)
+            + f'<h2 style="margin:0 0 10px;font-size:18px;line-height:1.35;color:{BRAND["ink"]}">{escape(sec.heading)}</h2>'
+            f'<div style="font-size:15px;line-height:1.6;color:{BRAND["ink"]}">{body_html}{extra}</div></td></tr>'
         )
         text += [f"{label.upper()}: {sec.heading}", "", *paras]
         text += [f"- {l.label}: {l.url}" for l in sec.links]
         text += [f"Source: {src.title}: {src.url}" for src in sec.sources]
         text.append("")
-    reason = "You are receiving this because you subscribed to the Cyphward newsletter and confirmed your address."
+    reason = "You are receiving this because you subscribed to Cyphward updates."
     html_body = _shell(
         d.subject, d.preview,
-        f"<tr><td style=\"padding:8px 28px 4px;font-size:22px;font-weight:bold\">{escape(d.subject)}</td></tr>"
+        f'<tr><td style="padding:12px 28px 12px;font-size:24px;line-height:1.3;font-weight:bold;color:{BRAND["ink"]}">'
+        f"{escape(d.subject)}</td></tr>"
         + "".join(rows) + _footer_html(s, href, reason),
     )
-    text += [reason, f"Unsubscribe in one click: {href}", s.postal_line]
+    text += [reason, f"Unsubscribe in one click: {href}", NOT_A_LAW_FIRM, s.postal_line]
     return {"subject": d.subject, "preview": d.preview, "html": html_body, "text": "\n".join(text)}
 
 
@@ -575,7 +651,12 @@ class PostgresNewsletterStore:
     """Every method opens one pooled connection, runs one transaction and returns it."""
 
     # -- subscribers ---------------------------------------------------------
-    def subscribe(self, email: str, consent_version: str, source: str, secret: str) -> Optional[Issued]:
+    def subscribe(self, email: str, consent_version: str, source: str, secret: str) -> Optional[Subscribed]:
+        """Single opt-in: record the consent and make the address confirmed, in one transaction.
+
+        None when nothing changed: already confirmed, or a concurrent request created the row (that
+        request adds it to the list and sends the email).
+        """
         with database.get_db() as conn, conn.transaction(), conn.cursor() as cur:
             cur.execute(
                 "SELECT id, status, token_generation FROM newsletter_subscribers "
@@ -587,30 +668,28 @@ class PostgresNewsletterStore:
             if generation is None:
                 return None
             sid = str(row["id"]) if row else str(uuid.uuid4())
-            confirm = new_confirm_token(sid)
             unsub = unsubscribe_token(secret, sid, generation)
             if row is None:
                 cur.execute(
                     "INSERT INTO newsletter_subscribers (id, email_normalised, status, consent_at, "
-                    "consent_wording_version, source, token_generation, confirm_token_hash, confirm_expires_at, "
-                    "unsubscribe_token_hash) VALUES (%s, %s, 'pending', now(), %s, %s, %s, %s, "
-                    "now() + make_interval(hours => %s), %s) "
+                    "consent_wording_version, source, token_generation, unsubscribe_token_hash, confirmed_at) "
+                    "VALUES (%s, %s, 'confirmed', now(), %s, %s, %s, %s, now()) "
                     "ON CONFLICT (email_normalised) DO NOTHING RETURNING id",
-                    (sid, email, consent_version, source, generation, hash_token(confirm), CONFIRM_TTL_HOURS,
-                     hash_token(unsub)),
+                    (sid, email, consent_version, source, generation, hash_token(unsub)),
                 )
                 if cur.fetchone() is None:
-                    return None  # a concurrent request created it; that request sends the email
+                    return None
             else:
+                # Pending (left by the earlier double opt-in) or unsubscribed: confirmed now, with the
+                # fresh consent; the new generation retires every older link.
                 cur.execute(
-                    "UPDATE newsletter_subscribers SET status = 'pending', consent_at = now(), "
-                    "consent_wording_version = %s, source = %s, token_generation = %s, confirm_token_hash = %s, "
-                    "confirm_expires_at = now() + make_interval(hours => %s), unsubscribe_token_hash = %s, "
-                    "confirmed_at = NULL, unsubscribed_at = NULL, updated_at = now() WHERE id = %s",
-                    (consent_version, source, generation, hash_token(confirm), CONFIRM_TTL_HOURS, hash_token(unsub),
-                     sid),
+                    "UPDATE newsletter_subscribers SET status = 'confirmed', consent_at = now(), "
+                    "consent_wording_version = %s, source = %s, token_generation = %s, confirm_token_hash = NULL, "
+                    "confirm_expires_at = NULL, unsubscribe_token_hash = %s, confirmed_at = now(), "
+                    "unsubscribed_at = NULL, updated_at = now() WHERE id = %s",
+                    (consent_version, source, generation, hash_token(unsub), sid),
                 )
-            return Issued(sid, email, confirm, unsub)
+            return Subscribed(sid, email, unsub, generation, consent_version)
 
     def confirm(self, token: str) -> ConfirmResult:
         sid = token_subscriber_id(token)

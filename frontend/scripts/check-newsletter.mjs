@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import { UI_BANNED, WIDTHS, audit, settle, startHarness } from "./lib/ui-refine-harness.mjs";
 
+const SUBSCRIBED = "You are subscribed. We have sent a confirmation email with an unsubscribe link.";
+const OLD_DOUBLE_OPT_IN = /check your inbox|confirm by email|confirm your address|within 72 hours|finish subscribing/i;
 const CONSENT = "I agree that Cyphward may email me news about its product and security and regulation updates. I can withdraw at any time.";
 const h = await startHarness();
 const problems = [];
@@ -19,7 +21,7 @@ h.state.route = (p, method, request) => {
   if (p === "/api/v1/newsletter/subscribe" && method === "POST") {
     posts.push(JSON.parse(request.postData() || "{}"));
     return subscribeStatus === 202
-      ? [202, { message: "Thank you. If this address can receive the newsletter, a confirmation email is on its way. Open the link in it within 72 hours to finish subscribing." }]
+      ? [202, { message: SUBSCRIBED }]
       : [subscribeStatus, { detail: "Internal Server Error" }];
   }
   return undefined;
@@ -86,6 +88,7 @@ try {
   // 3. The form itself: labelled native email field, unticked consent with the exact wording.
   {
     const { page, close } = await open("/newsletter");
+    assert.ok(!OLD_DOUBLE_OPT_IN.test(await page.evaluate(() => document.body.innerText)), "no 'confirm by email' wording on the form");
     const form = await page.evaluate(() => {
       const f = document.querySelector('[data-testid="newsletter-form"]');
       const email = f.querySelector('input[type="email"]');
@@ -144,8 +147,9 @@ try {
       status: document.querySelector('[data-testid="newsletter-done"] [role="status"]')?.textContent || "",
       toast: document.querySelector(".toasts")?.textContent || "",
     }));
-    assert.match(done.status, /confirmation email is on its way/);
-    assert.match(done.toast, /Check your inbox/);
+    assert.equal(done.status.trim(), SUBSCRIBED, "single opt-in: subscribed at once");
+    assert.match(done.toast, /You are subscribed/);
+    assert.ok(!OLD_DOUBLE_OPT_IN.test(await page.evaluate(() => document.body.innerText)), "no double opt-in wording");
     await close();
   }
 
@@ -201,6 +205,26 @@ try {
     }
   }
 
+  // 8. Privacy policy: the Newsletter section says what is collected, why, who processes it, how to leave,
+  // how long it is kept, and that Cyphward is not a law firm; no claim wording.
+  {
+    const { page, errors, close } = await open("/privacy", { width: 390, height: 844 });
+    const section = await page.evaluate(() => {
+      const h = [...document.querySelectorAll("h2")].find((n) => n.textContent.trim() === "Newsletter");
+      return h ? h.closest("section").innerText : "";
+    });
+    assert.ok(section, "the privacy policy has a Newsletter section");
+    for (const needed of [/email address/, /wording version/, /source page/, /monthly/, /Brevo/, /unsubscribe link/,
+                          /contact form/, /until you unsubscribe/, /honour the unsubscribe/, /not a law firm/]) {
+      assert.match(section, needed);
+    }
+    const lower = section.toLowerCase();
+    for (const w of UI_BANNED) assert.ok(!lower.includes(w), `privacy newsletter section: ${w}`);
+    const r = await audit(page, { mobile: true, tabStops: 0 });
+    check("/privacy 390", { ...r, pageErrors: errors.splice(0) });
+    await close();
+  }
+
   const allText = posts.map((p) => JSON.stringify(p)).join(" ").toLowerCase();
   for (const w of UI_BANNED) assert.ok(!allText.includes(w));
 } finally {
@@ -211,4 +235,4 @@ if (problems.length) {
   console.error(`newsletter UI: ${problems.length} problem(s)\n` + problems.join("\n"));
   process.exit(1);
 }
-console.log("newsletter UI: flag gate, audit (3 widths, 2 themes), consent, keyboard, success, error retry and result pages pass");
+console.log("newsletter UI: flag gate, audit (3 widths, 2 themes), consent, keyboard, single opt-in success, error retry, result pages and privacy section pass");
