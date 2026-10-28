@@ -3,7 +3,7 @@
  * Runs after `vite build`; uses Vite's SSR module loader (no extra dependencies).
  */
 import { createServer } from 'vite';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,13 +59,6 @@ const PAGES = [
     canonical: 'https://cyphward.com/contact',
   },
   {
-    url: '/newsletter',
-    file: 'newsletter/index.html',
-    title: 'Newsletter — Cyphward',
-    description: 'Product news, practical security tips and regulation updates from Cyphward, about once a month. Subscribe in one step; every email has a one-click unsubscribe link.',
-    canonical: 'https://cyphward.com/newsletter',
-  },
-  {
     url: '/health',
     file: 'health/index.html',
     title: 'System Status — Cyphward',
@@ -78,6 +71,26 @@ function setMeta(html, attr, value) {
   const pattern = new RegExp(`(<meta ${attr} content=")[^"]*(")`);
   if (!pattern.test(html)) throw new Error(`prerender: missing meta ${attr}`);
   return html.replace(pattern, `$1${value}$2`);
+}
+
+// The newsletter is behind NEWSLETTER_ENABLED (off by default), so /newsletter is never prerendered or listed
+// in the sitemap: Vercel serves it the SPA shell (noindex, empty root), and the client shows the form only when
+// the API says the flag is on. Add it back to PAGES and sitemap.xml only once the flag is on in production.
+const NEWSLETTER_COPY = [/news from/i, /newsletter/i, /subscribe/i, /once a month/i, /I agree that Cyphward may email me/i];
+
+function assertNewsletterUnpublished(appShell) {
+  if (PAGES.some((p) => p.url.startsWith('/newsletter'))) throw new Error('prerender: /newsletter must not be prerendered while the flag can be off');
+  const sitemap = readFileSync(join(root, 'public', 'sitemap.xml'), 'utf8');
+  if (/\/newsletter/.test(sitemap)) throw new Error('prerender: /newsletter must not be in sitemap.xml while the flag can be off');
+  const own = join(root, 'dist', 'newsletter', 'index.html');
+  if (existsSync(own)) throw new Error(`prerender: ${own} must not exist`);
+  // What /newsletter is actually served: the SPA shell. It must be noindex and carry no newsletter copy.
+  if (!/<meta name="robots" content="noindex, nofollow" \/>/.test(appShell)) throw new Error('prerender: app shell lacks noindex');
+  if (!appShell.includes('<div id="root"></div>')) throw new Error('prerender: app shell root is not empty');
+  const visible = appShell.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ');
+  const hit = NEWSLETTER_COPY.find((re) => re.test(visible));
+  if (hit) throw new Error(`prerender: app shell (served for /newsletter) contains newsletter copy ${hit}`);
+  console.log('checked /newsletter: not prerendered, not in sitemap; served the noindex SPA shell with no newsletter copy');
 }
 
 const vite = await createServer({
@@ -111,6 +124,7 @@ try {
     );
   writeFileSync(join(root, 'dist', 'app.html'), appShell);
   console.log(`wrote dist/app.html (SPA shell, ${appShell.length} bytes)`);
+  assertNewsletterUnpublished(appShell);
 
   for (const page of PAGES) {
     const appHtml = render(page.url);

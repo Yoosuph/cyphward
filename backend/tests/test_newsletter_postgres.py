@@ -127,16 +127,36 @@ def test_single_opt_in_end_to_end_with_hashes_only(pg):
     assert address not in pg.brevo.contacts
 
 
-def test_resubscribe_within_24_hours_sends_no_second_email(pg):
+def test_resubscribe_after_unsubscribe_always_sends_a_notice(pg):
     address = email()
     subscribe(pg, address)
     sent_before = len(pg.sent)
     act(pg, "unsubscribe", token_from(pg.sent[-1]["text"], "unsubscribe"))
-    subscribe(pg, address)
+    subscribe(pg, address)  # within 24 hours of the first email
     row = row_for(pg, address)
     assert row["status"] == "confirmed" and row["token_generation"] == 2 and row["unsubscribed_at"] is None
-    assert len(pg.sent) == sent_before
+    assert len(pg.sent) == sent_before + 1 and pg.sent[-1]["to"] == address
+    assert nl.CONFIRMATION_INTRO_AGAIN in pg.sent[-1]["text"]
     assert pg.brevo.contacts[address]["attributes"]["CW_UNSUB_TOKEN"] == nl.unsubscribe_token(SECRET, str(row["id"]), 2)
+
+
+@pytest.mark.parametrize("previous", ["pending", "unsubscribed"])
+def test_consent_is_recorded_afresh_on_upgrade(pg, previous):
+    address = email()
+    if previous == "pending":
+        legacy_pending(pg, address)
+    else:
+        subscribe(pg, address)
+        act(pg, "unsubscribe", token_from(pg.sent[-1]["text"], "unsubscribe"))
+    pg.conn.execute("UPDATE newsletter_subscribers SET consent_at = now() - interval '2 days', "
+                    "consent_wording_version = '2026-01-01.v0', source = 'landing_footer' WHERE email_normalised = %s",
+                    (address,))
+    assert row_for(pg, address)["status"] == previous
+    subscribe(pg, address)
+    row = pg.conn.execute("SELECT status, consent_wording_version, source, now() - consent_at < interval '1 minute' "
+                          "AS fresh FROM newsletter_subscribers WHERE email_normalised = %s", (address,)).fetchone()
+    assert row["status"] == "confirmed" and row["fresh"], "consent_at must be refreshed on upgrade"
+    assert row["consent_wording_version"] == nl.CONSENT_WORDING_VERSION and row["source"] == "newsletter_page"
 
 
 def test_legacy_pending_row_is_upgraded_by_subscribe(pg):

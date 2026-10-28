@@ -75,15 +75,25 @@ export default function Privacy() {
 
       <Section n="05" heading="Newsletter">
         <p>
-          You can subscribe to the Cyphward newsletter on the <Link to="/newsletter" className="text-accent underline">newsletter page</Link> or
-          in the site footer. Ticking the consent box and pressing Subscribe subscribes you straight away; we then
-          send one confirmation email saying so.
+          If you subscribe to the Cyphward newsletter on cyphward.com, ticking the consent box and pressing
+          Subscribe subscribes you straight away; we then send one confirmation email saying so.
         </p>
-        <p><span className="text-ink">What we collect:</span> your email address, the time you gave consent, the wording version of the consent box you ticked, and the source page (the newsletter page or the site footer). Nothing else about you.</p>
+        <p><span className="text-ink">What we collect:</span> your email address, the time you gave consent, the wording version of the consent box you ticked, the source page (the newsletter page or the site footer) and the time you were subscribed. To stop abuse of the sign-up form we also keep short-lived rate-limit keys, described below.</p>
         <p><span className="text-ink">Why:</span> to send you monthly product, security and regulation updates, which is what you agreed to.</p>
         <p><span className="text-ink">Who processes it:</span> <span className="text-ink">Brevo</span> sends the newsletter from news@cyphward.com and manages the mailing list on our behalf.</p>
-        <p><span className="text-ink">How to withdraw:</span> use the one-click unsubscribe link in every newsletter email, including the confirmation email, or ask us through the <Link to="/contact" className="text-accent underline">contact form</Link>. No sign-in is needed, and you are taken off the list at once.</p>
-        <p><span className="text-ink">How long we keep it:</span> until you unsubscribe. After that we keep only the unsubscribe record, and only as needed to honour the unsubscribe.</p>
+        <p><span className="text-ink">How to withdraw:</span> use the one-click unsubscribe link in every newsletter email, including the confirmation email, or ask us through the <Link to="/contact" className="text-accent underline">contact form</Link>. No sign-in is needed. We stop sending at once and take your address off the Brevo mailing list.</p>
+        <p><span className="text-ink">How long we keep it:</span> we keep the details above until you unsubscribe. After you unsubscribe we keep an unsubscribe record, only as needed to honour the unsubscribe and to show what you had agreed to. It holds:</p>
+        <ul className="space-y-1.5 pl-4 list-disc marker:text-accent">
+          <li>your email address, that it is unsubscribed, and when;</li>
+          <li>the consent details from your last subscription: when you gave consent and were subscribed, the wording version and the source page;</li>
+          <li>a count of how many times the address has subscribed, and a one-way hash of your last unsubscribe link, so an old link still shows you as unsubscribed.</li>
+        </ul>
+        <p>
+          Brevo keeps your address as a contact that is off the mailing list, together with the code from your
+          last unsubscribe link. To have the unsubscribe record and the Brevo contact deleted as well, write to{' '}
+          <span className="text-ink mono">privacy@cyphward.com</span>.
+        </p>
+        <p><span className="text-ink">Rate-limit keys:</span> the sign-up form keeps one-way hashes of your email address and of your network (IP) address, each with a request count. They stop counting after 24 hours and are cleared out after that.</p>
         <p>
           Cyphward is not a law firm. Regulation updates in the newsletter are general information, not
           legal advice.

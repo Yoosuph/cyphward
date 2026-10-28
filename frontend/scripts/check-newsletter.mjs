@@ -215,7 +215,9 @@ try {
     });
     assert.ok(section, "the privacy policy has a Newsletter section");
     for (const needed of [/email address/, /wording version/, /source page/, /monthly/, /Brevo/, /unsubscribe link/,
-                          /contact form/, /until you unsubscribe/, /honour the unsubscribe/, /not a law firm/]) {
+                          /contact form/, /until you unsubscribe/, /honour the unsubscribe/, /not a law firm/,
+                          /that it is unsubscribed/, /how many times/, /one-way hash of your last unsubscribe link/,
+                          /contact that is off the mailing list/, /network \(IP\) address/, /24 hours/]) {
       assert.match(section, needed);
     }
     const lower = section.toLowerCase();

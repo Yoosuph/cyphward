@@ -29,6 +29,7 @@ class FakeNewsletterStore:
         generation = nl.subscribe_generation(row)
         if generation is None:
             return None
+        previous = row["status"] if row else "new"
         sid = row["id"] if row else str(uuid.uuid4())
         unsub = nl.unsubscribe_token(secret, sid, generation)
         if row is None:
@@ -37,7 +38,7 @@ class FakeNewsletterStore:
         row.update(status="confirmed", consent_at=_now(), consent_wording_version=consent_version, source=source,
                    token_generation=generation, confirm_token_hash=None, confirm_expires_at=None,
                    unsubscribe_token_hash=nl.hash_token(unsub), confirmed_at=_now(), unsubscribed_at=None)
-        return nl.Subscribed(sid, email, unsub, generation, consent_version)
+        return nl.Subscribed(sid, email, unsub, generation, consent_version, previous)
 
     def seed_legacy_pending(self, email, secret, source="newsletter_page"):
         """A row as the earlier double opt-in left it: pending, with a 72-hour confirm token.

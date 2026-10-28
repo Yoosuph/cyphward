@@ -52,7 +52,8 @@ SOURCES = ("landing_footer", "newsletter_page")
 # Only for confirm links already sent under the earlier double opt-in (rows still 'pending').
 CONFIRM_TTL = timedelta(hours=72)
 CONFIRM_TTL_HOURS = 72
-# At most one confirmation email per address in this many seconds (api.newsletter enforces it).
+# At most one confirmation email per address in this many seconds for a new or upgraded address
+# (api.newsletter enforces it). A re-subscribe after an unsubscribe is always notified.
 CONFIRMATION_EMAIL_WINDOW_SECONDS = 24 * 3600
 # What the confirmation email and the privacy policy promise about frequency.
 SEND_FREQUENCY = "about once a month"
@@ -213,6 +214,10 @@ class Subscribed:
     unsubscribe_token: str
     generation: int
     consent_wording_version: str
+    # The row's status before this request: "new", "pending" (earlier double opt-in) or "unsubscribed".
+    # A previously unsubscribed address always gets the notice (no 24-hour suppression), so a stranger
+    # cannot quietly put an address that left back on the list.
+    previous_status: str = "new"
 
 
 @dataclass(frozen=True)
@@ -545,6 +550,9 @@ CONFIRMATION_RECEIVE = "Product news, practical security tips and regulation upd
 CONFIRMATION_LEAVE = ("Every email, this one included, has a one-click unsubscribe link at the bottom. "
                       "No sign-in is needed.")
 CONFIRMATION_NOT_YOU = "Did not ask for this? Use the unsubscribe link and nothing more will be sent."
+CONFIRMATION_INTRO = "Thank you. This address now receives Cyphward updates. There is nothing more to do."
+CONFIRMATION_INTRO_AGAIN = ("This address had unsubscribed and has just been subscribed again on cyphward.com. "
+                            "If that was you, there is nothing more to do.")
 
 
 def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
@@ -554,13 +562,14 @@ def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
     consent = (f"You ticked a box agreeing to this wording (version {sub.consent_wording_version}): "
                f"“{CONSENT_WORDING}”")
     preheader = f"Product, security and regulation updates, {SEND_FREQUENCY}. Unsubscribe in one click."
+    intro = CONFIRMATION_INTRO_AGAIN if sub.previous_status == "unsubscribed" else CONFIRMATION_INTRO
     label = f"margin:0 0 2px;font-size:11px;letter-spacing:.16em;color:{BRAND['soft']}"
     body = f"margin:0 0 16px;color:{BRAND['ink']}"
     rows = (
         f'<tr><td style="padding:12px 28px 4px;font-size:24px;line-height:1.3;font-weight:bold;color:{BRAND["ink"]}">'
         "You are subscribed</td></tr>"
         f'<tr><td style="padding:8px 28px 12px;font-size:15px;line-height:1.6;color:{BRAND["ink"]}">'
-        + _p("Thank you. This address now receives Cyphward updates. There is nothing more to do.", body)
+        + _p(intro, body)
         + _p("WHAT YOU WILL RECEIVE", label) + _p(CONFIRMATION_RECEIVE, body)
         + _p("HOW OFTEN", label) + _p(often, body)
         + _p("LEAVING", label) + _p(CONFIRMATION_LEAVE, body)
@@ -570,7 +579,7 @@ def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
         + _footer_html(s, u_url, "You are getting this because this address was subscribed on cyphward.com.")
     )
     text = (
-        f"{CONFIRMATION_SUBJECT}.\n\n"
+        f"{CONFIRMATION_SUBJECT}.\n{intro}\n\n"
         f"What you will receive: {CONFIRMATION_RECEIVE}\n"
         f"How often: {often}\n"
         f"Leaving: {CONFIRMATION_LEAVE}\n"
@@ -689,7 +698,8 @@ class PostgresNewsletterStore:
                     "unsubscribed_at = NULL, updated_at = now() WHERE id = %s",
                     (consent_version, source, generation, hash_token(unsub), sid),
                 )
-            return Subscribed(sid, email, unsub, generation, consent_version)
+            return Subscribed(sid, email, unsub, generation, consent_version,
+                              str(row["status"]) if row else "new")
 
     def confirm(self, token: str) -> ConfirmResult:
         sid = token_subscriber_id(token)

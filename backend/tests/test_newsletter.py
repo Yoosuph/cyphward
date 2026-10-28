@@ -262,10 +262,10 @@ def test_same_answer_for_every_address_state(client, nlenv):
     assert len(set(answers.values())) == 1
     assert answers["new@example.com"][0] == 202
     assert answers["new@example.com"][1] == json.dumps(api.SUBSCRIBE_ACCEPTED, separators=(",", ":"))
-    # Everyone is subscribed now. A confirmed address gets nothing and keeps its row; the address that
-    # unsubscribed and came back within 24 hours of its last confirmation email gets no second one.
+    # Everyone is subscribed now. A confirmed address gets nothing and keeps its row; every other address,
+    # including the one that had unsubscribed, gets the notice.
     assert all(nlenv.store.by_email(e)["status"] == "confirmed" for e in answers)
-    assert sorted(m["to"] for m in nlenv.sent) == ["new@example.com", "pending@example.com"]
+    assert sorted(m["to"] for m in nlenv.sent) == ["gone@example.com", "new@example.com", "pending@example.com"]
 
 
 def test_honeypot_gets_the_same_answer_and_nothing_happens(client, nlenv):
@@ -313,7 +313,7 @@ def test_per_address_limit_drops_a_fourth_request_silently(client, nlenv):
     resp = subscribe(client, "loop@example.com", ip="198.51.100.70")  # the fourth: dropped, same answer
     assert resp.status_code == 202 and resp.json() == api.SUBSCRIBE_ACCEPTED
     assert nlenv.store.by_email("loop@example.com")["status"] == "unsubscribed"
-    assert len(nlenv.sent) == 1
+    assert len(nlenv.sent) == 3  # the first subscription and both re-subscribes were notified; the drop was not
 
 
 def test_rate_limit_buckets_never_hold_the_address_or_ip(client, nlenv):
@@ -356,21 +356,83 @@ def test_subscribe_adds_to_list_once_with_the_unsubscribe_token(client, nlenv):
     assert nlenv.brevo.calls == [("upsert", "reader@example.com")] and len(nlenv.sent) == 1
 
 
-def test_at_most_one_confirmation_email_per_address_per_24_hours(client, nlenv):
+def test_resubscribe_after_unsubscribe_always_sends_a_notice(client, nlenv):
     first = confirmed_reader(client, nlenv)
-    act(client, "unsubscribe", token_from(first["text"], "unsubscribe"))
-    subscribe(client, "reader@example.com", ip="198.51.100.40")  # back within 24 hours
+    for cycle in (2, 3):  # well inside 24 hours, every time
+        row = nlenv.store.by_email("reader@example.com")
+        act(client, "unsubscribe", nl.unsubscribe_token(SECRET, row["id"], row["token_generation"]))
+        assert row["status"] == "unsubscribed"
+        subscribe(client, "reader@example.com", ip=f"198.51.100.{40 + cycle}")  # e.g. a stranger re-subscribes it
+        assert row["status"] == "confirmed" and row["token_generation"] == cycle
+        assert len(nlenv.sent) == cycle, "a re-subscribe after an unsubscribe must always notify the address"
+        notice = nlenv.sent[-1]
+        assert notice["to"] == "reader@example.com"
+        assert nl.CONFIRMATION_INTRO_AGAIN in notice["text"] and "subscribed again" in notice["html"]
+        assert token_from(notice["text"], "unsubscribe") == nl.unsubscribe_token(SECRET, row["id"], cycle)
+        assert nlenv.brevo.contacts["reader@example.com"]["attributes"]["CW_UNSUB_TOKEN"] == \
+            nl.unsubscribe_token(SECRET, row["id"], cycle)
+    assert nl.CONFIRMATION_INTRO_AGAIN not in first["text"]
+
+
+def _new_subscriber(email="window@example.com", previous="new"):
+    sid = str(uuid.uuid4())
+    return nl.Subscribed(sid, email, nl.unsubscribe_token(SECRET, sid, 1), 1, nl.CONSENT_WORDING_VERSION, previous)
+
+
+def test_confirmation_window_is_24_hours(nlenv, monkeypatch):
+    assert nl.CONFIRMATION_EMAIL_WINDOW_SECONDS == 24 * 3600
+    windows = []
+    real = api.check_rate_limit
+
+    def recording(bucket, limit, window):
+        if bucket.startswith("newsletter:confirmation:email:"):
+            windows.append((limit, window))
+        return real(bucket, limit, window)
+
+    monkeypatch.setattr(api, "check_rate_limit", recording)
+    sub = _new_subscriber()
+    asyncio.run(api._send_confirmation(_settings(), sub))
+    asyncio.run(api._send_confirmation(_settings(), sub))
+    assert len(nlenv.sent) == 1  # the second within the window is suppressed
+    assert windows == [(1, 86400), (1, 86400)]
+    age_buckets(nlenv, "newsletter:confirmation:email:", hours=23 + 58 / 60)  # 23 h 58 min later
+    asyncio.run(api._send_confirmation(_settings(), sub))
+    assert len(nlenv.sent) == 1, "still inside 24 hours: no second email"
+    age_buckets(nlenv, "newsletter:confirmation:email:", hours=3 / 60)  # 3 more minutes: 24 h 1 min after the first
+    asyncio.run(api._send_confirmation(_settings(), sub))
+    assert len(nlenv.sent) == 2
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("database unavailable"), api.HTTPException(status_code=503)])
+def test_confirmation_limit_check_failure_sends_nothing(client, nlenv, monkeypatch, failure):
+    real = api.check_rate_limit
+
+    def failing(bucket, limit, window):
+        if bucket.startswith("newsletter:confirmation:email:"):
+            raise failure
+        return real(bucket, limit, window)
+
+    monkeypatch.setattr(api, "check_rate_limit", failing)
+    assert subscribe(client).status_code == 202
+    assert nlenv.store.by_email("reader@example.com")["status"] == "confirmed"  # subscribed either way
+    assert nlenv.brevo.calls == [("upsert", "reader@example.com")]
+    assert nlenv.sent == [], "fail closed: no email when the 24-hour check cannot run"
+
+
+@pytest.mark.parametrize("previous", ["pending", "unsubscribed"])
+def test_consent_is_recorded_afresh_when_a_row_is_upgraded(client, nlenv, previous):
+    if previous == "pending":
+        legacy_pending(nlenv)
+    else:
+        mail = confirmed_reader(client, nlenv)
+        act(client, "unsubscribe", token_from(mail["text"], "unsubscribe"))
     row = nlenv.store.by_email("reader@example.com")
-    assert row["status"] == "confirmed" and row["token_generation"] == 2
-    assert len(nlenv.sent) == 1  # subscribed again, but no second email
-    assert nlenv.brevo.contacts["reader@example.com"]["attributes"]["CW_UNSUB_TOKEN"] == \
-        nl.unsubscribe_token(SECRET, row["id"], 2)
-    # A day later the next cycle sends one again.
-    age_buckets(nlenv, "newsletter:confirmation:email:", "newsletter:subscribe:email:")
-    act(client, "unsubscribe", nl.unsubscribe_token(SECRET, row["id"], 2))
-    subscribe(client, "reader@example.com", ip="198.51.100.41")
-    assert len(nlenv.sent) == 2 and nlenv.sent[-1]["to"] == "reader@example.com"
-    assert token_from(nlenv.sent[-1]["text"], "unsubscribe") == nl.unsubscribe_token(SECRET, row["id"], 3)
+    assert row["status"] == previous
+    row.update(consent_at=past(48), consent_wording_version="2026-01-01.v0", source="landing_footer")
+    subscribe(client, source="newsletter_page", ip="198.51.100.77")
+    assert row["status"] == "confirmed"
+    assert datetime.now(timezone.utc) - row["consent_at"] < timedelta(minutes=1), "consent time must be refreshed"
+    assert row["consent_wording_version"] == nl.CONSENT_WORDING_VERSION and row["source"] == "newsletter_page"
 
 
 @pytest.mark.parametrize("over", [{"consent": False}, {"consent": "true"}, {"consent_wording_version": "old"},
@@ -1037,23 +1099,29 @@ def _privacy_newsletter_section():
 def test_privacy_policy_newsletter_section_says_what_the_brief_requires():
     text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>|\{' '\}", " ", _privacy_newsletter_section()))
     for needed in ("email address", "wording version", "source page", "monthly", "Brevo", "unsubscribe link",
-                   "contact form", "until you unsubscribe", "honour the unsubscribe", "not a law firm"):
+                   "contact form", "until you unsubscribe", "honour the unsubscribe", "not a law firm",
+                   # what the unsubscribe record really holds (core/newsletter.py unsubscribe(); the CHECKs keep the
+                   # consent columns), what stays in Brevo, and the rate-limit buckets
+                   "that it is unsubscribed", "when you gave consent and were subscribed", "how many times",
+                   "one-way hash of your last unsubscribe link", "contact that is off the mailing list",
+                   "code from your last unsubscribe link", "privacy@cyphward.com",
+                   "one-way hashes of your email address and of your network (IP) address", "24 hours"):
         assert needed in text, needed
     assert nl.banned_claim(text) is None
     for phrase in BANNED + ["passes audit", "meets the requirement"]:
         assert phrase not in text.lower(), phrase
 
 
-def test_newsletter_page_meta_description_has_no_claim_wording():
-    source = (FRONTEND.parent / "scripts" / "prerender.mjs").read_text(encoding="utf-8")
-    m = re.search(r"url: '/newsletter',.*?description: '([^']+)'", source, re.S)
-    assert m, "/newsletter is in the prerender list with a description"
-    text = m.group(1)
-    assert nl.banned_claim(text) is None
-    for phrase in BANNED + ["passes audit", "meets the requirement"]:
-        assert phrase not in text.lower(), phrase
-    sitemap = (FRONTEND.parent / "public" / "sitemap.xml").read_text(encoding="utf-8")
-    assert "<loc>https://cyphward.com/newsletter</loc>" in sitemap
+def test_newsletter_page_is_not_published_while_the_flag_can_be_off():
+    """/newsletter is never prerendered or listed: crawlers get the noindex SPA shell (the build checks that too)."""
+    scripts, public = FRONTEND.parent / "scripts", FRONTEND.parent / "public"
+    assert "/newsletter" not in (public / "sitemap.xml").read_text(encoding="utf-8")
+    prerender = (scripts / "prerender.mjs").read_text(encoding="utf-8")
+    pages = prerender[prerender.index("const PAGES = ["):prerender.index("];", prerender.index("const PAGES = ["))]
+    assert "/newsletter" not in pages
+    assert "assertNewsletterUnpublished(appShell);" in prerender  # the build fails if it is ever published
+    entry = (FRONTEND / "prerender-entry.tsx").read_text(encoding="utf-8")
+    assert "Newsletter" not in entry and "/newsletter" not in entry
 
 
 # ---------------------------------------------------------------------------

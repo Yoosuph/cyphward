@@ -115,20 +115,15 @@ def newsletter_status(s: nl.Settings = Depends(require_enabled)) -> Dict[str, An
 
 
 async def _send_confirmation(s: nl.Settings, sub: nl.Subscribed) -> None:
-    """The one "you are subscribed" email: at most one per address per 24 hours, checked here (after the
-    response, so the check adds no timing signal). Over the limit, the address stays subscribed and simply
-    gets no second email; every issue carries the unsubscribe link anyway."""
-    try:
-        await run_in_threadpool(check_rate_limit, f"newsletter:confirmation:email:{nl.email_bucket(sub.email)}", 1,
-                                nl.CONFIRMATION_EMAIL_WINDOW_SECONDS)
-    except HTTPException as exc:
-        if exc.status_code != 429:
-            logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
-        return
-    except Exception:
-        # Fail closed: without the check there is no email (the address is subscribed either way).
-        logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
-        return
+    """The "you are subscribed" email, sent after the response (so nothing here is a timing signal).
+
+    A new or upgraded address gets at most one per 24 hours; over the limit it stays subscribed and gets no
+    second email. If that check cannot run, no email goes out (fail closed). An address that had unsubscribed
+    and is subscribed again always gets the notice, so its owner learns of it and can leave again at once;
+    the per-address subscribe limit (3 an hour) still bounds how often that can happen."""
+    if sub.previous_status != "unsubscribed":
+        if not await _confirmation_allowed(sub):
+            return
     mail = nl.render_confirmation(s, sub)
     try:
         result = await send_email_async(
@@ -140,6 +135,22 @@ async def _send_confirmation(s: nl.Settings, sub: nl.Subscribed) -> None:
             logger.warning("newsletter confirmation not delivered (subscriber %s)", sub.subscriber_id)
     except Exception:
         logger.warning("newsletter confirmation failed (subscriber %s)", sub.subscriber_id)
+
+
+async def _confirmation_allowed(sub: nl.Subscribed) -> bool:
+    """One confirmation email per address per CONFIRMATION_EMAIL_WINDOW_SECONDS; False when over it or unknown."""
+    try:
+        await run_in_threadpool(check_rate_limit, f"newsletter:confirmation:email:{nl.email_bucket(sub.email)}", 1,
+                                nl.CONFIRMATION_EMAIL_WINDOW_SECONDS)
+        return True
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
+        return False
+    except Exception:
+        # Fail closed: without the check there is no email (the address is subscribed either way).
+        logger.warning("newsletter confirmation skipped (subscriber %s): limit check failed", sub.subscriber_id)
+        return False
 
 
 @router.post("/subscribe", status_code=202)

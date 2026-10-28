@@ -27,7 +27,8 @@ Single opt-in sign-up (founder decision, 2026-10-27), GrokBot drafts, and admin-
    Rate limits:
    - 10 requests per hour per IP, which returns 429.
    - 3 subscribe requests per hour per address; beyond that the request is dropped silently and still gets the same 202.
-   - At most **one confirmation email per address per 24 hours** (a `rate_limits` bucket, checked after the response). An address that unsubscribes and subscribes again within the day is subscribed, and simply gets no second email; every issue carries the unsubscribe link.
+   - A new or upgraded address gets at most **one confirmation email per 24 hours** (a `rate_limits` bucket, checked after the response). If that check cannot run, no email is sent (fail closed); the address is subscribed either way.
+   - An address that had **unsubscribed and is subscribed again always gets the email**, whatever the 24-hour bucket says. That email opens with "This address had unsubscribed and has just been subscribed again on cyphward.com", so the owner learns of it and can leave again in one click. The 3-an-hour per-address limit bounds how often this can happen.
 
    Bucket keys hold hashes, not addresses or IPs.
 
@@ -107,9 +108,9 @@ Single opt-in sign-up (founder decision, 2026-10-27), GrokBot drafts, and admin-
    - Subscribe a mailbox you control and check that the confirmation email arrives, looks right in a dark and a light mail client, shows the postal line and the unsubscribe link, and that the address is on the Brevo list.
    - Use Brevo's own test-send on the first campaign to confirm that `{{ contact.CW_UNSUB_TOKEN }}` is filled in.
 
-The site needs no `vercel.json` change: `/newsletter` is prerendered (`frontend/scripts/prerender.mjs`) and listed in `frontend/public/sitemap.xml`, the result pages are served by the existing SPA fallback, and `/api/*` is already proxied. While `NEWSLETTER_ENABLED` is off, the prerendered `/newsletter` shows its heading and a loading panel and then the client shows the 404 page, so the sitemap entry points at a not-found page until the flag is on.
+The site needs no `vercel.json` change: `/newsletter*` is served by the existing SPA fallback (`app.html`, which is `noindex` and has an empty root), and `/api/*` is already proxied. `/newsletter` is deliberately **not** prerendered and **not** in `frontend/public/sitemap.xml` while the flag can be off; `frontend/scripts/prerender.mjs` (`assertNewsletterUnpublished`) fails the build if either is added or if the shell served for `/newsletter` loses `noindex` or gains newsletter copy. Once the flag is on in production, add `/newsletter` to `PAGES`, `prerender-entry.tsx` and the sitemap, and relax that check in the same change.
 
-**What single opt-in means.** Anyone can type any address into the form and that address is subscribed without its owner clicking anything. The owner gets the one confirmation email (at most one per 24 hours), which says how to leave, and every issue has the one-click link. A Brevo-side unsubscribe or spam report is pulled back before each send.
+**What single opt-in means.** Anyone can type any address into the form and that address is subscribed without its owner clicking anything. The owner gets the confirmation email, which says how to leave, and every issue has the one-click link. Re-subscribing an address that had unsubscribed always sends that email. A Brevo-side unsubscribe or spam report is pulled back before each send.
 
 ## GrokBot request format
 
@@ -175,6 +176,19 @@ A successful request returns `201 {"id": "<uuid>", "status": "draft", "created_a
     "The NDPC approved your setup", "Regulators approved this product", "meets the NDPA" and "Cyphward customers meet the NDPC filing deadline" stay refused.
 
     Separately, the newsletter also refuses any form of "meet" whose subject is you, your, customers, Cyphward or an organisation, whatever follows.
+
+## What is kept after an unsubscribe
+
+The privacy policy (section 05) states this exactly; keep the two in step.
+
+- **`newsletter_subscribers` row:**
+  - kept: the address, `status = 'unsubscribed'`, `unsubscribed_at`, `consent_at`, `consent_wording_version`, `source`, `confirmed_at`, `token_generation`, and the salted hash of the last unsubscribe token (so an old link answers "unsubscribed");
+  - cleared: the confirm hash and expiry;
+  - the consent columns are NOT NULL by the table's CHECKs and are kept as the record of what was agreed.
+- **Brevo:** the contact is removed from the newsletter list but stays a Brevo contact, with its `CW_UNSUB_TOKEN` attribute.
+- **`rate_limits`:** hashed keys of the address and the IP, with counts. They stop counting after their window (at most 24 hours) and are reaped afterwards.
+
+To delete all of it on request, use the hand-unsubscribe SQL below, then delete the row as the database owner, and delete the contact in Brevo.
 
 ## Operations runbook
 
