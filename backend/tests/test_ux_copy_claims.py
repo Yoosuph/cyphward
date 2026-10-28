@@ -35,6 +35,7 @@ FILES = (
     "pages/Newsletter.tsx",
     "pages/NewsletterResult.tsx",
     "lib/newsletter.ts",
+    "pages/Privacy.tsx",
 )
 
 

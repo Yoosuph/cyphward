@@ -10,8 +10,8 @@ import {
 } from '../lib/newsletter';
 
 /**
- * Newsletter sign-up: a labelled native email field, an unticked consent box with the exact wording,
- * and one button. Renders nothing while the server's newsletter flag is off (or still loading), so a
+ * Newsletter sign-up (single opt-in): a labelled native email field, an unticked consent box with the exact
+ * wording, and one button. Submitting with consent subscribes at once; the server sends one confirmation email. Renders nothing while the server's newsletter flag is off (or still loading), so a
  * prerendered page never shows it.
  */
 export default function NewsletterSubscribe({ source, heading = 'Newsletter' }: { source: NewsletterSource; heading?: string }) {
@@ -37,7 +37,7 @@ export default function NewsletterSubscribe({ source, heading = 'Newsletter' }: 
     try {
       const message = await subscribeToNewsletter(email, source, website);
       setDone(message);
-      toast('Check your inbox to confirm your subscription.');
+      toast('You are subscribed.');
     } catch (err) {
       const status = (err as { status?: number }).status;
       if (status === 422) {
@@ -87,7 +87,7 @@ export default function NewsletterSubscribe({ source, heading = 'Newsletter' }: 
   return (
     <section className="newsletter-box" aria-labelledby={`${id}-heading`} data-testid="newsletter-form">
       <h2 id={`${id}-heading`} className="newsletter-heading">{heading}</h2>
-      <p className="newsletter-lede">Product news, security tips and regulation updates. Confirm by email; leave with one click.</p>
+      <p className="newsletter-lede">Product news, security tips and regulation updates, about once a month. Leave with one click.</p>
       {failure ? (
         <ErrorPanel title="We could not sign you up" message={failure} onRetry={() => void send()} retrying={busy} />
       ) : (

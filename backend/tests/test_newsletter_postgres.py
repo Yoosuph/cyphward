@@ -1,7 +1,8 @@
 """Newsletter on the real test database, as the restricted app role (docs/newsletter/README.md).
 
-Double opt-in end to end through the API, token hashes only at rest, 72-hour expiry, one-click
-unsubscribe, the send-once claim under a real race, the trigger and column grants that keep a sent
+Single opt-in end to end through the API (confirmed at once, one confirmation email, at most one per
+24 hours), token hashes only at rest, the upgrade of rows left pending by the earlier double opt-in and
+their still-working 72-hour confirm links, one-click unsubscribe, the send-once claim under a real race, the trigger and column grants that keep a sent
 issue sent, and the privileges: no DELETE for the app role, nothing at all for anon/authenticated.
 The app role cannot delete, so every test uses fresh addresses and never counts rows it did not make.
 """
@@ -88,22 +89,35 @@ def act(pg, kind, token):
     return pg.post(f"/api/v1/newsletter/{kind}", data={"token": token}, follow_redirects=False)
 
 
-def test_double_opt_in_end_to_end_with_hashes_only(pg):
+def legacy_pending(pg, address, hours=72):
+    """A row as the earlier double opt-in left it (pending, confirm token); returns (confirm, unsubscribe)."""
+    sid = str(uuid.uuid4())
+    confirm, unsub = nl.new_confirm_token(sid), nl.unsubscribe_token(SECRET, sid, 1)
+    pg.conn.execute(
+        "INSERT INTO newsletter_subscribers (id, email_normalised, status, consent_at, consent_wording_version, source, "
+        "token_generation, confirm_token_hash, confirm_expires_at, unsubscribe_token_hash) VALUES (%s, %s, 'pending', "
+        "now(), %s, 'newsletter_page', 1, %s, now() + make_interval(hours => %s), %s)",
+        (sid, address, nl.CONSENT_WORDING_VERSION, nl.hash_token(confirm), hours, nl.hash_token(unsub)))
+    return confirm, unsub
+
+
+def test_single_opt_in_end_to_end_with_hashes_only(pg):
     address = email()
+    sent_before = len(pg.sent)
     subscribe(pg, address)
     row = row_for(pg, address)
-    assert row["status"] == "pending" and row["consent_wording_version"] == nl.CONSENT_WORDING_VERSION
+    assert row["status"] == "confirmed" and row["confirmed_at"] is not None
+    assert row["consent_wording_version"] == nl.CONSENT_WORDING_VERSION
     assert row["source"] == "newsletter_page" and row["consent_at"] is not None
+    assert row["confirm_token_hash"] is None and row["confirm_expires_at"] is None
+    assert len(pg.sent) == sent_before + 1
     mail = pg.sent[-1]
-    confirm, unsub = token_from(mail["text"], "confirm"), token_from(mail["text"], "unsubscribe")
+    assert token_from(mail["text"], "confirm") is None
+    unsub = token_from(mail["text"], "unsubscribe")
     values = " ".join(str(v) for v in row.values())
-    assert confirm.split(".")[1] not in values and unsub.split(".")[1] not in values
-    assert re.fullmatch(r"s1\$[0-9a-f]{32}\$[0-9a-f]{64}", row["confirm_token_hash"])
-    assert pg.brevo.calls == []
-
-    resp = act(pg, "confirm", confirm)
-    assert resp.headers["location"] == f"{BASE}/newsletter/confirmed?result=ok"
-    assert row_for(pg, address)["status"] == "confirmed"
+    assert unsub.split(".")[1] not in values
+    assert re.fullmatch(r"s1\$[0-9a-f]{32}\$[0-9a-f]{64}", row["unsubscribe_token_hash"])
+    assert pg.brevo.calls == [("upsert", address)]
     assert pg.brevo.contacts[address]["attributes"]["CW_UNSUB_TOKEN"] == unsub
 
     resp = act(pg, "unsubscribe", unsub)
@@ -113,32 +127,76 @@ def test_double_opt_in_end_to_end_with_hashes_only(pg):
     assert address not in pg.brevo.contacts
 
 
-def test_expired_link_does_not_confirm(pg):
+def test_resubscribe_after_unsubscribe_always_sends_a_notice(pg):
     address = email()
     subscribe(pg, address)
+    sent_before = len(pg.sent)
+    act(pg, "unsubscribe", token_from(pg.sent[-1]["text"], "unsubscribe"))
+    subscribe(pg, address)  # within 24 hours of the first email
+    row = row_for(pg, address)
+    assert row["status"] == "confirmed" and row["token_generation"] == 2 and row["unsubscribed_at"] is None
+    assert len(pg.sent) == sent_before + 1 and pg.sent[-1]["to"] == address
+    assert nl.CONFIRMATION_INTRO_AGAIN in pg.sent[-1]["text"]
+    assert pg.brevo.contacts[address]["attributes"]["CW_UNSUB_TOKEN"] == nl.unsubscribe_token(SECRET, str(row["id"]), 2)
+
+
+@pytest.mark.parametrize("previous", ["pending", "unsubscribed"])
+def test_consent_is_recorded_afresh_on_upgrade(pg, previous):
+    address = email()
+    if previous == "pending":
+        legacy_pending(pg, address)
+    else:
+        subscribe(pg, address)
+        act(pg, "unsubscribe", token_from(pg.sent[-1]["text"], "unsubscribe"))
+    pg.conn.execute("UPDATE newsletter_subscribers SET consent_at = now() - interval '2 days', "
+                    "consent_wording_version = '2026-01-01.v0', source = 'landing_footer' WHERE email_normalised = %s",
+                    (address,))
+    assert row_for(pg, address)["status"] == previous
+    subscribe(pg, address)
+    row = pg.conn.execute("SELECT status, consent_wording_version, source, now() - consent_at < interval '1 minute' "
+                          "AS fresh FROM newsletter_subscribers WHERE email_normalised = %s", (address,)).fetchone()
+    assert row["status"] == "confirmed" and row["fresh"], "consent_at must be refreshed on upgrade"
+    assert row["consent_wording_version"] == nl.CONSENT_WORDING_VERSION and row["source"] == "newsletter_page"
+
+
+def test_legacy_pending_row_is_upgraded_by_subscribe(pg):
+    address = email()
+    confirm, _ = legacy_pending(pg, address)
+    sent_before = len(pg.sent)
+    subscribe(pg, address)
+    row = row_for(pg, address)
+    assert row["status"] == "confirmed" and row["token_generation"] == 2 and row["confirmed_at"] is not None
+    assert row["confirm_token_hash"] is None and row["confirm_expires_at"] is None
+    assert len(pg.sent) == sent_before + 1 and pg.brevo.calls == [("upsert", address)]
+    assert act(pg, "confirm", confirm).headers["location"].endswith("result=invalid")
+
+
+def test_legacy_confirm_link_still_confirms(pg):
+    address = email()
+    confirm, unsub = legacy_pending(pg, address)
+    resp = act(pg, "confirm", confirm)
+    assert resp.headers["location"] == f"{BASE}/newsletter/confirmed?result=ok"
+    assert row_for(pg, address)["status"] == "confirmed"
+    assert pg.brevo.contacts[address]["attributes"]["CW_UNSUB_TOKEN"] == unsub
+
+
+def test_expired_legacy_link_does_not_confirm(pg):
+    address = email()
+    confirm, _ = legacy_pending(pg, address)
     pg.conn.execute("UPDATE newsletter_subscribers SET confirm_expires_at = now() - interval '1 minute' "
                     "WHERE email_normalised = %s", (address,))
-    resp = act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
+    resp = act(pg, "confirm", confirm)
     assert resp.headers["location"].endswith("result=expired")
     assert row_for(pg, address)["status"] == "pending"
-
-
-def test_expiry_is_72_hours(pg):
-    address = email()
-    subscribe(pg, address)
-    hours = pg.conn.execute("SELECT extract(epoch FROM confirm_expires_at - consent_at) / 3600 AS h "
-                            "FROM newsletter_subscribers WHERE email_normalised = %s", (address,)).fetchone()["h"]
-    assert abs(float(hours) - 72) < 0.01
 
 
 def test_a_confirmed_address_is_left_untouched(pg):
     address = email()
     subscribe(pg, address)
-    act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
     before = row_for(pg, address)
-    sent_before = len(pg.sent)
+    sent_before, calls_before = len(pg.sent), list(pg.brevo.calls)
     subscribe(pg, address)
-    assert row_for(pg, address) == before and len(pg.sent) == sent_before
+    assert row_for(pg, address) == before and len(pg.sent) == sent_before and pg.brevo.calls == calls_before
 
 
 def test_concurrent_first_subscriptions_make_one_row(pg):
@@ -156,7 +214,8 @@ def test_concurrent_first_subscriptions_make_one_row(pg):
     [t.join(timeout=20) for t in threads]
     assert pg.conn.execute("SELECT count(*) AS n FROM newsletter_subscribers WHERE email_normalised = %s",
                            (address,)).fetchone()["n"] == 1
-    assert sum(r is not None for r in results) >= 1
+    assert sum(r is not None for r in results) == 1  # exactly one request adds it to the list and emails
+    assert row_for(pg, address)["status"] == "confirmed"
 
 
 def _draft(pg, **over):
@@ -168,7 +227,6 @@ def _draft(pg, **over):
 def test_send_once_through_the_api_with_audit(pg):
     address = email()
     subscribe(pg, address)
-    act(pg, "confirm", token_from(pg.sent[-1]['text'], 'confirm'))
     iid = _draft(pg)
     origin = {"Origin": "https://admin.cyphward.test"}
     resp = pg.post(f"/api/v1/newsletter/drafts/{iid}/send", json={"approve": True, "subject": "Cyphward notes for October"},
@@ -351,13 +409,12 @@ def test_flag_off_on_the_real_database(pg, monkeypatch):
 
 def test_a_get_changes_nothing_on_the_real_database(pg):
     address = email()
-    subscribe(pg, address)
-    mail = pg.sent[-1]
-    for kind in ("confirm", "unsubscribe"):
-        page = pg.get(f"/api/v1/newsletter/{kind}?token={token_from(mail['text'], kind)}", follow_redirects=False)
+    tokens = dict(zip(("confirm", "unsubscribe"), legacy_pending(pg, address)))
+    for kind, token in tokens.items():
+        page = pg.get(f"/api/v1/newsletter/{kind}?token={token}", follow_redirects=False)
         assert page.status_code == 200 and 'method="post"' in page.text
     assert row_for(pg, address)["status"] == "pending" and pg.brevo.calls == []
-    act(pg, "confirm", token_from(mail["text"], "confirm"))
+    act(pg, "confirm", tokens["confirm"])
     assert row_for(pg, address)["status"] == "confirmed"
 
 

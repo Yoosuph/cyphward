@@ -12,7 +12,7 @@ export default function Newsletter() {
     <PublicShell
       eyebrow="NEWSLETTER"
       title={<>News from <em>Cyphward.</em></>}
-      lede="Occasional email about the product, practical security tips and regulation updates that matter to Nigerian software teams. We confirm your address first, and every email has a one-click unsubscribe link."
+      lede="Email about the product, practical security tips and regulation updates that matter to Nigerian software teams, about once a month. Tick the box, subscribe, and you are in: we send one confirmation email, and every email has a one-click unsubscribe link."
     >
       {enabled === null ? <LoadingPanel label="the sign-up form" lines={2} /> : <NewsletterSubscribe source="newsletter_page" heading="Subscribe" />}
     </PublicShell>

@@ -24,21 +24,35 @@ class FakeNewsletterStore:
         return next((r for r in self.subscribers.values() if r["email_normalised"] == email), None)
 
     def subscribe(self, email, consent_version, source, secret):
+        """Single opt-in, as PostgresNewsletterStore.subscribe: confirmed at once, consent recorded."""
         row = self.by_email(email)
         generation = nl.subscribe_generation(row)
         if generation is None:
             return None
+        previous = row["status"] if row else "new"
         sid = row["id"] if row else str(uuid.uuid4())
-        confirm = nl.new_confirm_token(sid)
         unsub = nl.unsubscribe_token(secret, sid, generation)
         if row is None:
             row = {"id": sid, "email_normalised": email, "created_at": _now()}
             self.subscribers[sid] = row
-        row.update(status="pending", consent_at=_now(), consent_wording_version=consent_version, source=source,
-                   token_generation=generation, confirm_token_hash=nl.hash_token(confirm),
-                   confirm_expires_at=_now() + nl.CONFIRM_TTL, unsubscribe_token_hash=nl.hash_token(unsub),
-                   confirmed_at=None, unsubscribed_at=None)
-        return nl.Issued(sid, email, confirm, unsub)
+        row.update(status="confirmed", consent_at=_now(), consent_wording_version=consent_version, source=source,
+                   token_generation=generation, confirm_token_hash=None, confirm_expires_at=None,
+                   unsubscribe_token_hash=nl.hash_token(unsub), confirmed_at=_now(), unsubscribed_at=None)
+        return nl.Subscribed(sid, email, unsub, generation, consent_version, previous)
+
+    def seed_legacy_pending(self, email, secret, source="newsletter_page"):
+        """A row as the earlier double opt-in left it: pending, with a 72-hour confirm token.
+        Returns (confirm token, unsubscribe token), as its email carried them."""
+        sid = str(uuid.uuid4())
+        confirm = nl.new_confirm_token(sid)
+        unsub = nl.unsubscribe_token(secret, sid, 1)
+        self.subscribers[sid] = {
+            "id": sid, "email_normalised": email, "created_at": _now(), "status": "pending", "consent_at": _now(),
+            "consent_wording_version": nl.CONSENT_WORDING_VERSION, "source": source, "token_generation": 1,
+            "confirm_token_hash": nl.hash_token(confirm), "confirm_expires_at": _now() + nl.CONFIRM_TTL,
+            "unsubscribe_token_hash": nl.hash_token(unsub), "confirmed_at": None, "unsubscribed_at": None,
+        }
+        return confirm, unsub
 
     def confirm(self, token):
         sid = nl.token_subscriber_id(token)
@@ -125,7 +139,8 @@ class FakeNewsletterStore:
 
 
 class StubBrevo:
-    """Records every call in order; `fail` names operations that raise; `contacts` is the Brevo list."""
+    """Records every call in order; `fail` names operations that raise; `contacts` is the Brevo list.
+    `on_upsert(email)` runs before each upsert (tests use it to see the database at that moment)."""
 
     def __init__(self):
         self.calls = []
@@ -135,6 +150,7 @@ class StubBrevo:
         self.sent = []
         self.list_ids = []
         self.drop_attributes = False  # behave like an account without the CW_UNSUB_TOKEN attribute
+        self.on_upsert = None
 
     def _maybe_fail(self, op):
         if op in self.fail:
@@ -142,6 +158,8 @@ class StubBrevo:
 
     async def upsert_list_contact(self, email, unsub_token):
         self.calls.append(("upsert", email))
+        if self.on_upsert:
+            self.on_upsert(email)
         self._maybe_fail("upsert")
         blocked = self.contacts.get(email, {}).get("blocked", False)
         self.contacts[email] = {"blocked": blocked,

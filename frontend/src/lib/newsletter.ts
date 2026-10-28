@@ -42,6 +42,9 @@ export class SubscribeError extends Error {
   }
 }
 
+/** The server's answer (the same for every address): single opt-in, nothing left to confirm. */
+export const SUBSCRIBED_MESSAGE = 'You are subscribed. We have sent a confirmation email with an unsubscribe link.';
+
 /** Sends the subscription. The server answers the same way for every address. */
 export async function subscribeToNewsletter(email: string, source: NewsletterSource, website = ''): Promise<string> {
   const res = await fetch('/api/v1/newsletter/subscribe', {
@@ -58,5 +61,5 @@ export async function subscribeToNewsletter(email: string, source: NewsletterSou
   if (res.status === 422) throw new SubscribeError('Check the email address and try again.', 422);
   if (!res.ok) throw new SubscribeError('We could not take your subscription just now.', res.status);
   const body = await res.json().catch(() => ({}));
-  return typeof body.message === 'string' ? body.message : 'Check your inbox for a confirmation link.';
+  return typeof body.message === 'string' ? body.message : SUBSCRIBED_MESSAGE;
 }
