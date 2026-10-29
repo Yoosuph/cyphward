@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronLeft, ChevronRight, Search, type LucideIcon } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
 import { PageHead as AppPageHead } from '../components/ui';
-import { ErrorPanel, LoadingPanel, humanError } from '../components/ui/StatePanels';
+import { ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
 import { OwnerApiError, ownerGet } from './ownerApi';
 
 /* ── Session expiry plumbing: any 401 sends the console back to sign-in ── */
@@ -31,7 +31,8 @@ export function useOwnerView<T>(path: string, params?: Record<string, string | n
     } catch (e) {
       const err = e as OwnerApiError;
       if (err.status === 401) onSessionEnded();
-      else if (latest.current === key) setError(humanError(err, 'The console could not load this view. Try again in a moment.', { passDetail: false }));
+      // The message is already reviewed wording (ownerApi.ownerErrorText): never the server's own text.
+      else if (latest.current === key) setError(err.message || 'The console could not load this view. Try again in a moment.');
     } finally {
       if (latest.current === key) setLoading(false);
     }

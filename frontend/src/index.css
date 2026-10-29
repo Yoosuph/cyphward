@@ -2080,3 +2080,17 @@ main.page:focus{outline:none}
   /* A link inside a sentence: taller hit area without moving the line around it. */
   .tap-inline{display:inline-block; padding-block:14px; margin-block:-14px}
 }
+
+/* ============ Owner console lists (frontend/src/owner/table.tsx) ============ */
+.owner-sort-btn{display:inline-flex; align-items:center; gap:5px; min-height:32px; padding:0; font:inherit; letter-spacing:inherit; color:inherit; text-transform:uppercase; border-radius:3px}
+.owner-sort-btn:hover, .owner-table th[aria-sort="ascending"] .owner-sort-btn, .owner-table th[aria-sort="descending"] .owner-sort-btn{color:var(--ink)}
+.owner-select{min-height:34px; max-width:100%}
+.owner-filter-bar > *{min-width:0; max-width:100%}
+@media (min-width:641px){
+  .owner-table-wrap{max-height:min(70vh, 760px); overflow:auto}
+  .owner-table thead th{position:sticky; top:0; z-index:2; background:var(--raised)}
+}
+@media (max-width:900px){
+  .owner-filter-bar > *{flex:1 1 140px}
+  .owner-select, .page .owner-sort-btn{min-height:44px}
+}

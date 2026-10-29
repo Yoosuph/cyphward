@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useListParams } from './peopleViews';
 import { CancelScanAction } from './actions';
+import { ExportButton, FilterBar, ListState, OwnerTable, PagerBar, SelectFilter, SortSelect, type Column } from './table';
 import {
   Cell, Empty, FilterChip, PageHead, Pager, Panel, Pill, SearchBox, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
@@ -24,57 +25,68 @@ const STATE_LABEL: Record<string, string> = Object.fromEntries(SCAN_STATES.filte
 const ACTIVE_STATES = ['queued', 'queued_delayed', 'running', 'running_lease_expired'];
 
 /* ── Subscriptions ─────────────────────────────────────────────────────── */
+// Statuses as the database stores them, plus "lapsed": active or trialing with its period already ended.
+const SUB_STATUSES: [string, string][] = [
+  ['', 'All'], ['trialing', 'Trialing'], ['active', 'Active'], ['lapsed', 'Lapsed'], ['past_due', 'Past due'], ['canceled', 'Canceled'],
+];
+
+const SUB_COLUMNS: Column<Row>[] = [
+  { key: 'organization', label: 'Organization', sortKey: 'organization', title: true,
+    cell: s => <Link to={`/organizations/${s.org_id}`} className="hover:text-accent break-words">{s.org_name}</Link> },
+  { key: 'plan', label: 'Plan', sortKey: 'plan', cell: s => <span className="mono text-xs">{s.plan}</span> },
+  { key: 'status', label: 'Status', sortKey: 'status',
+    cell: s => <span className="inline-flex flex-wrap items-center gap-1.5"><Pill tone={statusTone(s.effective_status === 'lapsed' ? 'expired' : s.effective_status)}>{(s.effective_status || s.status || '').replace('_', ' ')}</Pill>
+      {s.cancel_at_period_end && <span className="text-xs text-soft">cancels at period end</span>}</span> },
+  { key: 'period_end', label: 'Period ends', sortKey: 'period_end', firstDir: 'asc', cell: s => fmtDate(s.current_period_end, false) },
+  { key: 'trial', label: 'Trial ends', cell: s => fmtDate(s.trial_ends_at, false) },
+  { key: 'provider', label: 'Provider', cell: s => <span className="mono text-xs">{s.provider || 'manual'}</span> },
+  { key: 'created', label: 'Created', sortKey: 'created', firstDir: 'desc', cell: s => fmtDate(s.created_at, false) },
+];
+
 export function SubscriptionsView() {
-  const { params, set } = useListParams();
+  const { q, offset, limit, sort, dir, set, params } = useListParams({ sort: 'period_end', dir: 'asc' });
   const status = params.get('status') || '';
-  const { data, error, loading, reload } = useOwnerView<Row>('/subscriptions', { status });
-  const statuses = ['', 'trialing', 'active', 'past_due', 'cancelled', 'expired'];
+  const plan = params.get('plan') || '';
+  const filters = { q, status, plan, sort, dir };
+  const { data, error, loading, reload } = useOwnerView<Row>('/subscriptions', { ...filters, offset, limit });
   return (
     <>
-      <PageHead title="Subscriptions" subtitle="Plans, renewal dates and invoices on record. Invoices are records, not proof of payment." />
-      <div className="no-scrollbar flex gap-2 mb-4 overflow-x-auto sm:flex-wrap">
-        {statuses.map(s => (
-          <FilterChip key={s || 'all'} active={status === s} onClick={() => set({ status: s })}>{(s || 'all').replace('_', ' ')}</FilterChip>
-        ))}
-      </div>
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
-        {data && (
-          <div className="space-y-4">
-            <Panel title={`Subscriptions (${data.subscriptions.length})`}>
-              {data.subscriptions.length === 0 ? <Empty>No subscriptions{status ? ` with status ${status}` : ''}.</Empty> : (
-                <Table head={['Organization', 'Plan', 'Status', 'Period ends', 'Trial ends', 'Provider']}>
-                  {(data.subscriptions as Row[]).map(s => (
-                    <tr key={s.id}>
-                      <Cell title><Link to={`/organizations/${s.org_id}`} className="hover:text-accent">{s.org_name}</Link></Cell>
-                      <Cell label="Plan"><span className="mono text-xs">{s.plan}</span></Cell>
-                      <Cell label="Status"><Pill tone={statusTone(s.status)}>{s.status}</Pill>{s.cancel_at_period_end && <span className="text-xs text-soft"> · cancels at period end</span>}</Cell>
-                      <Cell label="Period ends">{fmtDate(s.current_period_end, false)}</Cell>
-                      <Cell label="Trial ends">{fmtDate(s.trial_ends_at, false)}</Cell>
-                      <Cell label="Provider"><span className="mono text-xs">{s.provider || 'manual'}</span></Cell>
-                    </tr>
-                  ))}
-                </Table>
-              )}
-            </Panel>
-            <Panel title="Recent invoices">
-              {data.invoices.length === 0 ? <Empty>No invoices recorded.</Empty> : (
-                <Table head={['Invoice', 'Organization', 'Amount', 'Status', 'Period', 'Created']}>
-                  {(data.invoices as Row[]).map(inv => (
-                    <tr key={inv.number}>
-                      <Cell title><span className="mono text-xs">{inv.number}</span></Cell>
-                      <Cell label="Organization"><Link to={`/organizations/${inv.org_id}`} className="hover:text-accent">{inv.org_name}</Link></Cell>
-                      <Cell label="Amount">{fmtMoney(inv.amount_kobo, inv.currency)}</Cell>
-                      <Cell label="Status"><Pill tone={statusTone(inv.status)}>{inv.status}</Pill></Cell>
-                      <Cell label="Period">{fmtDate(inv.period_start, false)} – {fmtDate(inv.period_end, false)}</Cell>
-                      <Cell label="Created">{fmtDate(inv.created_at, false)}</Cell>
-                    </tr>
-                  ))}
-                </Table>
-              )}
-            </Panel>
-          </div>
-        )}
-      </ViewState>
+      <PageHead title="Subscriptions" subtitle="Plans, renewal dates and invoices on record. Invoices are records, not proof of payment."
+                actions={<ExportButton path="/exports/subscriptions.csv" params={filters} />} />
+      <FilterBar>
+        <SearchBox value={q} onChange={v => set({ q: v, offset: 0 })} placeholder="Search organization" />
+        <SelectFilter id="sub-status" label="Status" value={status} options={SUB_STATUSES} onChange={v => set({ status: v, offset: 0 })} />
+        <SelectFilter id="sub-plan" label="Plan" value={plan}
+                      options={[['', 'All'], ['starter', 'Starter'], ['growth', 'Growth'], ['other', 'Other']]} onChange={v => set({ plan: v, offset: 0 })} />
+        <SortSelect id="sub-sort" columns={SUB_COLUMNS} sort={sort} dir={dir} onChange={(s, d) => set({ sort: s, dir: d, offset: 0 })} />
+      </FilterBar>
+      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="subscriptions"
+                 empty={{ title: 'No subscriptions match', help: status ? 'No subscription has this status. Choose another status.' : 'Subscriptions appear here once an organization has one.' }}>
+        <OwnerTable caption="Subscriptions" columns={SUB_COLUMNS} rows={(data?.items || []) as Row[]} rowKey={s => s.id}
+                    sort={sort} dir={dir} onSort={(s, d) => set({ sort: s, dir: d, offset: 0 })} testId="sub-table" />
+        {data && <PagerBar offset={offset} limit={limit} total={data.total} count={data.items.length}
+                           onPage={o => set({ offset: o })} onLimit={n => set({ limit: n === 50 ? 0 : n, offset: 0 })} />}
+      </ListState>
+      {data && (
+        <div className="mt-5">
+          <Panel title="Recent invoices">
+            {(data.invoices || []).length === 0 ? <Empty>No invoices recorded.</Empty> : (
+              <Table head={['Invoice', 'Organization', 'Amount', 'Status', 'Period', 'Created']}>
+                {(data.invoices as Row[]).map(inv => (
+                  <tr key={inv.number}>
+                    <Cell title><span className="mono text-xs">{inv.number}</span></Cell>
+                    <Cell label="Organization"><Link to={`/organizations/${inv.org_id}`} className="hover:text-accent">{inv.org_name}</Link></Cell>
+                    <Cell label="Amount">{fmtMoney(inv.amount_kobo, inv.currency)}</Cell>
+                    <Cell label="Status"><Pill tone={statusTone(inv.status)}>{inv.status}</Pill></Cell>
+                    <Cell label="Period">{fmtDate(inv.period_start, false)} – {fmtDate(inv.period_end, false)}</Cell>
+                    <Cell label="Created">{fmtDate(inv.created_at, false)}</Cell>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Panel>
+        </div>
+      )}
     </>
   );
 }

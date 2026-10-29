@@ -399,7 +399,7 @@ type Outcome =
 /** What the owner sees when a send fails: the server's own plain sentence where it wrote one, never internals. */
 function sendFailure(err: OwnerApiError): Outcome {
   const text = (err.message || '').trim();
-  const plain = text.length > 0 && text.length <= 300
+  const plain = err.serverWording && text.length > 0 && text.length <= 300
     && !/traceback|exception|psycopg|sql|\.py\b|stack|internal server error|^request failed|^\{|^\[/i.test(text);
   if (err.status === 409) {
     return { kind: 'already', message: plain ? text : 'This issue has already been sent or a send was already attempted.' };
@@ -411,6 +411,7 @@ function sendFailure(err: OwnerApiError): Outcome {
     return { kind: 'error', message: 'Nothing was sent: this draft no longer exists, or the newsletter is switched off.' };
   }
   if ((err.status === 422 || err.status === 502) && plain) return { kind: 'error', message: text };
+  if (err.status === 422) return { kind: 'error', message: 'Nothing was sent: the server did not accept this draft. Reload it and check the draft rules.' };
   return { kind: 'error', message: SEND_UNCONFIRMED };
 }
 

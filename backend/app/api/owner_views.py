@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.app.core import owner as owner_mod
+from backend.app.core import owner_lists as lists
+from backend.app.core import owner_reads as reads
 from backend.app.core.demo_org import DEMO_ORG_ID, DEMO_USER_ID
 from backend.app.core.config import BREVO_API_KEY
 from backend.app.core.database import execute_one, execute_query
@@ -47,6 +49,12 @@ def _uuid(value: str) -> str:
 
 def _rows(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
     return execute_query(sql, params) or []
+
+
+def _filters_meta(filters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The list filters for the owner audit row (search text trimmed; defaults left out)."""
+    meta = {k: (v[:100] if isinstance(v, str) else v) for k, v in filters.items() if v not in ("", None)}
+    return meta or None
 
 
 # ── Overview ───────────────────────────────────────────────────────────────
@@ -99,44 +107,19 @@ def overview(request: Request, owner: Dict[str, Any] = Depends(owner_mod.require
 
 
 # ── Organizations ──────────────────────────────────────────────────────────
-_ORG_FILTER = """
-    (%(q)s = '' OR o.name ILIKE %(like)s OR o.slug ILIKE %(like)s
-     OR EXISTS (SELECT 1 FROM domains d WHERE d.org_id = o.id AND d.domain ILIKE %(like)s)
-     OR EXISTS (SELECT 1 FROM organization_members m JOIN profiles p ON p.id = m.user_id
-                WHERE m.org_id = o.id AND p.email ILIKE %(like)s))
-"""
-
-
+# Lists: search, filter, sort and pages on the server (core/owner_lists.py). Sizes above 100 are capped; a size
+# below 1, a negative offset or an unknown filter or sort value is refused with 422.
 @router.get("/organizations")
-def organizations(request: Request, q: str = "", limit: int = Query(50, ge=1, le=100),
-                  offset: int = Query(0, ge=0, le=100000),
+def organizations(request: Request, q: str = Query("", max_length=100), billing: lists.OrgBilling = "",
+                  plan: lists.PlanFilter = "", suspended: lists.YesNo = "", sort: lists.OrgSort = "created",
+                  dir: lists.Dir = "desc", limit: int = Query(50, ge=1), offset: int = Query(0, ge=0, le=100000),
                   owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
-    _view(request, owner, "organizations", metadata={"q": q[:100]} if q else None)
-    params = {"q": q.strip(), "like": _like(q), "limit": limit, "offset": offset}
-    rows = _rows(
-        f"""
-        SELECT o.id, o.name, o.slug, o.plan, o.sector, o.created_at,
-          (SELECT count(*) FROM organization_members m WHERE m.org_id = o.id) AS members,
-          (SELECT p.email FROM organization_members m JOIN profiles p ON p.id = m.user_id
-             WHERE m.org_id = o.id AND m.role = 'owner' ORDER BY m.created_at LIMIT 1) AS owner_email,
-          (SELECT count(*) FROM domains d WHERE d.org_id = o.id AND d.revoked_at IS NULL) AS domains,
-          (SELECT count(*) FROM domains d WHERE d.org_id = o.id AND d.revoked_at IS NULL
-             AND d.verification_status = 'verified') AS domains_verified,
-          sub.status AS subscription_status, sub.current_period_end,
-          ls.created_at AS last_scan_at, ls.status AS last_scan_status, ls.score AS last_score
-        FROM organizations o
-        LEFT JOIN LATERAL (SELECT status, current_period_end FROM subscriptions s
-                           WHERE s.org_id = o.id ORDER BY s.created_at DESC LIMIT 1) sub ON true
-        LEFT JOIN LATERAL (SELECT created_at, status, score FROM scans sc
-                           WHERE sc.org_id = o.id ORDER BY sc.created_at DESC LIMIT 1) ls ON true
-        WHERE {_ORG_FILTER}
-        ORDER BY o.created_at DESC
-        LIMIT %(limit)s OFFSET %(offset)s
-        """,
-        params,
-    )
-    total = execute_one(f"SELECT count(*) AS n FROM organizations o WHERE {_ORG_FILTER}", params) or {}
-    return {"items": rows, "total": total.get("n", 0), "limit": limit, "offset": offset}
+    limit = reads.page_size(limit)
+    filters = {"q": q, "billing": billing, "plan": plan, "suspended": suspended, "sort": sort, "dir": dir}
+    _view(request, owner, "organizations", metadata=_filters_meta(filters))
+    rows, total = reads.bounded_read(lists.organizations(q, billing, plan, suspended, sort, dir, limit, offset))
+    return {"items": rows, "total": (total[0] if total else {}).get("n", 0), "limit": limit, "offset": offset,
+            "sort": sort, "dir": dir}
 
 
 @router.get("/organizations/{org_id}")
@@ -195,44 +178,38 @@ def organization_detail(org_id: str, request: Request,
         """,
         (org_id,),
     )
+    suspension = execute_one(
+        "SELECT status, changed_at, first_suspended_at FROM organization_suspensions WHERE org_id = %s", (org_id,))
+    # Owner actions on this organization (changes and refusals; views are left out), newest first.
+    owner_actions = _rows(
+        """
+        SELECT created_at, action, outcome, actor_email, metadata->>'reason' AS reason
+        FROM owner_audit
+        WHERE target_type = 'organization' AND target_id = %s AND action LIKE 'owner.action.%%'
+        ORDER BY created_at DESC LIMIT 20
+        """,
+        (org_id,),
+    )
+    org = {**org, "suspended": bool(suspension and suspension["status"] == "suspended"),
+           "suspension_changed_at": (suspension or {}).get("changed_at")}
     return {"organization": org, "members": members, "domains": domains, "subscriptions": subscriptions,
             "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity,
+            "owner_actions": owner_actions,
             "plans": [{"slug": slug, "label": spec["label"]} for slug, spec in PLANS.items()]}
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
-_USER_FILTER = "(%(q)s = '' OR p.email ILIKE %(like)s OR p.full_name ILIKE %(like)s)"
-
-
 @router.get("/users")
-def users(request: Request, q: str = "", limit: int = Query(50, ge=1, le=100),
+def users(request: Request, q: str = Query("", max_length=100), mfa: lists.UserMfa = "", verified: lists.YesNo = "",
+          sort: lists.UserSort = "created", dir: lists.Dir = "desc", limit: int = Query(50, ge=1),
           offset: int = Query(0, ge=0, le=100000),
           owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
-    _view(request, owner, "users", metadata={"q": q[:100]} if q else None)
-    params = {"q": q.strip(), "like": _like(q), "limit": limit, "offset": offset}
-    rows = _rows(
-        f"""
-        SELECT p.id, p.email, p.full_name, p.provider, p.created_at,
-               p.email_verified_at IS NOT NULL AS email_verified,
-               p.mfa_enrolled_at IS NOT NULL AS email_code_opt_in,
-               p.totp_enrolled_at IS NOT NULL AS authenticator,
-               EXISTS (SELECT 1 FROM platform_owners po WHERE po.user_id = p.id) AS platform_owner,
-               (SELECT string_agg(o.name || ' (' || m.role || ')', ', ' ORDER BY o.name)
-                  FROM organization_members m JOIN organizations o ON o.id = m.org_id
-                  WHERE m.user_id = p.id) AS organizations,
-               (SELECT max(COALESCE(s.last_used_at, s.created_at)) FROM auth_sessions s
-                  WHERE s.user_id = p.id) AS last_seen_at,
-               (SELECT count(*) FROM auth_sessions s WHERE s.user_id = p.id
-                  AND s.revoked_at IS NULL AND s.expires_at > now()) AS active_sessions
-        FROM profiles p
-        WHERE {_USER_FILTER}
-        ORDER BY p.created_at DESC
-        LIMIT %(limit)s OFFSET %(offset)s
-        """,
-        params,
-    )
-    total = execute_one(f"SELECT count(*) AS n FROM profiles p WHERE {_USER_FILTER}", params) or {}
-    return {"items": rows, "total": total.get("n", 0), "limit": limit, "offset": offset}
+    limit = reads.page_size(limit)
+    filters = {"q": q, "mfa": mfa, "verified": verified, "sort": sort, "dir": dir}
+    _view(request, owner, "users", metadata=_filters_meta(filters))
+    rows, total = reads.bounded_read(lists.users(q, mfa, verified, sort, dir, limit, offset))
+    return {"items": rows, "total": (total[0] if total else {}).get("n", 0), "limit": limit, "offset": offset,
+            "sort": sort, "dir": dir}
 
 
 @router.get("/users/{user_id}")
@@ -278,29 +255,23 @@ def user_detail(user_id: str, request: Request,
 
 # ── Subscriptions & invoices ───────────────────────────────────────────────
 @router.get("/subscriptions")
-def subscriptions(request: Request, status: str = "",
+def subscriptions(request: Request, q: str = Query("", max_length=100), status: lists.SubStatus = "",
+                  plan: lists.PlanFilter = "", sort: lists.SubSort = "period_end", dir: lists.Dir = "asc",
+                  limit: int = Query(50, ge=1), offset: int = Query(0, ge=0, le=100000),
                   owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
-    _view(request, owner, "subscriptions", metadata={"status": status[:40]} if status else None)
-    subs = _rows(
-        """
-        SELECT s.id, o.id AS org_id, o.name AS org_name, s.plan, s.status, s.provider,
-               s.current_period_start, s.current_period_end, s.trial_ends_at, s.cancel_at_period_end, s.created_at
-        FROM subscriptions s JOIN organizations o ON o.id = s.org_id
-        WHERE (%s = '' OR s.status = %s)
-        ORDER BY s.current_period_end NULLS LAST, s.created_at DESC
-        LIMIT 200
-        """,
-        (status.strip(), status.strip()),
-    )
-    invoices = _rows(
+    limit = reads.page_size(limit)
+    filters = {"q": q, "status": status, "plan": plan, "sort": sort, "dir": dir}
+    _view(request, owner, "subscriptions", metadata=_filters_meta(filters))
+    rows_q, total_q = lists.subscriptions(q, status, plan, sort, dir, limit, offset)
+    rows, total, invoices = reads.bounded_read([rows_q, total_q, (
         """
         SELECT i.number, o.id AS org_id, o.name AS org_name, i.plan, i.amount_kobo, i.currency, i.status,
                i.period_start, i.period_end, i.created_at
         FROM invoices i JOIN organizations o ON o.id = i.org_id
-        ORDER BY i.created_at DESC LIMIT 100
-        """
-    )
-    return {"subscriptions": subs, "invoices": invoices}
+        ORDER BY i.created_at DESC LIMIT 50
+        """, ())])
+    return {"items": rows, "total": (total[0] if total else {}).get("n", 0), "limit": limit, "offset": offset,
+            "sort": sort, "dir": dir, "invoices": invoices}
 
 
 # ── Scans ──────────────────────────────────────────────────────────────────

@@ -1,1 +1,1 @@
-export { useConfirm, ConfirmProvider, type ConfirmOptions } from '../ConfirmDialog';
+export { useConfirm, ConfirmProvider, TypedNameGate, typedNameMatches, type ConfirmOptions } from '../ConfirmDialog';
