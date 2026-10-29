@@ -10,10 +10,10 @@ export class OwnerApiError extends Error {
   }
 }
 
-async function ownerFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function ownerFetch<T>(path: string, init?: RequestInit, base = '/api/v1/owner'): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api/v1/owner${path}`, {
+    res = await fetch(`${base}${path}`, {
       ...init,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -66,3 +66,40 @@ export const ownerSetupComplete = (newPassword: string, code: string) =>
   });
 
 export const ownerSignOut = () => ownerFetch<{ signed_out: boolean }>('/logout', { method: 'POST' });
+
+/* ── Newsletter (the same owner cookie; routes live under /api/v1/newsletter) ── */
+const NEWSLETTER = '/api/v1/newsletter';
+
+export type NewsletterLink = { label: string; url: string };
+export type NewsletterSource = { title: string; url: string };
+export type NewsletterSection = {
+  type: string; heading: string; body: string; links?: NewsletterLink[]; sources?: NewsletterSource[];
+};
+export type NewsletterIssue = {
+  id: string;
+  status: 'draft' | 'sent' | string;
+  subject: string;
+  preview: string;
+  created_by: string | null;
+  created_at: string | null;
+  sent_at: string | null;
+  approved_at: string | null;
+  send_claimed_at: string | null;
+  sendable: boolean;
+  sections: NewsletterSection[];
+  preview_html: string | null;
+  preview_text: string | null;
+};
+export type NewsletterDrafts = { issues: NewsletterIssue[]; confirmed_subscribers: number };
+export type NewsletterStats = { confirmed: number; unsubscribed: number; pending: number };
+export type NewsletterSent = { id: string; status: 'sent'; sent_at: string | null; recipients: number };
+
+export const newsletterDrafts = () => ownerFetch<NewsletterDrafts>('/drafts', undefined, NEWSLETTER);
+export const newsletterStats = () => ownerFetch<NewsletterStats>('/stats', undefined, NEWSLETTER);
+
+/** The one send: explicit approval plus the subject typed exactly. The server checks both again. */
+export const newsletterSend = (id: string, subject: string) =>
+  ownerFetch<NewsletterSent>(`/drafts/${encodeURIComponent(id)}/send`, {
+    method: 'POST',
+    body: JSON.stringify({ approve: true, subject }),
+  }, NEWSLETTER);

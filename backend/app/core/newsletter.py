@@ -756,6 +756,16 @@ class PostgresNewsletterStore:
             cur.execute("SELECT count(*) AS n FROM newsletter_subscribers WHERE status = 'confirmed'")
             return int(cur.fetchone()["n"])
 
+    def subscriber_counts(self) -> Dict[str, int]:
+        """How many subscribers are in each state; numbers only, never an address."""
+        counts = {"confirmed": 0, "unsubscribed": 0, "pending": 0}
+        with database.get_db() as conn, conn.transaction(), conn.cursor() as cur:
+            cur.execute("SELECT status, count(*) AS n FROM newsletter_subscribers GROUP BY status")
+            for row in cur.fetchall():
+                if row["status"] in counts:
+                    counts[row["status"]] = int(row["n"])
+        return counts
+
     def mark_unsubscribed(self, emails: List[str]) -> int:
         """Addresses Brevo reports as unsubscribed or blocked become unsubscribed here too."""
         if not emails:

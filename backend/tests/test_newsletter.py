@@ -159,6 +159,7 @@ def all_routes(client, headers=None):
         post_draft(client),
         client.get("/api/v1/newsletter/drafts", headers=h),
         send(client, h, iid),
+        client.get("/api/v1/newsletter/stats", headers=h),
     ]
 
 
@@ -751,6 +752,7 @@ def test_draft_key_cannot_read_send_or_touch_subscribers(client, nlenv):
     calls_before = list(nlenv.brevo.calls)
     h = {"Authorization": f"Bearer {DRAFT_KEY}"}
     assert client.get("/api/v1/newsletter/drafts", headers=h).status_code == 401
+    assert client.get("/api/v1/newsletter/stats", headers=h).status_code in (401, 403)
     assert send(client, h, iid).status_code == 401
     assert client.post(f"/api/v1/newsletter/drafts/{iid}/send", json={"approve": True, "subject": "x"},
                        headers={"X-Newsletter-Key": DRAFT_KEY}).status_code == 401
@@ -946,6 +948,99 @@ def test_owner_console_can_send_from_the_console_origin_only(client, nlenv, monk
     assert [a for a in nlenv.store.audit if a["action"] == "newsletter.send_approved"][0]["metadata"]["actor"] == "owner"
 
 
+# ---------------------------------------------------------------------------
+# Owner console: subscriber counts (read-only, owner cookie only, numbers only)
+# ---------------------------------------------------------------------------
+def _as_owner(monkeypatch):
+    seen = []
+
+    def fake_owner(request):
+        seen.append(request.url.path)
+        return {"user_id": ALICE, "email": "owner@acme.test", "session_id": "s", "expires_at": None}
+
+    monkeypatch.setattr(owner_mod, "require_owner", fake_owner)
+    return seen
+
+
+def _three_states(client, env):
+    confirmed_reader(client, env, "kept@example.com")
+    confirmed_reader(client, env, "also-kept@example.com")
+    gone = confirmed_reader(client, env, "gone@example.com")
+    assert act(client, "unsubscribe", token_from(gone["text"], "unsubscribe")).status_code == 303
+    legacy_pending(env, "waiting@example.com")
+
+
+def test_owner_reads_subscriber_counts_without_any_address(client, nlenv, monkeypatch):
+    _three_states(client, nlenv)
+    seen = _as_owner(monkeypatch)
+    resp = client.get("/api/v1/newsletter/stats")
+    assert resp.status_code == 200
+    assert resp.json() == {"confirmed": 2, "unsubscribed": 1, "pending": 1}
+    assert seen == ["/api/v1/newsletter/stats"]
+    assert "@" not in resp.text and "example.com" not in resp.text
+    assert not any(k in resp.text for k in ("id", "email", "token"))
+
+
+def test_reading_the_counts_is_in_the_owner_log_first(client, nlenv, monkeypatch):
+    _as_owner(monkeypatch)
+    resp = client.get("/api/v1/newsletter/stats")
+    assert resp.status_code == 200
+    row = nlenv.fake_db.owner_audit[-1]
+    assert row["action"] == "owner.view.newsletter_stats" and row["outcome"] == "success"
+    nlenv.fake_db.owner_audit_fails = True
+    refused = client.get("/api/v1/newsletter/stats")
+    assert refused.status_code == 503 and "confirmed" not in refused.text  # no audit row, no data
+
+
+def test_subscriber_counts_are_zero_filled(client, nlenv, monkeypatch):
+    _as_owner(monkeypatch)
+    assert client.get("/api/v1/newsletter/stats").json() == {"confirmed": 0, "unsubscribed": 0, "pending": 0}
+
+
+def test_subscriber_counts_change_nothing(client, nlenv, monkeypatch):
+    _three_states(client, nlenv)
+    _as_owner(monkeypatch)
+    before = {k: dict(v) for k, v in nlenv.store.subscribers.items()}
+    calls, audit = list(nlenv.brevo.calls), list(nlenv.store.audit)
+    client.get("/api/v1/newsletter/stats")
+    assert {k: dict(v) for k, v in nlenv.store.subscribers.items()} == before
+    assert nlenv.brevo.calls == calls and nlenv.store.audit == audit
+
+
+@pytest.mark.parametrize("who", ["anonymous", "staff_without_scope", "staff_with_newsletter_scope",
+                                 "org_owner_without_grant", "unverified_staff"])
+def test_subscriber_counts_are_for_the_owner_console_only(client, nlenv, auth_headers, who):
+    _three_states(client, nlenv)
+    if who == "anonymous":
+        h = {}
+    elif who == "staff_without_scope":
+        h = staff(nlenv.fake_db, auth_headers, scopes=("platform:read",))
+    elif who == "staff_with_newsletter_scope":
+        h = staff(nlenv.fake_db, auth_headers)
+    elif who == "org_owner_without_grant":
+        nlenv.fake_db.profiles[ALICE]["email_verified_at"] = datetime.now(timezone.utc)
+        h = auth_headers(ALICE, email=f"{ALICE[:8]}@acme.test")
+    else:
+        h = staff(nlenv.fake_db, auth_headers)
+        nlenv.fake_db.profiles[BOB]["email_verified_at"] = None
+    resp = client.get("/api/v1/newsletter/stats", headers=h)
+    assert resp.status_code in (401, 403)
+    assert "@" not in resp.text and "confirmed" not in resp.text
+
+
+def test_a_bearer_token_never_reaches_the_owner_check(client, nlenv, auth_headers, monkeypatch):
+    seen = _as_owner(monkeypatch)
+    h = staff(nlenv.fake_db, auth_headers)
+    assert client.get("/api/v1/newsletter/stats", headers=h).status_code == 403
+    assert seen == []  # even a valid owner cookie alongside a bearer token is refused
+
+
+def test_subscriber_counts_are_404_while_the_feature_is_off(client, nlenv, monkeypatch):
+    _as_owner(monkeypatch)
+    monkeypatch.setattr(config, "NEWSLETTER_ENABLED", False)
+    assert client.get("/api/v1/newsletter/stats").status_code == 404
+
+
 def test_a_stored_draft_that_fails_the_rules_cannot_be_sent(client, nlenv, auth_headers):
     iid = post_draft(client).json()["id"]
     nlenv.store.issues[iid]["body_json"] = good_draft(subject="We guarantee it")
@@ -1080,13 +1175,22 @@ def test_frontend_consent_wording_matches_the_server():
 
 
 @pytest.mark.parametrize("name", ["components/NewsletterSubscribe.tsx", "pages/Newsletter.tsx",
-                                  "pages/NewsletterResult.tsx", "lib/newsletter.ts", "PRIVACY_NEWSLETTER"])
+                                  "pages/NewsletterResult.tsx", "lib/newsletter.ts", "PRIVACY_NEWSLETTER",
+                                  "owner/newsletterView.tsx", "owner/ownerApi.ts", "owner/shell.tsx"])
 def test_frontend_newsletter_copy_has_no_claim_wording(name):
     text = _privacy_newsletter_section() if name == "PRIVACY_NEWSLETTER" else (FRONTEND / name).read_text(encoding="utf-8")
     strings = re.findall(r"'([^'\n]*)'|\"([^\"\n]*)\"|>([^<>{}\n]+)<", text)
     for groups in strings:
         for s in groups:
             assert nl.banned_claim(s) is None, (name, s)
+
+
+def test_owner_console_names_the_configured_sender():
+    """The send dialog states who the email comes from; it must be the sender the server uses."""
+    source = (FRONTEND / "owner" / "newsletterView.tsx").read_text(encoding="utf-8")
+    name, address = config.NEWSLETTER_SENDER
+    assert f"NEWSLETTER_SENDER_NAME = '{name}'" in source
+    assert f"NEWSLETTER_SENDER_ADDRESS = '{address}'" in source
 
 
 def _privacy_newsletter_section():

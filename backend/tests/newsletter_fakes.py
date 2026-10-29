@@ -83,6 +83,13 @@ class FakeNewsletterStore:
     def count_confirmed(self):
         return len(self.confirmed_subscribers())
 
+    def subscriber_counts(self):
+        counts = {"confirmed": 0, "unsubscribed": 0, "pending": 0}
+        for r in self.subscribers.values():
+            if r["status"] in counts:
+                counts[r["status"]] += 1
+        return counts
+
     def mark_unsubscribed(self, emails):
         n = 0
         for r in self.subscribers.values():
