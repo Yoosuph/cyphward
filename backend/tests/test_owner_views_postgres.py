@@ -91,7 +91,8 @@ def world(urls, monkeypatch):
             (ids["scan"], ids["org"], ids["domain"]))
         conn.execute("INSERT INTO audit_log (org_id, user_id, action, resource_type, metadata) "
                      "VALUES (%s,%s,'scan.launched','scan','{}'::jsonb)", (ids["org"], ids["customer"]))
-    ids.update(secret=secret, owner_email=owner_email, customer_email=customer_email)
+    ids.update(secret=secret, owner_email=owner_email, customer_email=customer_email,
+               org_name=f"Views Org {ids['tag']}")
     yield ids
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute("DELETE FROM audit_log WHERE org_id = %s", (ids["org"],))
@@ -148,7 +149,7 @@ def test_owner_sees_everything_without_secrets(world):
     users = client.get("/api/v1/owner/users", params={"q": world["tag"]}).json()
     assert {u["email"] for u in users["items"]} == {world["owner_email"], world["customer_email"]}
     owner_row = next(u for u in users["items"] if u["email"] == world["owner_email"])
-    assert owner_row["platform_owner"] is True and owner_row["authenticator"] is True
+    assert owner_row["platform_owner"] is True and owner_row["mfa"] == "authenticator"
 
     user = client.get(f"/api/v1/owner/users/{world['customer']}").json()
     assert user["memberships"][0]["role"] == "owner" and user["activity"][0]["action"] == "scan.launched"

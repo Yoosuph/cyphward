@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import {
-  Activity, Building2, CreditCard, LogOut, Mail, Menu, Moon, PanelLeftClose, PanelLeftOpen, Radar, ScrollText,
+  Activity, BarChart3, Building2, CreditCard, LogOut, Mail, Menu, Moon, PanelLeftClose, PanelLeftOpen, Radar, ScrollText,
   Server, Sun, Users, X, type LucideIcon,
 } from 'lucide-react';
 import CyphwardLogo from '../components/CyphwardLogo';
@@ -21,6 +21,7 @@ type NavEntry = { to: string; label: string; icon: LucideIcon; end: boolean; doc
 
 export const OWNER_NAV: NavEntry[] = [
   { to: '/', label: 'OVERVIEW', icon: Activity, end: true, dock: true },
+  { to: '/analytics', label: 'ANALYTICS', icon: BarChart3, end: false },
   { to: '/organizations', label: 'ORGANIZATIONS', icon: Building2, end: false, dock: true },
   { to: '/users', label: 'USERS', icon: Users, end: false, dock: true },
   { to: '/subscriptions', label: 'SUBSCRIPTIONS', icon: CreditCard, end: false },

@@ -23,7 +23,8 @@
     "test:product-tour": "node scripts/check-product-tour.mjs",
     "test:ui-refine": "node scripts/check-ui-refine.mjs",
     "test:newsletter-ui": "node scripts/check-newsletter.mjs",
-    "test:admin-newsletter": "node scripts/check-admin-newsletter.mjs"
+    "test:admin-newsletter": "node scripts/check-admin-newsletter.mjs",
+    "test:admin-phase1": "node scripts/check-admin-phase1.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",

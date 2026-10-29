@@ -12,6 +12,7 @@ import { ToastProvider } from '../components/Toast';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
 import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
 import { NewsletterDraftView, NewsletterView } from './newsletterView';
+import { AnalyticsView } from './analyticsView';
 
 /**
  * Platform owner console (admin.cyphward.com; /admin on localhost).
@@ -324,6 +325,7 @@ function Console({ me, onSignedOut, onSessionEnded }: { me: OwnerMe; onSignedOut
         <OwnerShell me={me} signingOut={busy} onSignOut={() => void signOut()}>
           <Routes>
             <Route path="/" element={<OverviewView />} />
+            <Route path="/analytics" element={<AnalyticsView />} />
             <Route path="/organizations" element={<OrganizationsView />} />
             <Route path="/organizations/:id" element={<OrganizationDetailView />} />
             <Route path="/users" element={<UsersView />} />

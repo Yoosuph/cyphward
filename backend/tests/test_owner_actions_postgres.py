@@ -36,10 +36,15 @@ def cleanup(urls, world):
         conn.execute("DELETE FROM audit_log WHERE user_id = %s", (world["customer"],))
 
 
+def _named(world):
+    """The typed organization name every organization action needs."""
+    return {**REASON, "confirm_name": world["org_name"]}
+
+
 def _endpoints(world):
     return [
-        (f"/api/v1/owner/organizations/{world['org']}/plan", {**REASON, "plan": "starter"}),
-        (f"/api/v1/owner/organizations/{world['org']}/trial", {**REASON, "days": 7}),
+        (f"/api/v1/owner/organizations/{world['org']}/plan", {**_named(world), "plan": "starter"}),
+        (f"/api/v1/owner/organizations/{world['org']}/trial", {**_named(world), "days": 7}),
         (f"/api/v1/owner/scans/{world['scan']}/cancel", REASON),
         (f"/api/v1/owner/users/{world['customer']}/sign-out", REASON),
     ]
@@ -70,7 +75,7 @@ def test_unknown_targets_are_404_and_audited_as_rejected(world, urls):
     ghost = str(uuid4())
     assert client.post(f"/api/v1/owner/scans/{ghost}/cancel", json=REASON, headers=ORIGIN).status_code == 404
     assert client.post(f"/api/v1/owner/users/{ghost}/sign-out", json=REASON, headers=ORIGIN).status_code == 404
-    assert client.post("/api/v1/owner/organizations/nope/plan", json={**REASON, "plan": "starter"},
+    assert client.post("/api/v1/owner/organizations/nope/plan", json={**REASON, "confirm_name": "x", "plan": "starter"},
                        headers=ORIGIN).status_code == 404
     rows = _owner_audit(urls, world, "owner.action.cancel_scan")
     assert rows[-1]["outcome"] == "rejected" and rows[-1]["metadata"]["reason"] == REASON["reason"]
@@ -79,19 +84,19 @@ def test_unknown_targets_are_404_and_audited_as_rejected(world, urls):
 def test_change_plan_without_and_with_a_subscription(world, urls):
     client = _signed_in(world)
     path = f"/api/v1/owner/organizations/{world['org']}/plan"
-    resp = client.post(path, json={**REASON, "plan": "starter"}, headers=ORIGIN)
+    resp = client.post(path, json={**_named(world), "plan": "starter"}, headers=ORIGIN)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"plan": "starter", "previous_plan": "growth"}
-    again = client.post(path, json={**REASON, "plan": "starter"}, headers=ORIGIN)
+    again = client.post(path, json={**_named(world), "plan": "starter"}, headers=ORIGIN)
     assert again.status_code == 409
-    assert client.post(path, json={**REASON, "plan": "platinum"}, headers=ORIGIN).status_code == 422
+    assert client.post(path, json={**_named(world), "plan": "platinum"}, headers=ORIGIN).status_code == 422
 
     with _admin(urls) as conn:
         assert conn.execute("SELECT plan FROM organizations WHERE id = %s", (world["org"],)).fetchone()["plan"] == "starter"
         conn.execute("INSERT INTO subscriptions (org_id, plan, status, provider, current_period_start, "
                      "current_period_end, trial_ends_at) VALUES (%s, 'starter', 'trialing', 'manual', now(), "
                      "now() + interval '30 days', now() + interval '30 days')", (world["org"],))
-    resp = client.post(path, json={**REASON, "plan": "growth"}, headers=ORIGIN)
+    resp = client.post(path, json={**_named(world), "plan": "growth"}, headers=ORIGIN)
     assert resp.status_code == 200, resp.text
     with _admin(urls) as conn:
         sub = conn.execute("SELECT plan, status FROM subscriptions WHERE org_id = %s", (world["org"],)).fetchone()
@@ -113,14 +118,14 @@ def test_change_plan_without_and_with_a_subscription(world, urls):
 def test_extend_trial(world, urls):
     client = _signed_in(world)
     path = f"/api/v1/owner/organizations/{world['org']}/trial"
-    assert client.post(path, json={**REASON, "days": 7}, headers=ORIGIN).status_code == 409  # no subscription
+    assert client.post(path, json={**_named(world), "days": 7}, headers=ORIGIN).status_code == 409  # no subscription
 
     lapsed = datetime.now(timezone.utc) - timedelta(days=3)
     with _admin(urls) as conn:
         conn.execute("INSERT INTO subscriptions (org_id, plan, status, provider, current_period_start, "
                      "current_period_end, trial_ends_at) VALUES (%s, 'growth', 'trialing', 'manual', %s, %s, %s)",
                      (world["org"], lapsed - timedelta(days=30), lapsed, lapsed))
-    resp = client.post(path, json={**REASON, "days": 14}, headers=ORIGIN)
+    resp = client.post(path, json={**_named(world), "days": 14}, headers=ORIGIN)
     assert resp.status_code == 200, resp.text
     with _admin(urls) as conn:
         sub = conn.execute("SELECT trial_ends_at, current_period_end FROM subscriptions WHERE org_id = %s",
@@ -130,14 +135,14 @@ def test_extend_trial(world, urls):
     assert abs((sub["trial_ends_at"] - expected).total_seconds()) < 120
     assert sub["current_period_end"] == sub["trial_ends_at"]
 
-    assert client.post(path, json={**REASON, "days": 61}, headers=ORIGIN).status_code == 422
+    assert client.post(path, json={**_named(world), "days": 61}, headers=ORIGIN).status_code == 422
     for _ in range(4):  # 14 + 4×20 days would pass the 90-day horizon
-        last = client.post(path, json={**REASON, "days": 20}, headers=ORIGIN)
+        last = client.post(path, json={**_named(world), "days": 20}, headers=ORIGIN)
     assert last.status_code == 409 and "90 days" in last.json()["detail"]
 
     with _admin(urls) as conn:
         conn.execute("UPDATE subscriptions SET status = 'active' WHERE org_id = %s", (world["org"],))
-    assert client.post(path, json={**REASON, "days": 7}, headers=ORIGIN).status_code == 409
+    assert client.post(path, json={**_named(world), "days": 7}, headers=ORIGIN).status_code == 409
 
 
 def test_cancel_scan_fences_the_worker_and_is_logged(world, urls):

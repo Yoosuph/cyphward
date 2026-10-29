@@ -14,8 +14,21 @@ Every action:
 * also writes the customer's own activity log entry, attributed to
   "cyphward" rather than to the owner's account.
 
-Actions: change an organization's plan, extend a trial, cancel a queued or
-running scan, sign a user out everywhere.
+Organization actions (change plan, extend trial, suspend, unsuspend, remove a
+member) also need the organization's exact name typed in the request body
+(`confirm_name`). It is compared with the name read under the row lock, so a
+mistyped or stale name is refused (409) and audited as rejected.
+
+Actions: change an organization's plan, extend a trial, suspend or unsuspend
+an organization, remove a member, cancel a queued or running scan, sign a
+user out everywhere. Nothing here deletes customer data: removing a member
+deletes only the membership link (the person's account and everything the
+organization holds stay), and the owner audit row keeps the role and join
+date so the membership can be restored.
+
+Suspension (phase 1 rule): a reversible marker the owner sets and lifts. It
+does not change what the customer's own API does; sign-in, reads, scans and
+billing work as before. It is not written to the customer's activity log.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -41,12 +54,25 @@ class ReasonBody(BaseModel):
     reason: Reason
 
 
-class PlanBody(ReasonBody):
+class OrgActionBody(ReasonBody):
+    # The organization's name exactly as stored (no trimming, case-sensitive), typed by the owner.
+    confirm_name: str = Field(min_length=1, max_length=200)
+
+
+class PlanBody(OrgActionBody):
     plan: str = Field(min_length=1, max_length=32)
 
 
-class TrialBody(ReasonBody):
+class TrialBody(OrgActionBody):
     days: int = Field(ge=1, le=MAX_TRIAL_DAYS)
+
+
+NAME_MISMATCH = "The name you typed does not match this organization. Nothing was changed."
+
+
+def _check_name(org: Dict[str, Any], typed: str) -> None:
+    if typed != org.get("name"):
+        raise HTTPException(status_code=409, detail=NAME_MISMATCH)
 
 
 def _uuid(value: str) -> str:
@@ -126,6 +152,7 @@ def change_plan(org_id: str, body: PlanBody, request: Request,
     def work(cur):
         locked = _lock_org(cur, org_id)
         org, sub = locked["org"], locked["sub"]
+        _check_name(org, body.confirm_name)
         before = (sub or {}).get("plan") or org.get("plan")
         if before == plan:
             raise HTTPException(status_code=409, detail=f"Already on the {PLANS[plan]['label']} plan.")
@@ -153,7 +180,9 @@ def extend_trial(org_id: str, body: TrialBody, request: Request,
     org_id = _uuid(org_id)
 
     def work(cur):
-        sub = _lock_org(cur, org_id)["sub"]
+        locked = _lock_org(cur, org_id)
+        _check_name(locked["org"], body.confirm_name)
+        sub = locked["sub"]
         if not sub or (sub.get("status") or "").lower() != "trialing":
             raise HTTPException(status_code=409, detail="This organization isn't on a trial.")
         now = datetime.now(timezone.utc)
@@ -177,6 +206,104 @@ def extend_trial(org_id: str, body: TrialBody, request: Request,
                 "audit": {"days": body.days, "from": current, "to": new_end}}
 
     return _run(request, owner, "owner.action.extend_trial", "organization", org_id, body.reason, work)
+
+
+# ── Suspension ─────────────────────────────────────────────────────────────
+@router.post("/organizations/{org_id}/suspend")
+def suspend_organization(org_id: str, body: OrgActionBody, request: Request,
+                         owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Mark the organization suspended (reversible with /unsuspend). Phase 1: a marker only (see module doc)."""
+    org_id = _uuid(org_id)
+
+    def work(cur):
+        org = _lock_org(cur, org_id)["org"]
+        _check_name(org, body.confirm_name)
+        cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s FOR UPDATE", (org_id,))
+        current = cur.fetchone()
+        if current and current["status"] == "suspended":
+            raise HTTPException(status_code=409, detail="This organization is already suspended.")
+        cur.execute(
+            "INSERT INTO organization_suspensions (org_id, status, changed_at, changed_by) "
+            "VALUES (%s, 'suspended', now(), %s) "
+            "ON CONFLICT (org_id) DO UPDATE SET status = 'suspended', changed_at = now(), "
+            "changed_by = EXCLUDED.changed_by RETURNING status, changed_at",
+            (org_id, owner["user_id"]))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="The organization changed; reload and try again.")
+        return {"result": {"organization_id": org_id, "suspended": True, "changed_at": _iso(row["changed_at"])},
+                "audit": {"from": "active", "to": "suspended"}}
+
+    return _run(request, owner, "owner.action.suspend", "organization", org_id, body.reason, work)
+
+
+@router.post("/organizations/{org_id}/unsuspend")
+def unsuspend_organization(org_id: str, body: OrgActionBody, request: Request,
+                           owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Lift a suspension. The row stays (status 'active'), so nothing is deleted."""
+    org_id = _uuid(org_id)
+
+    def work(cur):
+        org = _lock_org(cur, org_id)["org"]
+        _check_name(org, body.confirm_name)
+        cur.execute(
+            "UPDATE organization_suspensions SET status = 'active', changed_at = now(), changed_by = %s "
+            "WHERE org_id = %s AND status = 'suspended' RETURNING status, changed_at",
+            (owner["user_id"], org_id))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="This organization is not suspended.")
+        return {"result": {"organization_id": org_id, "suspended": False, "changed_at": _iso(row["changed_at"])},
+                "audit": {"from": "suspended", "to": "active"}}
+
+    return _run(request, owner, "owner.action.unsuspend", "organization", org_id, body.reason, work)
+
+
+# ── Members ────────────────────────────────────────────────────────────────
+@router.post("/organizations/{org_id}/members/{user_id}/remove")
+def remove_member(org_id: str, user_id: str, body: OrgActionBody, request: Request,
+                  owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Remove one person from one organization. Only the membership link is deleted; the last owner stays."""
+    org_id = _uuid(org_id)
+    user_id = _uuid(user_id)
+
+    def work(cur):
+        org = _lock_org(cur, org_id)["org"]
+        _check_name(org, body.confirm_name)
+        cur.execute(
+            "SELECT m.role, m.created_at, p.email FROM organization_members m JOIN profiles p ON p.id = m.user_id "
+            "WHERE m.org_id = %s AND m.user_id = %s FOR UPDATE OF m",
+            (org_id, user_id))
+        member = cur.fetchone()
+        if member is None:
+            raise HTTPException(status_code=404, detail="Member not found in this organization.")
+        # Same guard as the customer's own role change (api/members.py): the owner rows are locked in a fixed
+        # order and the last owner is never removed.
+        cur.execute(
+            """
+            WITH locked AS (
+                SELECT user_id FROM organization_members
+                WHERE org_id = %s AND role = 'owner'
+                ORDER BY user_id
+                FOR UPDATE
+            )
+            DELETE FROM organization_members m
+             WHERE m.org_id = %s AND m.user_id = %s
+               AND (m.role <> 'owner' OR (SELECT count(*) FROM locked) > 1)
+            RETURNING m.role
+            """,
+            (org_id, org_id, user_id))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=409, detail="An organization must keep at least one owner.")
+        cur.execute("SELECT count(*) AS n FROM organization_members WHERE org_id = %s", (org_id,))
+        remaining = int(cur.fetchone()["n"])
+        _customer_log(cur, org_id, None, "member.removed", "profile", user_id, {"role": member["role"]})
+        return {"result": {"organization_id": org_id, "removed_user_id": user_id, "role": member["role"],
+                           "members": remaining},
+                "audit": {"user_id": user_id, "email": member["email"], "role": member["role"],
+                          "joined_at": member["created_at"], "members_after": remaining}}
+
+    return _run(request, owner, "owner.action.remove_member", "organization", org_id, body.reason, work)
 
 
 # ── Scan ───────────────────────────────────────────────────────────────────

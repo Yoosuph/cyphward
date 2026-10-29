@@ -36,6 +36,17 @@ FILES = (
     "pages/NewsletterResult.tsx",
     "lib/newsletter.ts",
     "pages/Privacy.tsx",
+    # Owner console (docs/admin-2026-10-29): every screen and the shared list pieces.
+    "owner/OwnerApp.tsx",
+    "owner/actions.tsx",
+    "owner/analyticsView.tsx",
+    "owner/newsletterView.tsx",
+    "owner/opsViews.tsx",
+    "owner/ownerApi.ts",
+    "owner/peopleViews.tsx",
+    "owner/shell.tsx",
+    "owner/table.tsx",
+    "owner/ui.tsx",
 )
 
 
