@@ -58,27 +58,49 @@ function labelOf(key: string) {
   return words ? words[0].toUpperCase() + words.slice(1) : key;
 }
 
-function ValueText({ value }: { value: unknown }) {
-  if (value === null || value === undefined || value === '') return <span className="text-soft">—</span>;
+/** A single value longer than this many characters (or lines, for nested values) is cut until "Show all". */
+const VALUE_CHARS = 300;
+const VALUE_LINES = 10;
+
+type Entry = { label: string; node: ReactNode; cut: boolean };
+
+/** Text for one value, cut when `full` is false and it runs long. */
+function valueOf(value: unknown, full: boolean): Omit<Entry, 'label'> {
+  if (value === null || value === undefined || value === '') return { node: <span className="text-soft">—</span>, cut: false };
+  let text: string;
+  let block = false;
   if (Array.isArray(value) && value.every(v => v === null || ['string', 'number', 'boolean'].includes(typeof v))) {
-    return <span className="log-value">{value.length ? value.map(String).join(', ') : '—'}</span>;
+    text = value.length ? value.map(String).join(', ') : '—';
+  } else if (typeof value === 'object') {
+    text = JSON.stringify(value, null, 2);
+    block = true;
+  } else if (typeof value === 'boolean') {
+    text = value ? 'yes' : 'no';
+  } else {
+    text = String(value);
   }
-  if (typeof value === 'object') return <pre className="log-value log-value-block">{JSON.stringify(value, null, 2)}</pre>;
-  if (typeof value === 'boolean') return <span className="log-value">{value ? 'yes' : 'no'}</span>;
-  return <span className="log-value">{String(value)}</span>;
+  let cut = false;
+  if (!full) {
+    const lines = text.split('\n');
+    if (block && lines.length > VALUE_LINES) { text = lines.slice(0, VALUE_LINES).join('\n'); cut = true; }
+    if (text.length > VALUE_CHARS) { text = text.slice(0, VALUE_CHARS); cut = true; }
+    if (cut) text = `${text.trimEnd()} …`;
+  }
+  const node = block ? <pre className="log-value log-value-block">{text}</pre> : <span className="log-value">{text}</span>;
+  return { node, cut };
 }
 
 /** One level of nesting becomes its own entries; anything deeper is shown as indented text that wraps. */
-function detailEntries(metadata: unknown, skip: string[]): [string, ReactNode][] {
+function detailEntries(metadata: unknown, skip: string[], full: boolean): Entry[] {
   if (metadata === null || metadata === undefined) return [];
-  if (typeof metadata !== 'object' || Array.isArray(metadata)) return [['Value', <ValueText value={metadata} />]];
-  const out: [string, ReactNode][] = [];
+  if (typeof metadata !== 'object' || Array.isArray(metadata)) return [{ label: 'Value', ...valueOf(metadata, full) }];
+  const out: Entry[] = [];
   for (const [k, v] of Object.entries(metadata as Record<string, unknown>)) {
     if (skip.includes(k)) continue;
     if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
-      for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) out.push([`${labelOf(k)} · ${labelOf(k2)}`, <ValueText value={v2} />]);
+      for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) out.push({ label: `${labelOf(k)} · ${labelOf(k2)}`, ...valueOf(v2, full) });
     } else {
-      out.push([labelOf(k), <ValueText value={v} />]);
+      out.push({ label: labelOf(k), ...valueOf(v, full) });
     }
   }
   return out;
@@ -124,8 +146,10 @@ function LogDetail({ row, source }: { row: Row; source: Source }) {
   const meta = (row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)) ? row.metadata as Record<string, unknown> : {};
   const reason = typeof meta.reason === 'string' && meta.reason.trim() ? meta.reason : null;
   const refusal = typeof meta.detail === 'string' && meta.detail.trim() ? meta.detail : null;
-  const entries = detailEntries(row.metadata, [...(reason ? ['reason'] : []), ...(refusal ? ['detail'] : [])]);
+  const entries = detailEntries(row.metadata, [...(reason ? ['reason'] : []), ...(refusal ? ['detail'] : [])], showAll);
   const visible = showAll ? entries : entries.slice(0, DETAIL_CAP);
+  // Large details are capped two ways: by count (first DETAIL_CAP entries) and by length (long values are cut).
+  const capped = entries.length > DETAIL_CAP || visible.some(e => e.cut);
 
   const actorName = source === 'owner' ? row.actor_name : row.user_name;
   const actorEmail = source === 'owner' ? row.actor_email : row.user_email;
@@ -186,12 +210,12 @@ function LogDetail({ row, source }: { row: Row; source: Source }) {
       ) : (
         <>
           <dl className="log-pairs" data-testid="log-details">
-            {visible.map(([label, value], i) => <Pair key={`${label}-${i}`} label={label}>{value}</Pair>)}
+            {visible.map((e, i) => <Pair key={`${e.label}-${i}`} label={e.label}>{e.node}</Pair>)}
           </dl>
-          {entries.length > DETAIL_CAP && (
+          {(capped || showAll) && (
             <button type="button" className="btn-mini mt-3" onClick={() => setShowAll(s => !s)} aria-expanded={showAll}
                     data-testid="log-show-all">
-              {showAll ? 'SHOW FEWER' : `SHOW ALL ${entries.length}`}
+              {showAll ? 'SHOW FEWER' : entries.length > DETAIL_CAP ? `SHOW ALL ${entries.length}` : 'SHOW ALL'}
             </button>
           )}
         </>

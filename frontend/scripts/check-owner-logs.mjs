@@ -79,7 +79,7 @@ try {
     const { page, errors, close } = await open("/admin/logs?source=owner");
     await page.waitForSelector('[data-testid="log-table"]');
     assert.equal((await toggles(page)).length, OWNER_ROWS.length);
-    assert.deepEqual(await expanded(page), ["false", "false", "false", "false"], "every entry starts closed");
+    assert.deepEqual(await expanded(page), ["false", "false", "false", "false", "false"], "every entry starts closed");
     assert.equal(await openPanels(page), 0);
     // Each button names a panel row that exists, is the full width of the table and sits right under its row.
     const wiring = await page.$$eval('[data-testid="log-toggle"]', (bs) => bs.map((b) => {
@@ -99,7 +99,7 @@ try {
     // Click a plain cell of the first row (not the button).
     await (await cell(page, 0, "Action")).click();
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["true", "false", "false", "false"], "a click on the row opens it");
+    assert.deepEqual(await expanded(page), ["true", "false", "false", "false", "false"], "a click on the row opens it");
     assert.equal(await openPanels(page), 1);
     const first = await panelText(page);
     assert.match(first, /owner\.action\.change_plan/, "action shown");
@@ -146,35 +146,53 @@ try {
     await clickCentred(page, '[data-testid="log-copy-id"]');
     await sleep(200);
     assert.match(await page.evaluate(() => document.body.innerText), /Could not copy\. Select the id and copy it by hand\./);
-    assert.deepEqual(await expanded(page), ["true", "false", "false", "false"], "the copy button does not close the entry");
+    assert.deepEqual(await expanded(page), ["true", "false", "false", "false", "false"], "the copy button does not close the entry");
 
     // One entry at a time: opening the second closes the first. Its button flips once per click.
     const [, second] = await toggles(page);
     await second.click();
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["false", "true", "false", "false"], "one entry open at a time");
+    assert.deepEqual(await expanded(page), ["false", "true", "false", "false", "false"], "one entry open at a time");
     const rejected = await panelText(page);
     assert.match(rejected, /REJECTED/i);
     assert.match(rejected, /Repeated failed payments/);
     assert.match(rejected, /does not match/);
     await second.click();
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["false", "false", "false", "false"], "a second click closes it");
+    assert.deepEqual(await expanded(page), ["false", "false", "false", "false", "false"], "a second click closes it");
 
     // Keyboard: Enter opens, Space closes.
     await (await toggles(page))[2].focus();
     await page.keyboard.press("Enter");
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["false", "false", "true", "false"], "Enter opens");
+    assert.deepEqual(await expanded(page), ["false", "false", "true", "false", "false"], "Enter opens");
     const third = await panelText(page);
     assert.match(third, /owner\.sign_in/); assert.match(third, /DENIED/i);
     assert.match(third, /No further details/, "an entry without details says so");
     await page.keyboard.press("Space");
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["false", "false", "false", "false"], "Space closes");
+    assert.deepEqual(await expanded(page), ["false", "false", "false", "false", "false"], "Space closes");
     await page.keyboard.press("Space");
     await sleep(150);
-    assert.deepEqual(await expanded(page), ["false", "false", "true", "false"], "Space opens");
+    assert.deepEqual(await expanded(page), ["false", "false", "true", "false", "false"], "Space opens");
+
+    // A short list with one very long value: the value is cut until "Show all", then shown in full and wrapped.
+    const fifth = (await toggles(page))[4];
+    await fifth.evaluate((e) => e.scrollIntoView({ block: "center" }));
+    await sleep(50);
+    await fifth.click();
+    await sleep(150);
+    const hostsPair = () => page.$$eval('[data-testid="log-details"] .log-pair', (ps) => ps.find((p) => /hosts/i.test(p.querySelector("dt").textContent))?.querySelector("dd").textContent || "");
+    assert.equal(await page.$$eval('[data-testid="log-details"] .log-pair', (ps) => ps.length), 3);
+    const cut = await hostsPair();
+    assert.ok(cut.endsWith("…") && cut.length <= 302, `a long value is cut (${cut.length} characters)`);
+    assert.doesNotMatch(cut, /host-60/);
+    assert.equal(await page.$eval('[data-testid="log-show-all"]', (b) => b.textContent.trim()), "SHOW ALL");
+    await clickCentred(page, '[data-testid="log-show-all"]');
+    await sleep(100);
+    const whole = await hostsPair();
+    assert.match(whole, /host-60\.acme\.example$/, "Show all shows the whole value");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, "no horizontal page scroll");
     assert.deepEqual(errors, [], "no page errors");
     await close();
   }

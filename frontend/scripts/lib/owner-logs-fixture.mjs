@@ -35,6 +35,12 @@ export const OWNER_ROWS = [
   { id: "7b1e0c52-1f0a-4c55-9d1e-000000000004", created_at: "2026-10-29T07:30:12.000Z", action: "owner.view.logs",
     outcome: "success", actor_email: "owner@example.test", actor_name: "Ada Owner", target_type: null, target_id: null,
     org_id: null, org_name: null, ip: "203.0.113.7", metadata: { source: "owner" } },
+  // Few keys, one of them very long: the length cap applies, not the count cap.
+  { id: "7b1e0c52-1f0a-4c55-9d1e-000000000005", created_at: "2026-10-29T07:10:00.000Z", action: "owner.export.organizations",
+    outcome: "success", actor_email: "owner@example.test", actor_name: "Ada Owner", target_type: null, target_id: null,
+    org_id: null, org_name: null, ip: "203.0.113.7",
+    metadata: { rows: 120, truncated: false,
+      hosts: Array.from({ length: 60 }, (_, i) => `host-${String(i + 1).padStart(2, "0")}.acme.example`) } },
 ];
 
 export const CUSTOMER_ROWS = [
