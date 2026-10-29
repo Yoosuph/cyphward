@@ -465,14 +465,15 @@ class DraftIn(_Strict):
 SECTION_LABELS = {"product": "Product", "security_tip": "Security tip", "regulation": "Regulation"}
 
 BRAND = {
-    "bg": "#0A0907",          # --bg (dark)
-    "raised": "#14130F",      # --raised (dark)
-    "line": "#24211A",        # --line (dark)
-    "ink": "#F5F2EB",         # --ink (dark)
-    "soft": "#A8A190",        # --soft (dark)
-    "accent": "#E5532B",      # --accent (dark): the brand orange
-    "accent_ink": "#F27350",  # --accent-ink (dark): links on the dark card
+    "bg": "#F4F2EE",          # page background (light)
+    "raised": "#FFFFFF",      # card (light)
+    "line": "#E4E0D6",        # hairlines (light)
+    "ink": "#15130F",         # body text (light)
+    "soft": "#5C5648",        # secondary text (light)
+    "accent": "#E5532B",      # the brand orange (buttons and the top rule)
+    "accent_ink": "#B33614",  # links on the white card (AA contrast)
 }
+LOGO_URL = "https://cyphward.com/logo-512.png"  # the shield mark, served by our own site
 _FONT = "'Helvetica Neue',Helvetica,Arial,sans-serif"  # system fonts only
 NOT_A_LAW_FIRM = "Cyphward is not a law firm. Regulation updates are general information, not legal advice."
 
@@ -495,13 +496,13 @@ def _p(text: str, style: str = "margin:0 0 12px") -> str:
 
 
 def _logo_html() -> str:
-    """The Cyphward mark as text: an orange tile with a C, then the wordmark. Never an image."""
+    """The Cyphward shield mark (our own site's logo-512.png) beside the wordmark. The only image in any
+    Cyphward email; no other remote image or script is allowed."""
     return (
         '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
-        f'<td width="28" height="28" align="center" valign="middle" style="width:28px;height:28px;'
-        f'background:{BRAND["accent"]};border-radius:6px;color:{BRAND["bg"]};font-size:16px;font-weight:bold;'
-        f'line-height:28px;font-family:{_FONT}">C</td>'
-        f'<td style="padding-left:10px;font-size:15px;font-weight:bold;letter-spacing:.18em;color:{BRAND["ink"]};'
+        f'<td style="width:40px;height:40px;padding:0"><img src="{LOGO_URL}" width="40" height="40" alt="Cyphward" '
+        'style="display:block;width:40px;height:40px;border:0;outline:none;text-decoration:none"></td>'
+        f'<td style="padding-left:10px;font-size:16px;font-weight:bold;letter-spacing:.14em;color:{BRAND["ink"]};'
         f'font-family:{_FONT}">CYPHWARD</td>'
         "</tr></table>"
     )

@@ -337,7 +337,7 @@ def test_confirmation_email_is_from_news_with_unsubscribe_and_postal_line(client
         assert f"{BASE}/api/v1/newsletter/unsubscribe?token=" in part
         assert POSTAL in part
         assert nl.CONSENT_WORDING_VERSION in part and "about once a month" in part.lower()
-    assert "<img" not in mail["html"].lower()
+    assert mail["html"].lower().count("<img") == 1 and f'src="{nl.LOGO_URL}"' in mail["html"]
 
 
 def test_default_transactional_sender_is_unchanged():
@@ -829,7 +829,7 @@ def test_send_once_only_and_audited(client, nlenv, auth_headers):
     assert campaign["sender"] == ("Cyphward News", "news@cyphward.com")
     assert campaign["recipients"] == ["reader@example.com"]
     assert "{{ contact.CW_UNSUB_TOKEN }}" in campaign["html"] and POSTAL in campaign["html"]
-    assert "<img" not in campaign["html"].lower()
+    assert campaign["html"].lower().count("<img") == 1 and f'src="{nl.LOGO_URL}"' in campaign["html"]
     assert nlenv.brevo.sent == [resp.json()["brevo_campaign_id"]]
     # A second attempt is refused and creates nothing.
     again = send(client, h, iid)
@@ -1124,13 +1124,14 @@ def test_confirmation_email_is_branded_and_self_contained():
     mail = nl.render_confirmation(s, _subscribed())
     html, text = mail["html"], mail["text"]
     assert mail["subject"] == "You are subscribed to Cyphward updates"
-    assert "CYPHWARD" in html and "#E5532B" in html and "#0A0907" in html and "#14130F" in html
+    assert "CYPHWARD" in html and "#E5532B" in html and "#F4F2EE" in html and "#15130F" in html
     lowered = html.lower()
-    for forbidden in ("<img", "<svg", "<script", "<style", "<link", "url(", "@import", "class=", "fonts.g",
-                      "javascript:", "src=", "/api/v1/newsletter/confirm"):
+    for forbidden in ("<svg", "<script", "<style", "<link", "url(", "@import", "class=", "fonts.g",
+                      "javascript:", "/api/v1/newsletter/confirm"):
         assert forbidden not in lowered, forbidden
+    assert lowered.count("<img") == 1 and f'src="{nl.LOGO_URL}"' in html  # the one image: our logo
     # Inline styles only: every tag that is styled carries style="..."; nothing else references CSS.
-    assert re.findall(r"https?://[^\s\"'<>]+", html) == [nl.unsubscribe_url(s, _token_in(html))]
+    assert sorted(set(re.findall(r"https?://[^\s\"'<>]+", html))) == sorted({nl.unsubscribe_url(s, _token_in(html)), nl.LOGO_URL})
     unsub_url = nl.unsubscribe_url(s, _token_in(html))
     assert html.count(unsub_url) == 1 and html.count("/api/v1/newsletter/unsubscribe") == 1  # exactly once
     assert POSTAL in html and html.index(POSTAL) > html.index(unsub_url)  # the postal line is in the footer
@@ -1148,8 +1149,9 @@ def test_issue_wrapper_is_branded_with_the_unsubscribe_link_once():
     html = rendered["html"]
     assert "CYPHWARD" in html and "#E5532B" in html and nl.NOT_A_LAW_FIRM in html and POSTAL in html
     assert html.count("/api/v1/newsletter/unsubscribe") == 1 and "{{ contact.CW_UNSUB_TOKEN }}" in html
-    for forbidden in ("<img", "<svg", "<script", "<style", "<link", "url(", "@import", "class="):
+    for forbidden in ("<svg", "<script", "<style", "<link", "url(", "@import", "class="):
         assert forbidden not in html.lower(), forbidden
+    assert html.lower().count("<img") == 1 and f'src="{nl.LOGO_URL}"' in html
 
 
 HOSTILE = "<b>\"Acme\" & 'Co'</b><script>alert(1)</script>"
