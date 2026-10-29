@@ -256,11 +256,11 @@
   "rewrites": [
     {
       "source": "/api/health",
-      "destination": "https://cyphward-core.onrender.com/health"
+      "destination": "https://api.cyphward.com/health"
     },
     {
       "source": "/api/(.*)",
-      "destination": "https://cyphward-core.onrender.com/api/$1"
+      "destination": "https://api.cyphward.com/api/$1"
     },
     {
       "source": "/(overview|assets|findings|scans|domains|remediation|reports|settings|login|signup|forgot-password|reset-password|analytics|comply|reviews|dashboard|copilot|detect|score|academy|sso|platform)",
