@@ -296,7 +296,11 @@ def test_the_app_role_never_deletes(pg):
         pg.conn.execute("TRUNCATE newsletter_subscribers")
 
 
-MIGRATION = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261026100000_newsletter.sql"
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+MIGRATION = MIGRATIONS_DIR / "20261026100000_newsletter.sql"
+# Adds newsletter_issues.send_theme and the app role's UPDATE on that one column. It runs after MIGRATION
+# wherever MIGRATION is re-applied, because MIGRATION's REVOKE ALL also takes back that column grant.
+THEME_MIGRATION = MIGRATIONS_DIR / "20261029100000_newsletter_theme.sql"
 TABLES = ("newsletter_subscribers", "newsletter_issues")
 GUARD = "newsletter_issues_guard()"
 EXPECTED_TABLE_PRIVILEGES = {
@@ -305,7 +309,7 @@ EXPECTED_TABLE_PRIVILEGES = {
     ("cyphward_app", "newsletter_issues", "INSERT"), ("cyphward_app", "newsletter_issues", "SELECT"),
 }
 EXPECTED_ISSUE_UPDATE_COLUMNS = {"status", "sent_at", "brevo_campaign_id", "approved_by", "approved_at",
-                                 "send_claimed_at", "send_error"}
+                                 "send_claimed_at", "send_error", "send_theme"}
 
 
 @pytest.fixture
@@ -322,6 +326,7 @@ def admin():
         yield conn
     finally:
         conn.execute(MIGRATION.read_text())  # always leave the real grants in place
+        conn.execute(THEME_MIGRATION.read_text())
         conn.close()
 
 
@@ -366,6 +371,7 @@ def test_migration_takes_back_supabase_default_grants(pg, admin):
     _supabase_defaults(admin)
     assert _grant_problems(admin), "the setup must start from over-broad grants"
     admin.execute(MIGRATION.read_text())
+    admin.execute(THEME_MIGRATION.read_text())
     assert _grant_problems(admin) == []
     for role in ("anon", "authenticated"):
         for table in TABLES:
@@ -384,6 +390,7 @@ def test_removing_any_revoke_fails_the_grant_check(pg, admin, line):
     assert mutated != MIGRATION.read_text()
     _supabase_defaults(admin)
     admin.execute(mutated)
+    admin.execute(THEME_MIGRATION.read_text())
     assert _grant_problems(admin), f"removing this line went unnoticed: {line.strip()}"
 
 
@@ -456,3 +463,129 @@ def test_claim_condition_alone_on_the_real_database(pg, monkeypatch):
     resp = pg.post(f"/api/v1/newsletter/drafts/{claimed}/send", json={"approve": True, "subject": "Cyphward notes for October"},
                    headers={"Origin": "https://admin.cyphward.test"})
     assert resp.status_code == 409 and pg.brevo.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Email style (send_theme): chosen at send, recorded by the claim, never changed afterwards
+# ---------------------------------------------------------------------------
+def _send(pg, iid, **extra):
+    return pg.post(f"/api/v1/newsletter/drafts/{iid}/send",
+                   json={"approve": True, "subject": "Cyphward notes for October", **extra},
+                   headers={"Origin": "https://admin.cyphward.test"})
+
+
+def _theme(pg, iid):
+    return pg.conn.execute("SELECT send_theme FROM newsletter_issues WHERE id = %s", (iid,)).fetchone()["send_theme"]
+
+
+def test_a_new_draft_has_the_light_default(pg):
+    assert _theme(pg, _draft(pg)) == "light"
+
+
+def test_a_dark_send_records_dark_and_a_second_request_cannot_change_it(pg):
+    subscribe(pg, email())
+    iid = _draft(pg)
+    resp = _send(pg, iid, theme="dark")
+    assert resp.status_code == 200, resp.text
+    assert _theme(pg, iid) == "dark"
+    html = pg.brevo.campaigns[resp.json()["brevo_campaign_id"]]["html"]
+    assert nl.THEMES["dark"]["bg"] in html and nl.THEMES["light"]["bg"] not in html
+    again = _send(pg, iid, theme="light")
+    assert again.status_code == 409 and _theme(pg, iid) == "dark" and len(pg.brevo.sent) == 1
+    # The claim's own condition, without the route's pre-check, also leaves it alone.
+    assert nl.PostgresNewsletterStore().claim_issue(iid, {"kind": "owner", "user_id": OWNER_ID}, "light") is None
+    assert _theme(pg, iid) == "dark"
+
+
+def test_an_omitted_theme_records_light(pg):
+    subscribe(pg, email())
+    iid = _draft(pg)
+    resp = _send(pg, iid)
+    assert resp.status_code == 200, resp.text
+    assert _theme(pg, iid) == "light"
+
+
+def test_an_invalid_theme_is_refused_before_anything_is_claimed(pg):
+    iid = _draft(pg)
+    for bad in ("blue", "Dark", "", None, 1):
+        assert _send(pg, iid, theme=bad).status_code == 422
+    row = pg.conn.execute("SELECT send_claimed_at, send_theme FROM newsletter_issues WHERE id = %s", (iid,)).fetchone()
+    assert row == {"send_claimed_at": None, "send_theme": "light"} and pg.brevo.calls == []
+
+
+def test_the_database_refuses_an_unknown_theme(pg):
+    iid = _draft(pg)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'blue' WHERE id = %s", (iid,))
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = NULL WHERE id = %s", (iid,))
+
+
+def test_the_theme_migration_is_additive_and_idempotent(pg, admin):
+    sql = THEME_MIGRATION.read_text()
+    assert "SET LOCAL lock_timeout = '5s';" in sql and "SET LOCAL statement_timeout = '60s';" in sql
+    assert "ADD COLUMN IF NOT EXISTS send_theme" in sql
+    for word in ("DROP ", "REVOKE", "POLICY", "DELETE", "TRUNCATE", "ROW LEVEL SECURITY"):
+        assert word not in sql.upper(), word
+    admin.execute(sql)
+    admin.execute(sql)  # a second run changes nothing and does not fail
+    checks = admin.execute(
+        "SELECT count(*) AS n FROM pg_constraint WHERE conrelid = 'newsletter_issues'::regclass AND contype = 'c' "
+        "AND pg_get_constraintdef(oid) LIKE '%send_theme%'").fetchone()["n"]
+    assert checks == 1
+    assert _grant_problems(admin) == []
+
+
+THEME_GUARD_CHECK = (
+    "  IF OLD.send_claimed_at IS NOT NULL AND NEW.send_theme IS DISTINCT FROM OLD.send_theme THEN\n"
+    "    RAISE EXCEPTION 'newsletter issue % email style is final', OLD.id;\n"
+    "  END IF;\n"
+)
+
+
+def _theme_change_after_claim_is_refused(pg):
+    """Claim a draft in dark (the claim itself sets send_theme), then try to change it as the app role."""
+    iid = _draft(pg)
+    claimed = nl.PostgresNewsletterStore().claim_issue(iid, {"kind": "owner", "user_id": OWNER_ID}, "dark")
+    assert claimed is not None and claimed["send_theme"] == "dark", "the claim sets the theme"
+    try:
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    except psycopg.errors.RaiseException as exc:
+        assert "email style is final" in str(exc)
+        assert _theme(pg, iid) == "dark"
+        return True
+    return False
+
+
+def test_the_app_role_cannot_change_the_theme_after_the_claim(pg):
+    assert _theme_change_after_claim_is_refused(pg)
+    # Before a claim the column is still writable (that is how the claim sets it), and the sent state keeps it too.
+    iid = _draft(pg)
+    pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'dark' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET send_claimed_at = now(), send_theme = 'dark' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET brevo_campaign_id = '77', status = 'sent', sent_at = now() WHERE id = %s",
+                    (iid,))
+    with pytest.raises(psycopg.errors.RaiseException):
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    assert _theme(pg, iid) == "dark"
+
+
+def test_removing_the_theme_check_from_the_guard_goes_noticed(pg, admin):
+    sql = THEME_MIGRATION.read_text()
+    assert sql.count(THEME_GUARD_CHECK) == 1
+    admin.execute(sql.replace(THEME_GUARD_CHECK, "", 1))  # the admin fixture puts the real guard back afterwards
+    assert not _theme_change_after_claim_is_refused(pg), "without the check the theme can be changed after a claim"
+
+
+def test_the_replaced_guard_keeps_every_original_check():
+    """The theme migration replaces newsletter_issues_guard(); every check of the original must still be in it."""
+    def body(text):
+        start = text.index("CREATE OR REPLACE FUNCTION newsletter_issues_guard()")
+        return text[start:text.index("$$;", start)]
+    original, replaced = body(MIGRATION.read_text()), body(THEME_MIGRATION.read_text())
+    lines = [line.strip() for line in original.splitlines() if line.strip()]
+    assert len(lines) > 10
+    for line in lines:
+        assert line in replaced, line
+    assert THEME_GUARD_CHECK in replaced

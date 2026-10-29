@@ -364,11 +364,15 @@ def _iso(value: Any) -> Any:
 def _issue_out(s: nl.Settings, row: Dict[str, Any]) -> Dict[str, Any]:
     out = {k: _iso(row.get(k)) for k in ("status", "subject", "preview", "created_by", "created_at", "sent_at",
                                          "brevo_campaign_id", "approved_at", "send_claimed_at", "send_error")}
+    # The theme recorded when the send was claimed; None for a draft no one has tried to send yet.
+    out["send_theme"] = (row.get("send_theme") or nl.DEFAULT_THEME) if row.get("send_claimed_at") else None
     out["id"] = str(row["id"])
     out["sendable"] = row["status"] == "draft" and row.get("send_claimed_at") is None
     out["sections"] = (row.get("body_json") or {}).get("sections", [])
     try:
-        rendered = nl.render_issue(s, row["body_json"], unsub_href=f"{s.base_url}/api/v1/newsletter/unsubscribe?token=PREVIEW")
+        # A claimed or sent issue is previewed in the theme it went out in; a draft in the default (light).
+        rendered = nl.render_issue(s, row["body_json"], unsub_href=f"{s.base_url}/api/v1/newsletter/unsubscribe?token=PREVIEW",
+                                   theme=out["send_theme"] or nl.DEFAULT_THEME)
         out["preview_html"], out["preview_text"] = rendered["html"], rendered["text"]
     except Exception:
         out["preview_html"] = out["preview_text"] = None
@@ -407,6 +411,7 @@ class SendIn(BaseModel):
 
     approve: Literal[True]
     subject: str = Field(min_length=1, max_length=120)  # must repeat the draft's subject exactly
+    theme: Literal["light", "dark"] = "light"  # the email's colours; recorded on the issue when the send is claimed
 
 
 async def _reconcile(s: nl.Settings, client: Any) -> Dict[str, int]:
@@ -456,11 +461,11 @@ async def send_draft(issue_id: str, body: SendIn, s: nl.Settings = Depends(requi
     if body.subject != issue["subject"]:
         raise HTTPException(status_code=422, detail="Type the draft's subject exactly to approve sending it.")
     try:
-        rendered = nl.render_issue(s, issue["body_json"])
+        rendered = nl.render_issue(s, issue["body_json"], theme=body.theme)
     except Exception:
         raise HTTPException(status_code=422, detail="This draft no longer passes the draft rules and cannot be sent.")
 
-    claimed = await run_in_threadpool(nl.store().claim_issue, issue_id, admin)
+    claimed = await run_in_threadpool(nl.store().claim_issue, issue_id, admin, body.theme)
     if claimed is None:
         raise HTTPException(status_code=409, detail="This issue has already been sent or a send was already attempted.")
 
@@ -484,4 +489,4 @@ async def send_draft(issue_id: str, body: SendIn, s: nl.Settings = Depends(requi
                                                     "Check it in Brevo before doing anything else.")
     row = await run_in_threadpool(nl.store().mark_sent, issue_id, admin)
     return {"id": issue_id, "status": "sent", "brevo_campaign_id": campaign_id,
-            "sent_at": _iso(row.get("sent_at")), "recipients": counts["confirmed"]}
+            "sent_at": _iso(row.get("sent_at")), "recipients": counts["confirmed"], "theme": body.theme}
