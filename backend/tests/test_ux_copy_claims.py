@@ -40,6 +40,7 @@ FILES = (
     "owner/OwnerApp.tsx",
     "owner/actions.tsx",
     "owner/analyticsView.tsx",
+    "owner/logsView.tsx",
     "owner/newsletterView.tsx",
     "owner/opsViews.tsx",
     "owner/ownerApi.ts",

@@ -10,7 +10,8 @@ import { OwnerMeContext, SessionEndedContext } from './ui';
 import { LoadingScreen } from '../components/ui';
 import { ToastProvider } from '../components/Toast';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
-import { LogsView, ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
+import { LogsView } from './logsView';
+import { ScanDetailView, ScansView, SubscriptionsView, SystemView } from './opsViews';
 import { NewsletterDraftView, NewsletterView } from './newsletterView';
 import { AnalyticsView } from './analyticsView';
 
