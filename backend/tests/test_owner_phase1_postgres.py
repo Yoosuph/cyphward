@@ -7,9 +7,12 @@ scan) and adds a second organization, a second member and a finding with a recog
 import csv
 import io
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 import pytest
 from fastapi import HTTPException
@@ -363,3 +366,142 @@ def test_member_and_domain_views_and_removal_are_isolated_per_organization(world
         count = conn.execute("SELECT count(*) AS n FROM organization_members WHERE org_id IN (%s, %s)",
                              (world["org"], more["org_b"])).fetchone()["n"]
     assert count == 3
+
+
+# ── Typed name on the remaining organization actions ───────────────────────
+NAME_MISMATCH = "The name you typed does not match this organization. Nothing was changed."
+
+
+def _assert_refused(resp, urls, world, action):
+    assert resp.status_code == 409, resp.text
+    assert "does not match" in resp.json()["detail"]
+    rows = _owner_audit(urls, world, action)
+    assert rows and rows[-1]["outcome"] == "rejected", rows
+    assert rows[-1]["metadata"]["detail"] == NAME_MISMATCH and rows[-1]["metadata"]["reason"] == REASON
+    assert all(r["outcome"] == "rejected" for r in rows), "a wrong name never records a success"
+
+
+@pytest.mark.parametrize("wrong", ["{name} ", "{lower}", "Views Org"])
+def test_change_plan_refuses_a_wrong_name_and_changes_nothing(world, more, urls, wrong):
+    client = _signed_in(world)
+    typed = wrong.format(name=world["org_name"], lower=world["org_name"].lower())
+    resp = client.post(f"{OWNER}/organizations/{world['org']}/plan",
+                       json={"reason": REASON, "confirm_name": typed, "plan": "starter"}, headers=ORIGIN)
+    _assert_refused(resp, urls, world, "owner.action.change_plan")
+    with _admin(urls) as conn:
+        assert conn.execute("SELECT plan FROM organizations WHERE id = %s", (world["org"],)).fetchone()["plan"] == "growth"
+        assert conn.execute("SELECT count(*) AS n FROM audit_log WHERE org_id = %s AND action = 'billing.plan_changed'",
+                            (world["org"],)).fetchone()["n"] == 0
+
+
+def test_extend_trial_refuses_a_wrong_name_and_changes_nothing(world, more, urls):
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO subscriptions (org_id, plan, status, provider, current_period_start, current_period_end, "
+                     "trial_ends_at) VALUES (%s, 'growth', 'trialing', 'manual', now(), now() + interval '10 days', "
+                     "now() + interval '10 days')", (world["org"],))
+        before = conn.execute("SELECT trial_ends_at, current_period_end FROM subscriptions WHERE org_id = %s",
+                              (world["org"],)).fetchone()
+    client = _signed_in(world)
+    resp = client.post(f"{OWNER}/organizations/{world['org']}/trial",
+                       json={"reason": REASON, "confirm_name": more["org_b_name"], "days": 7}, headers=ORIGIN)
+    _assert_refused(resp, urls, world, "owner.action.extend_trial")
+    with _admin(urls) as conn:
+        after = conn.execute("SELECT trial_ends_at, current_period_end FROM subscriptions WHERE org_id = %s",
+                             (world["org"],)).fetchone()
+        logged = conn.execute("SELECT count(*) AS n FROM audit_log WHERE org_id = %s AND action = 'billing.trial_extended'",
+                              (world["org"],)).fetchone()["n"]
+    assert after == before and logged == 0
+
+
+def test_unsuspend_refuses_a_wrong_name_and_changes_nothing(world, more, urls):
+    client = _signed_in(world)
+    org = f"{OWNER}/organizations/{world['org']}"
+    assert client.post(f"{org}/suspend", json={"reason": REASON, "confirm_name": world["org_name"]},
+                       headers=ORIGIN).status_code == 200
+    with _admin(urls) as conn:
+        before = conn.execute("SELECT status, changed_at FROM organization_suspensions WHERE org_id = %s",
+                              (world["org"],)).fetchone()
+    resp = client.post(f"{org}/unsuspend", json={"reason": REASON, "confirm_name": world["org_name"].upper()},
+                       headers=ORIGIN)
+    _assert_refused(resp, urls, world, "owner.action.unsuspend")
+    with _admin(urls) as conn:
+        after = conn.execute("SELECT status, changed_at FROM organization_suspensions WHERE org_id = %s",
+                             (world["org"],)).fetchone()
+    assert before["status"] == "suspended" and after == before
+    assert client.get(org).json()["organization"]["suspended"] is True
+
+
+# ── Migration grants, read back from PostgreSQL ───────────────────────────
+MIGRATION = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261030100000_organization_suspension.sql"
+
+
+@pytest.fixture
+def scratch_db(urls):
+    """A throwaway database on the same local server with Supabase-style defaults: every new table in public grants
+    ALL to PUBLIC, anon, authenticated and cyphward_app. Only the tables the migration needs exist."""
+    admin_url = urls[1]
+    name = f"cyphward_acl_{uuid4().hex[:10]}"
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    url = make_conninfo(admin_url, dbname=name)
+    assert conninfo_to_dict(url).get("host") in {"127.0.0.1", "localhost", "::1"}
+    try:
+        with psycopg.connect(url, autocommit=True) as conn:
+            for role in ("anon", "authenticated", "cyphward_app"):
+                assert conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone(), role
+            conn.execute("CREATE TABLE organizations (id uuid PRIMARY KEY)")
+            conn.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                         "GRANT ALL ON TABLES TO PUBLIC, anon, authenticated, cyphward_app")
+        yield url
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
+
+
+def _grants(url):
+    with psycopg.connect(url, row_factory=dict_row) as conn:
+        owner = conn.execute("SELECT pg_get_userbyid(relowner) AS o FROM pg_class "
+                             "WHERE oid = 'organization_suspensions'::regclass").fetchone()["o"]
+        table = conn.execute(
+            """
+            SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+                   a.privilege_type AS priv
+            FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'organization_suspensions'::regclass
+            """).fetchall()
+        columns = conn.execute(
+            """
+            SELECT att.attname AS col,
+                   CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+                   a.privilege_type AS priv
+            FROM pg_attribute att, aclexplode(att.attacl) a
+            WHERE att.attrelid = 'organization_suspensions'::regclass AND att.attacl IS NOT NULL
+            """).fetchall()
+        can = {role: {p for p in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+                      if conn.execute("SELECT has_table_privilege(%s, 'organization_suspensions', %s) AS ok",
+                                      (role, p)).fetchone()["ok"]}
+               for role in ("anon", "authenticated", "cyphward_app")}
+        public = conn.execute("SELECT has_table_privilege('public', 'organization_suspensions', 'SELECT') AS ok").fetchone()["ok"]
+        rls = conn.execute("SELECT relrowsecurity AS on FROM pg_class WHERE oid = 'organization_suspensions'::regclass").fetchone()["on"]
+        policies = conn.execute("SELECT policyname, roles::text[] AS roles FROM pg_policies "
+                                "WHERE tablename = 'organization_suspensions'").fetchall()
+    return owner, table, columns, can, public, rls, policies
+
+
+def test_migration_grants_are_exactly_owner_plus_app_select_insert(scratch_db):
+    text = MIGRATION.read_text()
+    body = [s.strip() for s in "\n".join(l for l in text.splitlines() if not l.startswith("--")).split(";") if s.strip()]
+    assert body[:3] == ["BEGIN", "SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '60s'"]
+
+    for attempt in (1, 2):  # idempotent: the second run leaves the same grants
+        with psycopg.connect(scratch_db, autocommit=True) as conn:
+            conn.execute(text)
+        owner, table, columns, can, public, rls, policies = _grants(scratch_db)
+        others = {(r["grantee"], r["priv"]) for r in table if r["grantee"] != owner}
+        assert {r["grantee"] for r in table} == {owner, "cyphward_app"}, (attempt, table)
+        assert others == {("cyphward_app", "SELECT"), ("cyphward_app", "INSERT")}, (attempt, others)
+        assert {(r["col"], r["grantee"], r["priv"]) for r in columns} == {
+            ("status", "cyphward_app", "UPDATE"), ("changed_at", "cyphward_app", "UPDATE"),
+            ("changed_by", "cyphward_app", "UPDATE")}, (attempt, columns)
+        assert can["anon"] == set() and can["authenticated"] == set() and public is False, (attempt, can)
+        assert can["cyphward_app"] == {"SELECT", "INSERT"}, "UPDATE only per column, never DELETE"
+        assert rls is True and [(p["policyname"], p["roles"]) for p in policies] == [("cyphward_app_all", ["cyphward_app"])]

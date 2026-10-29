@@ -3,7 +3,8 @@
 The PostgreSQL behaviour (access, audit rows, suspension, member removal, exports) is in
 test_owner_phase1_postgres.py. This file covers the pieces that must hold whatever the data: every new route sits
 behind the owner session, sort and filter values map to fixed SQL, CSV cells are spreadsheet-safe, analytics
-responses are built from counts only, the migration is additive, and no new copy uses claim wording.
+responses are built from counts only, and no new copy uses claim wording. The migration's real grants are
+checked against PostgreSQL in test_owner_phase1_postgres.py.
 """
 import json
 import re
@@ -140,19 +141,6 @@ def test_analytics_sql_never_selects_customer_content():
     sql = " ".join(re.findall(r'"""(.*?)"""', source, flags=re.S)[1:])  # every SQL block, not the module docstring
     for column in ("title", "description", "email", "domain", "hostname", "evidence", "remediation", "full_name"):
         assert not re.search(rf"\b{column}\b", sql), column
-
-
-def test_migration_is_additive_with_timeouts():
-    text = MIGRATION.read_text()
-    body = "\n".join(line for line in text.splitlines() if not line.startswith("--"))
-    statements = [s.strip() for s in body.split(";") if s.strip()]
-    assert statements[:3] == ["BEGIN", "SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '60s'"]
-    assert statements[-1] == "COMMIT"
-    assert "CREATE TABLE IF NOT EXISTS organization_suspensions" in body
-    assert "CREATE INDEX IF NOT EXISTS" in body
-    for forbidden in ("DROP TABLE", "DROP COLUMN", "ALTER TABLE organizations", "DISABLE ROW LEVEL SECURITY",
-                      "GRANT DELETE", "TRUNCATE", "DELETE FROM"):
-        assert forbidden not in body.upper().replace("  ", " "), forbidden
 
 
 def test_new_backend_copy_has_no_claim_wording():
