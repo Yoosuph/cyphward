@@ -400,8 +400,11 @@ def test_constraints_refuse_raw_tokens_and_unnormalised_addresses(pg):
                         "VALUES (%s, now(), 'v', 'newsletter_page')", (email(),))
 
 
-def test_subscriber_counts_on_the_real_database(pg):
+def test_subscriber_counts_on_the_real_database(pg, monkeypatch):
     """Counts only (the shared test database holds other tests' rows, so this checks the change it makes)."""
+    session = str(uuid.uuid4())  # owner_audit.session_id is a uuid column
+    monkeypatch.setattr(owner_mod, "require_owner", lambda request: {"user_id": OWNER_ID, "email": "owner@x.test",
+                                                                     "session_id": session, "expires_at": None})
     before = pg.get("/api/v1/newsletter/stats")
     assert before.status_code == 200 and set(before.json()) == {"confirmed", "unsubscribed", "pending"}
     kept, gone, waiting = email(), email(), email()
@@ -414,6 +417,8 @@ def test_subscriber_counts_on_the_real_database(pg):
     delta = {k: after.json()[k] - before.json()[k] for k in before.json()}
     assert delta == {"confirmed": 1, "unsubscribed": 1, "pending": 1}
     assert "@" not in after.text
+    views = pg.conn.execute("SELECT action, outcome FROM owner_audit WHERE session_id = %s", (session,)).fetchall()
+    assert views == [{"action": "owner.view.newsletter_stats", "outcome": "success"}] * 2
 
 
 def test_flag_off_on_the_real_database(pg, monkeypatch):

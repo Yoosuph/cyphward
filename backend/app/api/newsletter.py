@@ -388,14 +388,16 @@ def require_newsletter_owner(request: Request) -> Dict[str, Any]:
     """The platform owner's console cookie only: no bearer token (staff, GrokBot) is accepted, whatever its scope."""
     if request.headers.get("authorization"):
         raise HTTPException(status_code=403, detail="Only the owner console can read this.")
-    owner = owner_mod.require_owner(request)
-    return {"kind": "owner", "user_id": owner["user_id"]}
+    return owner_mod.require_owner(request)
 
 
 @router.get("/stats")
-async def subscriber_stats(s: nl.Settings = Depends(require_enabled),
+async def subscriber_stats(request: Request, s: nl.Settings = Depends(require_enabled),
                            owner: Dict[str, Any] = Depends(require_newsletter_owner)) -> Dict[str, int]:
-    """Read-only counts for the owner console's newsletter overview. Never an address or an id."""
+    """Read-only counts for the owner console's newsletter overview. Never an address or an id.
+    Like every owner console view, the owner audit row is written first (no row, no data)."""
+    await run_in_threadpool(owner_mod.audit, request, "owner.view.newsletter_stats", "success",
+                            user_id=owner["user_id"], email=owner.get("email"), session_id=owner.get("session_id"))
     counts = await run_in_threadpool(nl.store().subscriber_counts)
     return {k: int(counts.get(k, 0)) for k in ("confirmed", "unsubscribed", "pending")}
 

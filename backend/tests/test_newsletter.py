@@ -981,6 +981,17 @@ def test_owner_reads_subscriber_counts_without_any_address(client, nlenv, monkey
     assert not any(k in resp.text for k in ("id", "email", "token"))
 
 
+def test_reading_the_counts_is_in_the_owner_log_first(client, nlenv, monkeypatch):
+    _as_owner(monkeypatch)
+    resp = client.get("/api/v1/newsletter/stats")
+    assert resp.status_code == 200
+    row = nlenv.fake_db.owner_audit[-1]
+    assert row["action"] == "owner.view.newsletter_stats" and row["outcome"] == "success"
+    nlenv.fake_db.owner_audit_fails = True
+    refused = client.get("/api/v1/newsletter/stats")
+    assert refused.status_code == 503 and "confirmed" not in refused.text  # no audit row, no data
+
+
 def test_subscriber_counts_are_zero_filled(client, nlenv, monkeypatch):
     _as_owner(monkeypatch)
     assert client.get("/api/v1/newsletter/stats").json() == {"confirmed": 0, "unsubscribed": 0, "pending": 0}

@@ -75,7 +75,7 @@ Single opt-in sign-up (founder decision, 2026-10-27), GrokBot drafts, and admin-
 
    `platform:read` is not enough.
 
-   **Owner console section** (`admin.cyphward.com/console/newsletter`): the subscriber counts, the drafts table, each draft with its sections and the rendered email in a sandboxed frame (no scripts), and the send dialog, which asks for the subject typed exactly before it calls the send route above. The counts come from `GET /api/v1/newsletter/stats` (`{"confirmed", "unsubscribed", "pending"}`; numbers only, never an address). That route is read-only and answers the owner console cookie alone: any bearer token is refused, including staff holding `platform:newsletter`. Browser checks: `npm run test:admin-newsletter` in `frontend/`.
+   **Owner console section** (`admin.cyphward.com/console/newsletter`): the subscriber counts, the drafts table, each draft with its sections and the rendered email in a sandboxed frame (no scripts), and the send dialog, which asks for the subject typed exactly before it calls the send route above. The counts come from `GET /api/v1/newsletter/stats` (`{"confirmed", "unsubscribed", "pending"}`; numbers only, never an address). That route is read-only and answers the owner console cookie alone: any bearer token is refused, including staff holding `platform:newsletter`. Each read writes an `owner.view.newsletter_stats` row to the owner log first (no row, no data). Browser checks: `npm run test:admin-newsletter` in `frontend/`.
 
 7. **Audit.** Every action is written to `audit_log`, with `resource_type = 'newsletter_issue'`:
    - `newsletter.draft_created`
