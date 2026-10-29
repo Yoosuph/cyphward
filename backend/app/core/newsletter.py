@@ -459,20 +459,44 @@ class DraftIn(_Strict):
 
 # ---------------------------------------------------------------------------
 # Rendering: one branded wrapper for the confirmation email and every issue.
-# Inline styles only; no images, no SVG, no remote fonts, no scripts, no tracking of our own.
-# Every interpolated value is escaped. Colours are the dark tokens in frontend/src/index.css.
+# Inline styles only; one image (our logo, LOGO_URL), no SVG, no remote fonts, no scripts, no tracking of our own.
+# Every interpolated value is escaped. Colours come from THEMES, passed down explicitly (never a global).
 # ---------------------------------------------------------------------------
 SECTION_LABELS = {"product": "Product", "security_tip": "Security tip", "regulation": "Regulation"}
 
-BRAND = {
-    "bg": "#F4F2EE",          # page background (light)
-    "raised": "#FFFFFF",      # card (light)
-    "line": "#E4E0D6",        # hairlines (light)
-    "ink": "#15130F",         # body text (light)
-    "soft": "#5C5648",        # secondary text (light)
-    "accent": "#E5532B",      # the brand orange (buttons and the top rule)
-    "accent_ink": "#B33614",  # links on the white card (AA contrast)
+THEMES: Dict[str, Dict[str, str]] = {
+    # The default since PR #61; the confirmation email always uses it.
+    "light": {
+        "bg": "#F4F2EE",          # page background
+        "raised": "#FFFFFF",      # card
+        "line": "#E4E0D6",        # hairlines
+        "ink": "#15130F",         # body text
+        "soft": "#5C5648",        # secondary text
+        "accent": "#E5532B",      # the brand orange (buttons and the top rule)
+        "accent_ink": "#B33614",  # links on the white card (AA contrast)
+    },
+    # The earlier dark palette (the dark tokens in frontend/src/index.css), chosen per issue by the admin.
+    "dark": {
+        "bg": "#0A0907",
+        "raised": "#14130F",
+        "line": "#24211A",
+        "ink": "#F5F2EB",
+        "soft": "#A8A190",
+        "accent": "#E5532B",
+        "accent_ink": "#F27350",  # links on the dark card (AA contrast)
+    },
 }
+Theme = Literal["light", "dark"]
+DEFAULT_THEME: Theme = "light"
+
+
+def palette(theme: str = DEFAULT_THEME) -> Dict[str, str]:
+    """The colours for a theme name; anything else is refused (the API accepts only 'light' and 'dark')."""
+    if theme not in THEMES:
+        raise ValueError(f"unknown newsletter theme: {theme!r}")
+    return THEMES[theme]
+
+
 LOGO_URL = "https://cyphward.com/logo-512.png"  # the shield mark, served by our own site
 _FONT = "'Helvetica Neue',Helvetica,Arial,sans-serif"  # system fonts only
 NOT_A_LAW_FIRM = "Cyphward is not a law firm. Regulation updates are general information, not legal advice."
@@ -495,51 +519,51 @@ def _p(text: str, style: str = "margin:0 0 12px") -> str:
     return f'<p style="{style}">{escape(text)}</p>'
 
 
-def _logo_html() -> str:
+def _logo_html(brand: Dict[str, str]) -> str:
     """The Cyphward shield mark (our own site's logo-512.png) beside the wordmark. The only image in any
     Cyphward email; no other remote image or script is allowed."""
     return (
         '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
         f'<td style="width:40px;height:40px;padding:0"><img src="{LOGO_URL}" width="40" height="40" alt="Cyphward" '
         'style="display:block;width:40px;height:40px;border:0;outline:none;text-decoration:none"></td>'
-        f'<td style="padding-left:10px;font-size:16px;font-weight:bold;letter-spacing:.14em;color:{BRAND["ink"]};'
+        f'<td style="padding-left:10px;font-size:16px;font-weight:bold;letter-spacing:.14em;color:{brand["ink"]};'
         f'font-family:{_FONT}">CYPHWARD</td>'
         "</tr></table>"
     )
 
 
-def _footer_html(s: Settings, unsub_href: str, reason: str) -> str:
+def _footer_html(s: Settings, unsub_href: str, reason: str, brand: Dict[str, str]) -> str:
     """The one place the unsubscribe link appears in the HTML part."""
-    soft = f"margin:0 0 8px;color:{BRAND['soft']}"
+    soft = f"margin:0 0 8px;color:{brand['soft']}"
     return (
-        f'<tr><td style="padding:20px 28px 28px;border-top:1px solid {BRAND["line"]};font-size:12px;line-height:1.6;'
-        f'color:{BRAND["soft"]}">'
+        f'<tr><td style="padding:20px 28px 28px;border-top:1px solid {brand["line"]};font-size:12px;line-height:1.6;'
+        f'color:{brand["soft"]}">'
         + _p(reason, soft)
-        + f'<p style="{soft}"><a href="{escape(unsub_href, quote=True)}" style="color:{BRAND["accent_ink"]};'
+        + f'<p style="{soft}"><a href="{escape(unsub_href, quote=True)}" style="color:{brand["accent_ink"]};'
           'text-decoration:underline">Unsubscribe in one click</a> (no sign-in needed).</p>'
         + _p(NOT_A_LAW_FIRM, soft)
-        + _p(s.postal_line, f"margin:0;color:{BRAND['soft']}")
+        + _p(s.postal_line, f"margin:0;color:{brand['soft']}")
         + "</td></tr>"
     )
 
 
-def _shell(title: str, preheader: str, rows: str) -> str:
+def _shell(title: str, preheader: str, rows: str, brand: Dict[str, str]) -> str:
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">'
         f"<title>{escape(title)}</title></head>"
-        f'<body style="margin:0;padding:0;background:{BRAND["bg"]};font-family:{_FONT};color:{BRAND["ink"]}">'
+        f'<body style="margin:0;padding:0;background:{brand["bg"]};font-family:{_FONT};color:{brand["ink"]}">'
         f'<div style="display:none;max-height:0;overflow:hidden;opacity:0">{escape(preheader)}</div>'
-        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BRAND["bg"]}">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{brand["bg"]}">'
         '<tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
-        f'style="max-width:600px;background:{BRAND["raised"]};border:1px solid {BRAND["line"]};border-radius:8px">'
-        f'<tr><td style="height:4px;line-height:4px;font-size:4px;background:{BRAND["accent"]};'
+        f'style="max-width:600px;background:{brand["raised"]};border:1px solid {brand["line"]};border-radius:8px">'
+        f'<tr><td style="height:4px;line-height:4px;font-size:4px;background:{brand["accent"]};'
         'border-radius:8px 8px 0 0">&nbsp;</td></tr>'
         '<tr><td style="padding:22px 28px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        f'border="0"><tr><td>{_logo_html()}</td>'
-        f'<td align="right" style="font-size:11px;letter-spacing:.2em;color:{BRAND["soft"]};font-family:{_FONT}">UPDATES</td>'
+        f'border="0"><tr><td>{_logo_html(brand)}</td>'
+        f'<td align="right" style="font-size:11px;letter-spacing:.2em;color:{brand["soft"]};font-family:{_FONT}">UPDATES</td>'
         "</tr></table></td></tr>"
         f"{rows}"
         "</table></td></tr></table></body></html>"
@@ -557,27 +581,29 @@ CONFIRMATION_INTRO_AGAIN = ("This address had unsubscribed and has just been sub
 
 
 def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
-    """The one email a new subscriber gets: they are subscribed already, so there is no link to click."""
+    """The one email a new subscriber gets: they are subscribed already, so there is no link to click.
+    Always the light theme (the admin's theme choice applies to issues only)."""
+    brand = THEMES["light"]
     u_url = unsubscribe_url(s, sub.unsubscribe_token)
     often = f"{SEND_FREQUENCY[0].upper()}{SEND_FREQUENCY[1:]}, from {s.sender[1]}."
     consent = (f"You ticked a box agreeing to this wording (version {sub.consent_wording_version}): "
                f"“{CONSENT_WORDING}”")
     preheader = f"Product, security and regulation updates, {SEND_FREQUENCY}. Unsubscribe in one click."
     intro = CONFIRMATION_INTRO_AGAIN if sub.previous_status == "unsubscribed" else CONFIRMATION_INTRO
-    label = f"margin:0 0 2px;font-size:11px;letter-spacing:.16em;color:{BRAND['soft']}"
-    body = f"margin:0 0 16px;color:{BRAND['ink']}"
+    label = f"margin:0 0 2px;font-size:11px;letter-spacing:.16em;color:{brand['soft']}"
+    body = f"margin:0 0 16px;color:{brand['ink']}"
     rows = (
-        f'<tr><td style="padding:12px 28px 4px;font-size:24px;line-height:1.3;font-weight:bold;color:{BRAND["ink"]}">'
+        f'<tr><td style="padding:12px 28px 4px;font-size:24px;line-height:1.3;font-weight:bold;color:{brand["ink"]}">'
         "You are subscribed</td></tr>"
-        f'<tr><td style="padding:8px 28px 12px;font-size:15px;line-height:1.6;color:{BRAND["ink"]}">'
+        f'<tr><td style="padding:8px 28px 12px;font-size:15px;line-height:1.6;color:{brand["ink"]}">'
         + _p(intro, body)
         + _p("WHAT YOU WILL RECEIVE", label) + _p(CONFIRMATION_RECEIVE, body)
         + _p("HOW OFTEN", label) + _p(often, body)
         + _p("LEAVING", label) + _p(CONFIRMATION_LEAVE, body)
         + _p("YOUR CONSENT", label) + _p(consent, body)
-        + _p(CONFIRMATION_NOT_YOU, f"margin:0;font-size:13px;color:{BRAND['soft']}")
+        + _p(CONFIRMATION_NOT_YOU, f"margin:0;font-size:13px;color:{brand['soft']}")
         + "</td></tr>"
-        + _footer_html(s, u_url, "You are getting this because this address was subscribed on cyphward.com.")
+        + _footer_html(s, u_url, "You are getting this because this address was subscribed on cyphward.com.", brand)
     )
     text = (
         f"{CONFIRMATION_SUBJECT}.\n{intro}\n\n"
@@ -589,7 +615,7 @@ def render_confirmation(s: Settings, sub: Subscribed) -> Dict[str, str]:
         f"Unsubscribe in one click: {u_url}\n\n"
         f"{NOT_A_LAW_FIRM}\n{s.postal_line}\n"
     )
-    return {"subject": CONFIRMATION_SUBJECT, "html": _shell(CONFIRMATION_SUBJECT, preheader, rows), "text": text,
+    return {"subject": CONFIRMATION_SUBJECT, "html": _shell(CONFIRMATION_SUBJECT, preheader, rows, brand), "text": text,
             "headers": list_unsubscribe_headers(u_url)}
 
 
@@ -598,12 +624,15 @@ def list_unsubscribe_headers(unsub_url: str) -> Dict[str, str]:
     return {"List-Unsubscribe": f"<{unsub_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
 
 
-def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] = None) -> Dict[str, str]:
-    """HTML and text for an issue. `unsub_href` defaults to the per-recipient Brevo placeholder."""
+def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] = None,
+                 theme: str = DEFAULT_THEME) -> Dict[str, str]:
+    """HTML and text for an issue in the chosen theme ('light' by default; only the colours differ).
+    `unsub_href` defaults to the per-recipient Brevo placeholder."""
+    brand = palette(theme)
     d = DraftIn.model_validate(draft)  # stored drafts are re-checked before they are shown or sent
     href = unsub_href or campaign_unsubscribe_url(s)
-    link = f"color:{BRAND['accent_ink']};text-decoration:underline"
-    label_style = f"margin:0 0 4px;font-size:11px;letter-spacing:.16em;color:{BRAND['accent']}"
+    link = f"color:{brand['accent_ink']};text-decoration:underline"
+    label_style = f"margin:0 0 4px;font-size:11px;letter-spacing:.16em;color:{brand['accent']}"
     rows, text = [], [d.subject, "", d.preview, ""]
     for sec in d.sections:
         label = SECTION_LABELS[sec.type]
@@ -619,13 +648,13 @@ def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] =
             items = "".join(
                 f'<li style="margin:0 0 6px"><a href="{escape(src.url, quote=True)}" style="{link}">{escape(src.title)}</a></li>'
                 for src in sec.sources)
-            extra += (_p("SOURCES", f"margin:0 0 6px;font-size:11px;letter-spacing:.16em;color:{BRAND['soft']}")
+            extra += (_p("SOURCES", f"margin:0 0 6px;font-size:11px;letter-spacing:.16em;color:{brand['soft']}")
                       + f'<ul style="margin:0 0 12px;padding-left:18px;font-size:13px">{items}</ul>')
         rows.append(
-            f'<tr><td style="padding:16px 28px 4px;border-top:1px solid {BRAND["line"]}">'
+            f'<tr><td style="padding:16px 28px 4px;border-top:1px solid {brand["line"]}">'
             + _p(label.upper(), label_style)
-            + f'<h2 style="margin:0 0 10px;font-size:18px;line-height:1.35;color:{BRAND["ink"]}">{escape(sec.heading)}</h2>'
-            f'<div style="font-size:15px;line-height:1.6;color:{BRAND["ink"]}">{body_html}{extra}</div></td></tr>'
+            + f'<h2 style="margin:0 0 10px;font-size:18px;line-height:1.35;color:{brand["ink"]}">{escape(sec.heading)}</h2>'
+            f'<div style="font-size:15px;line-height:1.6;color:{brand["ink"]}">{body_html}{extra}</div></td></tr>'
         )
         text += [f"{label.upper()}: {sec.heading}", "", *paras]
         text += [f"- {l.label}: {l.url}" for l in sec.links]
@@ -634,9 +663,10 @@ def render_issue(s: Settings, draft: Dict[str, Any], unsub_href: Optional[str] =
     reason = "You are receiving this because you subscribed to Cyphward updates."
     html_body = _shell(
         d.subject, d.preview,
-        f'<tr><td style="padding:12px 28px 12px;font-size:24px;line-height:1.3;font-weight:bold;color:{BRAND["ink"]}">'
+        f'<tr><td style="padding:12px 28px 12px;font-size:24px;line-height:1.3;font-weight:bold;color:{brand["ink"]}">'
         f"{escape(d.subject)}</td></tr>"
-        + "".join(rows) + _footer_html(s, href, reason),
+        + "".join(rows) + _footer_html(s, href, reason, brand),
+        brand,
     )
     text += [reason, f"Unsubscribe in one click: {href}", NOT_A_LAW_FIRM, s.postal_line]
     return {"subject": d.subject, "preview": d.preview, "html": html_body, "text": "\n".join(text)}
@@ -654,7 +684,7 @@ def _audit(cur, user_id: Optional[str], action: str, resource_id: Optional[str],
 
 
 _ISSUE_COLUMNS = ("id, status, subject, preview, body_json, created_by, created_at, sent_at, brevo_campaign_id, "
-                  "approved_by, approved_at, send_claimed_at, send_error")
+                  "approved_by, approved_at, send_claimed_at, send_error, send_theme")
 
 
 class PostgresNewsletterStore:
@@ -804,19 +834,21 @@ class PostgresNewsletterStore:
             row = cur.fetchone()
             return dict(row) if row else None
 
-    def claim_issue(self, issue_id: str, actor: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """The one send attempt: succeeds once per issue, recorded with its approval audit row."""
+    def claim_issue(self, issue_id: str, actor: Dict[str, Any], theme: str = DEFAULT_THEME) -> Optional[Dict[str, Any]]:
+        """The one send attempt: succeeds once per issue, recorded with its approval audit row.
+        The theme is written by the same conditional UPDATE, so a later request can never change it."""
+        palette(theme)  # refuse an unknown theme before touching the row
         with database.get_db() as conn, conn.transaction(), conn.cursor() as cur:
             cur.execute(
-                "UPDATE newsletter_issues SET send_claimed_at = now(), approved_at = now(), approved_by = %s "
-                f"WHERE id = %s AND status = 'draft' AND send_claimed_at IS NULL RETURNING {_ISSUE_COLUMNS}",
-                (actor["user_id"], issue_id),
+                "UPDATE newsletter_issues SET send_claimed_at = now(), approved_at = now(), approved_by = %s, "
+                f"send_theme = %s WHERE id = %s AND status = 'draft' AND send_claimed_at IS NULL RETURNING {_ISSUE_COLUMNS}",
+                (actor["user_id"], theme, issue_id),
             )
             row = cur.fetchone()
             if row is None:
                 return None
             _audit(cur, actor["user_id"], "newsletter.send_approved", issue_id,
-                   {"actor": actor["kind"], "subject": row["subject"]})
+                   {"actor": actor["kind"], "subject": row["subject"], "theme": theme})
             return dict(row)
 
     def record_campaign(self, issue_id: str, campaign_id: str, actor: Dict[str, Any], metadata: Dict[str, Any]) -> None:

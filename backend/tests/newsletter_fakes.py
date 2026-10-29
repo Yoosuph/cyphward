@@ -107,7 +107,7 @@ class FakeNewsletterStore:
         row = {"id": iid, "status": "draft", "subject": draft["subject"], "preview": draft["preview"],
                "body_json": draft, "created_by": created_by, "created_at": _now(), "sent_at": None,
                "brevo_campaign_id": None, "approved_by": None, "approved_at": None, "send_claimed_at": None,
-               "send_error": None}
+               "send_error": None, "send_theme": "light"}  # the column default
         self.issues[iid] = row
         self._audit(None, "newsletter.draft_created", iid, {"author": created_by, **metadata})
         return dict(row)
@@ -119,12 +119,14 @@ class FakeNewsletterStore:
         row = self.issues.get(issue_id)
         return dict(row) if row else None
 
-    def claim_issue(self, issue_id, actor):
+    def claim_issue(self, issue_id, actor, theme=nl.DEFAULT_THEME):
+        nl.palette(theme)  # as the PostgreSQL store: an unknown theme is refused (the column CHECK would too)
         row = self.issues.get(issue_id)
         if row is None or row["status"] != "draft" or row["send_claimed_at"] is not None:
             return None
-        row.update(send_claimed_at=_now(), approved_at=_now(), approved_by=actor["user_id"])
-        self._audit(actor["user_id"], "newsletter.send_approved", issue_id, {"actor": actor["kind"], "subject": row["subject"]})
+        row.update(send_claimed_at=_now(), approved_at=_now(), approved_by=actor["user_id"], send_theme=theme)
+        self._audit(actor["user_id"], "newsletter.send_approved", issue_id,
+                    {"actor": actor["kind"], "subject": row["subject"], "theme": theme})
         return dict(row)
 
     def record_campaign(self, issue_id, campaign_id, actor, metadata):

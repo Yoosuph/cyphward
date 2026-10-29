@@ -70,6 +70,8 @@ export const ownerSignOut = () => ownerFetch<{ signed_out: boolean }>('/logout',
 /* ── Newsletter (the same owner cookie; routes live under /api/v1/newsletter) ── */
 const NEWSLETTER = '/api/v1/newsletter';
 
+/** The email's colours, chosen when sending: light (the default) or dark. */
+export type NewsletterTheme = 'light' | 'dark';
 export type NewsletterLink = { label: string; url: string };
 export type NewsletterSource = { title: string; url: string };
 export type NewsletterSection = {
@@ -85,6 +87,8 @@ export type NewsletterIssue = {
   sent_at: string | null;
   approved_at: string | null;
   send_claimed_at: string | null;
+  /** The email style recorded when the send was claimed; null until then. */
+  send_theme?: NewsletterTheme | null;
   sendable: boolean;
   sections: NewsletterSection[];
   preview_html: string | null;
@@ -92,14 +96,17 @@ export type NewsletterIssue = {
 };
 export type NewsletterDrafts = { issues: NewsletterIssue[]; confirmed_subscribers: number };
 export type NewsletterStats = { confirmed: number; unsubscribed: number; pending: number };
-export type NewsletterSent = { id: string; status: 'sent'; sent_at: string | null; recipients: number };
+export type NewsletterSent = {
+  id: string; status: 'sent'; sent_at: string | null; recipients: number; theme?: NewsletterTheme;
+};
 
 export const newsletterDrafts = () => ownerFetch<NewsletterDrafts>('/drafts', undefined, NEWSLETTER);
 export const newsletterStats = () => ownerFetch<NewsletterStats>('/stats', undefined, NEWSLETTER);
 
-/** The one send: explicit approval plus the subject typed exactly. The server checks both again. */
-export const newsletterSend = (id: string, subject: string) =>
+/** The one send: explicit approval plus the subject typed exactly (the server checks both again), in the chosen
+ *  email style. The server records the style with the send; it cannot be changed afterwards. */
+export const newsletterSend = (id: string, subject: string, theme: NewsletterTheme = 'light') =>
   ownerFetch<NewsletterSent>(`/drafts/${encodeURIComponent(id)}/send`, {
     method: 'POST',
-    body: JSON.stringify({ approve: true, subject }),
+    body: JSON.stringify({ approve: true, subject, theme }),
   }, NEWSLETTER);

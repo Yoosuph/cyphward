@@ -5,7 +5,7 @@ import Dialog, { useDialogClose } from '../components/ui/Dialog';
 import { EmptyPanel, humanError } from '../components/ui/StatePanels';
 import {
   OwnerApiError, newsletterDrafts, newsletterSend, newsletterStats,
-  type NewsletterDrafts, type NewsletterIssue, type NewsletterStats,
+  type NewsletterDrafts, type NewsletterIssue, type NewsletterStats, type NewsletterTheme,
 } from './ownerApi';
 import { PageHead, Panel, Pill, SessionEndedContext, Stat, ViewState, fmtDate } from './ui';
 
@@ -23,6 +23,14 @@ const RULES_OK = 'Follows the draft rules';
 const RULES_FAIL = 'This draft does not follow the draft rules, so it cannot be sent. Ask GrokBot for a new draft.';
 const SEND_UNFINISHED = 'A send was started for this draft and did not finish, so it cannot be sent again. Check Brevo, then ask for a new draft if needed.';
 const SEND_UNCONFIRMED = 'The server did not confirm the send. It may or may not have gone out: check the campaign in Brevo before doing anything else.';
+
+// The email style chosen in the send dialog. Light is the default; the confirmation email is always light.
+const EMAIL_STYLES: { value: NewsletterTheme; label: string; help: string }[] = [
+  { value: 'light', label: 'Light', help: 'Dark text on a white card. This is the default.' },
+  { value: 'dark', label: 'Dark', help: 'Light text on a near-black card. Same layout, links and footer.' },
+];
+const styleLabel = (theme: NewsletterTheme | null | undefined) =>
+  EMAIL_STYLES.find(s => s.value === theme)?.label ?? 'Light';
 
 const SECTION_TYPE: Record<string, string> = {
   product: 'Product',
@@ -288,6 +296,9 @@ export function NewsletterDraftView() {
                     <dt className="text-soft">Sections</dt>
                     <dd>{issue.sections.length}</dd>
                     {issue.sent_at && (<><dt className="text-soft">Sent</dt><dd>{fmtDate(issue.sent_at)}</dd></>)}
+                    {issue.send_claimed_at && (
+                      <><dt className="text-soft">Email style</dt><dd data-testid="newsletter-style">{styleLabel(issue.send_theme)}</dd></>
+                    )}
                     <dt className="text-soft">Draft rules</dt>
                     <dd data-testid="newsletter-rules">
                       {rulesOk ? <Pill tone="good">{RULES_OK}</Pill> : <span className="text-accent">{RULES_FAIL}</span>}
@@ -408,12 +419,14 @@ function SendDialog({ open, issue, subscribers, onClose, onSent }: {
 }) {
   const onSessionEnded = useContext(SessionEndedContext);
   const [typed, setTyped] = useState('');
+  const [theme, setTheme] = useState<NewsletterTheme>('light');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   useEffect(() => {
     if (open) {
       setTyped('');
+      setTheme('light');
       setOutcome(null);
       setBusy(false);
     }
@@ -427,7 +440,7 @@ function SendDialog({ open, issue, subscribers, onClose, onSent }: {
     if (busy || outcome || typed !== issue.subject) return;
     setBusy(true);
     try {
-      const result = await newsletterSend(issue.id, typed);
+      const result = await newsletterSend(issue.id, typed, theme);
       setOutcome({ kind: 'sent', recipients: result.recipients });
     } catch (err) {
       const e2 = err as OwnerApiError;
@@ -459,6 +472,23 @@ function SendDialog({ open, issue, subscribers, onClose, onSent }: {
             <dt className="text-soft">Subject</dt>
             <dd className="break-words text-ink" data-testid="newsletter-send-subject">{issue.subject}</dd>
           </dl>
+          <fieldset className="min-w-0" data-testid="newsletter-send-style" disabled={busy}>
+            <legend className="text-[11px] mono uppercase tracking-[.12em] text-soft mb-2">Email style</legend>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {EMAIL_STYLES.map(option => (
+                <label key={option.value}
+                       className={`flex items-start gap-2.5 p-3 min-h-[44px] rounded border cursor-pointer ${theme === option.value ? 'border-ink' : 'border-line'}`}>
+                  <input type="radio" name="newsletter-theme" value={option.value} checked={theme === option.value}
+                         onChange={() => setTheme(option.value)} aria-describedby={`newsletter-theme-${option.value}-help`}
+                         className="mt-0.5 accent-[var(--accent)]" />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-ink">{option.label}</span>
+                    <span id={`newsletter-theme-${option.value}-help`} className="block text-xs text-soft mt-0.5">{option.help}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="field !mb-0">
             <label htmlFor="newsletter-confirm-subject">TYPE THE SUBJECT EXACTLY TO SEND</label>
             <input

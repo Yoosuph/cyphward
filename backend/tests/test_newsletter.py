@@ -138,9 +138,10 @@ def staff(store, auth_headers, uid=BOB, scopes=("platform:newsletter",)):
     return auth_headers(uid, email=f"{uid[:8]}@acme.test")
 
 
-def send(client, headers, issue_id, subject="Cyphward notes for October", approve=True):
-    return client.post(f"/api/v1/newsletter/drafts/{issue_id}/send", json={"approve": approve, "subject": subject},
-                       headers=headers)
+def send(client, headers, issue_id, subject="Cyphward notes for October", approve=True, **extra):
+    """`extra` adds body fields as given (theme=None sends a JSON null; leave it out to omit the field)."""
+    return client.post(f"/api/v1/newsletter/drafts/{issue_id}/send",
+                       json={"approve": approve, "subject": subject, **extra}, headers=headers)
 
 
 # ---------------------------------------------------------------------------
@@ -1358,3 +1359,137 @@ def test_allow_list_does_not_open_claims(text):
                                   "The commission approved revised regulations"])
 def test_allow_list_keeps_ordinary_news(text):
     assert nl.banned_claim(text) is None
+
+
+# ---------------------------------------------------------------------------
+# Email style: light (default) or dark, chosen by the admin when sending
+# ---------------------------------------------------------------------------
+LIGHT_ONLY = ("#F4F2EE", "#FFFFFF", "#E4E0D6", "#15130F", "#5C5648", "#B33614")
+
+
+def _dark_to_light(html):
+    """Swap every dark palette value for its light counterpart in one pass (the accent is shared)."""
+    swap = {nl.THEMES["dark"][k]: nl.THEMES["light"][k] for k in nl.THEMES["dark"]}
+    return re.sub("|".join(re.escape(v) for v in swap), lambda m: swap[m.group(0)], html)
+
+
+def test_the_two_themes_are_the_light_palette_and_the_earlier_dark_one():
+    assert set(nl.THEMES) == {"light", "dark"} and nl.DEFAULT_THEME == "light"
+    assert nl.THEMES["dark"] == {"bg": "#0A0907", "raised": "#14130F", "line": "#24211A", "ink": "#F5F2EB",
+                                 "soft": "#A8A190", "accent": "#E5532B", "accent_ink": "#F27350"}
+    assert nl.THEMES["light"] == {"bg": "#F4F2EE", "raised": "#FFFFFF", "line": "#E4E0D6", "ink": "#15130F",
+                                  "soft": "#5C5648", "accent": "#E5532B", "accent_ink": "#B33614"}
+    assert set(nl.THEMES["light"]) == set(nl.THEMES["dark"])
+    with pytest.raises(ValueError):
+        nl.palette("blue")
+
+
+def test_light_is_the_default_issue_render():
+    s = _settings()
+    assert nl.render_issue(s, good_draft()) == nl.render_issue(s, good_draft(), theme="light")
+
+
+def test_light_and_dark_issues_differ_only_in_palette_values():
+    s = _settings()
+    light, dark = nl.render_issue(s, good_draft(), theme="light"), nl.render_issue(s, good_draft(), theme="dark")
+    assert light["html"] != dark["html"]
+    assert _dark_to_light(dark["html"]) == light["html"]
+    for colour in LIGHT_ONLY:  # no light colour left behind in the dark email (nothing reads a global palette)
+        assert colour not in dark["html"], colour
+    assert {k: v for k, v in light.items() if k != "html"} == {k: v for k, v in dark.items() if k != "html"}
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_each_theme_keeps_one_image_and_one_unsubscribe_link(theme):
+    html = nl.render_issue(_settings(), good_draft(), theme=theme)["html"]
+    assert html.lower().count("<img") == 1 and f'src="{nl.LOGO_URL}"' in html
+    assert sorted(set(re.findall(r"<img[^>]*src=\"([^\"]+)\"", html))) == [nl.LOGO_URL]
+    assert html.count("/api/v1/newsletter/unsubscribe") == 1 and html.count("Unsubscribe in one click") == 1
+    assert nl.THEMES[theme]["bg"] in html and nl.THEMES[theme]["accent_ink"] in html
+    for forbidden in ("<svg", "<script", "<style", "<link", "url(", "@import", "class="):
+        assert forbidden not in html.lower(), forbidden
+
+
+def test_the_confirmation_email_stays_light():
+    html = nl.render_confirmation(_settings(), _subscribed())["html"]
+    for colour in nl.THEMES["light"].values():
+        assert colour in html, colour
+    for key in ("bg", "raised", "line", "ink", "soft", "accent_ink"):
+        assert nl.THEMES["dark"][key] not in html, key
+
+
+def test_a_dark_send_records_dark_and_mails_the_dark_email(client, nlenv, auth_headers):
+    confirmed_reader(client, nlenv)
+    iid = post_draft(client).json()["id"]
+    resp = send(client, staff(nlenv.fake_db, auth_headers), iid, theme="dark")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["theme"] == "dark" and nlenv.store.issues[iid]["send_theme"] == "dark"
+    html = nlenv.brevo.campaigns[resp.json()["brevo_campaign_id"]]["html"]
+    assert html == nl.render_issue(_settings(), good_draft(), theme="dark")["html"]
+    approved = [a for a in nlenv.store.audit if a["action"] == "newsletter.send_approved"]
+    assert approved[0]["metadata"]["theme"] == "dark"
+
+
+def test_an_omitted_theme_records_light(client, nlenv, auth_headers):
+    confirmed_reader(client, nlenv)
+    iid = post_draft(client).json()["id"]
+    resp = send(client, staff(nlenv.fake_db, auth_headers), iid)
+    assert resp.status_code == 200, resp.text
+    assert nlenv.store.issues[iid]["send_theme"] == "light"
+    html = nlenv.brevo.campaigns[resp.json()["brevo_campaign_id"]]["html"]
+    assert nl.THEMES["light"]["bg"] in html and nl.THEMES["dark"]["bg"] not in html
+
+
+@pytest.mark.parametrize("bad", ["blue", "Dark", "LIGHT", "", " dark", None, 1, True, ["dark"], {"name": "dark"}])
+def test_an_invalid_theme_is_422_and_claims_nothing(client, nlenv, auth_headers, bad):
+    iid = post_draft(client).json()["id"]
+    assert send(client, staff(nlenv.fake_db, auth_headers), iid, theme=bad).status_code == 422
+    assert nlenv.store.issues[iid]["send_claimed_at"] is None and nlenv.store.issues[iid]["send_theme"] == "light"
+    assert nlenv.brevo.calls == []
+
+
+def test_a_second_send_is_refused_and_keeps_the_first_theme(client, nlenv, auth_headers):
+    confirmed_reader(client, nlenv)
+    iid = post_draft(client).json()["id"]
+    h = staff(nlenv.fake_db, auth_headers)
+    assert send(client, h, iid, theme="dark").status_code == 200
+    for theme in ("light", "dark", None):
+        again = send(client, h, iid, **({} if theme is None else {"theme": theme}))
+        assert again.status_code == 409
+    assert nlenv.store.issues[iid]["send_theme"] == "dark"
+    assert len(nlenv.brevo.campaigns) == 1 and len(nlenv.brevo.sent) == 1
+    # The claim alone (no route pre-check) cannot change it either.
+    assert nlenv.store.claim_issue(iid, {"kind": "owner", "user_id": ALICE}, "light") is None
+    assert nlenv.store.issues[iid]["send_theme"] == "dark"
+
+
+def test_the_send_body_still_forbids_extra_fields(client, nlenv, auth_headers):
+    iid = post_draft(client).json()["id"]
+    h = staff(nlenv.fake_db, auth_headers)
+    resp = client.post(f"/api/v1/newsletter/drafts/{iid}/send",
+                       json={"approve": True, "subject": "Cyphward notes for October", "theme": "dark", "palette": "x"},
+                       headers=h)
+    assert resp.status_code == 422 and nlenv.store.issues[iid]["send_claimed_at"] is None
+
+
+def test_the_admin_list_shows_the_recorded_style_and_previews_in_it(client, nlenv, auth_headers):
+    confirmed_reader(client, nlenv)
+    h = staff(nlenv.fake_db, auth_headers)
+    dark_id, waiting_id = post_draft(client).json()["id"], post_draft(client).json()["id"]
+    assert send(client, h, dark_id, theme="dark").status_code == 200
+    issues = {i["id"]: i for i in client.get("/api/v1/newsletter/drafts", headers=h).json()["issues"]}
+    assert issues[dark_id]["send_theme"] == "dark" and nl.THEMES["dark"]["bg"] in issues[dark_id]["preview_html"]
+    assert issues[waiting_id]["send_theme"] is None and nl.THEMES["light"]["bg"] in issues[waiting_id]["preview_html"]
+
+
+def test_email_style_copy_in_the_console_is_plain_and_has_no_claim_wording():
+    source = (FRONTEND / "owner" / "newsletterView.tsx").read_text(encoding="utf-8")
+    m = re.search(r"const EMAIL_STYLES[^=]*=\s*\[(.*?)\];", source, re.S)
+    assert m, "the send dialog lists its email styles in EMAIL_STYLES"
+    strings = re.findall(r"'([^'\n]*)'", m.group(1)) + ["Email style"]
+    assert "Email style" in source
+    assert {"light", "dark", "Light", "Dark"} <= set(strings)
+    for text in strings:
+        assert nl.banned_claim(text) is None, text
+        for phrase in BANNED + ["passes audit", "meets the requirement"]:
+            assert phrase not in text.lower(), (phrase, text)

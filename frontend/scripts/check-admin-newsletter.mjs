@@ -9,6 +9,8 @@
 //   - send: the button stays disabled until the subject matches exactly; a wrong subject (case, trailing space,
 //     Enter, a forced submit) never calls the send route; the exact body; sent / already sent / server error text,
 //     never internals; the list refreshes afterwards
+//   - email style: the send dialog's "Email style" radio group (Light, the default, and Dark, each with a short
+//     description); the chosen style is the body's theme; a sent draft's detail shows the style it went out in
 //   - the audit (no overflow, 44px targets on phones, labels, names, heading order, focus rings, contrast, no claim
 //     wording) at 1440, 390 and 320, reduced motion respected
 // CAPTURE=1 also writes the screenshots in docs/admin-newsletter-2026-10-29/ (JPEG, each under 250 KB).
@@ -30,18 +32,18 @@ const ids = { draft: "0b7c1d1e-0000-4000-8000-000000000001", sent: "0b7c1d1e-000
 function fixtures() {
   const base = { preview: PREVIEW_DRAFT.preview, created_by: "grokbot", approved_at: null, send_claimed_at: null,
                  sent_at: null, brevo_campaign_id: null, sections: PREVIEW_DRAFT.sections, preview_html: PREVIEW_HTML,
-                 preview_text: PREVIEW_TEXT, send_error: null };
+                 preview_text: PREVIEW_TEXT, send_error: null, send_theme: null };
   return [
     { ...base, id: ids.draft, status: "draft", subject: SUBJECT, created_at: "2026-10-28T09:00:00Z", sendable: true },
     { ...base, id: ids.sent, status: "sent", subject: SENT_SUBJECT, created_at: "2026-09-29T09:00:00Z", sendable: false,
       sent_at: "2026-09-30T08:00:00Z", approved_at: "2026-09-30T07:59:00Z", send_claimed_at: "2026-09-30T07:59:00Z",
-      brevo_campaign_id: "1000", sections: PREVIEW_DRAFT.sections.slice(0, 2) },
+      brevo_campaign_id: "1000", sections: PREVIEW_DRAFT.sections.slice(0, 2), send_theme: "dark" },
     { ...base, id: ids.broken, status: "draft", subject: "Draft that no longer renders", created_at: "2026-10-20T09:00:00Z",
       sendable: false, preview_html: null, preview_text: null, sections: PREVIEW_DRAFT.sections.slice(0, 1) },
     // A send that started and failed: the raw error is stored, and must never reach the screen.
     { ...base, id: ids.claimed, status: "draft", subject: "Draft whose send did not finish", created_at: "2026-10-10T09:00:00Z",
       sendable: false, send_claimed_at: "2026-10-11T09:00:00Z", approved_at: "2026-10-11T09:00:00Z",
-      send_error: "before campaign: BrevoError list 503 Traceback psycopg" },
+      send_error: "before campaign: BrevoError list 503 Traceback psycopg", send_theme: "light" },
   ];
 }
 
@@ -65,11 +67,13 @@ h.state.route = (p, method, request) => {
   if (p === "/api/v1/newsletter/stats" && method === "GET") return [200, { confirmed: 3, unsubscribed: 1, pending: 1 }];
   const m = p.match(/^\/api\/v1\/newsletter\/drafts\/([^/]+)\/send$/);
   if (m && method === "POST") {
-    net.sends.push({ id: m[1], body: JSON.parse(request.postData() || "{}") });
+    const body = JSON.parse(request.postData() || "{}");
+    net.sends.push({ id: m[1], body });
     if (sendReply) return sendReply;
     const issue = issues.find((i) => i.id === m[1]);
-    Object.assign(issue, { status: "sent", sendable: false, sent_at: "2026-10-29T10:00:00Z", send_claimed_at: "2026-10-29T10:00:00Z" });
-    return [200, { id: m[1], status: "sent", brevo_campaign_id: "1001", sent_at: issue.sent_at, recipients: 3 }];
+    Object.assign(issue, { status: "sent", sendable: false, sent_at: "2026-10-29T10:00:00Z", send_claimed_at: "2026-10-29T10:00:00Z",
+                           send_theme: body.theme });
+    return [200, { id: m[1], status: "sent", brevo_campaign_id: "1001", sent_at: issue.sent_at, recipients: 3, theme: body.theme }];
   }
   return [404, { detail: "Not Found" }];
 };
@@ -93,6 +97,10 @@ async function open(route, { width = 1440, height = 900, theme = "dark" } = {}) 
 const text = (page) => page.evaluate(() => document.body.innerText);
 const rowIds = (page) => page.$$eval('[data-testid="newsletter-row"]', (rows) => rows.map((r) => r.dataset.id));
 const sendDisabled = (page) => page.$eval('[data-testid="newsletter-send-confirm"]', (b) => b.disabled);
+const styleRadios = (page) => page.$$eval('[role="dialog"] input[type="radio"][name="newsletter-theme"]', (rs) => rs.map((r) => ({
+  value: r.value, checked: r.checked, label: r.closest("label")?.innerText.replace(/\s+/g, " ").trim(),
+  described: document.getElementById(r.getAttribute("aria-describedby") || "")?.textContent.trim() || "" })));
+const styleShown = (page) => page.$eval('[data-testid="newsletter-style"]', (el) => el.textContent.trim()).catch(() => null);
 
 async function typeSubject(page, value) {
   await page.$eval("#newsletter-confirm-subject", (el) => { el.focus(); el.select(); });
@@ -221,12 +229,20 @@ try {
 
   // 5. A sent draft, a draft outside the rules and a draft whose send did not finish: no send button.
   {
-    for (const [id, want] of [[ids.sent, /SENT/], [ids.broken, /does not follow the draft rules/], [ids.claimed, /did not finish/]]) {
+    for (const [id, want, style] of [[ids.sent, /SENT/, "Dark"], [ids.broken, /does not follow the draft rules/, null],
+                                     [ids.claimed, /did not finish/, "Light"]]) {
       const { page, close } = await open(`/admin/newsletter/${id}`);
       assert.equal(await page.$('[data-testid="newsletter-send-open"]'), null, `${id}: no send button`);
       const t = await text(page);
       assert.match(t, want);
       assert.doesNotMatch(t, /Traceback|BrevoError|psycopg|before campaign/);
+      assert.equal(await styleShown(page), style, `${id}: the detail shows the recorded email style`);
+      if (style) assert.match(t, new RegExp(`EMAIL STYLE\\s*\\n?\\s*${style}`, "i"));
+      await close();
+    }
+    {
+      const { page, close } = await open(`/admin/newsletter/${ids.draft}`);
+      assert.equal(await styleShown(page), null, "an unsent draft has no recorded email style");
       await close();
     }
     const { page, close } = await open("/admin/newsletter/not-a-draft");
@@ -244,6 +260,13 @@ try {
     assert.match(dialogText, /Cyphward News/);
     assert.match(dialogText, /news@cyphward\.com/);
     assert.equal(await page.evaluate(() => document.activeElement?.id), "newsletter-confirm-subject", "focus starts in the subject field");
+    assert.match(await page.$eval('[data-testid="newsletter-send-style"] legend', (l) => l.innerText), /Email style/i, "the style group is labelled");
+    const radios = await styleRadios(page);
+    assert.deepEqual(radios.map((r) => [r.value, r.checked]), [["light", true], ["dark", false]], "Light is chosen by default");
+    assert.match(radios[0].label, /^Light\b/);
+    assert.match(radios[1].label, /^Dark\b/);
+    for (const r of radios) assert.ok(r.described.length > 10 && r.label.includes(r.described), `${r.value}: a visible description`);
+    assert.match(await page.$eval('[data-testid="newsletter-send-confirm"]', (b) => b.textContent), /SEND NOW/, "the send button is unchanged");
     assert.equal(await sendDisabled(page), true, "disabled while empty");
     for (const wrong of [SUBJECT.toLowerCase(), `${SUBJECT} `, ` ${SUBJECT}`, SUBJECT.slice(0, -1), SUBJECT.toUpperCase()]) {
       await typeSubject(page, wrong);
@@ -263,7 +286,7 @@ try {
     await page.click('[data-testid="newsletter-send-confirm"]');
     await page.waitForSelector('[data-testid="newsletter-send-result"]');
     assert.equal(net.sends.length, 1, "one send call");
-    assert.deepEqual(net.sends[0], { id: ids.draft, body: { approve: true, subject: SUBJECT } }, "exact body");
+    assert.deepEqual(net.sends[0], { id: ids.draft, body: { approve: true, subject: SUBJECT, theme: "light" } }, "exact body");
     assert.equal(await page.$eval('[data-testid="newsletter-send-result"]', (el) => el.dataset.kind), "sent");
     assert.match(await page.$eval('[data-testid="newsletter-send-result"]', (el) => el.innerText), /Sent to 3 confirmed subscribers\./);
     await settle(page, 300);
@@ -272,7 +295,49 @@ try {
     await sleep(350);
     assert.equal(await page.$('[data-testid="newsletter-send-open"]'), null, "the sent draft no longer has a send button");
     assert.match(await page.$eval('[data-testid="newsletter-rules"]', (el) => el.closest("dl").innerText), /SENT/);
+    assert.equal(await styleShown(page), "Light", "the sent draft shows the style it went out in");
     await close();
+  }
+
+  // 6b. Choosing Dark: the body carries theme "dark" (subject gate unchanged), and the detail then shows Dark.
+  {
+    issues = fixtures();
+    net.sends.length = 0;
+    const { page, close } = await open(`/admin/newsletter/${ids.draft}`, { width: 390, height: 844 });
+    await openSendDialog(page);
+    await page.click('[role="dialog"] input[name="newsletter-theme"][value="dark"]');
+    assert.deepEqual((await styleRadios(page)).map((r) => [r.value, r.checked]), [["light", false], ["dark", true]]);
+    assert.equal(await sendDisabled(page), true, "choosing a style does not enable the send");
+    await page.$eval('[role="dialog"] form', (f) => f.requestSubmit());
+    await sleep(150);
+    assert.equal(net.sends.length, 0, "no call before the subject matches, whatever the style");
+    await typeSubject(page, SUBJECT);
+    assert.equal(await sendDisabled(page), false);
+    await page.click('[data-testid="newsletter-send-confirm"]');
+    await page.waitForSelector('[data-testid="newsletter-send-result"]');
+    assert.deepEqual(net.sends, [{ id: ids.draft, body: { approve: true, subject: SUBJECT, theme: "dark" } }], "the chosen style is sent");
+    await page.click('[data-testid="newsletter-send-result"] button');
+    await sleep(350);
+    assert.equal(await styleShown(page), "Dark", "the detail shows Dark after a dark send");
+    await close();
+
+    // Reopening the dialog on another draft starts from Light again.
+    issues = fixtures();
+    const again = await open(`/admin/newsletter/${ids.draft}`);
+    await openSendDialog(again.page);
+    await again.page.click('[role="dialog"] input[name="newsletter-theme"][value="dark"]');
+    await again.page.keyboard.press("Escape");
+    await sleep(300);
+    if (await again.page.$('[role="dialog"]')) {
+      // The dialog may ask before closing; it is clean (nothing typed), so it closes directly in practice.
+      await again.page.click('[role="dialog"] button:not([type="submit"])');
+      await sleep(300);
+    }
+    await openSendDialog(again.page);
+    assert.deepEqual((await styleRadios(again.page)).map((r) => [r.value, r.checked]), [["light", true], ["dark", false]],
+                     "the dialog opens on Light each time");
+    await again.close();
+    issues = fixtures();
   }
 
   // 7. Send results: already sent, the server's plain sentence, and never internals.
@@ -378,4 +443,5 @@ if (problems.length) {
 }
 console.log("admin newsletter: ok (hidden for non-owners, navigation, overview strip, sorting by pointer and keyboard, " +
   "detail with sandboxed preview, send disabled until the subject matches exactly, no call on a wrong subject, " +
+  "email style radio (Light by default, Dark sent as theme, shown on the sent draft), " +
   `result texts, state panels, audit at 1440/390/320)${CAPTURE ? `; screenshots in ${SHOTS}` : ""}`);
