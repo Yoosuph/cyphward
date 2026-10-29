@@ -360,21 +360,28 @@ def logs(request: Request, source: str = "customer", q: str = "", limit: int = Q
         raise HTTPException(status_code=400, detail="Unknown log source.")
     _view(request, owner, "logs", metadata={"source": source, **({"q": q[:100]} if q else {})})
     params = {"q": q.strip(), "like": _like(q), "limit": limit, "offset": offset}
+    # The expanded row (frontend/src/owner/logsView.tsx) shows the row id, the actor's name next to their email
+    # and the organization an owner action targeted. Names and organization names are already on the console's
+    # user and organization screens; nothing here is new to the owner.
     if source == "owner":
         rows = _rows(
             """
-            SELECT created_at, action, outcome, actor_email, target_type, target_id, ip, metadata
-            FROM owner_audit
-            WHERE (%(q)s = '' OR action ILIKE %(like)s OR actor_email ILIKE %(like)s OR outcome ILIKE %(like)s)
-            ORDER BY created_at DESC LIMIT %(limit)s OFFSET %(offset)s
+            SELECT a.id, a.created_at, a.action, a.outcome, a.actor_email, p.full_name AS actor_name,
+                   a.target_type, a.target_id, a.ip, a.metadata, o.id AS org_id, o.name AS org_name
+            FROM owner_audit a
+            LEFT JOIN profiles p ON p.id = a.actor_user_id
+            LEFT JOIN organizations o ON a.target_type = 'organization' AND o.id::text = a.target_id
+            WHERE (%(q)s = '' OR a.action ILIKE %(like)s OR a.actor_email ILIKE %(like)s OR a.outcome ILIKE %(like)s)
+            ORDER BY a.created_at DESC LIMIT %(limit)s OFFSET %(offset)s
             """,
             params,
         )
     else:
         rows = _rows(
             """
-            SELECT a.created_at, a.action, a.resource_type, a.resource_id, a.metadata,
-                   o.id AS org_id, o.name AS org_name, p.id AS user_id, p.email AS user_email
+            SELECT a.id, a.created_at, a.action, a.resource_type, a.resource_id, a.metadata,
+                   o.id AS org_id, o.name AS org_name, p.id AS user_id, p.email AS user_email,
+                   p.full_name AS user_name
             FROM audit_log a
             LEFT JOIN organizations o ON o.id = a.org_id
             LEFT JOIN profiles p ON p.id = a.user_id

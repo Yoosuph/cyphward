@@ -164,6 +164,16 @@ def test_owner_sees_everything_without_secrets(world):
     assert logs["items"][0]["action"] == "scan.launched"
     owner_logs = client.get("/api/v1/owner/logs", params={"source": "owner", "q": world["owner_email"]}).json()
     assert {"owner.sign_in", "owner.view.organizations"} <= {r["action"] for r in owner_logs["items"]}
+    # The expanded log row: every entry has its id; names and the targeted organization come with it.
+    assert all(r["id"] for r in logs["items"] + owner_logs["items"])
+    assert logs["items"][0]["user_name"] == "Customer Person"
+    assert logs["items"][0]["org_name"] == world["org_name"]
+    viewed = next(r for r in owner_logs["items"] if r["action"] == "owner.view.organization")
+    assert viewed["target_id"] == world["org"] and viewed["org_id"] is not None
+    assert viewed["org_name"] == world["org_name"] and viewed["actor_name"] == "Owner"
+    signed_in = next(r for r in owner_logs["items"] if r["action"] == "owner.sign_in")
+    assert signed_in["org_name"] is None
+    assert not {"user_agent", "session_id", "actor_user_id"} & set(signed_in)
 
     system = client.get("/api/v1/owner/system").json()
     assert system["database"]["ok"] is True

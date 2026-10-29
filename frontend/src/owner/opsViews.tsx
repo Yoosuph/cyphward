@@ -201,62 +201,6 @@ export function ScanDetailView() {
   );
 }
 
-/* ── Logs ───────────────────────────────────────────────────────────────── */
-export function LogsView() {
-  const { q, offset, params, set } = useListParams();
-  const source = params.get('source') === 'owner' ? 'owner' : 'customer';
-  const limit = 100;
-  const { data, error, loading, reload } = useOwnerView<Row>('/logs', { source, q, offset, limit });
-  return (
-    <>
-      <PageHead title="Logs" subtitle={source === 'owner' ? 'Owner console sign-ins and views (this console).' : 'Customer-side events: sign-ins, scans, plan and security changes.'} />
-      <div className="flex flex-wrap gap-3 mb-4 items-center">
-        <div className="flex gap-2">
-          {(['customer', 'owner'] as const).map(s => (
-            <FilterChip key={s} active={source === s} onClick={() => set({ source: s === 'customer' ? '' : s, offset: 0 })}>
-              {s === 'customer' ? 'Customer events' : 'Owner console'}
-            </FilterChip>
-          ))}
-        </div>
-        <SearchBox value={q} onChange={v => set({ q: v, offset: 0 })} placeholder={source === 'owner' ? 'Search action, outcome or email' : 'Search action, email or organization'} />
-      </div>
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
-        {data && data.items.length === 0 ? <Empty>No log entries match.</Empty> : (
-          <Panel>
-            {source === 'owner' ? (
-              <Table head={['When', 'Action', 'Outcome', 'Who', 'Target', 'Detail']}>
-                {(data?.items || []).map((r: Row, i: number) => (
-                  <tr key={i}>
-                    <Cell title>{fmtDate(r.created_at)}</Cell>
-                    <Cell label="Action"><span className="mono text-xs">{r.action}</span></Cell>
-                    <Cell label="Outcome"><Pill tone={statusTone(r.outcome)}>{r.outcome}</Pill></Cell>
-                    <Cell label="Who">{r.actor_email || '—'}<div className="text-xs text-soft mono">{r.ip || ''}</div></Cell>
-                    <Cell label="Target"><span className="mono text-xs">{r.target_type ? `${r.target_type} ${String(r.target_id || '').slice(0, 8)}` : '—'}</span></Cell>
-                    <Cell label="Detail"><span className="mono text-xs text-soft">{r.metadata && Object.keys(r.metadata).length ? JSON.stringify(r.metadata) : ''}</span></Cell>
-                  </tr>
-                ))}
-              </Table>
-            ) : (
-              <Table head={['When', 'Action', 'User', 'Organization', 'Detail']}>
-                {(data?.items || []).map((r: Row, i: number) => (
-                  <tr key={i}>
-                    <Cell title>{fmtDate(r.created_at)}</Cell>
-                    <Cell label="Action"><span className="mono text-xs">{r.action}</span></Cell>
-                    <Cell label="User">{r.user_id ? <Link to={`/users/${r.user_id}`} className="hover:text-accent">{r.user_email}</Link> : '—'}</Cell>
-                    <Cell label="Organization">{r.org_id ? <Link to={`/organizations/${r.org_id}`} className="hover:text-accent">{r.org_name}</Link> : '—'}</Cell>
-                    <Cell label="Detail"><span className="mono text-xs text-soft">{r.metadata && Object.keys(r.metadata).length ? JSON.stringify(r.metadata).slice(0, 160) : ''}</span></Cell>
-                  </tr>
-                ))}
-              </Table>
-            )}
-            {data && <Pager offset={offset} limit={limit} count={data.items.length} onChange={o => set({ offset: o })} />}
-          </Panel>
-        )}
-      </ViewState>
-    </>
-  );
-}
-
 /* ── System ─────────────────────────────────────────────────────────────── */
 export function SystemView() {
   const { data, error, loading, reload } = useOwnerView<Row>('/system');

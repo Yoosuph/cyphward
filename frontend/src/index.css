@@ -2094,3 +2094,29 @@ main.page:focus{outline:none}
   .owner-filter-bar > *{flex:1 1 140px}
   .owner-select, .page .owner-sort-btn{min-height:44px}
 }
+
+/* ============ Owner console logs: expandable rows (frontend/src/owner/logsView.tsx) ============ */
+.log-toggle{display:inline-flex; align-items:center; gap:8px; min-height:32px; padding:0 6px 0 0; font:inherit; letter-spacing:inherit; color:var(--ink); text-align:left; border-radius:3px; background:none}
+.log-toggle:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.log-chevron{flex-shrink:0; color:var(--soft); transition:transform var(--motion-fast) var(--motion-ease-out)}
+.log-toggle[aria-expanded="true"] .log-chevron{transform:rotate(90deg); color:var(--accent)}
+.log-detail-row[hidden]{display:none !important}
+.ledger tbody tr.log-detail-row:hover{background:transparent}
+.ledger tr.log-detail-row > td{padding:14px 20px 18px; box-shadow:inset 2px 0 0 var(--accent); white-space:normal; vertical-align:top}
+.log-detail{min-width:0; max-width:100%}
+.log-pair{display:grid; grid-template-columns:11rem minmax(0,1fr); gap:2px 16px; padding:7px 0; border-bottom:1px solid var(--line)}
+.log-pairs > .log-pair:last-child{border-bottom:0}
+.log-pair dt{font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--soft); padding-top:2px}
+.log-pair dd{min-width:0; margin:0; color:var(--ink)}
+.log-value{font-family:var(--font-mono); font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap}
+.log-value-block{display:block; margin:0; padding:8px 10px; background:var(--inset); border:1px solid var(--line); border-radius:3px}
+.log-id{display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px}
+.log-details-head{margin:14px 0 2px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; color:var(--soft)}
+.log-summary{display:block; max-width:24rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+@media (max-width:900px){ .log-toggle{min-height:44px; min-width:44px} }
+@media (max-width:639px){
+  .log-pair{grid-template-columns:minmax(0,1fr)}
+  .log-summary{max-width:none; white-space:normal}
+  .table-stack tr.log-detail-row > td[colspan]{box-shadow:inset 2px 0 0 var(--accent)}
+}
+@media (prefers-reduced-motion: reduce){ .log-chevron{transition:none} }
