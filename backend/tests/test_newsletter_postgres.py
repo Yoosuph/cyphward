@@ -534,3 +534,58 @@ def test_the_theme_migration_is_additive_and_idempotent(pg, admin):
         "AND pg_get_constraintdef(oid) LIKE '%send_theme%'").fetchone()["n"]
     assert checks == 1
     assert _grant_problems(admin) == []
+
+
+THEME_GUARD_CHECK = (
+    "  IF OLD.send_claimed_at IS NOT NULL AND NEW.send_theme IS DISTINCT FROM OLD.send_theme THEN\n"
+    "    RAISE EXCEPTION 'newsletter issue % email style is final', OLD.id;\n"
+    "  END IF;\n"
+)
+
+
+def _theme_change_after_claim_is_refused(pg):
+    """Claim a draft in dark (the claim itself sets send_theme), then try to change it as the app role."""
+    iid = _draft(pg)
+    claimed = nl.PostgresNewsletterStore().claim_issue(iid, {"kind": "owner", "user_id": OWNER_ID}, "dark")
+    assert claimed is not None and claimed["send_theme"] == "dark", "the claim sets the theme"
+    try:
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    except psycopg.errors.RaiseException as exc:
+        assert "email style is final" in str(exc)
+        assert _theme(pg, iid) == "dark"
+        return True
+    return False
+
+
+def test_the_app_role_cannot_change_the_theme_after_the_claim(pg):
+    assert _theme_change_after_claim_is_refused(pg)
+    # Before a claim the column is still writable (that is how the claim sets it), and the sent state keeps it too.
+    iid = _draft(pg)
+    pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'dark' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET send_claimed_at = now(), send_theme = 'dark' WHERE id = %s", (iid,))
+    pg.conn.execute("UPDATE newsletter_issues SET brevo_campaign_id = '77', status = 'sent', sent_at = now() WHERE id = %s",
+                    (iid,))
+    with pytest.raises(psycopg.errors.RaiseException):
+        pg.conn.execute("UPDATE newsletter_issues SET send_theme = 'light' WHERE id = %s", (iid,))
+    assert _theme(pg, iid) == "dark"
+
+
+def test_removing_the_theme_check_from_the_guard_goes_noticed(pg, admin):
+    sql = THEME_MIGRATION.read_text()
+    assert sql.count(THEME_GUARD_CHECK) == 1
+    admin.execute(sql.replace(THEME_GUARD_CHECK, "", 1))  # the admin fixture puts the real guard back afterwards
+    assert not _theme_change_after_claim_is_refused(pg), "without the check the theme can be changed after a claim"
+
+
+def test_the_replaced_guard_keeps_every_original_check():
+    """The theme migration replaces newsletter_issues_guard(); every check of the original must still be in it."""
+    def body(text):
+        start = text.index("CREATE OR REPLACE FUNCTION newsletter_issues_guard()")
+        return text[start:text.index("$$;", start)]
+    original, replaced = body(MIGRATION.read_text()), body(THEME_MIGRATION.read_text())
+    lines = [line.strip() for line in original.splitlines() if line.strip()]
+    assert len(lines) > 10
+    for line in lines:
+        assert line in replaced, line
+    assert THEME_GUARD_CHECK in replaced
