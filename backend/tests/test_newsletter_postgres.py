@@ -400,6 +400,22 @@ def test_constraints_refuse_raw_tokens_and_unnormalised_addresses(pg):
                         "VALUES (%s, now(), 'v', 'newsletter_page')", (email(),))
 
 
+def test_subscriber_counts_on_the_real_database(pg):
+    """Counts only (the shared test database holds other tests' rows, so this checks the change it makes)."""
+    before = pg.get("/api/v1/newsletter/stats")
+    assert before.status_code == 200 and set(before.json()) == {"confirmed", "unsubscribed", "pending"}
+    kept, gone, waiting = email(), email(), email()
+    subscribe(pg, kept)
+    subscribe(pg, gone)
+    act(pg, "unsubscribe", token_from(pg.sent[-1]["text"], "unsubscribe"))
+    legacy_pending(pg, waiting)
+    after = pg.get("/api/v1/newsletter/stats")
+    assert after.status_code == 200
+    delta = {k: after.json()[k] - before.json()[k] for k in before.json()}
+    assert delta == {"confirmed": 1, "unsubscribed": 1, "pending": 1}
+    assert "@" not in after.text
+
+
 def test_flag_off_on_the_real_database(pg, monkeypatch):
     monkeypatch.setattr(config, "NEWSLETTER_ENABLED", False)
     address = email()

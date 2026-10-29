@@ -5,6 +5,7 @@ Public:   POST /subscribe (single opt-in; always the same 202), GET /unsubscribe
 GrokBot:  POST /drafts with NEWSLETTER_DRAFT_API_KEY (creates drafts; nothing else)
 Admin:    GET /drafts (preview) and POST /drafts/{id}/send (explicit approval, once) for the platform owner
           (console cookie) or platform staff holding the platform:newsletter scope.
+Owner:    GET /stats (subscriber counts by state, numbers only) for the platform owner's console cookie alone.
 """
 from __future__ import annotations
 
@@ -381,6 +382,22 @@ async def list_drafts(s: nl.Settings = Depends(require_enabled),
     rows = await run_in_threadpool(nl.store().list_issues)
     confirmed = await run_in_threadpool(nl.store().count_confirmed)
     return {"issues": [_issue_out(s, r) for r in rows], "confirmed_subscribers": confirmed}
+
+
+def require_newsletter_owner(request: Request) -> Dict[str, Any]:
+    """The platform owner's console cookie only: no bearer token (staff, GrokBot) is accepted, whatever its scope."""
+    if request.headers.get("authorization"):
+        raise HTTPException(status_code=403, detail="Only the owner console can read this.")
+    owner = owner_mod.require_owner(request)
+    return {"kind": "owner", "user_id": owner["user_id"]}
+
+
+@router.get("/stats")
+async def subscriber_stats(s: nl.Settings = Depends(require_enabled),
+                           owner: Dict[str, Any] = Depends(require_newsletter_owner)) -> Dict[str, int]:
+    """Read-only counts for the owner console's newsletter overview. Never an address or an id."""
+    counts = await run_in_threadpool(nl.store().subscriber_counts)
+    return {k: int(counts.get(k, 0)) for k in ("confirmed", "unsubscribed", "pending")}
 
 
 class SendIn(BaseModel):

@@ -22,7 +22,8 @@
     "test:cyphbot-resilience": "node scripts/check-cyphbot-resilience.mjs",
     "test:product-tour": "node scripts/check-product-tour.mjs",
     "test:ui-refine": "node scripts/check-ui-refine.mjs",
-    "test:newsletter-ui": "node scripts/check-newsletter.mjs"
+    "test:newsletter-ui": "node scripts/check-newsletter.mjs",
+    "test:admin-newsletter": "node scripts/check-admin-newsletter.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",
