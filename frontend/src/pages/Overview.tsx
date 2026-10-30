@@ -51,6 +51,8 @@ export default function Overview() {
   const [greeting, setGreeting] = useState<string | null>(null);
 
   const { user, primaryDomain, organization: activeOrganization } = useAuth();
+  // Hooks stay above the early returns below.
+  const suspended = useOrgSuspended();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -194,7 +196,6 @@ export default function Overview() {
   const verifiedDomains = domains.filter(d => d.verification_status === 'verified');
   const pendingDomain = domains.find(d => d.verification_status !== 'verified');
   const canManageDomains = ['owner', 'admin'].includes(activeOrganization?.membership_role || 'member');
-  const suspended = useOrgSuspended();
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">

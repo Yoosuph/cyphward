@@ -88,7 +88,7 @@ const PAGES = [
   ["/overview", ["scan-launch"]],
   ["/scans", ["scan-launch"]],
   ["/domains", ["domain-add", "domain-verify", "domain-remove"]],
-  ["/settings", ["settings-save", "member-invite"]],
+  ["/settings", ["settings-save"], "#settings-tab-team", ["member-invite"]],
   ["/reports", ["report-generate"]],
   ["/remediation", ["remediation-create"]],
   ["/findings", []],
@@ -101,8 +101,9 @@ let disabledCount = 0;
 try {
   // 1. Suspended: banner on every page, write buttons disabled with the reason.
   suspended = true;
-  for (const [route, writes] of PAGES) {
+  for (const [route, firstWrites, tab, tabWrites] of PAGES) {
     const { page, errors, close } = await open(route);
+    let writes = firstWrites;
     await page.waitForSelector('[data-testid="org-suspended-banner"]', { timeout: 8000 }).catch(() => {});
     assert.ok(await banner(page), `${route}: the suspension banner is shown`);
     const shown = await page.$eval('[data-testid="org-suspended-banner"]', (e) => e.innerText);
@@ -112,7 +113,13 @@ try {
     assert.match(shown, /info@cyphward\.com/, `${route}: who to contact`);
     const links = await page.$$eval('[data-testid="org-suspended-banner"] a', (as) => as.map((a) => a.getAttribute("href")));
     assert.deepEqual(links, ["mailto:info@cyphward.com", "/contact"], `${route}: contact links`);
-    const states = await writeStates(page);
+    let states = await writeStates(page);
+    if (tab) {  // a second tab of the same page (Settings > Team)
+      await page.click(tab);
+      await settle(page, 300);
+      states = [...states, ...(await writeStates(page))];
+      writes = [...writes, ...tabWrites];
+    }
     for (const w of writes) {
       const found = states.filter((s) => s.write === w);
       assert.ok(found.length > 0, `${route}: write button ${w} rendered`);
@@ -133,11 +140,18 @@ try {
 
   // 2. Active organisation: no banner, buttons enabled.
   suspended = false;
-  for (const [route, writes] of PAGES.filter(([, w]) => w.length)) {
+  for (const [route, firstWrites, tab, tabWrites] of PAGES.filter(([, w]) => w.length)) {
     const { page, close } = await open(route);
     await sleep(200);
+    let writes = firstWrites;
     assert.equal(await banner(page), null, `${route}: no banner for an active organisation`);
-    const states = await writeStates(page);
+    let states = await writeStates(page);
+    if (tab) {
+      await page.click(tab);
+      await settle(page, 300);
+      states = [...states, ...(await writeStates(page))];
+      writes = [...writes, ...tabWrites];
+    }
     for (const w of writes.filter((x) => x !== "domain-verify")) {
       const found = states.filter((s) => s.write === w);
       assert.ok(found.length > 0 && found.some((s) => !s.disabled), `${route}: ${w} enabled when active`);

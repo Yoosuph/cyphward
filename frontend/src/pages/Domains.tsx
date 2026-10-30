@@ -398,10 +398,10 @@ export default function Domains() {
                       <button
                         onClick={() => handleDelete(dom.id, dom.domain)}
                         data-write="domain-remove"
-                        {...writeGuard(suspended)}
-                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
+                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent disabled:opacity-50 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
                         aria-label={`Remove ${dom.domain}`}
                         title="Remove domain"
+                        {...writeGuard(suspended)}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -428,9 +428,9 @@ export default function Domains() {
                               {h.hostname}
                               <button
                                 onClick={() => handleRemoveHost(dom.id, h.id, h.hostname)}
-                                {...writeGuard(suspended)}
                                 className="text-soft hover:text-accent min-w-[44px] min-h-[44px]"
                                 title="Stop monitoring"
+                                {...writeGuard(suspended)}
                                 aria-label={`Stop monitoring ${h.hostname}`}
                               >
                                 ×
