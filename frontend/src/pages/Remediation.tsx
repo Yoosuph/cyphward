@@ -22,6 +22,8 @@ import { readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead, Loading } from '../components/ui';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 
 const STATUS_FILTERS = [
   { value: '', label: 'ALL' },
@@ -48,6 +50,7 @@ function statusChipLevel(status: string): 'ok' | 'warn' | 'bad' | 'idle' {
 
 export default function Remediation() {
   const toast = useToast();
+  const suspended = useOrgSuspended();
   // Last-seen list paints at once on a revisit; load() refreshes it.
   const [loading, setLoading] = useState(() => readPageCache('remediation:') === undefined);
   const [tasks, setTasks] = useState<RemediationTask[]>(() => readPageCache<RemediationTask[]>('remediation:') ?? []);
@@ -182,7 +185,9 @@ export default function Remediation() {
         actions={
           <button
             onClick={openCreate}
-            className="btn-tactile flex items-center gap-1.5 px-3 py-2 rounded text-xs mono bg-accent text-white hover:opacity-90"
+            data-write="remediation-create"
+            {...writeGuard(suspended)}
+            className="btn-tactile flex items-center gap-1.5 px-3 py-2 rounded text-xs mono bg-accent text-white hover:opacity-90 disabled:opacity-50"
           >
             <Plus size={13} /> NEW TASK
           </button>
@@ -257,7 +262,7 @@ export default function Remediation() {
                       {task.status !== 'verified' && task.status !== 'ready_for_verification' && (
                         <button
                           onClick={() => advance(task)}
-                          disabled={busyId === task.id}
+                          {...writeGuard(suspended, busyId === task.id)}
                           className="btn-tactile px-2.5 py-1 rounded border border-line text-[10px] hover:border-line-strong hover:text-ink disabled:opacity-50"
                         >
                           {task.status === 'open' || task.status === 'reopened' ? (
@@ -270,7 +275,7 @@ export default function Remediation() {
                       {(task.status === 'ready_for_verification' || task.status === 'reopened' || task.status === 'in_progress') && (
                         <button
                           onClick={() => verify(task)}
-                          disabled={busyId === task.id}
+                          {...writeGuard(suspended, busyId === task.id)}
                           className="btn-tactile px-2.5 py-1 rounded bg-accent/10 border border-accent/40 text-accent text-[10px] hover:bg-accent/20 disabled:opacity-50"
                         >
                           {busyId === task.id ? <RefreshCw size={11} className="inline animate-spin" /> : <><CheckCircle2 size={11} className="inline mr-1" />VERIFY</>}
@@ -361,7 +366,7 @@ export default function Remediation() {
             </button>
             <button
               type="submit"
-              disabled={creating || !title.trim()}
+              {...writeGuard(suspended, creating || !title.trim())}
               className="btn-tactile px-4 py-1.5 rounded text-xs mono bg-accent text-white disabled:opacity-50 flex items-center gap-1.5"
             >
               {creating ? <RefreshCw size={12} className="animate-spin" /> : null}

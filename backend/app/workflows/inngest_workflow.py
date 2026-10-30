@@ -1076,6 +1076,10 @@ async def run_daily_scan_schedule() -> Dict[str, Any]:
     Daily scheduled scans: one scan per verified domain for orgs that do not
     already have a queued/running scan (baseline drift detection).
 
+    Suspended organisations are left out (core/suspension.py): their domains
+    and monitored hosts stay as they are, and the first sweep after the
+    suspension is lifted schedules them again.
+
     Shared implementation: triggered by the Inngest cron function below when
     the Inngest platform is wired, and by the in-process scheduler loop
     (backend.app.scheduler) otherwise.
@@ -1119,6 +1123,8 @@ async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | 
         SELECT d.id AS domain_id, d.org_id, d.domain
         FROM domains d
         WHERE d.verification_status = 'verified'
+          AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                          WHERE os.org_id = d.org_id AND os.status = 'suspended')
         ORDER BY d.created_at ASC
         """
     ) or []
@@ -1126,6 +1132,7 @@ async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | 
     scheduled = 0
     skipped_quota = 0
     skipped_active = 0
+    skipped_suspended = 0  # suspended after the due-domain read; admit_scan re-checks under the org lock
     replayed = 0
     run_day = run_day or datetime.now(timezone.utc).date()
 
@@ -1136,6 +1143,9 @@ async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | 
             request_key=f"domain:{row['domain_id']}",
             cron_authority=cron_authority,
         )
+        if admission.outcome == "suspended":
+            skipped_suspended += 1
+            continue
         if admission.outcome == "quota":
             skipped_quota += 1
             continue
@@ -1175,7 +1185,7 @@ async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | 
 
     return {"due_domains": len(due_domains), "scheduled": scheduled,
             "skipped_quota": skipped_quota, "skipped_active": skipped_active,
-            "replayed": replayed}
+            "skipped_suspended": skipped_suspended, "replayed": replayed}
 
 
 @inngest_client.create_function(

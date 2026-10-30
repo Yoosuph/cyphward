@@ -23,7 +23,7 @@ def recover_interrupted_scans() -> int:
     if SCANNER_MODE != "local":
         return 0
     rows = execute_query(
-        """UPDATE scans SET status = 'failed',error_message=%s,completed_at=now()
+        """UPDATE scans SET status = 'failed',error_message=%s,failure_code='interrupted',completed_at=now()
         WHERE claimed_by IS NULL AND status = 'running'
           AND execution_phase IS NULL AND claim_token IS NULL RETURNING id""",
         (INTERRUPTED_MESSAGE,),

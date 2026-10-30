@@ -26,6 +26,7 @@ from backend.app.compliance import (attestation_store, document_store, documents
                                     evidence_files, incidents, questionnaire, status)
 from backend.app.compliance.attestations import AnswerError
 from backend.app.core.auth import get_current_org, require_admin
+from backend.app.core.suspension import require_active_admin
 from backend.app.core.rate_limit import check_rate_limit
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["Compliance readiness"])
@@ -90,7 +91,7 @@ def compliance_questionnaire(org: Dict[str, Any] = Depends(get_current_org)) -> 
 
 
 @router.post("/attestations", status_code=201)
-def record_attestation(body: AttestationIn, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def record_attestation(body: AttestationIn, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     # Same plan gate as the reads: a Starter organisation cannot store answers it could not read back.
     if status.is_starter(org):
         raise HTTPException(status_code=403, detail=GROWTH_DETAIL)
@@ -128,7 +129,7 @@ def list_incidents(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, 
 
 
 @router.post("/incidents", status_code=201)
-def create_incident(body: IncidentIn, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def create_incident(body: IncidentIn, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     _require_growth(org)
     try:
         return incidents.create(org, org["current_user_id"], **body.model_dump())
@@ -138,7 +139,7 @@ def create_incident(body: IncidentIn, org: Dict[str, Any] = Depends(require_admi
 
 @router.patch("/incidents/{incident_id}")
 def update_incident(incident_id: UUID, body: IncidentPatch,
-                    org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+                    org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     _require_growth(org)
     changes = {name: getattr(body, name) for name in body.model_fields_set}
     # A status or severity cannot be cleared: it is a required field.
@@ -170,7 +171,7 @@ def get_document(document_id: UUID, org: Dict[str, Any] = Depends(get_current_or
 
 
 @router.post("/documents/{kind}/generate", status_code=201)
-async def generate_document(kind: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+async def generate_document(kind: str, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     _require_growth(org)
     if kind not in documents.KINDS:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -185,7 +186,7 @@ async def generate_document(kind: str, org: Dict[str, Any] = Depends(require_adm
 
 
 @router.post("/documents/{document_id}/approve", status_code=201)
-def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     _require_growth(org)
     try:
         approved = document_store.approve(str(org["id"]), org["current_user_id"], str(document_id))
@@ -273,7 +274,7 @@ def list_evidence_files(question_key: Optional[str] = Query(default=None, max_le
 
 @router.post("/evidence-files", status_code=201)
 async def upload_evidence_file(request: Request, question_key: str = Query(min_length=1, max_length=80),
-                               org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+                               org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     """The request body is the file itself (no multipart); the name travels percent-encoded in X-File-Name.
 
     Nothing slow runs on the event loop: database reads, the content check and the hash run in the thread pool."""
@@ -383,7 +384,7 @@ def download_evidence_file(file_id: str, response: Response, org: Dict[str, Any]
 
 
 @router.delete("/evidence-files/{file_id}")
-def remove_evidence_file(file_id: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def remove_evidence_file(file_id: str, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     _require_growth(org)
     row = evidence_file_store.mark_removed(str(org["id"]), str(org["current_user_id"]), _file_id_or_404(file_id))
     if row is None:

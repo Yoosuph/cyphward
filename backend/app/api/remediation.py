@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.app.core.auth import get_current_org, log_audit, require_admin
+from backend.app.core.suspension import require_active_admin, require_active_org
 from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.detectors import classify_detector
 from backend.app.scanner.dns_coverage import dns_finding_evaluated
@@ -102,7 +103,7 @@ def list_tasks(
 
 
 @router.post("", status_code=201)
-def create_task(req: CreateTaskRequest, org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
+def create_task(req: CreateTaskRequest, org: Dict[str, Any] = Depends(require_active_org)) -> Dict[str, Any]:
     priority = (req.priority or "medium").lower()
     if priority not in PRIORITIES:
         raise HTTPException(status_code=400, detail=f"Invalid priority '{priority}'")
@@ -162,7 +163,7 @@ def get_task(task_id: str, org: Dict[str, Any] = Depends(get_current_org)) -> Di
 def update_task(
     task_id: str,
     req: UpdateTaskRequest,
-    org: Dict[str, Any] = Depends(get_current_org),
+    org: Dict[str, Any] = Depends(require_active_org),
 ) -> Dict[str, Any]:
     existing = execute_one(
         "SELECT id, status, assignee_id FROM remediation_tasks WHERE id = %s AND org_id = %s",
@@ -226,7 +227,7 @@ def update_task(
 
 
 @router.post("/{task_id}/verify")
-async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     """
     Recheck a READY_FOR_VERIFICATION task against the live asset (spec §28).
 

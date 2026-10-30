@@ -185,7 +185,8 @@ export interface Scan {
   current_stage?: string;
   started_at?: string;
   completed_at?: string;
-  error_message?: string;
+  /** Reviewed sentence for a failed scan (backend core/scan_failures.py); the raw worker text is never sent. */
+  failure?: { code: string; message: string } | null;
   created_at: string;
   findings_discovered?: number;
 }

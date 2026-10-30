@@ -18,6 +18,7 @@ import AccountRecoveryGate from './components/AccountRecoveryGate';
 import { DocumentTitle } from './lib/seo';
 import InviteAcceptance from './components/InviteAcceptance';
 import ButtonPlate from './components/ButtonPlate';
+import SuspendedBanner from './components/SuspendedBanner';
 import { LoadingScreen } from './components/ui';
 
 // Public / prerendered pages — eager: built into the landing bundle.
@@ -236,6 +237,7 @@ function AppShell() {
         <Suspense fallback={<PageFallback />}>
           <main id="main" tabIndex={-1} className="page" key={location.pathname}>
             {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
+            <SuspendedBanner />
             <Outlet />
           </main>
         </Suspense>

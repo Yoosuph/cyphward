@@ -20,6 +20,7 @@ from backend.app.core.config import BREVO_API_KEY
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.plans import PLANS
 from backend.app.core.runtime_guard import background_status
+from backend.app.core import scan_failures
 
 router = APIRouter(prefix="/api/v1/owner", tags=["Owner console"])
 
@@ -190,11 +191,29 @@ def organization_detail(org_id: str, request: Request,
         """,
         (org_id,),
     )
+    # Members removed by an owner action, from the audit row that recorded each removal (restorable once).
+    removed_members = _rows(
+        """
+        SELECT a.id AS audit_id, a.created_at AS removed_at, a.metadata->>'email' AS email,
+               a.metadata->>'role' AS role, a.metadata->>'joined_at' AS joined_at,
+               EXISTS (SELECT 1 FROM owner_audit r
+                        WHERE r.target_type = 'organization' AND r.target_id = a.target_id
+                          AND r.action = 'owner.action.restore_member' AND r.outcome = 'success'
+                          AND r.metadata->>'restored_from' = a.id::text) AS restored,
+               EXISTS (SELECT 1 FROM organization_members m
+                        WHERE m.org_id = %s AND m.user_id::text = a.metadata->>'user_id') AS is_member
+        FROM owner_audit a
+        WHERE a.target_type = 'organization' AND a.target_id = %s
+          AND a.action = 'owner.action.remove_member' AND a.outcome = 'success'
+        ORDER BY a.created_at DESC LIMIT 20
+        """,
+        (org_id, org_id),
+    )
     org = {**org, "suspended": bool(suspension and suspension["status"] == "suspended"),
            "suspension_changed_at": (suspension or {}).get("changed_at")}
     return {"organization": org, "members": members, "domains": domains, "subscriptions": subscriptions,
             "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity,
-            "owner_actions": owner_actions,
+            "owner_actions": owner_actions, "removed_members": removed_members,
             "plans": [{"slug": slug, "label": spec["label"]} for slug, spec in PLANS.items()]}
 
 
@@ -279,7 +298,7 @@ _SCAN_COLUMNS = f"""
     s.id, o.id AS org_id, o.name AS org_name, d.domain, s.status, s.scan_type, s.current_stage,
     s.created_at, s.started_at, s.completed_at, s.score, s.claimed_by, s.lease_expires_at,
     EXTRACT(EPOCH FROM (COALESCE(s.completed_at, now()) - COALESCE(s.started_at, s.created_at)))::int AS duration_seconds,
-    s.stage_progress->'scoring'->'coverage'->>'state' AS coverage_state,
+    s.stage_progress->'scoring'->'coverage'->>'state' AS coverage_state, s.failure_code,
     (SELECT array_agg(key ORDER BY key) FROM jsonb_each(COALESCE(s.stage_progress, '{{}}'::jsonb)) e
        WHERE jsonb_typeof(e.value) = 'object' AND e.value->>'status' = 'failed') AS failed_stages,
     CASE
@@ -310,7 +329,14 @@ def scans(request: Request, q: str = "", state: str = "", limit: int = Query(50,
         """,
         params,
     )
+    # The reviewed sentence next to each failed scan; the raw text is on the scan's own page.
+    rows = [{**r, "failure": _failure(r)} for r in rows]
     return {"items": rows, "limit": limit, "offset": offset, "queue_delay_seconds": QUEUE_DELAY_SECONDS}
+
+
+def _failure(row: Dict[str, Any]) -> Any:
+    code = scan_failures.code_for_row(row)
+    return scan_failures.failure_for(code) if code else None
 
 
 @router.get("/scans/{scan_id}")
@@ -348,6 +374,8 @@ def scan_detail(scan_id: str, request: Request,
         """,
         (scan_id,),
     )
+    # `failure` is what the customer sees; `error_message` (raw worker text) is shown to the owner only.
+    scan = {**scan, "failure": _failure(scan)}
     return {"scan": scan, "stages": stages, "hosts": hosts}
 
 

@@ -48,6 +48,14 @@ FILES = (
     "owner/shell.tsx",
     "owner/table.tsx",
     "owner/ui.tsx",
+    # Admin phase 2: the suspension banner and its wording, and every page that gates a write button.
+    "lib/suspension.ts",
+    "lib/useOrgSuspended.ts",
+    "components/SuspendedBanner.tsx",
+    "pages/Overview.tsx",
+    "pages/Settings.tsx",
+    "pages/Findings.tsx",
+    "pages/Remediation.tsx",
 )
 
 

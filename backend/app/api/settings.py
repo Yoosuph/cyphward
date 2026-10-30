@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.suspension import require_active_admin
 
 router = APIRouter(prefix="/api/v1/settings", tags=["Settings"])
 
@@ -51,7 +52,7 @@ def get_settings(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
 @router.post("/company")
 def update_company(
     req: UpdateCompanyRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Update organization profile (admin/owner only). Whitelisted columns only."""
     updates = []

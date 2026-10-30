@@ -14,21 +14,24 @@ Every action:
 * also writes the customer's own activity log entry, attributed to
   "cyphward" rather than to the owner's account.
 
-Organization actions (change plan, extend trial, suspend, unsuspend, remove a
-member) also need the organization's exact name typed in the request body
+Organization actions (change plan, extend trial, suspend, unsuspend, remove or
+restore a member) also need the organization's exact name typed in the request body
 (`confirm_name`). It is compared with the name read under the row lock, so a
 mistyped or stale name is refused (409) and audited as rejected.
 
 Actions: change an organization's plan, extend a trial, suspend or unsuspend
-an organization, remove a member, cancel a queued or running scan, sign a
-user out everywhere. Nothing here deletes customer data: removing a member
-deletes only the membership link (the person's account and everything the
-organization holds stay), and the owner audit row keeps the role and join
-date so the membership can be restored.
+an organization, remove a member, restore a removed member, cancel a queued or
+running scan, sign a user out everywhere. Nothing here deletes customer data:
+removing a member deletes only the membership link (the person's account and
+everything the organization holds stay), and the owner audit row keeps the
+email, role and join date, which restore_member reads back.
 
-Suspension (phase 1 rule): a reversible marker the owner sets and lifts. It
-does not change what the customer's own API does; sign-in, reads, scans and
-billing work as before. It is not written to the customer's activity log.
+Suspension (phase 2 rule, core/suspension.py): while an organization is
+suspended its members can sign in and read everything, but every customer
+write is refused with 403 `organization_suspended`, new and scheduled scans
+pause, and queued scans wait. Owner actions here are never blocked by a
+suspension (restoring a member is refused, so a suspended organization does
+not gain members). It is not written to the customer's activity log.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -212,7 +215,7 @@ def extend_trial(org_id: str, body: TrialBody, request: Request,
 @router.post("/organizations/{org_id}/suspend")
 def suspend_organization(org_id: str, body: OrgActionBody, request: Request,
                          owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
-    """Mark the organization suspended (reversible with /unsuspend). Phase 1: a marker only (see module doc)."""
+    """Mark the organization suspended (reversible with /unsuspend). Customer writes and scans pause (module doc)."""
     org_id = _uuid(org_id)
 
     def work(cur):
@@ -304,6 +307,82 @@ def remove_member(org_id: str, user_id: str, body: OrgActionBody, request: Reque
                           "joined_at": member["created_at"], "members_after": remaining}}
 
     return _run(request, owner, "owner.action.remove_member", "organization", org_id, body.reason, work)
+
+
+class RestoreBody(OrgActionBody):
+    # The owner_audit row that recorded the removal (shown on the organization page).
+    audit_id: str = Field(min_length=1, max_length=64)
+
+
+RESTORABLE_ROLES = ("owner", "admin", "member")
+
+
+@router.post("/organizations/{org_id}/members/restore")
+def restore_member(org_id: str, body: RestoreBody, request: Request,
+                   owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Put back a membership that an earlier owner action removed, from that action's audit row.
+
+    The person, role and join date come only from the stored audit row (never from the request). Refused when the
+    organization is suspended, when the person is already a member, when that removal was already restored, or
+    when the account is gone or its email no longer matches the record. Each audit row restores at most once.
+    """
+    org_id = _uuid(org_id)
+    audit_id = _uuid(body.audit_id)
+
+    def work(cur):
+        org = _lock_org(cur, org_id)["org"]
+        _check_name(org, body.confirm_name)
+        cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s", (org_id,))
+        suspension = cur.fetchone()
+        if suspension and suspension["status"] == "suspended":
+            raise HTTPException(status_code=409, detail="This organization is suspended. Lift the suspension "
+                                                        "before restoring a member. Nothing was changed.")
+        cur.execute(
+            "SELECT id, metadata FROM owner_audit WHERE id = %s AND action = 'owner.action.remove_member' "
+            "AND outcome = 'success' AND target_type = 'organization' AND target_id = %s",
+            (audit_id, org_id))
+        removal = cur.fetchone()
+        if removal is None:
+            raise HTTPException(status_code=404, detail="No member removal with that record was found for this "
+                                                        "organization.")
+        meta = removal["metadata"] or {}
+        user_id, email, role = meta.get("user_id"), (meta.get("email") or ""), meta.get("role")
+        if not user_id or role not in RESTORABLE_ROLES:
+            raise HTTPException(status_code=409, detail="That record does not hold enough detail to restore the "
+                                                        "member. Nothing was changed.")
+        user_id = _uuid(user_id)
+        cur.execute(
+            "SELECT id FROM owner_audit WHERE target_type = 'organization' AND target_id = %s "
+            "AND action = 'owner.action.restore_member' AND outcome = 'success' "
+            "AND metadata->>'restored_from' = %s LIMIT 1",
+            (org_id, audit_id))
+        if cur.fetchone() is not None:
+            raise HTTPException(status_code=409, detail="This removal has already been restored. Nothing was "
+                                                        "changed.")
+        cur.execute("SELECT id, email FROM profiles WHERE id = %s", (user_id,))
+        profile = cur.fetchone()
+        if profile is None:
+            raise HTTPException(status_code=409, detail="That person's account no longer exists, so the membership "
+                                                        "cannot be restored.")
+        if (profile.get("email") or "").strip().lower() != email.strip().lower():
+            raise HTTPException(status_code=409, detail="That account's email has changed since the removal. "
+                                                        "Nothing was changed.")
+        cur.execute(
+            "INSERT INTO organization_members (user_id, org_id, role, created_at) "
+            "VALUES (%s, %s, %s, COALESCE(%s::timestamptz, now())) "
+            "ON CONFLICT (user_id, org_id) DO NOTHING RETURNING id",
+            (user_id, org_id, role, meta.get("joined_at")))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=409, detail="This person is already a member of this organization.")
+        cur.execute("SELECT count(*) AS n FROM organization_members WHERE org_id = %s", (org_id,))
+        members = int(cur.fetchone()["n"])
+        _customer_log(cur, org_id, None, "member.restored", "profile", user_id, {"role": role})
+        return {"result": {"organization_id": org_id, "restored_user_id": user_id, "role": role,
+                           "members": members},
+                "audit": {"restored_from": audit_id, "user_id": user_id, "email": email, "role": role,
+                          "joined_at": meta.get("joined_at"), "members_after": members}}
+
+    return _run(request, owner, "owner.action.restore_member", "organization", org_id, body.reason, work)
 
 
 # ── Scan ───────────────────────────────────────────────────────────────────

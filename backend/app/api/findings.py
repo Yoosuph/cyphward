@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from backend.app.core.database import execute_one, execute_query
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from backend.app.core.suspension import require_active_admin
 
 router = APIRouter(prefix="/api/v1/findings", tags=["Findings"])
 
@@ -112,7 +113,7 @@ def get_finding_detail(
 def update_finding_status(
     finding_id: str,
     req: UpdateStatusRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Update finding lifecycle status (admin/owner only; org-scoped)."""
     valid_statuses = {"open", "acknowledged", "in_progress", "resolved"}

@@ -172,7 +172,7 @@ def test_schedule_sends_one_scan_per_due_domain_and_audits(monkeypatch):
     result = asyncio.run(wf.run_daily_scan_schedule())
 
     assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0,
-                      "skipped_active": 0, "replayed": 0, "claimed": True}
+                      "skipped_active": 0, "skipped_suspended": 0, "replayed": 0, "claimed": True}
     assert len(h.sent_events) == 2
     assert all(e["trigger"] == "cron" for e in h.sent_events)
     assert all(e["organization_id"] for e in h.sent_events)
@@ -193,7 +193,7 @@ def test_schedule_with_no_due_domains_writes_only_run_marker(monkeypatch):
     result = asyncio.run(wf.run_daily_scan_schedule())
 
     assert result == {"due_domains": 0, "scheduled": 0, "skipped_quota": 0,
-                      "skipped_active": 0, "replayed": 0, "claimed": True}
+                      "skipped_active": 0, "skipped_suspended": 0, "replayed": 0, "claimed": True}
     assert h.sent_events == []
     assert h.audit_actions == [CRON_RAN_ACTION]
 
@@ -205,7 +205,7 @@ def test_schedule_remote_mode_survives_event_send_failure(monkeypatch):
 
     # Queued rows are the dispatch — worker polls; counts still recorded.
     assert result == {"due_domains": 2, "scheduled": 2, "skipped_quota": 0,
-                      "skipped_active": 0, "replayed": 0, "claimed": True}
+                      "skipped_active": 0, "skipped_suspended": 0, "replayed": 0, "claimed": True}
     assert h.pipeline_calls == []
     assert h.audit_actions.count("scan.scheduled") == 2
     assert h.audit_actions.count(CRON_RAN_ACTION) == 1
@@ -406,6 +406,6 @@ def test_sweep_skips_orgs_at_monthly_scan_quota(monkeypatch):
     result = asyncio.run(wf.run_daily_scan_schedule())
 
     assert result == {"due_domains": 2, "scheduled": 0, "skipped_quota": 2,
-                      "skipped_active": 0, "replayed": 0, "claimed": True}
+                      "skipped_active": 0, "skipped_suspended": 0, "replayed": 0, "claimed": True}
     assert h.inserted_params == []
     assert h.sent_events == []

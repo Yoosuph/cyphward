@@ -994,8 +994,12 @@ async def bootstrap(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[st
     Supabase PostgREST reads).
     """
     memberships = session_memberships(user)
+    # The customer app shows its suspension banner and disables write buttons from this flag (core/suspension.py).
+    from backend.app.core.suspension import suspended_ids
+    suspended = suspended_ids(org["id"] for org in memberships)
     result_memberships = []
     for org in memberships:
+        org = {**org, "suspended": str(org["id"]) in suspended}
         domains = (
             execute_query(
                 "SELECT * FROM domains WHERE org_id = %s ORDER BY created_at ASC",

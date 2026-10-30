@@ -27,6 +27,7 @@ import PacksTab from './compliance/Packs';
 import DocumentsTab from './compliance/Documents';
 import ReviewerAccessTab from './compliance/ReviewerAccess';
 import { GrowthGate, LoadError, errorText, fmtDayZone, isGrowthGate } from './compliance/shared';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 
 /**
  * NDPA / GAID readiness evidence. Shows what Cyphward has observed for each
@@ -288,7 +289,9 @@ function RequirementRow({ req, zone, told }: { req: ComplianceRequirement; zone:
 
 export default function Compliance() {
   const { organization } = useAuth();
-  const canEdit = ['owner', 'admin'].includes(organization?.membership_role || 'member');
+  // While the organisation is suspended every compliance write is refused, so the page is view only.
+  const suspended = useOrgSuspended();
+  const canEdit = !suspended && ['owner', 'admin'].includes(organization?.membership_role || 'member');
   const isOwner = organization?.membership_role === 'owner';
   const tabs = TABS.filter(t => !t.ownerOnly || isOwner);
   const toast = useToast();

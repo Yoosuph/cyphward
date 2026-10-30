@@ -119,6 +119,7 @@ export function ScansView() {
                   <Cell label="State">
                     <Pill tone={statusTone(s.state)}>{STATE_LABEL[s.state] || s.state}</Pill>
                     {s.failed_stages?.length ? <span className="text-xs text-accent ml-1">{s.failed_stages.join(', ')} failed</span> : null}
+                    {s.failure ? <div className="text-xs text-soft" data-testid="scan-row-failure">{s.failure.message}</div> : null}
                   </Cell>
                   <Cell label="Coverage">{s.coverage_state ? <Pill tone={statusTone(s.coverage_state)}>{s.coverage_state}</Pill> : '—'}</Cell>
                   <Cell label="Score">{s.score ?? '—'}</Cell>
@@ -158,7 +159,8 @@ export function ScanDetailView() {
                 <dt className="text-soft">Duration</dt><dd>{fmtDuration(s.duration_seconds)}</dd>
                 <dt className="text-soft">Worker</dt><dd className="mono text-xs">{s.claimed_by || '—'}{s.lease_expires_at ? ` · claim until ${fmtDate(s.lease_expires_at)}` : ''}</dd>
                 <dt className="text-soft">Attempt</dt><dd>{s.claim_generation ?? '—'} · phase {s.execution_phase || '—'}</dd>
-                {s.error_message && (<><dt className="text-soft">Error</dt><dd className="text-accent">{s.error_message}</dd></>)}
+                {s.failure && (<><dt className="text-soft">Customer sees</dt><dd data-testid="scan-failure-sentence">{s.failure.message} <span className="mono text-[10px] text-soft">({s.failure.code})</span></dd></>)}
+                {s.error_message && (<><dt className="text-soft">Raw error (owner only)</dt><dd className="text-accent mono text-xs break-words" data-testid="scan-raw-error">{s.error_message}</dd></>)}
               </dl>
             </Panel>
             <Panel title="Missing checks">

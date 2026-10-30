@@ -5,7 +5,7 @@ import {
   Cell, Empty, OwnerMeContext, PageHead, Panel, Pill, SearchBox, Stat, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
 } from './ui';
-import { ChangePlanAction, ExtendTrialAction, RemoveMemberAction, SignOutEverywhereAction, SuspendAction } from './actions';
+import { ChangePlanAction, ExtendTrialAction, RemoveMemberAction, RestoreMemberAction, SignOutEverywhereAction, SuspendAction } from './actions';
 import {
   ExportButton, FilterBar, ListState, OwnerTable, PagerBar, SelectFilter, SortSelect, useListParams, type Column,
 } from './table';
@@ -161,7 +161,7 @@ export function OrganizationDetailView() {
             {org.suspended && (
               <div role="status" data-testid="org-suspended-note" className="lg:col-span-2 p-3 rounded border border-accent/40 bg-accent/10 text-sm text-ink flex flex-wrap items-center gap-2">
                 <Pill tone="bad">suspended</Pill>
-                <span>Marked {fmtDate(org.suspension_changed_at)}. In this phase the marker is for the owner console only; the customer's account works as before.</span>
+                <span>Since {fmtDate(org.suspension_changed_at)}. Members can sign in and read their data; every change, new scan and scheduled scan is paused, and they see a notice on every page. Owner actions keep working.</span>
               </div>
             )}
             <Panel title={`Members (${(data.members as Row[]).length})`}>
@@ -182,6 +182,26 @@ export function OrganizationDetailView() {
                 </Table>
               )}
             </Panel>
+            {((data.removed_members || []) as Row[]).length > 0 && (
+              <Panel title="Removed by an owner action" className="lg:col-span-2">
+                <Table head={['Person', 'Role', 'Removed', 'Action']}>
+                  {(data.removed_members as Row[]).map(r => (
+                    <tr key={r.audit_id} data-testid="removed-member-row">
+                      <Cell title><span className="break-all">{r.email}</span></Cell>
+                      <Cell label="Role"><Pill>{r.role}</Pill></Cell>
+                      <Cell label="Removed">{fmtDate(r.removed_at)}</Cell>
+                      <Cell label="Action">
+                        {r.restored ? <span className="text-xs text-soft">restored</span>
+                          : r.is_member ? <span className="text-xs text-soft">member again</span>
+                          : org.suspended ? <span className="text-xs text-soft">lift the suspension to restore</span>
+                          : <RestoreMemberAction orgId={org.id} orgName={org.name} auditId={r.audit_id} email={r.email}
+                                                 role={r.role} onDone={reload} />}
+                      </Cell>
+                    </tr>
+                  ))}
+                </Table>
+              </Panel>
+            )}
             <Panel title="Domains">
               {(data.domains as Row[]).length === 0 ? <Empty>No domains added yet.</Empty> : (
                 <Table head={['Domain', 'Status', 'Verified']}>

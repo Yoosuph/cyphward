@@ -61,6 +61,8 @@ interface Organization {
   membership_role?: string;
   /** IANA zone the organisation reads times in (organizations.display_timezone). Default Africa/Lagos. */
   display_timezone?: string;
+  /** Set by the owner console; writes are paused while true (lib/suspension.ts). */
+  suspended?: boolean;
 }
 
 interface Domain {

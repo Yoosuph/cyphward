@@ -177,6 +177,7 @@ class FakeStore:
         self.subscriptions: list = []
         self.invoices: list = []
         self.monitored_hosts: list = []
+        self.suspensions: dict = {}  # org_id -> 'suspended' | 'active' (organization_suspensions)
 
     def create_session(self, user_id: str) -> str:
         """A live auth_sessions row, as a real sign-in creates (tests' sign_token)."""
@@ -202,6 +203,13 @@ class FakeStore:
             return [{"n": sum(1 for x in self.snapshots if x["org_id"] == params[0] and "content" in x
                               and x["id"] not in referenced and _in_current_month(x.get("created_at")))}]
 
+        # organization_suspensions (core/suspension.py, scan admission, owner actions)
+        if s.startswith("SELECT status FROM organization_suspensions WHERE org_id = %s"):
+            status = self.suspensions.get(str(params[0]))
+            return [{"status": status}] if status else []
+        if s.startswith("SELECT org_id FROM organization_suspensions WHERE status = 'suspended'"):
+            return [{"org_id": oid} for oid in params[0] if self.suspensions.get(str(oid)) == "suspended"]
+
         if s == 'SELECT clock_timestamp() AS claim_now':
             return [{'claim_now': datetime.now(timezone.utc)}]
         if s.startswith('SELECT id, org_id, status, claimed_by, claim_generation'):
@@ -212,6 +220,7 @@ class FakeStore:
                 if scan_id and str(row['id']) != str(scan_id): continue
                 dom=next((d for d in self.domains if d['id']==row['domain_id'] and d['org_id']==row['org_id']),None)
                 eligible=row['status']=='queued' or (row['status']=='running' and row.get('execution_phase')==phase and row.get('lease_expires_at') and row['lease_expires_at'] < datetime.now(timezone.utc))
+                if self.suspensions.get(str(row['org_id'])) == 'suspended': continue
                 if eligible and row.get('execution_phase') in (None,phase) and row.get('current_stage') not in core_stages and dom and dom['verification_status']=='verified':
                     return [{**row,'domain':dom['domain']}]
             return []
@@ -235,9 +244,9 @@ class FakeStore:
                 lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=lease))
             return [dict(row)]
         if s.startswith("UPDATE scans SET status='failed', error_message="):
-            error,progress,scan_id=params
+            error,failure_code,progress,scan_id=params
             row=next(r for r in self.scans if r['id']==scan_id)
-            row.update(status='failed',error_message=error,stage_progress=json.loads(progress),claimed_by=None,
+            row.update(status='failed',error_message=error,failure_code=failure_code,stage_progress=json.loads(progress),claimed_by=None,
                 claim_token=None,execution_phase=None,lease_expires_at=None,claim_generation=row['claim_generation']+1)
             return []
         if s.startswith('UPDATE scans SET lease_expires_at='):
@@ -255,6 +264,9 @@ class FakeStore:
             self.scan_results=[r for r in self.scan_results if not (r['scan_id']==scan_id and r['stage']==stage and r['attempt_generation']==gen)]
             self.scan_results.append(dict(scan_id=scan_id,stage=stage,raw_data=json.loads(data),attempt_generation=gen))
             return []
+        if s.startswith('SELECT r.stage, r.raw_data, r.created_at FROM scan_results r JOIN scans s ON s.id=r.scan_id'):
+            return [{"stage": r["stage"], "raw_data": r["raw_data"], "created_at": r.get("created_at")}
+                    for r in self.scan_results if str(r["scan_id"]) == str(params[0])]
         if s.startswith('SELECT stage, raw_data FROM scan_results WHERE scan_id = %s AND attempt_generation'):
             return [r for r in self.scan_results if r['scan_id']==params[0] and r['attempt_generation']==params[1]]
         if s.startswith("UPDATE scans SET status='completed',current_stage='completed'"):

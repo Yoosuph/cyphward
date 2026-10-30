@@ -32,6 +32,7 @@ from backend.app.core.auth import (
     log_audit,
     membership_role,
 )
+from backend.app.core.suspension import ensure_active, require_active_admin
 from backend.app.core.security import hash_opaque_token, new_opaque_token
 from backend.app.services.mailer import (
     generate_invite_email_html,
@@ -99,7 +100,7 @@ def list_invites(org: Dict[str, Any] = Depends(require_admin)) -> List[Dict[str,
 @router.post("/invite", status_code=201)
 async def invite_member(
     req: InviteMemberRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     role = (req.role or "member").lower().strip()
@@ -215,6 +216,9 @@ def accept_invite(
         raise HTTPException(status_code=400, detail="This invitation was sent to a different email address.")
     if not user.get("email_verified_at"):
         raise HTTPException(status_code=403, detail="Verify your email address to join this workspace.")
+    # Joining adds a member, which a suspended organisation cannot do (core/suspension.py). The organisation comes
+    # from the invitation, not from a header, so this route checks it here (allow-listed in test_suspension_gate.py).
+    ensure_active(invite["org_id"])
 
     # Single-use consume first — conditional write, so a double submit can
     # never grant two memberships or re-open the token.
@@ -273,7 +277,7 @@ def accept_invite(
 @router.delete("/invites/{invite_id}")
 def revoke_invite(
     invite_id: str,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     row = execute_one(
         """
@@ -293,7 +297,7 @@ def revoke_invite(
 def update_member_role(
     user_id: str,
     req: UpdateMemberRoleRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     role = req.role.lower().strip()
     if role not in MVP_ROLES:

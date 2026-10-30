@@ -33,6 +33,14 @@ const REVIEWED_DETAILS: (string | RegExp)[] = [
   "That's your own account — use Sign out instead.",
   'The change could not be saved. Nothing was changed.',
   'Organization not found.', 'User not found.', 'Scan not found.',
+  // Restore a removed member (admin phase 2)
+  'This organization is suspended. Lift the suspension before restoring a member. Nothing was changed.',
+  'No member removal with that record was found for this organization.',
+  'That record does not hold enough detail to restore the member. Nothing was changed.',
+  'This removal has already been restored. Nothing was changed.',
+  "That person's account no longer exists, so the membership cannot be restored.",
+  "That account's email has changed since the removal. Nothing was changed.",
+  'This person is already a member of this organization.',
   // Reads (backend/app/core/owner_reads.py)
   'This view took too long to load. Narrow the filters or try again in a moment.',
   // First sign-in setup (backend/app/api/owner.py)

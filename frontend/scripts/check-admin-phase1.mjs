@@ -229,7 +229,8 @@ try {
     await page.waitForSelector('[role="dialog"] [data-testid="typed-name-gate"]');
     await sleep(200);
     assert.equal(await okDisabled(page), true, "disabled when the dialog opens");
-    assert.match(await page.$eval('[role="dialog"]', (d) => d.innerText), /customer can still sign in/i, "the dialog states the phase 1 rule");
+    // Phase 2 replaced the "marker only" wording with the enforced rule (check-admin-phase2.mjs covers the customer side).
+    assert.match(await page.$eval('[role="dialog"]', (d) => d.innerText), /members can still sign in and read their data, but every change is refused/i, "the dialog states the suspension rule");
     await typeInto(page, "#owner-action-reason", "Customer asked by email, ticket 42");
     assert.equal(await okDisabled(page), true, "a reason alone is not enough");
     for (const wrong of [ORG_NAME.toLowerCase(), `${ORG_NAME} `, "Acme Traders"]) {
