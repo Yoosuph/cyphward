@@ -687,7 +687,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                     baseline["reopened"].append(nf)
                 elif _SEVERITY_RANK.get(nf["severity"], 0) > _SEVERITY_RANK.get(prior.get("severity"), 0):
                     # An open finding whose rating went up to high or critical "became" high or critical.
-                    notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain)
+                    notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain,
+                                               scan_id=scan_id)
 
             # Auto-resolve findings on scanned assets that were not re-observed
             # — but only when their detector actually completed for that host.
@@ -756,10 +757,11 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                         (row["id"], org_id, json.dumps({"scan_id": scan_id, "evidence": nf["evidence"], "source": "pipeline"})),
                     )
 
-        # Baseline change notifications (services/notifications.py: reviewed wording, one row per member;
-        # critical ones are emailed after the completion commit, in finalize_scan).
+        # Baseline change notifications (services/notifications.py: reviewed wording, one row per member).
+        # Critical ones are emailed only once this scan has completed (email_after_scan): finalize_scan delivers
+        # after the completion commit, and a scan that fails instead never sends them.
         for nf in baseline["new"]:
-            notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain)
+            notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain, scan_id=scan_id)
         for nf in baseline["reopened"]:
             if not notifications.emit_finding(org_id, nf["id"], nf.get("severity"), nf.get("hostname") or domain,
                                               scan_id=scan_id, reopened=True):

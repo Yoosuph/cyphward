@@ -149,7 +149,8 @@ def test_delivery_never_raises_when_the_outbox_cannot_be_read(monkeypatch):
         raise RuntimeError("down")
 
     monkeypatch.setattr(database, "execute_query", boom)
-    assert asyncio.run(notifications.deliver_pending_emails()) == {"sent": 0, "failed": 0, "skipped": 0}
+    assert asyncio.run(notifications.deliver_pending_emails()) == {"sent": 0, "failed": 0, "skipped": 0,
+                                                                   "scan_not_completed": 0}
 
 
 def test_scan_completion_in_the_pipeline_notifies_every_member_with_the_not_evaluated_count(store, monkeypatch):
@@ -162,3 +163,44 @@ def test_scan_completion_in_the_pipeline_notifies_every_member_with_the_not_eval
     members = {str(m["user_id"]) for m in store.memberships if str(m["org_id"]) == ORG_A}
     assert {str(n["user_id"]) for n in done} == members and len(done) == len(members)
     assert all("not evaluated" in n["body"] and n["severity"] == "info" for n in done)
+
+
+def _recheck(client, auth_headers, store, monkeypatch, still_there):
+    from test_remediation_verify import _mock_probes, _seed_task
+    from conftest import ALICE, FINDING_A1
+
+    _seed_task(store, FINDING_A1)
+    _mock_probes(monkeypatch)
+
+    async def checks(hostname, dns_data, http_data, is_apex=True):
+        return [{"title": "HSTS Missing"}] if still_there else []
+
+    monkeypatch.setattr("backend.app.api.remediation.run_security_checks", checks)
+    first = client.post("/api/v1/remediation/task-1/verify", headers=auth_headers(ALICE))
+    assert first.status_code == 200
+    if not still_there:  # a verified task cannot be rechecked again, so its notice cannot repeat
+        assert client.post("/api/v1/remediation/task-1/verify", headers=auth_headers(ALICE)).status_code >= 400
+    return first.json()["result"]
+
+
+def _org_a_members_but(store, who):
+    from conftest import ORG_A
+    return {str(m["user_id"]) for m in store.memberships if str(m["org_id"]) == ORG_A} - {who}
+
+
+def test_trigger_recheck_still_present(client, auth_headers, store, monkeypatch):
+    from conftest import ALICE
+    assert _recheck(client, auth_headers, store, monkeypatch, still_there=True) == "reopened"
+    rows = [n for n in store.notifications if n.get("type") == "finding_still_open"]
+    assert {str(n["user_id"]) for n in rows} == _org_a_members_but(store, ALICE) and len(rows) == len({n["user_id"] for n in rows})
+    assert all(n["dedupe_key"].startswith("finding_still_open:task-1:") for n in rows)
+    assert not [n for n in store.notifications if n.get("type") == "finding_resolved"]
+
+
+def test_trigger_recheck_resolved(client, auth_headers, store, monkeypatch):
+    from conftest import ALICE
+    assert _recheck(client, auth_headers, store, monkeypatch, still_there=False) == "verified"
+    rows = [n for n in store.notifications if n.get("type") == "finding_resolved"]
+    assert {str(n["user_id"]) for n in rows} == _org_a_members_but(store, ALICE) and len(rows) == len({n["user_id"] for n in rows})
+    assert all(n["dedupe_key"].startswith("finding_resolved:recheck:task-1:") for n in rows)
+    assert all("A recheck no longer sees the issue" in n["body"] for n in rows)

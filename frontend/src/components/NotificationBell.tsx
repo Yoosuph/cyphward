@@ -1,7 +1,7 @@
 /* The bell and its panel (notifications phase 1). Used in the customer app header and the owner console header.
  *
- * Keyboard: the bell is a button (Enter/Space opens); focus moves to the panel heading; Tab walks the items and
- * their "Mark read" buttons; Escape closes and returns focus to the bell. A click outside closes it too.
+ * Keyboard: the bell is a button (Enter/Space opens); focus moves to the panel heading; Tab and Shift+Tab walk the
+ * panel's controls and wrap inside it; Escape closes and returns focus to the bell. A click outside closes it too.
  * The unread count is in the bell's accessible name. Errors show reviewed wording only (lib/notifications.ts).
  */
 import { useEffect, useId, useRef, useState } from 'react';
@@ -32,6 +32,7 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
   const wrap = useRef<HTMLDivElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -41,7 +42,19 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
         e.preventDefault();
         setOpen(false);
         bell.current?.focus();
+        return;
       }
+      // Keep focus inside the open panel: Tab and Shift+Tab wrap around its controls.
+      if (e.key !== 'Tab' || !panel.current) return;
+      const stops = [heading.current, ...panel.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')]
+        .filter((el): el is HTMLElement => Boolean(el));
+      if (!stops.length) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const at = document.activeElement as HTMLElement | null;
+      const inside = Boolean(at && panel.current.contains(at));
+      if (e.shiftKey && (!inside || at === first)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (!inside || at === last)) { e.preventDefault(); first.focus(); }
     };
     const onDown = (e: MouseEvent) => {
       if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
@@ -86,7 +99,7 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
       </button>
 
       {open && (
-        <div id={panelId} className="notif-panel" role="dialog" aria-labelledby={headingId} data-testid="notif-panel">
+        <div id={panelId} ref={panel} className="notif-panel" role="dialog" aria-labelledby={headingId} data-testid="notif-panel">
           <div className="notif-head">
             <h2 id={headingId} ref={heading} tabIndex={-1} className="notif-title">{NOTIFY_TITLE}</h2>
             <div className="notif-head-tools">

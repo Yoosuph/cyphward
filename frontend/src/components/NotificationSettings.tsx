@@ -1,5 +1,6 @@
 /* Settings › Notifications (notifications phase 1). One row per category with two switches: in the app, and by
- * email. Email is only ever sent for critical events. A change saves at once; a failed save puts the switch back and
+ * email. Notification email is sent for critical events; the compliance email switch also stops the compliance
+ * reminder emails (lib/notifications.ts PREFS_NOTE). A change saves at once; a failed save puts the switch back and
  * says so in reviewed wording. `focusCategory` (from the email's settings link) scrolls to and highlights a row.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -78,7 +79,7 @@ export default function NotificationSettings({ focusCategory }: { focusCategory?
                   <button key={channel} type="button" role="switch" aria-checked={p[channel]}
                           className={`notif-switch ${p[channel] ? 'is-on' : ''}`}
                           disabled={busy === `${p.category}:${channel}`}
-                          aria-label={`${p.label}: ${channel === 'in_app' ? 'in the app' : 'email for critical alerts'}`}
+                          aria-label={`${p.label}: ${channel === 'in_app' ? 'in the app' : 'by email'}`}
                           data-testid={`notif-switch-${channel}`} onClick={() => toggle(p.category, channel)}>
                     <span className="notif-switch-track" aria-hidden="true"><span className="notif-switch-knob" /></span>
                     <span className="notif-switch-label">{channel === 'in_app' ? 'In app' : 'Email'}: {p[channel] ? 'on' : 'off'}</span>

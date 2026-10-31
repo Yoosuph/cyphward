@@ -211,7 +211,8 @@ def test_muting_hides_in_app_and_stops_email_but_never_hides_critical_from_the_o
     assert {n["severity"] for n in owner} == {"critical"} and sum(n["count"] for n in owner) == 2
     # Other people's settings are their own.
     theirs = _client(urls, nw["member"], nw["org"]).get(API).json()
-    assert theirs["unread_count"] == 1 and theirs["notifications"][0]["count"] == 2  # both, folded into one row
+    # The first email to them had gone before the second event, so the second has its own row (and email).
+    assert theirs["unread_count"] == 2 and [n["count"] for n in theirs["notifications"]] == [1, 1]
     prefs = {p["category"]: p for p in customer.get(f"{API}/preferences").json()["preferences"]}
     assert prefs["findings"]["in_app"] is False and prefs["findings"]["email"] is False and prefs["scans"]["in_app"]
     assert customer.put(f"{API}/preferences/nonsense", json={"email": False}).status_code == 404
@@ -329,7 +330,7 @@ def test_trigger_scan_failed_from_interrupted_scan_recovery(nw, urls, monkeypatc
     assert _mine(urls, nw["customer"], nw["org"])[0]["body"] == FAILURE_SENTENCES["interrupted"]
 
 
-def test_trigger_finding_critical_from_the_scan_pipeline(nw, urls, monkeypatch):
+def test_trigger_finding_critical_from_the_scan_pipeline(nw, urls, monkeypatch, notification_mail):
     from backend.app.workflows import inngest_workflow as wf
     from test_scan_execution_postgres import no_external
     host = f"views-{nw['tag']}.test"
@@ -358,6 +359,10 @@ def test_trigger_finding_critical_from_the_scan_pipeline(nw, urls, monkeypatch):
     assert nw["owner"] in _recipients(urls, nw["org"], "finding_critical", "owner")
     row = next(r for r in _mine(urls, nw["customer"], nw["org"]) if r["type"] == "finding_critical")
     assert row["title"] == f"Critical finding on {host}" and RAW not in row["body"]
+    # The email waited for the scan; finalize_scan sent it once the scan had completed, once per member.
+    assert row["email_scan_id"] is not None and row["email_status"] == "sent"
+    sent = [m["to"] for m in notification_mail if nw["tag"] in m["to"]]
+    assert sorted(sent) == sorted({nw["customer_email"], nw["member_email"], f"adm-{nw['tag']}@views.test"})
 
 
 def test_trigger_finding_rating_raised_and_reopened_use_their_own_keys(nw, urls):
@@ -365,11 +370,13 @@ def test_trigger_finding_rating_raised_and_reopened_use_their_own_keys(nw, urls)
     notifications.emit_finding(nw["org"], finding, "high", "a.test")
     notifications.emit_finding(nw["org"], finding, "high", "a.test")
     notifications.emit_finding(nw["org"], finding, "critical", "a.test")  # became critical
-    notifications.emit_finding(nw["org"], finding, "critical", "a.test", scan_id="s2", reopened=True)
+    notifications.emit_finding(nw["org"], finding, "critical", "a.test", scan_id=str(uuid4()), reopened=True)
     assert notifications.emit_finding(nw["org"], finding, "medium", "a.test") == 0
-    kinds = [r["type"] for r in _mine(urls, nw["customer"], nw["org"])]
-    assert kinds.count("finding_high") == 1 and sum(r["group_count"] for r in _mine(urls, nw["customer"], nw["org"])
-                                                    if r["type"] == "finding_critical") == 2
+    rows = _mine(urls, nw["customer"], nw["org"])
+    assert [r["type"] for r in rows].count("finding_high") == 1
+    # The raised rating and the reopening are two events; the reopening's email waits on its own scan, so it does
+    # not fold into the row whose email is free to go now.
+    assert sorted(r["group_count"] for r in rows if r["type"] == "finding_critical") == [1, 1]
 
 
 def test_trigger_member_invited_and_joined(nw, urls, monkeypatch):
@@ -637,3 +644,129 @@ def test_the_shared_demo_account_cannot_change_notification_settings(nw, urls):
     finally:
         app.dependency_overrides.pop(refuse_demo_account, None)
     assert DEMO_USER_ID  # the guard keys on this account and on demo sessions (api/demo_login.py)
+
+
+# ── Review round 2: an email per critical event, scan-held email, owner scope, caps, the lock ──
+def test_a_second_critical_event_after_the_email_went_gets_its_own_row_and_email(nw, urls, notification_mail):
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test")
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "b.test")  # before delivery: folds, one email
+    asyncio.run(notifications.deliver_pending_emails())
+
+    def mine():
+        return [m for m in notification_mail if m["to"] == nw["customer_email"]]
+
+    assert len(mine()) == 1 and "2 critical findings recorded" in mine()[0]["subject"]
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "c.test")  # within 15 minutes, after the email
+    asyncio.run(notifications.deliver_pending_emails())
+    rows = [r for r in _mine(urls, nw["customer"], nw["org"]) if r["severity"] == "critical"]
+    assert [r["group_count"] for r in rows] == [2, 1] and [r["email_status"] for r in rows] == ["sent", "sent"]
+    assert len(mine()) == 2 and "Critical finding on c.test" in mine()[1]["subject"]
+
+
+def test_a_critical_finding_email_waits_for_its_scan_and_is_skipped_if_the_scan_fails(nw, urls, notification_mail):
+    claim = _claim(nw)  # the world's scan, now running
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test", scan_id=nw["scan"])
+    asyncio.run(notifications.deliver_pending_emails())
+    assert [m for m in notification_mail if nw["tag"] in m["to"]] == [], "nothing goes out while the scan runs"
+    ex.fail_claim(claim, RAW)
+    result = asyncio.run(notifications.deliver_pending_emails())
+    assert result["scan_not_completed"] >= 3 and [m for m in notification_mail if nw["tag"] in m["to"]] == []
+    rows = [r for r in _mine(urls, nw["customer"], nw["org"]) if r["type"] == "finding_critical"]
+    assert [r["email_status"] for r in rows] == ["skipped"], "the in-app notice stays; the email never goes"
+
+
+def test_a_critical_finding_email_goes_once_its_scan_has_completed(nw, urls, notification_mail):
+    core = ex.handoff_to_core(_claim(nw))
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test", scan_id=nw["scan"])
+    asyncio.run(notifications.deliver_pending_emails())
+    assert [m for m in notification_mail if nw["tag"] in m["to"]] == []
+    ex.finish_assessment(core, nw["org"], {"score": 50, "subscores": [], "factors": [], "risk_points": 1},
+                         {"scoring": {"status": "completed"}}, {"score": 50}, {"model": "test-v2", "scope": "organization"})
+    asyncio.run(notifications.deliver_pending_emails())
+    assert {m["to"] for m in notification_mail if nw["tag"] in m["to"]} == {
+        nw["customer_email"], nw["member_email"], f"adm-{nw['tag']}@views.test"}
+
+
+def test_the_per_recipient_lock_folds_a_burst_of_distinct_events_into_one_row(nw, urls):
+    keys = [f"burst:{uuid4()}" for _ in range(8)]
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda k: notifications.emit("asset_discovered", nw["org"], key=k,
+                                                   params={"hostname": "h.a.test"}), keys))
+    for uid in _members(nw):
+        rows = _mine(urls, uid, nw["org"])
+        assert len(rows) == 1 and rows[0]["group_count"] == 8, (uid, [(r["dedupe_key"], r["group_count"]) for r in rows])
+        assert sorted([rows[0]["dedupe_key"], *rows[0]["group_keys"]]) == sorted(keys)
+
+
+@pytest.fixture
+def second_owner(nw, urls):
+    uid = str(uuid4())
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO profiles (id, email, full_name, role, provider, email_verified_at) "
+                     "VALUES (%s,%s,'Second Owner','Member','email',now())", (uid, f"owner2-{nw['tag']}@views.test"))
+        conn.execute("INSERT INTO platform_owners (user_id, note) VALUES (%s, 'second test owner')", (uid,))
+    yield uid
+    with _admin(urls) as conn:
+        conn.execute("DELETE FROM profiles WHERE id = %s", (uid,))
+
+
+def test_an_owner_sees_and_marks_only_their_own_owner_rows(nw, urls, second_owner):
+    notifications.emit("org_unsuspended", nw["org"], key=f"t:{uuid4()}")
+    other = _rows(urls, "SELECT id FROM notifications WHERE audience = 'owner' AND user_id = %s AND org_id = %s",
+                  (second_owner, nw["org"]))
+    assert len(other) == 1
+    owner = _signed_in(nw)
+    listed = owner.get(f"{OWNER}/notifications").json()["notifications"]
+    assert str(other[0]["id"]) not in {n["id"] for n in listed} and any(n["org_id"] == nw["org"] for n in listed)
+    assert owner.post(f"{OWNER}/notifications/{other[0]['id']}/read", headers=ORIGIN).status_code == 404
+    owner.post(f"{OWNER}/notifications/read-all", headers=ORIGIN)
+    assert _rows(urls, "SELECT read_at FROM notifications WHERE id = %s", (other[0]["id"],))[0]["read_at"] is None
+
+
+def test_owner_rows_ignore_preferences_even_for_an_owner_who_is_also_a_muted_customer(nw, urls):
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO organization_members (user_id, org_id, role) VALUES (%s,%s,'member')",
+                     (nw["owner"], nw["org"]))
+    as_customer = _client(urls, nw["owner"], nw["org"])
+    for category in ("findings", "organisation"):
+        assert as_customer.put(f"{API}/preferences/{category}", json={"in_app": False, "email": False}).status_code == 200
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test")
+    notifications.emit("org_suspended", nw["org"], key=f"t:{uuid4()}")
+    assert _mine(urls, nw["owner"], nw["org"], "customer") == [], "their customer copy follows their mutes"
+    owner_rows = _mine(urls, nw["owner"], nw["org"], "owner")
+    assert sorted(r["type"] for r in owner_rows) == ["finding_critical", "org_suspended"]
+    assert {r["email_status"] for r in owner_rows} == {None}
+
+
+def test_the_customer_list_never_shows_owner_rows_to_an_owner_who_is_also_a_member(nw, urls):
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO organization_members (user_id, org_id, role) VALUES (%s,%s,'member')",
+                     (nw["owner"], nw["org"]))
+    notifications.emit("scan_failed", nw["org"], key=f"t:{uuid4()}", params={"code": "blocked"})
+    assert len(_mine(urls, nw["owner"], nw["org"], "owner")) == 1
+    as_customer = _client(urls, nw["owner"], nw["org"])
+    listed = as_customer.get(API).json()
+    assert len(listed["notifications"]) == 1 and listed["unread_count"] == 1
+    assert not listed["notifications"][0]["title"].startswith(nw["org_name"]), "the customer copy, not the owner copy"
+    owner_row = _mine(urls, nw["owner"], nw["org"], "owner")[0]["id"]
+    assert as_customer.patch(f"{API}/{owner_row}/read").status_code == 404
+
+
+def test_owner_console_rows_are_not_capped_but_customer_info_rows_are(nw, urls):
+    for _ in range(23):
+        notifications.emit("org_unsuspended", nw["org"], key=f"cap2:{uuid4()}")
+        with _admin(urls) as conn:  # read at once, so nothing folds
+            conn.execute("UPDATE notifications SET read_at = now() WHERE org_id = %s AND read_at IS NULL", (nw["org"],))
+    assert len(_mine(urls, nw["owner"], nw["org"], "owner")) == 23
+    assert len(_mine(urls, nw["customer"], nw["org"])) == notifications.DAILY_INFO_CAP
+
+
+def test_trigger_six_monthly_report_due(nw, urls, run_day):
+    from backend.app.compliance.reminders import dpo_period
+    now = datetime.now(timezone.utc)
+    asyncio.run(reminders.run_compliance_reminders(now=now, run_day=run_day()))
+    asyncio.run(reminders.run_compliance_reminders(now=now + timedelta(hours=3), run_day=run_day()))
+    # Owners and admins of a Growth organisation with a verified domain, once per half-year.
+    assert _recipients(urls, nw["org"], "compliance_report_due") == sorted([nw["customer"], nw["admin"]])
+    row = _mine(urls, nw["admin"], nw["org"])[0]
+    assert row["dedupe_key"] == f"dpo_report:{nw['org']}:{dpo_period(now)['key']}" and row["link"] == "/comply"

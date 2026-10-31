@@ -11,13 +11,18 @@
   backs the row's own key.
 * Grouping: another event of the same kind and severity for the same recipient and organisation within 15 minutes of
   the last one, while the row is unread, is folded into that row (group_count + 1, title and body re-rendered).
-* Daily cap: at most 20 info rows per recipient per UTC day; further info events are dropped. Warning and critical
-  events are never dropped.
+  A row whose email is already sending or sent is never folded into, so a later critical event gets its own row
+  and its own email; events folded into a still-pending row share that row's one email, which names the count.
+* Daily cap: at most 20 info rows per customer per UTC day; further info events are dropped. Warning and critical
+  events are never dropped. Owner-console rows are not capped (the console must see every owner-relevant event;
+  grouping still folds repeats).
 * Preferences: a customer's in-app mute drops the bell row; an email mute stops the email. Owner rows ignore customer
   preferences, so a mute never hides a critical event from the owner console (every critical kind is owner-relevant).
 * Email: only critical events, only to customers who have not muted email for the category. The row is marked
   'pending' and `deliver_pending_emails` sends it after the commit (finalize_scan, the suspend route, and the daily
-  sweep as catch-up). A row is claimed ('sending') before it is sent, so it is emailed at most once.
+  sweep as catch-up). A row is claimed ('sending') before it is sent, so it is emailed at most once. A finding
+  notice written during a scan (`email_after_scan`) waits until that scan has completed; if the scan fails or is
+  cancelled, its email is 'skipped' (the in-app row stays: the finding was recorded).
 
 Given `cur`, the rows are written inside the caller's transaction under a savepoint; otherwise in a transaction of
 their own. A notification failure never fails the caller (only ClaimLost propagates).
@@ -48,7 +53,8 @@ def slugify(text: str) -> str:
 
 # ── Emit ───────────────────────────────────────────────────────────────────
 def emit(kind: str, org_id: Any, *, key: str, params: Optional[Dict[str, Any]] = None, cur: Any = None,
-         recipients: Optional[Iterable[Any]] = None, actor_id: Optional[Any] = None) -> int:
+         recipients: Optional[Iterable[Any]] = None, actor_id: Optional[Any] = None,
+         email_after_scan: Optional[Any] = None) -> int:
     """Record one event for everyone it concerns. Returns the number of rows written or folded (0 on failure)."""
     if kind not in msg.KINDS or not org_id or not key:
         logger.warning("notification %s not emitted: unknown kind or missing key", kind)
@@ -56,11 +62,13 @@ def emit(kind: str, org_id: Any, *, key: str, params: Optional[Dict[str, Any]] =
     try:
         if cur is not None:
             with cur.connection.transaction():  # savepoint: a failure here rolls back alone
-                return _emit(cur, kind, str(org_id), key, dict(params or {}), recipients, actor_id)
+                return _emit(cur, kind, str(org_id), key, dict(params or {}), recipients, actor_id,
+                             email_after_scan)
         with database.get_db() as conn:
             with conn.transaction():
                 with conn.cursor() as own:
-                    return _emit(own, kind, str(org_id), key, dict(params or {}), recipients, actor_id)
+                    return _emit(own, kind, str(org_id), key, dict(params or {}), recipients, actor_id,
+                                 email_after_scan)
     except ClaimLost:
         raise
     except Exception:
@@ -70,12 +78,14 @@ def emit(kind: str, org_id: Any, *, key: str, params: Optional[Dict[str, Any]] =
 
 def emit_finding(org_id: Any, finding_id: Any, severity: Optional[str], hostname: Optional[str], *,
                  scan_id: Optional[Any] = None, reopened: bool = False) -> int:
-    """A finding became critical or high (new, raised, or seen again after it was resolved). Lower ratings: nothing."""
+    """A finding became critical or high (new, raised, or seen again after it was resolved). Lower ratings: nothing.
+    Given the scan that found it, the email waits until that scan completes."""
     kind = msg.FINDING_KIND_BY_SEVERITY.get((severity or "").lower())
     if kind is None:
         return 0
     key = f"finding:{finding_id}:{severity}" + (f":reopened:{scan_id}" if reopened else "")
-    return emit(kind, org_id, key=key, params={"hostname": hostname, "reopened": reopened})
+    return emit(kind, org_id, key=key, params={"hostname": hostname, "reopened": reopened},
+                email_after_scan=scan_id)
 
 
 def _fetchone(cur, sql: str, params: Sequence[Any]) -> Optional[Dict[str, Any]]:
@@ -104,7 +114,7 @@ def _customer_recipients(cur, kind: msg.Kind, org_id: str, recipients: Optional[
 
 
 def _emit(cur, kind_name: str, org_id: str, key: str, params: Dict[str, Any],
-          recipients: Optional[Iterable[Any]], actor_id: Optional[Any]) -> int:
+          recipients: Optional[Iterable[Any]], actor_id: Optional[Any], email_after_scan: Optional[Any]) -> int:
     kind = msg.KINDS[kind_name]
     org = _fetchone(cur, "SELECT name FROM organizations WHERE id = %s", (org_id,))
     if org is None:
@@ -122,12 +132,13 @@ def _emit(cur, kind_name: str, org_id: str, key: str, params: Dict[str, Any],
                     _fetchall(cur, "SELECT user_id FROM platform_owners ORDER BY user_id", ())]
     written = 0
     for audience, user_id in targets:
-        written += _write_one(cur, kind_name, kind, org_id, key, params, audience, user_id)
+        written += _write_one(cur, kind_name, kind, org_id, key, params, audience, user_id,
+                              str(email_after_scan) if email_after_scan else None)
     return written
 
 
 def _write_one(cur, kind_name: str, kind: msg.Kind, org_id: str, key: str, params: Dict[str, Any],
-               audience: str, user_id: str) -> int:
+               audience: str, user_id: str, email_scan_id: Optional[str] = None) -> int:
     in_app, email = True, False
     if audience == "customer":
         pref = _fetchone(cur, "SELECT in_app_muted, email_muted FROM notification_preferences "
@@ -147,8 +158,12 @@ def _write_one(cur, kind_name: str, kind: msg.Kind, org_id: str, key: str, param
         "SELECT id, group_count FROM notifications WHERE audience = %s AND user_id = %s AND org_id = %s "
         "AND type = %s AND severity = %s AND in_app = %s AND read_at IS NULL "
         f"AND coalesce(last_event_at, created_at) >= now() - interval '{GROUP_WINDOW_MINUTES} minutes' "
+        # Only into a row whose email is in the same state: none, or still waiting (never sending or sent), and
+        # waiting on the same scan.
+        "AND email_status IS NOT DISTINCT FROM %s AND email_scan_id IS NOT DISTINCT FROM %s::uuid "
         "ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
-        (audience, user_id, org_id, kind_name, kind.severity, in_app))
+        (audience, user_id, org_id, kind_name, kind.severity, in_app, "pending" if email else None,
+         email_scan_id if email else None))
     if group:
         count = int(group["group_count"]) + 1
         title, body = msg.render(kind_name, params, count, audience)
@@ -156,7 +171,7 @@ def _write_one(cur, kind_name: str, kind: msg.Kind, org_id: str, key: str, param
                     "last_event_at = now(), title = %s, body = %s WHERE id = %s",
                     (count, key, title, body, group["id"]))
         return 1
-    if kind.severity == "info" and in_app:
+    if kind.severity == "info" and in_app and audience == "customer":
         today = _fetchone(
             cur,
             "SELECT count(*) AS n FROM notifications WHERE audience = %s AND user_id = %s AND severity = 'info' "
@@ -168,19 +183,29 @@ def _write_one(cur, kind_name: str, kind: msg.Kind, org_id: str, key: str, param
     row = _fetchone(
         cur,
         "INSERT INTO notifications (org_id, user_id, audience, type, category, severity, title, body, link, "
-        "dedupe_key, last_event_at, in_app, email_status) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s) "
+        "dedupe_key, last_event_at, in_app, email_status, email_scan_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s) "
         "ON CONFLICT (audience, user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING RETURNING id",
         (org_id, user_id, audience, kind_name, kind.category, kind.severity, title, body, kind.link, key, in_app,
-         "pending" if email else None))
+         "pending" if email else None, email_scan_id if email else None))
     return 1 if row else 0
 
 
 # ── Email delivery (after the commit) ──────────────────────────────────────
+# A finding notice from a scan that failed, was cancelled or no longer exists is never emailed.
+SKIP_SQL = """
+UPDATE notifications n SET email_status = 'skipped'
+WHERE n.email_status = 'pending' AND n.email_scan_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM scans s WHERE s.id = n.email_scan_id AND s.status IN ('queued', 'running', 'completed'))
+RETURNING n.id
+"""
+# Only rows with no scan to wait for, or whose scan has completed.
 CLAIM_SQL = """
 UPDATE notifications n SET email_status = 'sending', email_attempted_at = now()
-FROM (SELECT id FROM notifications WHERE email_status = 'pending' ORDER BY created_at LIMIT %s
-      FOR UPDATE SKIP LOCKED) p
+FROM (SELECT id FROM notifications x WHERE x.email_status = 'pending'
+        AND (x.email_scan_id IS NULL
+             OR EXISTS (SELECT 1 FROM scans s WHERE s.id = x.email_scan_id AND s.status = 'completed'))
+      ORDER BY x.created_at LIMIT %s FOR UPDATE SKIP LOCKED) p
 WHERE n.id = p.id
 RETURNING n.id, n.org_id, n.user_id, n.category, n.title, n.body, n.link
 """
@@ -212,8 +237,9 @@ def _mark(ids: List[Any], status: str) -> None:
 
 async def deliver_pending_emails(limit: int = 100) -> Dict[str, int]:
     """Send the pending critical emails. Best effort: never raises."""
-    result = {"sent": 0, "failed": 0, "skipped": 0}
+    result = {"sent": 0, "failed": 0, "skipped": 0, "scan_not_completed": 0}
     try:
+        result["scan_not_completed"] = len(await asyncio.to_thread(database.execute_query, SKIP_SQL, ()) or [])
         rows = await asyncio.to_thread(database.execute_query, CLAIM_SQL, (max(1, min(limit, 500)),)) or []
     except Exception:
         logger.warning("pending notification emails could not be claimed", exc_info=True)

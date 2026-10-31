@@ -15,9 +15,12 @@
 --     last_event_at            when the newest folded event happened (the 15-minute window is measured from here).
 --     in_app                   false for a row kept only to carry a critical email to someone who muted the
 --                              category in the app but not by email; the bell never lists it.
---     email_status             NULL (no email for this row), 'pending', 'sending', 'sent' or 'failed'. Only critical
---                              events whose category the recipient has not muted for email are 'pending'. Delivery
---                              claims a row by moving it to 'sending' first, so a row is emailed at most once.
+--     email_status             NULL (no email for this row), 'pending', 'sending', 'sent', 'failed' or 'skipped'.
+--                              Only critical events whose category the recipient has not muted for email are
+--                              'pending'. Delivery claims a row by moving it to 'sending' first, so a row is emailed
+--                              at most once. A row never folds into one whose email is already sending or sent.
+--     email_scan_id            set on a finding notice written while its scan is still running: the email waits
+--                              until that scan has completed, and is 'skipped' if the scan fails or is cancelled.
 --   notification_preferences   one row per (user, category) the person has changed. No row means the defaults:
 --                              in-app on, email on (email is only ever sent for critical events in phase 1).
 --
@@ -44,6 +47,7 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS last_event_at timestamptz;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS in_app boolean NOT NULL DEFAULT true;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_status text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_attempted_at timestamptz;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_scan_id uuid;
 
 DO $$
 BEGIN
@@ -75,7 +79,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_email_status_check'
                  AND conrelid = 'public.notifications'::regclass) THEN
     ALTER TABLE notifications ADD CONSTRAINT notifications_email_status_check
-      CHECK (email_status IS NULL OR email_status IN ('pending', 'sending', 'sent', 'failed')) NOT VALID;
+      CHECK (email_status IS NULL OR email_status IN ('pending', 'sending', 'sent', 'failed', 'skipped')) NOT VALID;
   END IF;
   -- New rows always name a recipient; rows written before this migration have none.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_keyed_rows_have_recipient'

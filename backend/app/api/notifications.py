@@ -30,6 +30,10 @@ router = APIRouter(prefix="/api/v1/notifications", tags=["Notifications"])
 owner_router = APIRouter(prefix="/api/v1/owner/notifications", tags=["Owner console"])
 
 NOT_FOUND = "Notification not found."
+# What the email switch controls. Notification email goes out only for critical events; the compliance reminders
+# (an answer about to expire, the six-monthly report) keep their own emails, which the compliance email switch stops.
+EMAIL_NOTE = ("Email goes out for critical alerts, such as a critical finding or a suspension, and for compliance "
+              "reminders. Everything else stays in the app.")
 
 
 def _uuid(value: str) -> str:
@@ -78,7 +82,7 @@ class PreferenceBody(BaseModel):
 @router.get("/preferences")
 def get_preferences(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     return {"preferences": svc.get_preferences(str(user["id"])),
-            "email_note": "Email is sent only for critical alerts. Everything else stays in the app."}
+            "email_note": EMAIL_NOTE}
 
 
 @router.put("/preferences/{category}", dependencies=[Depends(refuse_demo_account)])

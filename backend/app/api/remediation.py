@@ -381,7 +381,7 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_active
             """,
             (task["f_id"], org["id"]),
         )
-        notifications.emit("finding_still_open", org["id"], key=f"recheck:{task_id}:{(updated_task or {}).get('updated_at')}",
+        notifications.emit("finding_still_open", org["id"], key=f"finding_still_open:{task_id}:{(updated_task or {}).get('updated_at')}",
                            params={"hostname": hostname}, actor_id=org.get("current_user_id"))
         log_audit(org["id"], org.get("current_user_id"), "remediation.recheck_failed",
                   "remediation_task", task_id, {"hostname": hostname, "detector": detector["name"]})
@@ -407,7 +407,7 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_active
         """,
         (task["f_id"], org["id"]),
     )
-    notifications.emit("finding_resolved", org["id"], key=f"recheck:{task_id}:{(updated_task or {}).get('updated_at')}",
+    notifications.emit("finding_resolved", org["id"], key=f"finding_resolved:recheck:{task_id}:{(updated_task or {}).get('updated_at')}",
                        params={"hostname": hostname, "recheck": True}, actor_id=org.get("current_user_id"))
     log_audit(org["id"], org.get("current_user_id"), "remediation.verified",
               "remediation_task", task_id,

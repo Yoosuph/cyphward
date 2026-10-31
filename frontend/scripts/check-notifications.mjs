@@ -96,8 +96,13 @@ async function open(route, { width = 1440, height = 900, theme = "dark" } = {}) 
   const tab = await h.newPage({ theme });
   await tab.page.evaluateOnNewDocument(() => {
     window.__intervals = [];
+    window.__ticks = [];
     const orig = window.setInterval.bind(window);
-    window.setInterval = (fn, ms, ...rest) => { window.__intervals.push(ms); return orig(fn, ms, ...rest); };
+    window.setInterval = (fn, ms, ...rest) => {
+      window.__intervals.push(ms);
+      if (ms === 60000) window.__ticks.push(fn);  // the bell's poll, run on demand below
+      return orig(fn, ms, ...rest);
+    };
   });
   await tab.page.setViewport({ width, height });
   await tab.page.goto(`${h.origin}${route}`, { waitUntil: "domcontentloaded" });
@@ -107,6 +112,7 @@ async function open(route, { width = 1440, height = 900, theme = "dark" } = {}) 
 const text = (pg) => pg.evaluate(() => document.body.innerText);
 const badge = (pg) => pg.$eval('[data-testid="notif-count"]', (e) => e.textContent).catch(() => null);
 const bellLabel = (pg) => pg.$eval('[data-testid="notif-bell"]', (e) => e.getAttribute("aria-label"));
+const tick = (pg) => pg.evaluate(() => { for (const fn of window.__ticks) fn(); });
 const states = (pg) => pg.$$eval('[data-testid="notif-item"]', (els) => els.map((e) => `${e.dataset.id}:${e.dataset.read}`));
 
 try {
@@ -126,6 +132,10 @@ try {
     await pg.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await settle(pg, 300);
     assert.ok(net.lists > afterFocus, "coming back to the tab asks again");
+    const beforeTick = net.lists;
+    await tick(pg);
+    await settle(pg, 300);
+    assert.ok(net.lists > beforeTick, "the 60-second poll asks for the newest page and its count");
 
     // 2. The panel: grouped by day, read and unread states, mark read, mark all read.
     await pg.click('[data-testid="notif-bell"]');
@@ -171,6 +181,14 @@ try {
       stops.push(await pg.evaluate(() => document.activeElement?.closest('[data-testid="notif-panel"]') ? document.activeElement.className.split(" ")[0] || document.activeElement.tagName : "outside"));
     }
     assert.ok(stops.includes("notif-open") && stops.includes("notif-tool"), `Tab reaches the items and their marks: ${stops}`);
+    // Focus stays inside the open panel: many Tabs, then Shift+Tab from the heading, never leave it.
+    for (let i = 0; i < 25; i++) {
+      await pg.keyboard.press("Tab");
+      assert.ok(await pg.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="notif-panel"]'))), `Tab ${i} stayed inside`);
+    }
+    await pg.focus('[data-testid="notif-panel"] .notif-title');
+    await pg.keyboard.down("Shift"); await pg.keyboard.press("Tab"); await pg.keyboard.up("Shift");
+    assert.ok(await pg.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="notif-panel"]'))), "Shift+Tab wraps inside");
     await pg.keyboard.press("Escape");
     await settle(pg, 200);
     assert.equal(await pg.$('[data-testid="notif-panel"]'), null, "Escape closes");
@@ -186,6 +204,9 @@ try {
     assert.equal(await pg.$eval("#settings-tab-notifications", (t) => t.getAttribute("aria-selected")), "true", "the link opens the tab");
     assert.equal(await pg.$$eval('[data-testid="notif-pref"]', (r) => r.length), 6);
     assert.ok(await pg.$('[data-testid="notif-pref"][data-category="findings"].is-focus'), "the linked category is highlighted");
+    const note = await pg.$eval('[data-testid="notif-settings-panel"]', (e) => e.innerText);
+    assert.match(note, /critical alerts, such as a critical finding or a suspension, and for compliance reminders/);
+    assert.ok(!/only for critical/i.test(note), "the email note does not overstate what is emailed");
     const sw = (cat, ch) => `[data-testid="notif-pref"][data-category="${cat}"] [data-testid="notif-switch-${ch}"]`;
     await pg.click(sw("findings", "in_app"));
     await settle(pg, 300);
@@ -248,6 +269,16 @@ try {
     await pg.waitForSelector('[data-testid="notif-item"]');
     assert.equal(net.ownerLists, 1);
     assert.match(await pg.$eval('[data-testid="notif-panel"]', (e) => e.innerText), /Acme Traders: Critical finding/);
+    // With the panel open, the poll, a focus and a visibility change ask for the count only, never the list
+    // (the list is audited and counts as activity; the count route does neither).
+    const counts = net.ownerCounts;
+    for (let i = 0; i < 3; i++) {
+      await tick(pg);
+      await pg.evaluate(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+      await settle(pg, 200);
+    }
+    assert.equal(net.ownerLists, 1, "the list is not polled while the panel is open");
+    assert.ok(net.ownerCounts > counts, "the count is");
     await pg.click('[data-testid="notif-item"] .notif-open');
     await settle(pg, 400);
     assert.deepEqual(net.ownerReads, ["o1"]);
