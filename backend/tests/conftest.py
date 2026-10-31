@@ -214,6 +214,20 @@ class FakeStore:
                                         for m in self.memberships) else []
         if s.startswith("SELECT org_id FROM organization_suspensions WHERE status = 'suspended'"):
             return [{"org_id": oid} for oid in params[0] if self.suspensions.get(str(oid)) == "suspended"]
+        if s.startswith("SELECT 1 AS owns_deleted FROM organization_members m JOIN organization_suspensions os"):
+            uid = str(params[0])
+            return [{"owns_deleted": 1}] if any(m["user_id"] == uid and m["role"] == "owner"
+                                                and self.suspensions.get(str(m["org_id"])) == "deleted"
+                                                for m in self.memberships) else []
+        # core/auth._member_of_deleted: is the caller a member of a deleted organisation (optionally this one)?
+        if s.startswith("SELECT 1 AS deleted_member FROM organization_members m"):
+            user_id, target = str(params[0]), params[1]
+            for m in self.memberships:
+                org = self.organizations.get(m["org_id"])
+                if (m["user_id"] == user_id and org and self.suspensions.get(str(m["org_id"])) == "deleted"
+                        and (target is None or str(org["id"]) == target or org["slug"] == target)):
+                    return [{"deleted_member": 1}]
+            return []
 
         if s == 'SELECT clock_timestamp() AS claim_now':
             return [{'claim_now': datetime.now(timezone.utc)}]
@@ -225,7 +239,7 @@ class FakeStore:
                 if scan_id and str(row['id']) != str(scan_id): continue
                 dom=next((d for d in self.domains if d['id']==row['domain_id'] and d['org_id']==row['org_id']),None)
                 eligible=row['status']=='queued' or (row['status']=='running' and row.get('execution_phase')==phase and row.get('lease_expires_at') and row['lease_expires_at'] < datetime.now(timezone.utc))
-                if self.suspensions.get(str(row['org_id'])) == 'suspended': continue
+                if self.suspensions.get(str(row['org_id'])) in ('suspended', 'deleted'): continue
                 if eligible and row.get('execution_phase') in (None,phase) and row.get('current_stage') not in core_stages and dom and dom['verification_status']=='verified':
                     return [{**row,'domain':dom['domain']}]
             return []
@@ -1472,7 +1486,7 @@ class FakeStore:
                 if m["user_id"] != user_id:
                     continue
                 org = self.organizations.get(m["org_id"])
-                if org:
+                if org and self.suspensions.get(str(m["org_id"])) != "deleted":
                     rows.append({**org, "role": m["role"]})
             rows.sort(key=lambda r: r["created_at"])
             return rows
@@ -1484,6 +1498,8 @@ class FakeStore:
                 if m["user_id"] != user_id:
                     continue
                 org = self.organizations.get(m["org_id"])
+                if self.suspensions.get(str(m["org_id"])) == "deleted":
+                    continue  # deleted organisations are left out of membership resolution (core/auth.py)
                 if org and (str(org["id"]) == target or org["slug"] == target):
                     return [{**org, "membership_role": m["role"], "current_user_id": current_user_id}]
             return []
@@ -1511,6 +1527,7 @@ class FakeStore:
                 {**self.organizations[m["org_id"]], "membership_role": m["role"], "current_user_id": current_user_id}
                 for m in self.memberships
                 if m["user_id"] == user_id and m["org_id"] in self.organizations
+                and self.suspensions.get(str(m["org_id"])) != "deleted"
             ]
             rows.sort(key=lambda r: r["created_at"])
             return rows

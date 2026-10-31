@@ -70,6 +70,8 @@ def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> L
             FROM organization_members m
             JOIN organizations o ON o.id = m.org_id
             WHERE m.user_id = %s
+              AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                              WHERE os.org_id = o.id AND os.status = 'deleted')
             ORDER BY o.created_at ASC
             """,
             (user["id"],),

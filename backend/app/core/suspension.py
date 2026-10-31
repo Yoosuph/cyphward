@@ -16,6 +16,12 @@ The rule the founder approved:
   suspension is lifted.
 * Owner console actions are never blocked.
 
+Deletion (docs/admin-delete-org/README.md) is a third status in the same table. A deleted organisation is gone as far
+as its customers can tell: it is left out of their memberships, so sign-in no longer offers it and every route that
+resolves it answers 404 (core/auth.py get_current_org); `ensure_active` answers 404 for it too. Its scheduled and
+queued scans are skipped like a suspended organisation's (queued ones are cancelled when it is deleted). Its owners
+cannot create a new organisation either. Only the owner console sees it, and it can be restored for 30 days.
+
 Every customer write route takes one of the gate dependencies below (`require_active_org` or a role gate built on
 it). `test_suspension_gate.py` walks every POST/PUT/PATCH/DELETE route under /api/v1 and fails if one neither uses
 a gate nor sits on its short, reviewed allow-list, so a new route cannot forget the check.
@@ -31,6 +37,10 @@ from backend.app.core.auth import get_current_org, get_current_user, membership_
 from backend.app.core.database import execute_one
 
 SUSPENDED_CODE = "organization_suspended"
+DELETED = "deleted"
+# The statuses that stop scans and writes (the suspension rule, and deletion).
+PAUSED_STATUSES = ("suspended", DELETED)
+NOT_FOUND = "Organization not found."
 # Reviewed wording. Plain English, no claim language (test_suspension_gate.py).
 SUSPENDED_MESSAGE = (
     "This organisation is suspended, so changes are paused. You can still sign in and read your dashboards, "
@@ -43,6 +53,14 @@ SUSPENDED_MESSAGE = (
 SUSPENDED_OWNER_MESSAGE = (
     "An organisation you own is suspended, so you cannot create a new one for now. To ask about it, contact us at "
     "info@cyphward.com or through the contact page."
+)
+
+
+# Reviewed wording for the new-organisation refusal when the person owns a deleted organisation. A plain message (not
+# the suspension code), so the customer app never shows the suspension banner for it.
+DELETED_OWNER_MESSAGE = (
+    "An organisation you own has been closed by Cyphward, so you cannot create a new one for now. To ask about it, "
+    "contact us at info@cyphward.com or through the contact page."
 )
 
 
@@ -71,9 +89,25 @@ def suspended_ids(org_ids: Iterable[Any]) -> Set[str]:
     return {str(r["org_id"]) for r in rows}
 
 
+def status_of(org_id: Any) -> Optional[str]:
+    """'suspended', 'deleted', 'active' or None (no row, which means active)."""
+    if not org_id:
+        return None
+    row = execute_one("SELECT status FROM organization_suspensions WHERE org_id = %s", (str(org_id),))
+    return (row or {}).get("status")
+
+
+def is_deleted(org_id: Any) -> bool:
+    return status_of(org_id) == DELETED
+
+
 def ensure_active(org_id: Any) -> None:
-    """Refuse (403, organization_suspended) when the organisation is suspended."""
-    if is_suspended(org_id):
+    """Refuse when the organisation is suspended (403, organization_suspended) or deleted (404, as if it did not
+    exist: a deleted organisation is never described to its customers)."""
+    status = status_of(org_id)
+    if status == DELETED:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    if status == "suspended":
         raise suspended_refusal()
 
 
@@ -93,7 +127,8 @@ def require_active_org(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[s
 @suspension_gate
 def refuse_suspended_owner(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """For creating a new organisation: refused (403, organization_suspended) when the person owns any suspended
-    organisation, so a suspension cannot be stepped around with a fresh workspace."""
+    organisation, so a suspension cannot be stepped around with a fresh workspace. Owning a deleted organisation is
+    refused the same way, with its own plain message."""
     row = execute_one(
         "SELECT 1 AS owns FROM organization_members m JOIN organization_suspensions os ON os.org_id = m.org_id "
         "WHERE m.user_id = %s AND m.role = 'owner' AND os.status = 'suspended' LIMIT 1",
@@ -101,6 +136,13 @@ def refuse_suspended_owner(user: Dict[str, Any] = Depends(get_current_user)) -> 
     )
     if row:
         raise HTTPException(status_code=403, detail={"code": SUSPENDED_CODE, "message": SUSPENDED_OWNER_MESSAGE})
+    deleted = execute_one(
+        "SELECT 1 AS owns_deleted FROM organization_members m JOIN organization_suspensions os ON os.org_id = m.org_id "
+        "WHERE m.user_id = %s AND m.role = 'owner' AND os.status = 'deleted' LIMIT 1",
+        (str(user["id"]),),
+    )
+    if deleted:
+        raise HTTPException(status_code=403, detail=DELETED_OWNER_MESSAGE)
     return user
 
 

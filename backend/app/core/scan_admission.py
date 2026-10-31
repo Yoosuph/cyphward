@@ -70,7 +70,8 @@ def admit_scan(
                     # replay lookup: a suspended organisation gets no scan, not even a replayed one.
                     cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s", (org_id,))
                     suspension = cur.fetchone()
-                    if suspension and suspension["status"] == "suspended":
+                    # A deleted organisation (owner console) is refused the same way.
+                    if suspension and suspension["status"] in ("suspended", "deleted"):
                         return Admission("suspended")
 
                     # Request mapping first: a retry remains a replay even after

@@ -88,6 +88,8 @@ ACTIVE_SQL = """
       AND EXISTS (SELECT 1 FROM auth_sessions s WHERE s.id = %(sid)s AND s.user_id = p.id AND s.revoked_at IS NULL
                   AND s.expires_at > clock_timestamp())
       AND NOT EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = g.org_id AND m.user_id = p.id)
+      -- A deleted organisation (owner console, core/suspension.py) gives outside reviewers nothing to see.
+      AND NOT EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = g.org_id AND os.status = 'deleted')
 """
 
 
