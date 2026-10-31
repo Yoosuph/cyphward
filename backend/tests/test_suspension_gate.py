@@ -269,7 +269,9 @@ def test_the_sweep_and_the_claim_leave_suspended_organisations_out_in_sql():
     import inspect
     from backend.app.core import scan_execution
     from backend.app.workflows import inngest_workflow as wf
-    for source in (inspect.getsource(wf._daily_scan_sweep), inspect.getsource(scan_execution.claim_recon)):
+    from backend.app.core import browser_jobs, scan_recovery
+    for source in (inspect.getsource(wf._daily_scan_sweep), inspect.getsource(scan_execution.claim_recon),
+                   scan_recovery.LOCAL_QUEUE_SQL, inspect.getsource(browser_jobs.claim)):
         flat = " ".join(source.split())
         assert "NOT EXISTS (SELECT 1 FROM organization_suspensions os" in flat
         assert "status='suspended'" in flat.replace(" = ", "=")
@@ -339,6 +341,10 @@ def test_member_role_changes_while_suspended(client, store, auth_headers):
     assert _refused(client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "admin"}))
     assert next(m for m in store.memberships if m["user_id"] == BOB and m["org_id"] == ORG_A)["role"] == "member"
     assert _refused(client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "owner"}))
+    # admin -> owner is a promotion too (ADMI was lowered above, so use another admin).
+    store.memberships.append({"user_id": CAROL, "org_id": ORG_A, "role": "admin"})
+    assert _refused(client.patch(f"/api/v1/members/{CAROL}", headers=headers, json={"role": "owner"}))
+    assert next(m for m in store.memberships if m["user_id"] == CAROL and m["org_id"] == ORG_A)["role"] == "admin"
     assert client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "member"}).status_code == 200
     withdraw = client.delete(f"/api/v1/members/invites/{uuid4()}", headers=headers)
     assert withdraw.status_code == 404 and _not_suspension_refusal(withdraw)  # past the gate; no such invitation

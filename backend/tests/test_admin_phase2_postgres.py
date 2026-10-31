@@ -397,3 +397,85 @@ def test_new_organisation_refused_only_for_owners_of_a_suspended_organisation(wo
                             (f"Fresh Start {world['tag']}",)).fetchone()["n"] == 0
         conn.execute("DELETE FROM organizations WHERE id = %s", (made.json()["organization"]["id"],))
         conn.execute("DELETE FROM audit_log WHERE resource_id = %s", (str(made.json()["organization"]["id"]),))
+
+
+# ── Review follow-ups: local queue, browser claim, new-organisation rule ──
+def test_a_suspended_organisations_old_queued_scan_does_not_block_local_recovery(world, more, urls):
+    """Local mode takes the oldest runnable scans; a suspended organisation's must not hold those slots."""
+    from backend.app.core.database import execute_query
+    from backend.app.core.scan_recovery import LOCAL_QUEUE_SQL
+    other_scan = str(uuid4())
+    with _admin(urls) as conn:
+        conn.execute("UPDATE domains SET verification_status = 'verified', verified_at = now() WHERE id = %s",
+                     (more["domain_b"],))
+        conn.execute("INSERT INTO scans (id, org_id, domain_id, status, scan_type, created_at) "
+                     "VALUES (%s, %s, %s, 'queued', 'EXTERNAL_ASSESSMENT', now() - interval '1 minute')",
+                     (other_scan, more["org_b"], more["domain_b"]))
+        # Only these two runnable scans may be in the way: world's (20 minutes old) and org B's (1 minute old).
+        older = conn.execute(
+            "SELECT count(*) AS n FROM scans s JOIN domains d ON d.id = s.domain_id WHERE s.status = 'queued' "
+            "AND d.verification_status = 'verified' AND s.created_at < now() - interval '1 minute' "
+            "AND s.id NOT IN (%s, %s)", (world["scan"], other_scan)).fetchone()["n"]
+    assert older == 0, "leftover queued scans in the test database"
+    assert [str(r["id"]) for r in execute_query(LOCAL_QUEUE_SQL, (1,))] == [world["scan"]]  # oldest first
+    owner = _signed_in(world)
+    _suspend(owner, world)
+    assert [str(r["id"]) for r in execute_query(LOCAL_QUEUE_SQL, (1,))] == [other_scan]
+    _unsuspend(owner, world)
+    assert [str(r["id"]) for r in execute_query(LOCAL_QUEUE_SQL, (1,))] == [world["scan"]]
+    with _admin(urls) as conn:
+        conn.execute("DELETE FROM scans WHERE id = %s", (other_scan,))
+
+
+def test_a_suspended_organisations_browser_job_waits_until_unsuspended(world, more, urls):
+    from backend.app.core import browser_jobs
+    with _admin(urls) as conn:
+        job = conn.execute("INSERT INTO privacy_browser_jobs (org_id, domain_id) VALUES (%s, %s) RETURNING id",
+                           (world["org"], world["domain"])).fetchone()["id"]
+    owner = _signed_in(world)
+    _suspend(owner, world)
+    seen = []
+    try:
+        while (claimed := browser_jobs.claim("phase2-browser-test")) is not None:  # drain anyone else's jobs
+            seen.append(claimed.job_id)
+        assert str(job) not in seen
+        with _admin(urls) as conn:
+            assert conn.execute("SELECT status FROM privacy_browser_jobs WHERE id = %s", (job,)).fetchone()["status"] == "queued"
+        _unsuspend(owner, world)
+        claimed = browser_jobs.claim("phase2-browser-test")
+        assert claimed is not None and claimed.job_id == str(job)
+    finally:
+        with _admin(urls) as conn:
+            conn.execute("DELETE FROM privacy_browser_jobs WHERE id = %s OR id = ANY(%s::uuid[])", (job, seen))
+
+
+def test_new_organisation_member_of_suspended_allowed_and_owner_allowed_after_unsuspend(world, more, urls):
+    """Both halves of refuse_suspended_owner's condition: the person must be an owner (a plain member may still
+    create one) and the suspension must be in force (status 'active' after unsuspend no longer refuses)."""
+    from backend.app.core import sessions
+    owner = _signed_in(world)
+    _suspend(owner, world)
+    client = TestClient(app)
+    created = []
+
+    def create(user_id, name):
+        with _admin(urls) as conn:
+            profile = conn.execute("SELECT * FROM profiles WHERE id = %s", (user_id,)).fetchone()
+        token = sessions.issue_session(profile)["access_token"]
+        resp = client.post("/api/v1/organizations", headers={"Authorization": f"Bearer {token}"}, json={"name": name})
+        if resp.status_code == 201:
+            created.append(resp.json()["organization"]["id"])
+        return resp
+
+    try:
+        member = create(more["member"], f"Member Side Org {world['tag']}")  # plain member of the suspended org
+        assert member.status_code == 201, member.text
+        assert _refused(create(world["customer"], f"Owner Org {world['tag']}"))
+        _unsuspend(owner, world)
+        again = create(world["customer"], f"Owner Org {world['tag']}")
+        assert again.status_code == 201, again.text
+    finally:
+        with _admin(urls) as conn:
+            for org_id in created:
+                conn.execute("DELETE FROM audit_log WHERE resource_id = %s", (str(org_id),))
+                conn.execute("DELETE FROM organizations WHERE id = %s", (org_id,))
