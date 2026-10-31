@@ -4,7 +4,7 @@ Deleting is done in two separate owner actions. A third action undoes the first.
 
 1. **Delete (soft delete).** The organisation is marked `deleted`. Nothing is removed, and it can be restored for 30 days.
 2. **Restore.** This undoes a soft delete inside the 30-day window.
-3. **Purge.** This is only possible after the window. It permanently removes the organisation's data, and it is refused while any compliance record is still inside its retention period.
+3. **Purge.** This is only possible after the window. It permanently removes the organisation's data. It is refused while any compliance record is still inside its retention period, or while any breach incident was opened in the last 6 years.
 
 There is no automatic purge job. Every purge is an explicit owner action, run by following the runbook below.
 
@@ -40,7 +40,7 @@ What a deleted organisation means for customers:
 | --- | --- | --- | --- |
 | `POST /api/v1/owner/organizations/{org_id}/delete` | `require_owner_mutation` (owner console cookie session + exact console Origin; a bearer token is refused) | `confirm_name` = the exact name | wrong name; already deleted; protected organisation; active paid subscription |
 | `POST /api/v1/owner/organizations/{org_id}/restore` | `require_owner_mutation` | `confirm_name` | wrong name; not deleted; restore window passed |
-| `POST /api/v1/owner/organizations/{org_id}/purge` | `require_owner_mutation` | `confirm_name` and `confirm_word` = `DELETE` (exact, capitals) | wrong name; wrong word; not deleted; protected organisation; window not passed; records retained (`detail.code = retention_hold` with counts only) |
+| `POST /api/v1/owner/organizations/{org_id}/purge` | `require_owner_mutation` | `confirm_name` and `confirm_word` = `DELETE` (exact, capitals) | wrong name; wrong word; not deleted; protected organisation; window not passed; records retained or a breach incident opened in the last 6 years (`detail.code = retention_hold` with counts only) |
 
 All three also need a written `reason` (5 to 500 characters), which is kept in the owner log only.
 
@@ -102,19 +102,29 @@ The purge is refused while any of these is still inside the organisation's reten
 | assessment snapshot | `created_at` (the "retain until" snapshots already show) |
 | compliance document | the latest of `generated_at` and the document's latest approval |
 | evidence file | the latest of `uploaded_at` and `removed_at`; files already removed count too |
+| breach incident | a fixed **6 years** (not the organisation's setting) from when it was opened: the latest of `detected_at`, `became_aware_at` and `created_at` |
+
+Attestations (questionnaire answers) are not held back. They are removed with the organisation.
 
 A record is retained while its date plus the period is after `now()`. This uses the same calendar month arithmetic as `snapshots.store.add_months`, and the purge sets the session time zone to UTC first. `test_the_retention_period_in_sql_matches_add_months` checks the month-end cases.
 
-**What is an extension.** Before this change, the code had a written retention date only for snapshots and packs. The dates used for reviewer grants, documents and evidence files are this PR's reading of the same rule. They are always the latest event of each record, which is the conservative choice. If the founder or counsel wants a different start date for any of them, change `RETENTION_SQL` in `org_guard.py`.
+**Founder decisions (2026-10-31):**
+- Snapshots and packs keep their existing rule.
+- Reviewer grants, compliance documents and evidence files are measured from the record's last event date, as listed above.
+- Breach incidents hold the purge for 6 years from when they were opened.
+- Attestations are removed with the organisation.
+- The `GRANT UPDATE (deleted_at, deleted_by)` added by the migration is approved.
 
-The refusal returns counts only (`reviewer_grants`, `packs`, `snapshots`, `documents`, `evidence_files`, and `retention_months`), never record contents. The console words them itself.
+The rules live in `RETENTION_SQL` in `org_guard.py`.
+
+The refusal returns counts only (`reviewer_grants`, `packs`, `snapshots`, `documents`, `evidence_files`, `incidents`, plus `retention_months` and `incident_retention_years`), never record contents. The console words them itself.
 
 ## Purge: what it does
 
 One transaction, run with `SET LOCAL lock_timeout = '5s'`, `statement_timeout = '60s'` and `TimeZone = 'UTC'`:
 
 1. Lock the organisation, its subscription and its status rows. This is the same lock order as the other owner actions.
-2. Check the name, the word, the status, the protection, the window and the retention.
+2. Check the name, the word, the status, the protection, the window, the retention and the 6-year incident period.
 3. Count what will go, for the audit row.
 4. Queue the organisation in `compliance_evidence_purge_queue`, using the same statement as the customer's own closing (`evidence_file_store.QUEUE_PURGE_SQL`), on the same transaction. The queue entry therefore commits only together with the deletion.
 5. `DELETE FROM organizations WHERE id = ...`. Members, domains, assets, scans, findings, reports, invitations, activity, subscriptions, invoices and every compliance table cascade. People keep their own accounts.

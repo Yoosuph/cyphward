@@ -191,10 +191,16 @@ def test_retention_covers_every_record_type_named_in_the_rule():
     sql = " ".join(org_guard.RETENTION_SQL.split())
     for table in ("compliance_reviewer_grants", "evidence_packs", "assessment_snapshots", "compliance_documents",
                   "compliance_evidence_files", "compliance_practitioner_reviews", "compliance_clause_verifications",
-                  "compliance_document_approvals"):
+                  "compliance_document_approvals", "compliance_incidents"):
         assert f"FROM {table}" in sql, table
     assert "make_interval(months => evidence_retention_months)" in sql
-    assert org_guard.RETAINED_KINDS == ("reviewer_grants", "packs", "snapshots", "documents", "evidence_files")
+    assert org_guard.RETAINED_KINDS == ("reviewer_grants", "packs", "snapshots", "documents", "evidence_files",
+                                        "incidents")
+    # Breach incidents: a fixed six years from when the incident was opened (founder decision, 2026-10-31).
+    assert org_guard.INCIDENT_RETENTION_YEARS == 6
+    assert "GREATEST(i.detected_at, i.became_aware_at, i.created_at) + make_interval(years => %(incident_years)s)" in sql
+    # Attestations are removed with the organisation, not held back.
+    assert "compliance_attestations" not in sql
 
 
 # ── Wording ────────────────────────────────────────────────────────────────

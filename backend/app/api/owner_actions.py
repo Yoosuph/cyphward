@@ -37,7 +37,8 @@ Deleting an organization (docs/admin-delete-org/README.md) has three actions:
 `delete` (a soft delete: status 'deleted', hidden from customers and from the
 owner lists, queued scans cancelled), `restore` (within 30 days) and `purge`
 (only after those 30 days, with the name and the word DELETE typed, and only
-when no compliance record is still inside its retention period; it deletes the
+when no compliance record is still inside its retention period and no breach
+incident was opened in the last six years; it deletes the
 organization row, its tenant data cascades, and its stored evidence files are
 queued for the reconcile script). Guardrails are in core/org_guard.py. Every
 other organization action refuses a deleted organization until it is restored.
@@ -537,7 +538,8 @@ def purge_organization(org_id: str, body: PurgeBody, request: Request,
     """Permanently remove a deleted organization's data, after the restore window, in one transaction.
 
     Needs the exact name and the word DELETE. Refused (with counts only) while any reviewer grant, pack, snapshot,
-    compliance document or evidence file is still inside its retention period (core/org_guard.py). The organization
+    compliance document or evidence file is still inside its retention period, or any breach incident was opened in
+    the last six years (core/org_guard.py). The organization
     row is deleted and its tenant data cascades, as the customer's own closing does; the owner audit keeps the
     record. Stored evidence files are queued in compliance_evidence_purge_queue in the same transaction and deleted
     later by backend/scripts/reconcile_evidence_files.py, never inline."""
@@ -565,7 +567,9 @@ def purge_organization(org_id: str, body: PurgeBody, request: Request,
         if any(held.values()):
             raise HTTPException(status_code=409, detail={"code": RETENTION_HOLD_CODE, "message": RETENTION_HOLD,
                                                          "counts": held,
-                                                         "retention_months": counts["retention_months"]})
+                                                         "retention_months": counts["retention_months"],
+                                                         "incident_retention_years":
+                                                             org_guard.INCIDENT_RETENTION_YEARS})
         cur.execute(
             "SELECT (SELECT count(*) FROM organization_members WHERE org_id = %(o)s) AS members, "
             "(SELECT count(*) FROM domains WHERE org_id = %(o)s) AS domains, "

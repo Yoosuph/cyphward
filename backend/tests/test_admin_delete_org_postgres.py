@@ -311,7 +311,7 @@ def test_purge_is_refused_for_an_organisation_that_is_not_deleted(world, more, u
     assert _org_exists(urls, world["org"])
 
 
-def _compliance_records(urls, world, age: str, retention_months: int = 12):
+def _compliance_records(urls, world, age: str, retention_months: int = 12, incident_age: str = None):
     """One reviewer grant (with a practitioner review and a clause verification), a snapshot and a pack on it, a
     document with an approval, and an evidence file, all dated `age` ago. Written as the database owner with
     triggers off, since the guards refuse back-dated or post-expiry rows (they stay on for the purge itself)."""
@@ -350,6 +350,15 @@ def _compliance_records(urls, world, age: str, retention_months: int = 12):
             conn.execute(f"INSERT INTO compliance_evidence_files (id, org_id, question_key, display_name, content_type, "
                          f"size_bytes, sha256, storage_path, uploaded_at) VALUES (%s,%s,'q1','policy.pdf',"
                          f"'application/pdf',10,%s,%s,{at})", (ids["file"], org, SHA, f"org/{org}/{ids['file']}"))
+            if incident_age:
+                opened = f"now() - interval '{incident_age}'"
+                conn.execute(f"INSERT INTO compliance_incidents (org_id, title, severity, status, detected_at, "
+                             f"became_aware_at, created_at, updated_at) VALUES (%s,'Mailbox exposed','high','closed',"
+                             f"{opened},{opened},{opened},{opened})", (org,))
+            # A recent attestation: attestations are not held back; they go with the organisation.
+            conn.execute("INSERT INTO compliance_attestations (org_id, question_key, questionnaire_version, answer, "
+                         "expires_at) VALUES (%s, 'q1', 't', '{\"value\": \"yes\"}'::jsonb, now() + interval '300 days')",
+                         (org,))
         finally:
             conn.execute("SET session_replication_role = origin")
     return ids
@@ -370,7 +379,8 @@ def test_purge_is_refused_while_records_are_retained_and_shows_counts(world, mor
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
     assert detail["code"] == "retention_hold" and detail["retention_months"] == 12
-    assert detail["counts"] == {"reviewer_grants": 1, "packs": 1, "snapshots": 1, "documents": 1, "evidence_files": 1}
+    assert detail["counts"] == {"reviewer_grants": 1, "packs": 1, "snapshots": 1, "documents": 1, "evidence_files": 1,
+                                "incidents": 0}
     assert detail["message"].startswith("Some records of this organization are still inside")
     assert "ndpa" not in resp.text and "policy.pdf" not in resp.text, "counts only, no record contents"
     assert _org_exists(urls, world["org"])
@@ -394,12 +404,50 @@ def test_one_retained_record_type_is_enough_to_refuse(world, more, urls):
     resp = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
     assert resp.status_code == 409
     assert resp.json()["detail"]["counts"] == {"reviewer_grants": 0, "packs": 0, "snapshots": 1, "documents": 0,
-                                               "evidence_files": 0}
+                                               "evidence_files": 0, "incidents": 0}
+    _cleanup_reviewer(urls, ids)
+
+
+def test_a_breach_incident_opened_within_six_years_refuses_the_purge(world, more, urls):
+    """Founder decision (2026-10-31): incidents are kept six years, whatever the organisation's retention setting."""
+    ids = _compliance_records(urls, world, "13 months", retention_months=12, incident_age="5 years 11 months")
+    owner = _signed_in(world)
+    _delete(owner, world)
+    _age_deletion(urls, world["org"], 31)
+    resp = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["counts"] == {"reviewer_grants": 0, "packs": 0, "snapshots": 0, "documents": 0, "evidence_files": 0,
+                                "incidents": 1}
+    assert detail["incident_retention_years"] == 6
+    assert "Mailbox exposed" not in resp.text, "counts only"
+    assert _org_exists(urls, world["org"])
+    # Opened more than six years ago by every date it has: no longer held back.
+    with _admin(urls) as conn:
+        conn.execute("UPDATE compliance_incidents SET detected_at = now() - interval '6 years 2 days', "
+                     "became_aware_at = now() - interval '6 years 1 day', created_at = now() - interval '6 years 1 day' "
+                     "WHERE org_id = %s", (world["org"],))
+    resp = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
+    assert resp.status_code == 200, resp.text
+    _cleanup_reviewer(urls, ids)
+
+
+def test_a_recent_incident_record_holds_the_purge_even_if_detected_long_ago(world, more, urls):
+    """The latest opening date counts: an old incident recorded recently is still held back."""
+    ids = _compliance_records(urls, world, "13 months", retention_months=12, incident_age="7 years")
+    with _admin(urls) as conn:
+        conn.execute("UPDATE compliance_incidents SET became_aware_at = detected_at + interval '20 days', "
+                     "created_at = now() - interval '1 year' WHERE org_id = %s", (world["org"],))
+    owner = _signed_in(world)
+    _delete(owner, world)
+    _age_deletion(urls, world["org"], 31)
+    resp = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
+    assert resp.status_code == 409 and resp.json()["detail"]["counts"]["incidents"] == 1
     _cleanup_reviewer(urls, ids)
 
 
 def test_purge_after_the_window_with_both_confirmations_removes_the_data(world, more, urls):
-    ids = _compliance_records(urls, world, "13 months", retention_months=12)
+    ids = _compliance_records(urls, world, "13 months", retention_months=12, incident_age="7 years")
     with _admin(urls) as conn:
         conn.execute("INSERT INTO findings (scan_id, org_id, title, description, severity, remediation) "
                      "VALUES (%s,%s,'Old finding','d','low','r')", (world["scan"], world["org"]))
@@ -421,7 +469,7 @@ def test_purge_after_the_window_with_both_confirmations_removes_the_data(world, 
         for table in ("organization_members", "domains", "scans", "findings", "audit_log", "organization_suspensions",
                       "compliance_reviewer_grants", "compliance_practitioner_reviews", "compliance_clause_verifications",
                       "assessment_snapshots", "evidence_packs", "compliance_documents", "compliance_document_approvals",
-                      "compliance_evidence_files"):
+                      "compliance_evidence_files", "compliance_incidents", "compliance_attestations"):
             n = conn.execute(f"SELECT count(*) AS n FROM {table} WHERE org_id = %s", (world["org"],)).fetchone()["n"]
             assert n == 0, table
         # The stored files wait in the purge queue for the reconcile script; nothing was deleted inline.

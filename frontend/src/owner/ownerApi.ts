@@ -6,8 +6,10 @@
 
 /** The record counts that hold a purge back (backend core/org_guard.py). Integers only; the console words them. */
 export type RetentionHold = {
-  counts: { reviewer_grants: number; packs: number; snapshots: number; documents: number; evidence_files: number };
+  counts: { reviewer_grants: number; packs: number; snapshots: number; documents: number; evidence_files: number; incidents: number };
   retentionMonths: number | null;
+  /** The fixed period for breach incidents, in years (6). */
+  incidentYears: number | null;
 };
 
 export class OwnerApiError extends Error {
@@ -86,17 +88,18 @@ const STATUS_TEXT: Record<number, string> = {
 };
 const SERVER_TEXT = 'The console could not complete this. Try again in a moment.';
 
-const HOLD_KINDS = ['reviewer_grants', 'packs', 'snapshots', 'documents', 'evidence_files'] as const;
+const HOLD_KINDS = ['reviewer_grants', 'packs', 'snapshots', 'documents', 'evidence_files', 'incidents'] as const;
 const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e9 ? v : 0);
 
 /** A purge refused with code `retention_hold`: whole numbers only, any other field ignored. */
 function retentionHold(detail: unknown): RetentionHold | undefined {
   if (!detail || typeof detail !== 'object') return undefined;
-  const d = detail as { code?: unknown; counts?: Record<string, unknown>; retention_months?: unknown };
+  const d = detail as { code?: unknown; counts?: Record<string, unknown>; retention_months?: unknown; incident_retention_years?: unknown };
   if (d.code !== 'retention_hold' || !d.counts || typeof d.counts !== 'object') return undefined;
   const counts = Object.fromEntries(HOLD_KINDS.map(k => [k, count(d.counts?.[k])])) as RetentionHold['counts'];
   const months = count(d.retention_months);
-  return { counts, retentionMonths: months > 0 ? months : null };
+  const years = count(d.incident_retention_years);
+  return { counts, retentionMonths: months > 0 ? months : null, incidentYears: years > 0 ? years : null };
 }
 
 function isReviewed(detail: unknown): detail is string {

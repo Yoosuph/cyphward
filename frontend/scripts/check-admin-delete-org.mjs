@@ -77,8 +77,8 @@ h.state.route = (p, method, request) => {
     if (p.endsWith("/restore")) { lifecycle = "active"; return [200, { organization_id: ORG_ID, deleted: false, status: "active" }]; }
     if (p.endsWith("/purge")) {
       if (purgeAnswer === "hold") {
-        return [409, { detail: { code: "retention_hold", message: HOLD_MESSAGE, retention_months: 36, raw: RAW,
-          counts: { reviewer_grants: 1, packs: 2, snapshots: 3, documents: 0, evidence_files: 4, extra: RAW } } }];
+        return [409, { detail: { code: "retention_hold", message: HOLD_MESSAGE, retention_months: 36, incident_retention_years: 6, raw: RAW,
+          counts: { reviewer_grants: 1, packs: 2, snapshots: 3, documents: 0, evidence_files: 4, incidents: 2, extra: RAW } } }];
       }
       return [200, { organization_id: ORG_ID, purged: true, evidence_files_queued: true }];
     }
@@ -230,6 +230,8 @@ try {
     assert.match(shown, /Still inside the 36-month retention period/);
     const items = await page.$$eval('[data-testid="purge-hold"] li', (lis) => lis.map((l) => l.innerText));
     assert.deepEqual(items, ["1 reviewer access grant", "2 evidence packs", "3 assessment snapshots", "4 evidence files"]);
+    assert.equal(await page.$eval('[data-testid="purge-hold-incidents"]', (e) => e.innerText),
+      "2 breach incidents were opened in the last 6 years. Incident records are kept for 6 years.");
     assert.doesNotMatch(await text(page), /PURGE-RAW-TEXT|Traceback|retention_hold|\{"/, "no raw server text");
     check("purge hold 1440", await audit(page, { mobile: false, tabStops: 0 }));
     purgeAnswer = "ok";

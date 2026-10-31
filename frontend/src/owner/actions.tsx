@@ -153,15 +153,23 @@ const HOLD_LABELS: [keyof RetentionHold['counts'], string, string][] = [
 /** The counts that hold a purge back, in the console's own words. Only whole numbers come from the server. */
 function RetentionHoldList({ hold }: { hold: RetentionHold }) {
   const rows = HOLD_LABELS.filter(([k]) => hold.counts[k] > 0);
+  const years = hold.incidentYears || 6;
   return (
     <div className="mt-2 text-ink" data-testid="purge-hold">
-      <p className="mb-1">Still inside the {hold.retentionMonths ? `${hold.retentionMonths}-month ` : ''}retention period:</p>
-      <ul className="list-disc pl-5 space-y-0.5">
-        {rows.map(([k, one, many]) => (
-          <li key={k} data-testid={`purge-hold-${k}`}>{hold.counts[k]} {hold.counts[k] === 1 ? one : many}</li>
-        ))}
-      </ul>
-      <p className="mt-1 text-soft">The purge becomes possible once the last of these has passed its retention period.</p>
+      {rows.length > 0 && <>
+        <p className="mb-1">Still inside the {hold.retentionMonths ? `${hold.retentionMonths}-month ` : ''}retention period:</p>
+        <ul className="list-disc pl-5 space-y-0.5">
+          {rows.map(([k, one, many]) => (
+            <li key={k} data-testid={`purge-hold-${k}`}>{hold.counts[k]} {hold.counts[k] === 1 ? one : many}</li>
+          ))}
+        </ul>
+      </>}
+      {hold.counts.incidents > 0 && (
+        <p className="mt-1" data-testid="purge-hold-incidents">
+          {hold.counts.incidents} breach incident{hold.counts.incidents === 1 ? ' was' : 's were'} opened in the last {years} years. Incident records are kept for {years} years.
+        </p>
+      )}
+      <p className="mt-1 text-soft">The purge becomes possible once the last of these has passed its period.</p>
     </div>
   );
 }
@@ -235,7 +243,7 @@ export function PurgeOrgAction({ orgId, orgName, onDone }: { orgId: string; orgN
         typedName={orgName}
         typedWord="DELETE"
         testId="org-purge-dialog"
-        summary={<>Permanently removes everything <span className="text-ink">{orgName}</span> holds: members, domains, scans, findings, reports and compliance records. Its stored evidence files are queued for removal. People keep their own accounts, and the owner log keeps this record. <span className="text-ink font-medium">This cannot be undone.</span> It is refused while any reviewer access, pack, snapshot, compliance document or evidence file is still inside its retention period.</>}
+        summary={<>Permanently removes everything <span className="text-ink">{orgName}</span> holds: members, domains, scans, findings, reports and compliance records. Its stored evidence files are queued for removal. People keep their own accounts, and the owner log keeps this record. <span className="text-ink font-medium">This cannot be undone.</span> It is refused while any reviewer access, pack, snapshot, compliance document or evidence file is still inside its retention period, or while any breach incident was opened in the last 6 years.</>}
         run={async (reason, typed, word) => {
           await ownerPost(`/organizations/${orgId}/purge`, { reason, confirm_name: typed, confirm_word: word });
           onDone();

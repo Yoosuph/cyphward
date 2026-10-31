@@ -11,7 +11,9 @@
   (core/suspension.py), and the soft delete is then allowed.
 * Retention: the purge is refused while any reviewer grant, pack, snapshot, compliance document or evidence file is
   still inside its retention period (organizations.evidence_retention_months, the rule the snapshot and pack pages
-  already show as "retain until"). See RETENTION_SQL for the date each record type is measured from.
+  already show as "retain until"). See RETENTION_SQL for the date each record type is measured from. Breach
+  incidents have their own fixed period (founder decision, 2026-10-31): the purge is refused while any incident was
+  opened within INCIDENT_RETENTION_YEARS years. Attestations are not held back; they go with the organisation.
 """
 import os
 import re
@@ -26,6 +28,7 @@ OVERRIDE_ENV = "OWNER_ALLOW_PROTECTED_ORG_DELETE"
 INNOVATECH_ENV = "INNOVATECH_ORG_ID"
 PROTECTED_NAME = "innovatech"
 PURGE_WORD = "DELETE"
+INCIDENT_RETENTION_YEARS = 6
 
 
 def _uuid(value: Any) -> Optional[str]:
@@ -79,8 +82,10 @@ def paid_subscription_active(sub: Optional[Dict[str, Any]], now: Optional[dateti
 #   snapshots           created_at (as snapshots/store.py shows retain_until)
 #   documents           the latest of: generated_at and the document's latest approval
 #   evidence files      the latest of: uploaded_at and removed_at; removed files count too
-# Only packs and snapshots had a written retention date before; the other three use the same period from the dates
-# above (docs/admin-delete-org/README.md).
+#   breach incidents    a fixed INCIDENT_RETENTION_YEARS years (not the organisation's setting) from when the incident
+#                       was opened: the latest of detected_at, became_aware_at and created_at
+# Only packs and snapshots had a written retention date before; grants, documents and files use the same period from
+# the dates above (founder decision, 2026-10-31; docs/admin-delete-org/README.md).
 RETENTION_SQL = """
     WITH r AS (SELECT make_interval(months => evidence_retention_months) AS keep FROM organizations WHERE id = %(org)s)
     SELECT
@@ -102,14 +107,18 @@ RETENTION_SQL = """
                          WHERE a.org_id = d.org_id AND a.document_id = d.id)) + r.keep > now()) AS documents,
       (SELECT count(*) FROM compliance_evidence_files f, r
         WHERE f.org_id = %(org)s AND GREATEST(f.uploaded_at, f.removed_at) + r.keep > now()) AS evidence_files,
+      (SELECT count(*) FROM compliance_incidents i
+        WHERE i.org_id = %(org)s
+          AND GREATEST(i.detected_at, i.became_aware_at, i.created_at)
+              + make_interval(years => %(incident_years)s) > now()) AS incidents,
       (SELECT evidence_retention_months FROM organizations WHERE id = %(org)s) AS retention_months
 """
 
-RETAINED_KINDS = ("reviewer_grants", "packs", "snapshots", "documents", "evidence_files")
+RETAINED_KINDS = ("reviewer_grants", "packs", "snapshots", "documents", "evidence_files", "incidents")
 
 
 def retention_counts(cur, org_id: str) -> Dict[str, int]:
-    cur.execute(RETENTION_SQL, {"org": org_id})
+    cur.execute(RETENTION_SQL, {"org": org_id, "incident_years": INCIDENT_RETENTION_YEARS})
     row = cur.fetchone() or {}
     counts = {kind: int(row.get(kind) or 0) for kind in RETAINED_KINDS}
     counts["retention_months"] = int(row.get("retention_months") or 0)
