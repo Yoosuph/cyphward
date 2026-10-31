@@ -234,7 +234,8 @@ def organization_detail(org_id: str, request: Request,
            "restorable": bool(deleted and lifecycle.get("restorable")),
            "purge_window_passed": bool(deleted and not lifecycle.get("restorable")),
            "restore_window_days": RESTORE_WINDOW_DAYS,
-           "protected": org_guard.is_protected(org),
+           # The same answer the delete and purge actions give: protected, unless the override flag is on.
+           "protected": org_guard.is_protected(org) and not org_guard.override_enabled(),
            "paid_subscription_active": org_guard.paid_subscription_active(sub)}
     return {"organization": org, "members": members, "domains": domains, "subscriptions": subscriptions,
             "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity,

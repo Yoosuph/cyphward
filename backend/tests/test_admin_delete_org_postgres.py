@@ -73,11 +73,11 @@ def _audits(urls, world, action):
             "ORDER BY created_at", (world["owner"], action)).fetchall()
 
 
-def _age_deletion(urls, org_id, days):
-    """Move deleted_at back, as if the soft delete happened `days` ago."""
+def _age_deletion(urls, org_id, days, hours=0):
+    """Move deleted_at back, as if the soft delete happened `days` days and `hours` hours ago."""
     with _admin(urls) as conn:
-        conn.execute("UPDATE organization_suspensions SET deleted_at = now() - make_interval(days => %s) "
-                     "WHERE org_id = %s AND status = 'deleted'", (days, org_id))
+        conn.execute("UPDATE organization_suspensions SET deleted_at = now() - make_interval(days => %s, hours => %s) "
+                     "WHERE org_id = %s AND status = 'deleted'", (days, hours, org_id))
 
 
 def _purge_body(world, name=None, word="DELETE"):
@@ -291,6 +291,42 @@ def test_restore_is_refused_after_the_window(world, more, urls):
     assert [a["outcome"] for a in _audits(urls, world, "owner.action.restore_org")] == ["rejected"]
     detail = owner.get(_org_url(world)).json()["organization"]
     assert detail["restorable"] is False and detail["purge_window_passed"] is True
+
+
+@pytest.mark.parametrize("hours, restorable", [(-3, True), (-1, True), (1, False), (3, False)],
+                         ids=["30 days less 3 hours", "30 days less 1 hour", "30 days and 1 hour", "30 days and 3 hours"])
+def test_the_restore_and_purge_windows_meet_at_exactly_30_days(world, more, urls, hours, restorable):
+    """Either side of the 30-day line: restore is open and purge refused before it, the reverse after it, and the
+    organisation page says the same thing as the actions."""
+    owner = _signed_in(world)
+    _delete(owner, world)
+    _age_deletion(urls, world["org"], 30, hours)
+    detail = owner.get(_org_url(world)).json()["organization"]
+    assert (detail["restorable"], detail["purge_window_passed"]) == (restorable, not restorable)
+    if restorable:
+        purge = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
+        assert purge.status_code == 409 and "has not passed yet" in purge.json()["detail"]
+        restore = owner.post(_org_url(world, "restore"), json=_named(world), headers=ORIGIN)
+        assert restore.status_code == 200, restore.text
+        assert _status(urls, world["org"])["status"] == "active"
+    else:
+        restore = owner.post(_org_url(world, "restore"), json=_named(world), headers=ORIGIN)
+        assert restore.status_code == 409 and "restore window" in restore.json()["detail"]
+        purge = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
+        assert purge.status_code == 200, purge.text
+        assert not _org_exists(urls, world["org"])
+
+
+def test_the_protected_flag_on_the_page_follows_the_override(world, more, urls, monkeypatch):
+    """The danger zone reads `protected`; it must match what the delete action will do."""
+    owner = _signed_in(world)
+    monkeypatch.setenv(org_guard.INNOVATECH_ENV, world["org"])
+    monkeypatch.delenv(org_guard.OVERRIDE_ENV, raising=False)
+    assert owner.get(_org_url(world)).json()["organization"]["protected"] is True
+    assert owner.post(_org_url(world, "delete"), json=_named(world), headers=ORIGIN).status_code == 409
+    monkeypatch.setenv(org_guard.OVERRIDE_ENV, "true")
+    assert owner.get(_org_url(world)).json()["organization"]["protected"] is False
+    assert owner.post(_org_url(world, "delete"), json=_named(world), headers=ORIGIN).status_code == 200
 
 
 # ── Purge ──────────────────────────────────────────────────────────────────
