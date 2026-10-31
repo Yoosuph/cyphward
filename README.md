@@ -1,67 +1,108 @@
-# CYPHWARD — Sovereign Attack Surface Management
+# Cyphward
 
-External security posture platform: continuous attack-surface discovery, security
-scoring (0–100), findings lifecycle, remediation tasks, and executive reports.
+Cyphward is an external security-posture platform for organisations in Nigeria and beyond. It discovers a
+customer's public attack surface, scores it from 0 to 100, tracks findings through remediation, and produces
+evidence for NDPA 2023 and GAID 2025 readiness (compliance evidence, not legal advice).
 
-- **Frontend:** Vite · React 18 · TypeScript · Tailwind · react-router
-- **Backend:** FastAPI (Python) · PostgreSQL (Supabase) · built-in auth · Inngest workflows
-- **Auth:** Our own backend accounts — argon2 passwords, JWT access tokens with
-  rotating refresh sessions, email verification & password reset sent through
-  Brevo, optional Google sign-in (server-side OAuth flow). Org membership is
-  verified server-side via `X-Organization-Id` (fail-closed, no fallback org),
-  roles `owner | admin | member`.
+## What is in the product
+
+- **Customer app** (`app.cyphward.com`): sign-up, verified domains, scans, findings and remediation tasks,
+  a security score with history, reports and board summaries, a compliance readiness register with evidence
+  packs and snapshots, evidence uploads, incidents, reviewer access for an outside practitioner, a
+  newsletter sign-up page, billing and plans, and a Cyphbot assistant.
+- **Owner console** (`admin.cyphward.com`): platform analytics, organisation and user management, plan and
+  trial changes, suspension, member restore, audit logs, newsletter drafting and sending, and expandable logs.
+  See [`docs/owner-console.md`](docs/owner-console.md).
+- **Workers:** a scanner worker and a browser worker (consent observation) run outside the API and poll it over
+  HTTPS with their own keys. Both currently run on AWS.
+- **Newsletter:** sign-up with explicit consent, one branded confirmation email, one-click unsubscribe, and
+  admin-approved issues sent through Brevo. Off unless `NEWSLETTER_ENABLED=true`. See [`docs/newsletter/README.md`](docs/newsletter/README.md).
+
+## Architecture
+
+| Part | Where it runs | Notes |
+| --- | --- | --- |
+| Frontend (customer app, owner console, public site) | Vercel | Vite · React 18 · TypeScript · Tailwind · react-router. `/api` requests are rewritten to the API. |
+| API (`backend/app`) | Render (`cyphward-core`), with `api.cyphward.com` as the custom domain | FastAPI, uvicorn, Inngest endpoint at `/api/inngest` |
+| Database | Supabase Postgres | Migrations in `supabase/migrations`; the app connects as a restricted role with row-level security |
+| Scanner worker (`scanner/`) | AWS EC2 (af-south-1) | Outbound only. Claims scans from the API. Container limit 640 MB |
+| Browser worker (`browser_worker/`) | AWS EC2 (af-south-1) | Outbound only. Headless Chromium with the sandbox on. Container limit 768 MB. Disabled unless `BROWSER_CONSENT_ENABLED=true` |
+| Email | Brevo | Transactional mail from `info@cyphward.com`; newsletter from `news@cyphward.com` |
+| Sign-in | Built into the API | Argon2 passwords, JWT access tokens with rotating refresh sessions, email codes, optional TOTP, optional Google sign-in |
+
+Scheduled work runs in the API through Inngest: a daily scan job at 06:00 UTC and a compliance reminders job.
 
 ## Repository layout
 
 ```
 backend/app/
-  main.py           # FastAPI app, routers, Inngest serve (/api/inngest)
-  api/              # REST routers (domains, findings, scans, assets, AI, …)
-  core/             # config, database, auth (JWT + RBAC + audit)
-  risk/             # 0-100 security scoring engine
-  scanner/          # DNS/HTTP/TLS probes, normalizer, nuclei runner
-  ai/               # LLM providers + privacy sanitizer
-  services/         # notifications, transactional email
-  workflows/        # Inngest scan pipeline + daily scan cron
-  db/               # seed scripts
-backend/tests/      # pytest suite (no DB required — in-memory fake)
-frontend/src/       # React app (pages, components, lib/api, lib/auth, lib/session)
-supabase/migrations # SQL schema
+  main.py            FastAPI app, routers, Inngest registration
+  api/               REST routers (scans, domains, findings, compliance, owner, newsletter, ai, …)
+  core/              config, database pool, auth and RBAC, suspension gate, rate limits, audit
+  compliance/        NDPA/GAID register, attestations, evidence, reviewer access, documents
+  packs/             branded evidence packs (HTML and PDF)
+  snapshots/         frozen, hashed compliance snapshots
+  scanner/           scan probes and the scanner-side scoring inputs used by the API
+  risk/              0–100 scoring engine
+  ai/                LLM providers, sanitiser, Cyphbot
+  billing/           plans and subscription handling
+  services/          transactional mail and notifications
+  storage/           evidence file storage (private bucket)
+  workflows/         Inngest scan pipeline and cron jobs
+  db/                seed scripts
+backend/tests/       pytest suite (unit tests plus PostgreSQL tests)
+scanner/             scanner worker (container image, Dockerfile.scanner)
+browser_worker/      browser worker (container image, Dockerfile.browser, deploy examples)
+shared/              contracts shared by the worker and the API
+frontend/src/        React app: pages, components, owner console (owner/), lib/
+supabase/migrations/ ordered SQL migrations
+docs/                runbooks and reviews (see below)
+.github/workflows/   CI (ci.yml) and the scanner deploy (deploy-scanner.yml)
 ```
 
 ## Prerequisites
 
-- Node 18+
-- Python 3.11+ with [uv](https://docs.astral.sh/uv/) (used to run the server)
-- A Supabase project (Postgres only — auth is built into the backend)
-- Brevo account for outbound email (verification codes, password resets)
-- Inngest CLI (`npm i -g inngest-cli`) for local workflow execution
+- Node 20 or newer, and npm
+- Python 3.11 or newer, with [uv](https://docs.astral.sh/uv/)
+- A Supabase project (Postgres)
+- A Brevo account for email
+- Inngest CLI for local scheduled and pipeline runs (`npm i -g inngest-cli`)
+- For Postgres-backed tests: a local PostgreSQL 16 or newer
 
 ## Environment
 
-Copy the examples and fill in real values:
+Copy the examples and fill in real values. Never commit real values.
 
 ```bash
 cp .env.example .env
 cp backend/.env.example backend/.env
+cp scanner/.env.example scanner/.env          # only when running the scanner locally
 ```
 
-Required:
+Required for the API:
 
-| Variable | Where | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | `.env` / `backend/.env` | Postgres connection string |
-| `AUTH_JWT_SECRET` | `.env` | HS256 secret for signing/verifying access tokens (**required at runtime**) |
-| `FRONTEND_URL` | `.env` | Public frontend origin (password-reset links) |
-| `BREVO_*` | `.env` | Brevo SMTP/API credentials — all product email |
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string for the restricted app role |
+| `AUTH_JWT_SECRET` | HS256 signing secret for access tokens (required at runtime) |
+| `FRONTEND_URL` | Public customer-app origin, used in links |
+| `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Transactional email |
+| `SCANNER_API_KEY` | Shared secret the scanner worker uses to claim scans |
+| `BROWSER_WORKER_API_KEY` | Shared secret the browser worker uses to claim jobs |
 
-Optional:
+Feature flags (all default to off unless stated):
 
-| Variable | Where | Purpose |
-| --- | --- | --- |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | `.env` | Google sign-in (OAuth 2.0 client) |
+| Flag | What it turns on |
+| --- | --- |
+| `NEWSLETTER_ENABLED` | Newsletter sign-up, confirmation and sending. Needs the newsletter settings in the newsletter README. |
+| `BROWSER_CONSENT_ENABLED` | Browser consent observations (the browser worker must also be running) |
+| `DEMO_LOGIN_ENABLED` | The "Try the demo" sign-in button. Needs `DEMO_LOGIN_PASSWORD` |
+| `EVIDENCE_UPLOADS_ENABLED` | Evidence file uploads to the private storage bucket |
+| `COMPLIANCE_DOCS_MODEL` | Model-written wording for compliance drafts. Off by default and not set in production |
 
-Generate the JWT secret with:
+Optional: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (Google sign-in).
+
+Generate a secret with:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -69,17 +110,17 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## Database migrations
 
-Apply migrations in order (Supabase CLI or SQL editor):
+Apply every file in `supabase/migrations` in filename order. Each file sets its own lock and statement
+timeouts, is idempotent, and is additive unless its header says otherwise.
 
 ```bash
 supabase db push
-# or apply supabase/migrations/*.sql manually, ending with:
-# 20261001120000_own_auth.sql
 ```
 
-> Upgrading a database that already holds customer data? Read
-> `docs/database-upgrade-runbook.md` first — one migration drops legacy
-> tables and needs a backup + data decision beforehand.
+Upgrading a database that already holds customer data? Read
+[`docs/database-upgrade-runbook.md`](docs/database-upgrade-runbook.md) first. Some migrations need a backup and
+a data decision beforehand, and migrations that change the scan failure column must be applied before the code
+that writes it is deployed.
 
 Optionally seed demo tenants:
 
@@ -90,55 +131,84 @@ python -m backend.app.db.seed_mvp
 ## Development
 
 ```bash
-npm install          # root convenience scripts
-cd frontend && npm install
+npm install                      # root convenience scripts
+cd frontend && npm install && cd ..
 
-npm run start        # API (:8000) + Inngest dev + Vite dev (:5173)
+npm run start                    # API on :8000, Inngest dev server, and Vite on :5173
 ```
 
-Individually:
+Run the parts separately:
 
 | Command | What it runs |
 | --- | --- |
-| `npm run server` | FastAPI via uvicorn (`backend.app.main:app`, :8000) |
-| `npm run inngest` | Inngest dev server, signed to `/api/inngest` |
-| `npm run dev` | Vite dev server (:5173) |
-| `npm test` | Backend pytest suite |
-| `npm run build` | Frontend type-check + production build |
+| `npm run server` | API with uvicorn (`backend.app.main:app`, port 8000, reload on) |
+| `npm run inngest` | Inngest dev server pointed at `/api/inngest` |
+| `npm run dev` | Vite dev server (port 5173) |
+| `npm run build` | Frontend type-check and production build |
+| `npm test` | Backend pytest suite (no database needed; Postgres tests skip) |
 
-API docs: `http://localhost:8000/docs`
+API documentation is served at `http://localhost:8000/docs`.
 
-## Tests & CI
+## Tests
 
 ```bash
-npm test             # backend: auth chain, RBAC, cross-tenant, units
-cd frontend && npm run build   # tsc + vite
+npm test                                    # backend unit tests
+cd frontend && npm run build                # type-check and build
+cd frontend && npm run test:compliance-ui   # browser checks (also test:scans-ui, test:owner-logs, …)
 ```
 
-The backend suite runs offline: `backend/tests/conftest.py` seeds an in-memory
-tenant store and patches `get_db`, so tests exercise the **real** JWT →
-membership → RBAC path with no Postgres. GitHub Actions (`.github/workflows/ci.yml`)
-runs both jobs on every push/PR.
+Postgres tests need a database that the bootstrap script can create and reset. Point these at a throwaway
+local cluster, never at production:
+
+```bash
+export CYPHWARD_TEST_DATABASE_ADMIN_URL=postgresql://postgres@127.0.0.1:55432/cyphward_test
+export CYPHWARD_TEST_DATABASE_URL=postgresql://cyphward_app@127.0.0.1:55432/cyphward_test
+python backend/scripts/bootstrap_test_database.py
+python -m pytest backend/tests -q
+```
+
+CI (`.github/workflows/ci.yml`) runs the backend suite, a PostgreSQL job that runs the database-backed tests,
+the frontend build, and builds the scanner and browser worker images. The browser UI suites are run locally
+and are not part of CI yet.
 
 ## API conventions
 
-- All authenticated requests: `Authorization: Bearer <access token>`
-- Tenant selection: `X-Organization-Id: <org uuid or slug>` — verified against
-  `organization_members`; requests for a non-member org return `403`.
-- No API keys. Mutations require `admin`/`owner`; owner-only actions require
-  `owner`.
-- Findings statuses: `open | acknowledged | in_progress | resolved`
-  (severities lowercase: `critical | high | medium | low | info`).
+- Authenticated requests send `Authorization: Bearer <access token>`.
+- Customer requests that act on an organisation send `X-Organization-Id: <uuid or slug>`. The membership is
+  checked on the server for every request, and a non-member gets `403`. There is no fallback organisation.
+- Roles are `owner`, `admin` and `member`. Mutations need `admin` or `owner`; owner-only actions need `owner`.
+- A suspended organisation can still sign in and read its data. Every write route is refused with
+  `403` and the code `organization_suspended`. The rule is enforced by one shared check, and a test lists every
+  write route and fails if one is neither gated nor on the reviewed allow-list.
+- Owner console routes live under `/api/v1/owner/…` and need an owner session cookie plus the console origin.
+  Every owner read and write is audited.
+- Scan results shown to customers use reviewed wording for failures. Raw worker text is kept for the owner console only.
+- Findings statuses: `open | acknowledged | in_progress | resolved`. Severities: `critical | high | medium | low | info`.
 
-## Scanning & workflows
+## Scanning and workflows
 
-- Scans may only target **verified** domains; the backend resolves scope.
-- The Inngest pipeline (`backend/app/workflows/inngest_workflow.py`) runs
-  discovery → probes → nuclei → normalize/upsert → score → notify.
-- A daily cron (`0 6 * * *`) queues scans for verified domains without an
-  active scan.
+- Scans run only against **verified** domains. The backend resolves the scope; the worker re-checks it.
+- The scan pipeline runs discovery, probes, nuclei templates, normalisation, scoring and notifications.
+- Daily scans queue for verified domains at 06:00 UTC, and only domains without an active scan are queued.
+- Compliance reminders run as an Inngest cron job.
+- Do not run a scan while a release or migration is in progress.
 
-## Out of scope (intentionally removed)
+## Documentation
 
-Compliance modules, Academy, Detect/alerts, Copilot, threat ticker, SAML SSO,
-API-key auth, and analytics — see git history if needed.
+| Document | Topic |
+| --- | --- |
+| [`docs/owner-console.md`](docs/owner-console.md) | Owner console access and dedicated admin login |
+| [`docs/newsletter/README.md`](docs/newsletter/README.md) | Newsletter setup, GrokBot drafts, sending |
+| [`docs/runbooks/browser-worker.md`](docs/runbooks/browser-worker.md) | Browser worker: build, run, firewall, verify |
+| [`docs/database-upgrade-runbook.md`](docs/database-upgrade-runbook.md) | Upgrading a database that holds customer data |
+| [`docs/compliance-build-plan-2026-10-16/`](docs/compliance-build-plan-2026-10-16/) | Compliance build plan, decisions and progress log |
+| [`docs/admin-2026-10-29/`](docs/admin-2026-10-29/) | Owner console phase 1 audit and screens |
+
+Older review and planning notes live under `docs/` and are kept for history; check the date in their folder name.
+
+## Security notes
+
+- Never commit `.env` files, keys or service-account JSON. Workers keep their keys in root-only files on their
+  servers.
+- Customer data is isolated per organisation in the API and by row-level security in the database.
+- Report security issues privately to the maintainers before any public disclosure.
