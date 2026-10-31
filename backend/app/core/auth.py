@@ -172,11 +172,15 @@ def get_current_org(
             JOIN organizations o ON o.id = m.org_id
             WHERE m.user_id = %s
               AND (o.id::text = %s OR o.slug = %s)
+              AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                              WHERE os.org_id = o.id AND os.status = 'deleted')
             LIMIT 1
             """,
             (user["id"], user["id"], target, target),
         )
         if not org:
+            if _member_of_deleted(user["id"], target):
+                raise HTTPException(status_code=404, detail=DELETED_ORG_NOT_FOUND)
             raise HTTPException(status_code=403, detail="Not a member of the requested organization")
         if user.get("session_demo_org_id"):
             if str(org["id"]) != str(user["session_demo_org_id"]):
@@ -186,6 +190,8 @@ def get_current_org(
 
     memberships = session_memberships(user)
     if not memberships:
+        if not user.get("session_demo_org_id") and _member_of_deleted(user["id"]):
+            raise HTTPException(status_code=404, detail=DELETED_ORG_NOT_FOUND)
         raise HTTPException(status_code=403, detail="No organization membership")
     if len(memberships) > 1:
         raise HTTPException(
@@ -193,6 +199,28 @@ def get_current_org(
             detail="Multiple organizations: specify X-Organization-Id",
         )
     return memberships[0]
+
+
+# A deleted organisation (owner console, core/suspension.py) is left out of every membership query above, so a
+# customer can neither sign in to it nor select it. Asking for it by id or slug, or having no other organisation,
+# answers 404 rather than describing it.
+DELETED_ORG_NOT_FOUND = "Organization not found."
+
+
+def _member_of_deleted(user_id: Any, target: Optional[str] = None) -> bool:
+    from backend.app.core.database import execute_query
+
+    rows = execute_query(
+        """
+        SELECT 1 AS deleted_member FROM organization_members m
+        JOIN organizations o ON o.id = m.org_id
+        JOIN organization_suspensions os ON os.org_id = o.id AND os.status = 'deleted'
+        WHERE m.user_id = %s AND (%s::text IS NULL OR o.id::text = %s OR o.slug = %s)
+        LIMIT 1
+        """,
+        (user_id, target, target, target),
+    )
+    return bool(rows)
 
 
 def session_memberships(user: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -214,6 +242,8 @@ def execute_query_memberships(user_id: str) -> List[Dict[str, Any]]:
             FROM organization_members m
             JOIN organizations o ON o.id = m.org_id
             WHERE m.user_id = %s
+              AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                              WHERE os.org_id = o.id AND os.status = 'deleted')
             ORDER BY o.created_at ASC
             """,
             (user_id, user_id),

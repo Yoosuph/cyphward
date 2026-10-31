@@ -10,12 +10,17 @@ Billing states (organizations):
   free      everything else: no subscription row, past due, canceled, or a period that has ended
 Subscription `lapsed` is the billing code's effective past due (core billing/subscriptions.effective_status): an
 `active` or `trialing` row whose current period has ended.
+
+Deleted organisations (owner console, docs/admin-delete-org/README.md) are left out of every list by default: the
+organizations, subscriptions and scans lists, and the organisations shown next to each person in the users list.
+The `deleted` filter shows them: "only" lists deleted organisations alone, "include" lists them with the rest.
 """
 from typing import Any, Dict, Literal, Tuple
 
 Dir = Literal["asc", "desc"]
 PlanFilter = Literal["", "starter", "growth", "other"]
 YesNo = Literal["", "yes", "no"]
+OrgDeleted = Literal["", "only", "include"]
 
 OrgBilling = Literal["", "paid", "trialing", "free"]
 OrgSort = Literal["created", "name", "plan", "members", "domains", "last_scan"]
@@ -37,6 +42,10 @@ def _order(expr: str, direction: str) -> str:
     return f"ORDER BY {expr} {d} NULLS LAST, x.id {d}"
 
 
+# '' hides deleted organisations, 'only' shows them alone, 'include' shows everything. {col} is a boolean column.
+DELETED_FILTER = ("((%(deleted)s = '' AND NOT {col}) OR (%(deleted)s = 'only' AND {col}) "
+                   "OR %(deleted)s = 'include')")
+
 _PLAN_FILTER = ("(%(plan)s = '' OR (%(plan)s = 'other' AND x.plan NOT IN ('starter', 'growth')) "
                 "OR x.plan = %(plan)s)")
 
@@ -54,6 +63,7 @@ _ORG_BASE = """
            WHEN sub.status = 'trialing' AND sub.current_period_end > now() THEN 'trialing'
            ELSE 'free' END AS billing,
       COALESCE(os.status = 'suspended', false) AS suspended,
+      COALESCE(os.status = 'deleted', false) AS deleted, os.deleted_at,
       (SELECT count(*) FROM organization_members m WHERE m.org_id = o.id) AS members,
       (SELECT p.email FROM organization_members m JOIN profiles p ON p.id = m.user_id
          WHERE m.org_id = o.id AND m.role = 'owner' ORDER BY m.created_at LIMIT 1) AS owner_email,
@@ -73,13 +83,13 @@ _ORG_BASE = """
 """
 
 _ORG_WHERE = (f"(%(billing)s = '' OR x.billing = %(billing)s) AND {_PLAN_FILTER} "
-              "AND (%(suspended)s = '' OR x.suspended = (%(suspended)s = 'yes'))")
+              "AND (%(suspended)s = '' OR x.suspended = (%(suspended)s = 'yes')) AND " + DELETED_FILTER.format(col="x.deleted"))
 
 
 def organizations(q: str, billing: str, plan: str, suspended: str, sort: str, direction: str,
-                  limit: int, offset: int) -> Tuple[Query, Query]:
+                  limit: int, offset: int, deleted: str = "") -> Tuple[Query, Query]:
     params = {"q": q.strip()[:100], "like": like(q), "billing": billing, "plan": plan, "suspended": suspended,
-              "limit": limit, "offset": offset}
+              "deleted": deleted, "limit": limit, "offset": offset}
     rows = (f"SELECT * FROM ({_ORG_BASE}) x WHERE {_ORG_WHERE} {_order(_ORG_SORT[sort], direction)} "
             "LIMIT %(limit)s OFFSET %(offset)s", params)
     total = (f"SELECT count(*) AS n FROM ({_ORG_BASE}) x WHERE {_ORG_WHERE}", params)
@@ -87,7 +97,8 @@ def organizations(q: str, billing: str, plan: str, suspended: str, sort: str, di
 
 
 ORG_CSV = (("id", "id"), ("name", "name"), ("slug", "slug"), ("plan", "plan"), ("billing", "billing"),
-           ("subscription_status", "subscription_status"), ("suspended", "suspended"), ("members", "members"),
+           ("subscription_status", "subscription_status"), ("suspended", "suspended"), ("deleted", "deleted"),
+           ("deleted_at", "deleted_at"), ("members", "members"),
            ("domains", "domains"), ("domains_verified", "domains_verified"), ("owner_email", "owner_email"),
            ("last_scan_at", "last_scan_at"), ("created_at", "created_at"))
 
@@ -103,7 +114,9 @@ _USER_BASE = """
       EXISTS (SELECT 1 FROM platform_owners po WHERE po.user_id = p.id) AS platform_owner,
       COALESCE((SELECT json_agg(json_build_object('org_id', o.id, 'name', o.name, 'role', m.role) ORDER BY o.name)
                   FROM organization_members m JOIN organizations o ON o.id = m.org_id
-                  WHERE m.user_id = p.id), '[]'::json) AS memberships,
+                  WHERE m.user_id = p.id AND NOT EXISTS (SELECT 1 FROM organization_suspensions dl
+                                                         WHERE dl.org_id = o.id AND dl.status = 'deleted')),
+               '[]'::json) AS memberships,
       (SELECT max(s.created_at) FROM auth_sessions s WHERE s.user_id = p.id) AS last_sign_in_at,
       (SELECT count(*) FROM auth_sessions s WHERE s.user_id = p.id
          AND s.revoked_at IS NULL AND s.expires_at > now()) AS active_sessions
@@ -140,18 +153,20 @@ _SUB_BASE = """
     SELECT s.id, o.id AS org_id, o.name AS org_name, s.plan, s.status, s.provider,
       CASE WHEN s.status IN ('trialing', 'active') AND s.current_period_end <= now() THEN 'lapsed'
            ELSE s.status END AS effective_status,
-      s.current_period_start, s.current_period_end, s.trial_ends_at, s.cancel_at_period_end, s.created_at
+      s.current_period_start, s.current_period_end, s.trial_ends_at, s.cancel_at_period_end, s.created_at,
+      EXISTS (SELECT 1 FROM organization_suspensions dl WHERE dl.org_id = o.id AND dl.status = 'deleted') AS org_deleted
     FROM subscriptions s JOIN organizations o ON o.id = s.org_id
     WHERE (%(q)s = '' OR o.name ILIKE %(like)s)
 """
 
-_SUB_WHERE = f"(%(status)s = '' OR x.effective_status = %(status)s) AND {_PLAN_FILTER}"
+_SUB_WHERE = (f"(%(status)s = '' OR x.effective_status = %(status)s) AND {_PLAN_FILTER} AND "
+              + DELETED_FILTER.format(col="x.org_deleted"))
 
 
 def subscriptions(q: str, status: str, plan: str, sort: str, direction: str,
-                  limit: int, offset: int) -> Tuple[Query, Query]:
-    params = {"q": q.strip()[:100], "like": like(q), "status": status, "plan": plan, "limit": limit,
-              "offset": offset}
+                  limit: int, offset: int, deleted: str = "") -> Tuple[Query, Query]:
+    params = {"q": q.strip()[:100], "like": like(q), "status": status, "plan": plan, "deleted": deleted,
+              "limit": limit, "offset": offset}
     rows = (f"SELECT * FROM ({_SUB_BASE}) x WHERE {_SUB_WHERE} {_order(_SUB_SORT[sort], direction)} "
             "LIMIT %(limit)s OFFSET %(offset)s", params)
     total = (f"SELECT count(*) AS n FROM ({_SUB_BASE}) x WHERE {_SUB_WHERE}", params)

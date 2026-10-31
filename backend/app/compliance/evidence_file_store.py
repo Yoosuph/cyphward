@@ -216,13 +216,17 @@ def has_any_rows(org_id: str) -> bool:
     return bool(execute_query("SELECT 1 FROM compliance_evidence_files WHERE org_id = %s LIMIT 1", (org_id,)))
 
 
+# Shared with the owner console's purge (api/owner_actions.py), which runs it on its own transaction's cursor so the
+# queue entry commits together with the organisation's deletion.
+QUEUE_PURGE_SQL = (
+    "INSERT INTO compliance_evidence_purge_queue (org_id) SELECT %s WHERE EXISTS "
+    "(SELECT 1 FROM compliance_evidence_files WHERE org_id = %s) ON CONFLICT (org_id) DO NOTHING RETURNING org_id")
+
+
 def queue_purge(org_id: str) -> bool:
     """Queue the organisation's stored objects for deletion, before its rows go. Only when it has file rows.
     True when queued."""
-    row = execute_query(
-        "INSERT INTO compliance_evidence_purge_queue (org_id) SELECT %s WHERE EXISTS "
-        "(SELECT 1 FROM compliance_evidence_files WHERE org_id = %s) ON CONFLICT (org_id) DO NOTHING RETURNING org_id",
-        (org_id, org_id))
+    row = execute_query(QUEUE_PURGE_SQL, (org_id, org_id))
     return bool(row)
 
 

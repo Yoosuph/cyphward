@@ -4,10 +4,19 @@
  * is sent by the browser (same origin) and is never readable from script.
  */
 
+/** The record counts that hold a purge back (backend core/org_guard.py). Integers only; the console words them. */
+export type RetentionHold = {
+  counts: { reviewer_grants: number; packs: number; snapshots: number; documents: number; evidence_files: number; incidents: number };
+  retentionMonths: number | null;
+  /** The fixed period for breach incidents, in years (6). */
+  incidentYears: number | null;
+};
+
 export class OwnerApiError extends Error {
   /** `message` is always reviewed wording (ownerErrorText). `serverWording` is true when it is one of the server's
-   *  reviewed sentences rather than the console's wording for the status. */
-  constructor(message: string, readonly status: number, readonly serverWording = false) {
+   *  reviewed sentences rather than the console's wording for the status. `hold` is set only for a purge refused
+   *  because records are still retained. */
+  constructor(message: string, readonly status: number, readonly serverWording = false, readonly hold?: RetentionHold) {
     super(message);
   }
 }
@@ -41,6 +50,16 @@ const REVIEWED_DETAILS: (string | RegExp)[] = [
   "That person's account no longer exists, so the membership cannot be restored.",
   "That account's email has changed since the removal. Nothing was changed.",
   'This person is already a member of this organization.',
+  // Delete, restore and purge an organization (backend/app/api/owner_actions.py, docs/admin-delete-org)
+  'This organization has been deleted. Restore it before making any other change. Nothing was changed.',
+  'This organization is already deleted.',
+  'This organization is not deleted. Nothing was changed.',
+  'This organization is protected and cannot be deleted or purged from the console. Nothing was changed.',
+  'This organization has an active paid subscription. It must be cancelled before the organization can be deleted. Nothing was changed.',
+  'The 30-day restore window for this organization has passed, so it can no longer be restored. Nothing was changed.',
+  'The 30-day restore window has not passed yet, so this organization cannot be purged. Nothing was changed.',
+  'Type the word DELETE in capitals to confirm the purge. Nothing was changed.',
+  'Some records of this organization are still inside their retention period, so it cannot be purged yet. Nothing was changed.',
   // Reads (backend/app/core/owner_reads.py)
   'This view took too long to load. Narrow the filters or try again in a moment.',
   // First sign-in setup (backend/app/api/owner.py)
@@ -68,6 +87,20 @@ const STATUS_TEXT: Record<number, string> = {
   429: 'Too many requests. Wait a moment and try again.',
 };
 const SERVER_TEXT = 'The console could not complete this. Try again in a moment.';
+
+const HOLD_KINDS = ['reviewer_grants', 'packs', 'snapshots', 'documents', 'evidence_files', 'incidents'] as const;
+const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e9 ? v : 0);
+
+/** A purge refused with code `retention_hold`: whole numbers only, any other field ignored. */
+function retentionHold(detail: unknown): RetentionHold | undefined {
+  if (!detail || typeof detail !== 'object') return undefined;
+  const d = detail as { code?: unknown; counts?: Record<string, unknown>; retention_months?: unknown; incident_retention_years?: unknown };
+  if (d.code !== 'retention_hold' || !d.counts || typeof d.counts !== 'object') return undefined;
+  const counts = Object.fromEntries(HOLD_KINDS.map(k => [k, count(d.counts?.[k])])) as RetentionHold['counts'];
+  const months = count(d.retention_months);
+  const years = count(d.incident_retention_years);
+  return { counts, retentionMonths: months > 0 ? months : null, incidentYears: years > 0 ? years : null };
+}
 
 function isReviewed(detail: unknown): detail is string {
   return typeof detail === 'string' && REVIEWED_DETAILS.some(r => (typeof r === 'string' ? r === detail : r.test(detail)));
@@ -99,6 +132,12 @@ async function ownerRequest(url: string, init?: RequestInit): Promise<Response> 
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const hold = retentionHold(body?.detail);
+    if (hold) {
+      // The purge refusal carries its reviewed sentence and the counts; nothing else from the body is shown.
+      const message = body.detail.message;
+      throw new OwnerApiError(ownerErrorText(res.status, message), res.status, isReviewed(message), hold);
+    }
     throw new OwnerApiError(ownerErrorText(res.status, body?.detail), res.status, isReviewed(body?.detail));
   }
   return res;

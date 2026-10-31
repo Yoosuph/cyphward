@@ -1,9 +1,9 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react';
-import { AlertCircle, AlertTriangle, CalendarPlus, LogOut, Layers, PauseCircle, PlayCircle, UserMinus, UserPlus, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArchiveRestore, CalendarPlus, LogOut, Layers, PauseCircle, PlayCircle, Trash2, UserMinus, UserPlus, XCircle, type LucideIcon } from 'lucide-react';
 import Dialog from '../components/ui/Dialog';
 import { TypedNameGate, typedNameMatches } from '../components/ui/ConfirmDialog';
 import { useToast } from '../components/Toast';
-import { OwnerApiError, ownerPost } from './ownerApi';
+import { OwnerApiError, ownerPost, type RetentionHold } from './ownerApi';
 import { SessionEndedContext, fmtDate } from './ui';
 
 /**
@@ -18,7 +18,7 @@ import { SessionEndedContext, fmtDate } from './ui';
 
 const REASON_MIN = 5;
 
-function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, children, ready = true, typedName, typedWhat, run, testId }: {
+function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, children, ready = true, typedName, typedWhat, typedWord, run, testId }: {
   open: boolean;
   onClose: () => void;
   title: string;
@@ -31,41 +31,52 @@ function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, chi
   typedName?: string;
   /** What the typed text is, for the gate's label ("the organization name" by default). */
   typedWhat?: string;
+  /** A second exact word to type (the purge's DELETE), in its own field after the name. */
+  typedWord?: string;
   /** Receives the reason and the text the owner typed; organization actions send the typed text as confirm_name. */
-  run: (reason: string, typed: string) => Promise<string>;
+  run: (reason: string, typed: string, word: string) => Promise<string>;
   testId?: string;
 }) {
   const onSessionEnded = useContext(SessionEndedContext);
   const toast = useToast();
   const [reason, setReason] = useState('');
   const [typed, setTyped] = useState('');
+  const [word, setWord] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [hold, setHold] = useState<RetentionHold | undefined>();
 
   useEffect(() => {
     if (open) {
       setReason('');
       setTyped('');
+      setWord('');
       setError('');
+      setHold(undefined);
     }
   }, [open]);
 
   const trimmed = reason.trim();
   const nameOk = typedName === undefined || typedNameMatches(typed, typedName);
-  const canSubmit = ready && nameOk && trimmed.length >= REASON_MIN && !busy;
+  const wordOk = typedWord === undefined || typedNameMatches(word, typedWord);
+  const canSubmit = ready && nameOk && wordOk && trimmed.length >= REASON_MIN && !busy;
 
   const submit = async () => {
     if (!canSubmit) return;
     setBusy(true);
     setError('');
+    setHold(undefined);
     try {
-      const message = await run(trimmed, typed);
+      const message = await run(trimmed, typed, word);
       toast(message);
       onClose();
     } catch (e) {
       const err = e as OwnerApiError;
       if (err.status === 401) onSessionEnded();
-      else setError(err.message);
+      else {
+        setError(err.message);
+        setHold(err.hold);
+      }
     } finally {
       setBusy(false);
     }
@@ -73,7 +84,7 @@ function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, chi
 
   return (
     <Dialog open={open} onClose={busy ? () => {} : onClose} title={title} maxWidth="max-w-md" compact
-            dirty={!busy && (reason.length > 0 || typed.length > 0)}
+            dirty={!busy && (reason.length > 0 || typed.length > 0 || word.length > 0)}
             icon={danger ? <AlertTriangle size={15} /> : undefined}>
       <form className="space-y-5" data-testid={testId || 'owner-action-dialog'} onSubmit={e => { e.preventDefault(); void submit(); }}>
         <div className="text-sm text-soft leading-relaxed">{summary}</div>
@@ -96,10 +107,14 @@ function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, chi
           )}
         </div>
         {typedName !== undefined && <TypedNameGate name={typedName} value={typed} onChange={setTyped} id="owner-action-typed-name" what={typedWhat} />}
+        {typedWord !== undefined && <TypedNameGate name={typedWord} value={word} onChange={setWord} id="owner-action-typed-word" what={`the word ${typedWord}`} />}
         {error && (
           <div role="alert" data-testid="owner-action-error" className="p-3 bg-red-500/10 border border-red-500/30 rounded text-xs mono text-red-500 flex items-start gap-2">
             <AlertCircle size={14} className="flex-none mt-0.5" aria-hidden="true" />
-            <span>{error}</span>
+            <div className="min-w-0">
+              <span>{error}</span>
+              {hold && <RetentionHoldList hold={hold} />}
+            </div>
           </div>
         )}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
@@ -114,12 +129,128 @@ function ActionDialog({ open, onClose, title, danger, confirmLabel, summary, chi
   );
 }
 
-function ActionButton({ icon: Icon, label, onClick, danger, testId }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean; testId?: string }) {
+function ActionButton({ icon: Icon, label, onClick, danger, testId, disabled, describedBy, large }: {
+  icon: LucideIcon; label: string; onClick: () => void; danger?: boolean; testId?: string;
+  disabled?: boolean; describedBy?: string; large?: boolean;
+}) {
   return (
-    <button type="button" onClick={onClick} data-testid={testId}
-            className={`btn-mini whitespace-nowrap ${danger ? 'hover:!border-accent hover:!text-accent' : ''}`}>
+    <button type="button" onClick={onClick} data-testid={testId} disabled={disabled} aria-describedby={describedBy}
+            className={`btn-mini whitespace-nowrap ${large ? 'touch-target justify-center' : ''} ${danger ? 'hover:!border-accent hover:!text-accent' : ''} disabled:opacity-60 disabled:cursor-not-allowed`}>
       <Icon size={12} aria-hidden="true" /> {label}
     </button>
+  );
+}
+
+/* ── Organization: delete, restore, purge (docs/admin-delete-org) ───────── */
+const HOLD_LABELS: [keyof RetentionHold['counts'], string, string][] = [
+  ['reviewer_grants', 'reviewer access grant', 'reviewer access grants'],
+  ['packs', 'evidence pack', 'evidence packs'],
+  ['snapshots', 'assessment snapshot', 'assessment snapshots'],
+  ['documents', 'compliance document', 'compliance documents'],
+  ['evidence_files', 'evidence file', 'evidence files'],
+];
+
+/** The counts that hold a purge back, in the console's own words. Only whole numbers come from the server. */
+function RetentionHoldList({ hold }: { hold: RetentionHold }) {
+  const rows = HOLD_LABELS.filter(([k]) => hold.counts[k] > 0);
+  const years = hold.incidentYears || 6;
+  return (
+    <div className="mt-2 text-ink" data-testid="purge-hold">
+      {rows.length > 0 && <>
+        <p className="mb-1">Still inside the {hold.retentionMonths ? `${hold.retentionMonths}-month ` : ''}retention period:</p>
+        <ul className="list-disc pl-5 space-y-0.5">
+          {rows.map(([k, one, many]) => (
+            <li key={k} data-testid={`purge-hold-${k}`}>{hold.counts[k]} {hold.counts[k] === 1 ? one : many}</li>
+          ))}
+        </ul>
+      </>}
+      {hold.counts.incidents > 0 && (
+        <p className="mt-1" data-testid="purge-hold-incidents">
+          {hold.counts.incidents} breach incident{hold.counts.incidents === 1 ? ' was' : 's were'} opened in the last {years} years. Incident records are kept for {years} years.
+        </p>
+      )}
+      <p className="mt-1 text-soft">The purge becomes possible once the last of these has passed its period.</p>
+    </div>
+  );
+}
+
+const DELETE_RULE = 'It disappears for its members at once: they can no longer sign in to it or open any of its pages, and it leaves the owner lists unless you choose to show deleted organizations. Its queued scans are cancelled, a scan that is already running finishes, and scheduled scans skip it. Nothing is removed: you can restore it for 30 days. After that you can purge its data as a separate step.';
+
+export function DeleteOrgAction({ orgId, orgName, blockedReason, onDone }: {
+  orgId: string; orgName: string; blockedReason?: string; onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ActionButton icon={Trash2} label="DELETE ORGANIZATION" danger large onClick={() => setOpen(true)} testId="org-delete-open"
+                    disabled={!!blockedReason} describedBy={blockedReason ? 'org-delete-blocked' : undefined} />
+      {blockedReason && <p id="org-delete-blocked" className="text-xs text-soft mt-2" data-testid="org-delete-blocked">{blockedReason}</p>}
+      <ActionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Delete organization"
+        danger
+        confirmLabel="DELETE ORGANIZATION"
+        typedName={orgName}
+        testId="org-delete-dialog"
+        summary={<>Marks <span className="text-ink">{orgName}</span> as deleted. {DELETE_RULE}</>}
+        run={async (reason, typed) => {
+          await ownerPost(`/organizations/${orgId}/delete`, { reason, confirm_name: typed });
+          onDone();
+          return `${orgName} is deleted. You can restore it for 30 days.`;
+        }}
+      />
+    </>
+  );
+}
+
+export function RestoreOrgAction({ orgId, orgName, restoreUntil, onDone }: {
+  orgId: string; orgName: string; restoreUntil?: string | null; onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ActionButton icon={ArchiveRestore} label="RESTORE ORGANIZATION" large onClick={() => setOpen(true)} testId="org-restore-open" />
+      <ActionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Restore organization"
+        confirmLabel="RESTORE ORGANIZATION"
+        typedName={orgName}
+        testId="org-restore-dialog"
+        summary={<>Brings <span className="text-ink">{orgName}</span> back as it was before it was deleted: its members can sign in to it again, and if it was suspended it stays suspended. Scans that were cancelled when it was deleted stay cancelled. Restore is possible until {fmtDate(restoreUntil)}.</>}
+        run={async (reason, typed) => {
+          await ownerPost(`/organizations/${orgId}/restore`, { reason, confirm_name: typed });
+          onDone();
+          return `${orgName} is restored.`;
+        }}
+      />
+    </>
+  );
+}
+
+export function PurgeOrgAction({ orgId, orgName, onDone }: { orgId: string; orgName: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ActionButton icon={Trash2} label="PURGE DATA" danger large onClick={() => setOpen(true)} testId="org-purge-open" />
+      <ActionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Purge organization data"
+        danger
+        confirmLabel="PURGE DATA"
+        typedName={orgName}
+        typedWord="DELETE"
+        testId="org-purge-dialog"
+        summary={<>Permanently removes everything <span className="text-ink">{orgName}</span> holds: members, domains, scans, findings, reports and compliance records. Its stored evidence files are queued for removal. People keep their own accounts, and the owner log keeps this record. <span className="text-ink font-medium">This cannot be undone.</span> It is refused while any reviewer access, pack, snapshot, compliance document or evidence file is still inside its retention period, or while any breach incident was opened in the last 6 years.</>}
+        run={async (reason, typed, word) => {
+          await ownerPost(`/organizations/${orgId}/purge`, { reason, confirm_name: typed, confirm_word: word });
+          onDone();
+          return `${orgName}'s data was purged.`;
+        }}
+      />
+    </>
   );
 }
 

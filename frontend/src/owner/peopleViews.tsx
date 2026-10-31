@@ -1,11 +1,11 @@
-import { useContext } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Activity, AlertTriangle, Building2, Clock, CreditCard, Globe, Radar, Users } from 'lucide-react';
 import {
   Cell, Empty, OwnerMeContext, PageHead, Panel, Pill, SearchBox, Stat, Table, ViewState,
   fmtAgo, fmtDate, fmtDuration, fmtMoney, statusTone, useOwnerView,
 } from './ui';
-import { ChangePlanAction, ExtendTrialAction, RemoveMemberAction, RestoreMemberAction, SignOutEverywhereAction, SuspendAction } from './actions';
+import { ChangePlanAction, DeleteOrgAction, ExtendTrialAction, PurgeOrgAction, RemoveMemberAction, RestoreMemberAction, RestoreOrgAction, SignOutEverywhereAction, SuspendAction } from './actions';
 import {
   ExportButton, FilterBar, ListState, OwnerTable, PagerBar, SelectFilter, SortSelect, useListParams, type Column,
 } from './table';
@@ -96,6 +96,8 @@ export function OverviewView() {
 const BILLING_OPTIONS: [string, string][] = [['', 'All'], ['paid', 'Paid'], ['trialing', 'Trialing'], ['free', 'Free']];
 const PLAN_OPTIONS: [string, string][] = [['', 'All'], ['starter', 'Starter'], ['growth', 'Growth'], ['other', 'Other']];
 const BILLING_TONE: Record<string, 'good' | 'warn' | 'neutral'> = { paid: 'good', trialing: 'warn', free: 'neutral' };
+// Deleted organizations are left out unless asked for (backend core/owner_lists.py).
+const DELETED_OPTIONS: [string, string][] = [['', 'Hide deleted'], ['include', 'Include deleted'], ['only', 'Deleted only']];
 
 const ORG_COLUMNS: Column<Row>[] = [
   { key: 'name', label: 'Organization', sortKey: 'name', title: true,
@@ -104,7 +106,7 @@ const ORG_COLUMNS: Column<Row>[] = [
   { key: 'plan', label: 'Plan', sortKey: 'plan',
     cell: o => <span className="inline-flex flex-wrap items-center gap-1.5"><span className="mono text-xs">{o.plan || '—'}</span><Pill tone={BILLING_TONE[o.billing] || 'neutral'}>{o.billing || '—'}</Pill></span> },
   { key: 'status', label: 'Status',
-    cell: o => o.suspended ? <Pill tone="bad">suspended</Pill> : <Pill tone="good">active</Pill> },
+    cell: o => o.deleted ? <Pill tone="bad">deleted</Pill> : o.suspended ? <Pill tone="bad">suspended</Pill> : <Pill tone="good">active</Pill> },
   { key: 'members', label: 'Members', sortKey: 'members', firstDir: 'desc', cell: o => o.members },
   { key: 'domains', label: 'Domains', sortKey: 'domains', firstDir: 'desc', cell: o => `${o.domains_verified}/${o.domains} verified` },
   { key: 'last_scan', label: 'Last scan', sortKey: 'last_scan', firstDir: 'desc',
@@ -117,7 +119,8 @@ export function OrganizationsView() {
   const billing = params.get('billing') || '';
   const plan = params.get('plan') || '';
   const suspended = params.get('suspended') || '';
-  const filters = { q, billing, plan, suspended, sort, dir };
+  const deleted = params.get('deleted') || '';
+  const filters = { q, billing, plan, suspended, deleted, sort, dir };
   const { data, error, loading, reload } = useOwnerView<Row>('/organizations', { ...filters, offset, limit });
   return (
     <>
@@ -129,6 +132,8 @@ export function OrganizationsView() {
         <SelectFilter id="org-plan" label="Plan" value={plan} options={PLAN_OPTIONS} onChange={v => set({ plan: v, offset: 0 })} />
         <SelectFilter id="org-suspended" label="Status" value={suspended}
                       options={[['', 'All'], ['no', 'Active'], ['yes', 'Suspended']]} onChange={v => set({ suspended: v, offset: 0 })} />
+        <SelectFilter id="org-deleted" label="Deleted" value={deleted}
+                      options={DELETED_OPTIONS} onChange={v => set({ deleted: v, offset: 0 })} />
         <SortSelect id="org-sort" columns={ORG_COLUMNS} sort={sort} dir={dir} onChange={(s, d) => set({ sort: s, dir: d, offset: 0 })} />
       </FilterBar>
       <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="organizations"
@@ -148,16 +153,28 @@ export function OrganizationDetailView() {
   const org = data?.organization;
   const findings = Object.fromEntries(((data?.open_findings || []) as Row[]).map(r => [r.severity, r.n]));
   const owners = ((data?.members || []) as Row[]).filter(m => m.role === 'owner').length;
+  const deleted = !!org?.deleted;
   return (
     <>
       <PageHead title={org?.name || 'Organization'} subtitle={org ? <span className="mono text-xs">{org.slug} · {org.sector || 'no sector'} · created {fmtDate(org.created_at, false)}</span> : undefined}
                 actions={<div className="flex flex-wrap gap-2">
-                  {org && <SuspendAction orgId={org.id} orgName={org.name} suspended={!!org.suspended} onDone={reload} />}
+                  {org && !deleted && <SuspendAction orgId={org.id} orgName={org.name} suspended={!!org.suspended} onDone={reload} />}
                   <Link to="/organizations" className="btn-mini">← ALL ORGANIZATIONS</Link>
                 </div>} />
       <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">
+            {deleted && (
+              <div role="status" data-testid="org-deleted-note" className="lg:col-span-2 p-3 rounded border border-accent/40 bg-accent/10 text-sm text-ink flex flex-wrap items-center gap-2">
+                <Pill tone="bad">deleted</Pill>
+                <span>
+                  Deleted {fmtDate(org.deleted_at)}{org.deleted_by_email ? <> by <span className="break-all">{org.deleted_by_email}</span></> : null}. Its members cannot sign in to it or open any of its pages, its scans are stopped and it is hidden from the owner lists.{' '}
+                  {org.restorable
+                    ? <>It can be restored until {fmtDate(org.restore_until)}; its data can be purged after that.</>
+                    : <>The restore window ended {fmtDate(org.restore_until)}; its data can now be purged from the danger zone below.</>}
+                </span>
+              </div>
+            )}
             {org.suspended && (
               <div role="status" data-testid="org-suspended-note" className="lg:col-span-2 p-3 rounded border border-accent/40 bg-accent/10 text-sm text-ink flex flex-wrap items-center gap-2">
                 <Pill tone="bad">suspended</Pill>
@@ -173,7 +190,8 @@ export function OrganizationDetailView() {
                       <Cell label="Role"><Pill>{m.role}</Pill></Cell>
                       <Cell label="Last seen">{fmtAgo(m.last_seen_at)}</Cell>
                       <Cell label="Action">
-                        {m.role === 'owner' && owners <= 1
+                        {deleted ? <span className="text-xs text-soft">restore the organization first</span>
+                          : m.role === 'owner' && owners <= 1
                           ? <span className="text-xs text-soft">last owner</span>
                           : <RemoveMemberAction orgId={org.id} orgName={org.name} userId={m.id} email={m.email} role={m.role} onDone={reload} />}
                       </Cell>
@@ -191,7 +209,8 @@ export function OrganizationDetailView() {
                       <Cell label="Role"><Pill>{r.role}</Pill></Cell>
                       <Cell label="Removed">{fmtDate(r.removed_at)}</Cell>
                       <Cell label="Action">
-                        {r.restored ? <span className="text-xs text-soft">restored</span>
+                        {deleted ? <span className="text-xs text-soft">restore the organization first</span>
+                          : r.restored ? <span className="text-xs text-soft">restored</span>
                           : r.is_member ? <span className="text-xs text-soft">member again</span>
                           : org.suspended ? <span className="text-xs text-soft">lift the suspension to restore</span>
                           : <RestoreMemberAction orgId={org.id} orgName={org.name} auditId={r.audit_id} email={r.email}
@@ -215,7 +234,7 @@ export function OrganizationDetailView() {
                 </Table>
               )}
             </Panel>
-            <Panel title="Plan and billing" right={
+            <Panel title="Plan and billing" right={deleted ? undefined :
               <div className="flex flex-wrap justify-end gap-2">
                 <ChangePlanAction orgId={org.id} orgName={org.name} current={(data.subscriptions as Row[])[0]?.plan || org.plan}
                                   plans={data.plans || []} onDone={reload} />
@@ -296,10 +315,53 @@ export function OrganizationDetailView() {
                 </Table>
               )}
             </Panel>
+            <DangerZone org={org} onDone={reload} />
           </div>
         )}
       </ViewState>
     </>
+  );
+}
+
+/* ── Organization: danger zone (docs/admin-delete-org) ───────────────────── */
+function DangerZone({ org, onDone }: { org: Row; onDone: () => void }) {
+  const days = org.restore_window_days || 30;
+  let body: ReactNode;
+  if (!org.deleted) {
+    const blocked = org.protected
+      ? 'This organization is protected (the demo or the InnovaTech workspace), so it cannot be deleted from the console.'
+      : org.paid_subscription_active
+      ? 'It has an active paid subscription. The subscription must be cancelled first: the customer can cancel it from Settings, also while suspended.'
+      : undefined;
+    body = (
+      <>
+        <p className="text-sm text-soft mb-3">Deleting is done in two steps. First the organization is marked deleted: it disappears for its members, its scans stop and nothing is removed, so you can restore it for {days} days. After that, its data can be purged as a separate step.</p>
+        <DeleteOrgAction orgId={org.id} orgName={org.name} blockedReason={blocked} onDone={onDone} />
+      </>
+    );
+  } else if (org.restorable) {
+    body = (
+      <>
+        <p className="text-sm text-soft mb-3">Deleted {fmtDate(org.deleted_at)}. You can restore it until {fmtDate(org.restore_until)}. Purging its data becomes possible after that date.</p>
+        <RestoreOrgAction orgId={org.id} orgName={org.name} restoreUntil={org.restore_until} onDone={onDone} />
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <p className="text-sm text-soft mb-3">The {days}-day restore window ended {fmtDate(org.restore_until)}. Purging removes its data permanently. It is refused while compliance records are still inside their retention period.</p>
+        {org.protected
+          ? <p className="text-xs text-soft" data-testid="org-purge-blocked">This organization is protected, so its data cannot be purged from the console.</p>
+          : <PurgeOrgAction orgId={org.id} orgName={org.name} onDone={onDone} />}
+      </>
+    );
+  }
+  return (
+    <section data-testid="org-danger-zone" aria-labelledby="org-danger-title"
+             className="lg:col-span-2 min-w-0 rounded border border-accent/50 p-5">
+      <h2 id="org-danger-title" className="text-[11px] mono uppercase tracking-[.14em] text-accent mb-3">Danger zone</h2>
+      {body}
+    </section>
   );
 }
 
@@ -390,7 +452,7 @@ export function UserDetailView() {
                   {(data.memberships as Row[]).map(m => (
                     <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
                       <Link to={`/organizations/${m.id}`} className="hover:text-accent">{m.name}</Link>
-                      <Pill>{m.role}</Pill>
+                      <span className="inline-flex flex-wrap gap-1">{m.deleted && <Pill tone="bad">deleted</Pill>}<Pill>{m.role}</Pill></span>
                     </li>
                   ))}
                 </ul>

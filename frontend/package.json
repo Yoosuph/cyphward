@@ -26,7 +26,8 @@
     "test:admin-newsletter": "node scripts/check-admin-newsletter.mjs",
     "test:admin-phase1": "node scripts/check-admin-phase1.mjs",
     "test:owner-logs": "node scripts/check-owner-logs.mjs",
-    "test:admin-phase2": "node scripts/check-admin-phase2.mjs"
+    "test:admin-phase2": "node scripts/check-admin-phase2.mjs",
+    "test:admin-delete-org": "node scripts/check-admin-delete-org.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",
