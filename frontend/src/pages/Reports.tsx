@@ -13,6 +13,8 @@ import { PageHead } from '../components/ui';
 import ReportPreview from '../components/ReportPreview';
 import { sendReportEmail, getEvidenceRetention, setEvidenceRetention, type EvidenceRetention } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 
 const RETENTION_CHOICES = [12, 24, 36, 48, 60, 84, 120];
 
@@ -22,6 +24,7 @@ function RetentionNote() {
   const confirm = useConfirm();
   const { organization } = useAuth();
   const isOwner = organization?.membership_role === 'owner';
+  const suspended = useOrgSuspended();
   const [info, setInfo] = useState<EvidenceRetention | null>(null);
   const [months, setMonths] = useState(36);
   const [saving, setSaving] = useState(false);
@@ -65,7 +68,7 @@ function RetentionNote() {
                   className="bg-inset border border-line rounded px-2 py-1 text-ink min-h-[44px] sm:min-h-0">
             {RETENTION_CHOICES.map(m => <option key={m} value={m}>{m} months</option>)}
           </select>
-          <button type="button" onClick={save} disabled={saving || months === info.retention_months}
+          <button type="button" onClick={save} {...writeGuard(suspended, saving || months === info.retention_months)}
                   className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line text-ink disabled:opacity-50 min-h-[44px] sm:min-h-0">Save</button>
         </div>
       )}
@@ -75,6 +78,7 @@ function RetentionNote() {
 
 export default function Reports() {
   const toast = useToast();
+  const suspended = useOrgSuspended();
   // Last-seen list paints at once on a revisit; load() refreshes it.
   const [loading, setLoading] = useState(() => readPageCache('reports') === undefined);
   const [reports, setReports] = useState<ReportRow[]>(() => readPageCache<ReportRow[]>('reports') ?? []);
@@ -202,7 +206,8 @@ export default function Reports() {
             </button>
             <button
               onClick={handleCreate}
-              disabled={creating}
+              data-write="report-generate"
+              {...writeGuard(suspended, creating)}
               className="btn-tactile flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs mono bg-accent text-white hover:opacity-90 disabled:opacity-50 min-h-[44px] sm:min-h-0"
             >
               {creating ? <RefreshCw size={13} className="animate-spin" /> : <Plus size={13} />}
@@ -221,7 +226,7 @@ export default function Reports() {
       ) : reports.length === 0 ? (
         <EmptyPanel icon={<FileText size={28} />} title="No reports yet"
                     help="A report is a saved copy of your current security score that you can share with your team or board."
-                    action={<button type="button" onClick={handleCreate} disabled={creating}
+                    action={<button type="button" onClick={handleCreate} {...writeGuard(suspended, creating)}
                                     className="btn-tactile flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono bg-accent text-white disabled:opacity-50 min-h-[44px]"><Plus size={13} /> Generate your first report</button>} />
       ) : (
         <div className="rounded-lg border border-line bg-raised overflow-x-auto">
@@ -313,7 +318,7 @@ export default function Reports() {
         icon={<Send size={16} className="text-accent" />}
         maxWidth="max-w-md"
         dirty={!!(emailTo || emailName || emailNote)}
-        footer={<EmailActions sending={sending} disabled={!emailTo.trim()} />}
+        footer={<EmailActions sending={sending} disabled={suspended || !emailTo.trim()} />}
       >
         <form id="report-email-form" onSubmit={handleSendEmail} className="space-y-3.5 text-xs">
           <div className="space-y-1.5">

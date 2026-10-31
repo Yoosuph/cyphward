@@ -14,8 +14,10 @@ from backend.app.core.config import SCANNER_MODE
 from backend.app.workflows.inngest_workflow import execute_scan_pipeline, inngest_client
 from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from backend.app.core.suspension import require_active_admin, suspended_refusal
 from backend.app.core.scan_admission import admit_scan, AdmissionConflict
 from backend.app.core.scan_cancel import CANCEL_ACTIVE_SCAN_SQL
+from backend.app.core.scan_failures import customer_raw_results, customer_scan
 import inngest
 
 router = APIRouter(prefix="/api/v1/scans", tags=["Scans"])
@@ -26,8 +28,9 @@ class LaunchScanRequest(BaseModel):
 
 
 def _public_scan(scan: Dict[str, Any]) -> Dict[str, Any]:
-    """Execution tokens are private to the trusted worker/Core protocol."""
-    return {key: value for key, value in scan.items() if key != "claim_token"}
+    """Execution tokens are private to the trusted worker/Core protocol, and raw failure text stays with the
+    owner console: customers get the reviewed `failure` sentence instead (core/scan_failures.py)."""
+    return customer_scan(scan)
 
 
 @router.get("")
@@ -83,7 +86,7 @@ def get_scan_detail(
 
     return {
         "scan": _public_scan(scan),
-        "raw_results": raw_results,
+        "raw_results": customer_raw_results(raw_results),
         "targets": targets,
     }
 
@@ -92,7 +95,7 @@ def get_scan_detail(
 async def launch_scan(
     req: LaunchScanRequest,
     background_tasks: BackgroundTasks,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> Dict[str, Any]:
     """
@@ -114,6 +117,8 @@ async def launch_scan(
             **({"scan_id": conflict.scan_id} if conflict.scan_id else {}),
         })
 
+    if admission.outcome == "suspended":
+        raise suspended_refusal()
     if admission.outcome == "quota":
         raise HTTPException(status_code=402, detail=(
             f"Scans quota reached for the {admission.plan_label} plan "
@@ -184,7 +189,7 @@ async def launch_scan(
 @router.post("/{scan_id}/cancel")
 def cancel_scan(
     scan_id: str,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Cancel an active or queued scan (admin/owner only; org-scoped)."""
     scan = execute_one(

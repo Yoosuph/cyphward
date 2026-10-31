@@ -27,6 +27,8 @@ import { EmptyPanel, ErrorPanel, humanError } from '../components/ui/StatePanels
 import { useOrgZone } from '../lib/orgZone';
 import { fmtDayZone } from './compliance/shared';
 import DomainDnsInstructions from '../components/DomainDnsInstructions';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 
 const STATUS_LABEL: Record<string, string> = {
   verified: 'Verified',
@@ -41,6 +43,7 @@ const statusLabel = (status: string) => STATUS_LABEL[status] || status;
 export default function Domains() {
   const confirmAction = useConfirm();
   const zone = useOrgZone();
+  const suspended = useOrgSuspended();
   const [loadError, setLoadError] = useState<string | null>(null);
   const domainsRef = useRef<Domain[]>([]);
   // Last-seen list paints at once on a revisit; loadDomains refreshes it.
@@ -253,7 +256,9 @@ export default function Domains() {
           </button>
           <button
             onClick={() => setAddModalOpen(true)}
-            className="btn-tactile flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[44px] sm:min-h-[38px]"
+            data-write="domain-add"
+            {...writeGuard(suspended)}
+            className="btn-tactile flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 shadow-md shadow-accent/20 transition-all min-h-[44px] sm:min-h-[38px]"
           >
             <Plus size={14} />
             <span>Add domain</span>
@@ -294,7 +299,7 @@ export default function Domains() {
                   <td colSpan={6} className="p-4">
                     <EmptyPanel icon={<Globe size={26} />} title="No domains yet"
                                 help="Add the domain you want scanned. You will prove you own it with one DNS record."
-                                action={<button type="button" onClick={() => setAddModalOpen(true)} className="btn-tactile flex items-center gap-2 px-4 py-2 rounded text-xs mono bg-accent text-white min-h-[44px]"><Plus size={14} /> Add your first domain</button>} />
+                                action={<button type="button" onClick={() => setAddModalOpen(true)} {...writeGuard(suspended)} className="btn-tactile disabled:opacity-50 flex items-center gap-2 px-4 py-2 rounded text-xs mono bg-accent text-white min-h-[44px]"><Plus size={14} /> Add your first domain</button>} />
                   </td>
                 </tr>
               ) : (
@@ -361,7 +366,8 @@ export default function Domains() {
 
                     <td className="stack-actions py-3 px-4 text-right space-x-2">
                       <button
-                        disabled={verifyingId === dom.id}
+                        data-write="domain-verify"
+                        {...writeGuard(suspended, verifyingId === dom.id)}
                         onClick={() => handleVerify(dom)}
                         className={`btn-tactile px-2.5 py-1 rounded text-[11px] border font-medium transition-colors min-h-[44px] sm:min-h-0 ${
                           dom.verification_status === 'verified'
@@ -391,9 +397,11 @@ export default function Domains() {
 
                       <button
                         onClick={() => handleDelete(dom.id, dom.domain)}
-                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
+                        data-write="domain-remove"
+                        className="btn-tactile p-1 rounded hover:bg-accent-soft text-soft hover:text-accent disabled:opacity-50 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 inline-flex items-center justify-center"
                         aria-label={`Remove ${dom.domain}`}
                         title="Remove domain"
+                        {...writeGuard(suspended)}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -422,6 +430,7 @@ export default function Domains() {
                                 onClick={() => handleRemoveHost(dom.id, h.id, h.hostname)}
                                 className="text-soft hover:text-accent min-w-[44px] min-h-[44px]"
                                 title="Stop monitoring"
+                                {...writeGuard(suspended)}
                                 aria-label={`Stop monitoring ${h.hostname}`}
                               >
                                 ×
@@ -443,7 +452,7 @@ export default function Domains() {
                           />
                           <button
                             type="submit"
-                            disabled={hostsBusy || !newHost.trim()}
+                            {...writeGuard(suspended, hostsBusy || !newHost.trim())}
                             className="btn-tactile px-2.5 py-1 rounded text-[11px] mono bg-accent text-white disabled:opacity-50 min-h-[44px] sm:min-h-0"
                           >
                             {hostsBusy ? 'Adding…' : 'Add host'}
@@ -468,7 +477,7 @@ export default function Domains() {
         icon={<Globe size={16} className="text-accent" />}
         maxWidth="max-w-md"
         dirty={!!newDomainInput.trim()}
-        footer={<AddDomainActions adding={adding} disabled={!newDomainInput.trim()} />}
+        footer={<AddDomainActions adding={adding} disabled={suspended || !newDomainInput.trim()} />}
       >
         <form id="add-domain-form" onSubmit={handleAddDomain} className="space-y-4">
           <div className="space-y-1.5">
@@ -503,7 +512,7 @@ export default function Domains() {
         footer={instructionModal ? (
           <VerifyActions
             checking={modalCheck === 'checking'}
-            disabled={!instructionModal.verification_token || modalCheck === 'checking' || modalCheck === 'verified'}
+            disabled={suspended || !instructionModal.verification_token || modalCheck === 'checking' || modalCheck === 'verified'}
             onCheck={() => handleVerify(instructionModal, true)}
           />
         ) : undefined}

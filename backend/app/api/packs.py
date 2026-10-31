@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.app.compliance import status
 from backend.app.core.auth import get_current_org, require_admin
+from backend.app.core.suspension import require_active_admin
 from backend.app.packs import store
 from backend.app.api.snapshots import retention_note
 from backend.app.snapshots import store as snapshots
@@ -36,7 +37,7 @@ def _growth(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, Any]:
     return org
 
 
-def _growth_admin(org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def _growth_admin(org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     if status.is_starter(org):
         raise HTTPException(status_code=403, detail=GROWTH_DETAIL)
     return org

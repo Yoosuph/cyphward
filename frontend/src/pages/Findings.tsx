@@ -18,6 +18,8 @@ import {
   Layers,
 } from 'lucide-react';
 import { getFindingsStrict as getFindings, updateFindingStatus, explainFinding, getRemediation } from '../lib/api';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 import type { Finding, FindingSeverity, FindingStatus, FindingExplanation, RemediationGuide } from '../types';
 import { useToast } from '../components/Toast';
 import { readPageCache, writePageCache } from '../lib/pageCache';
@@ -31,6 +33,7 @@ type FindingsCache = { findings: Finding[]; categories: Record<string, number> }
 const FINDINGS_DEFAULT_KEY = 'findings:all:all:';
 
 export default function Findings() {
+  const suspended = useOrgSuspended();
   // Last-seen list paints at once on a revisit; loadFindings refreshes it.
   const [findings, setFindings] = useState<Finding[]>(() => readPageCache<FindingsCache>(FINDINGS_DEFAULT_KEY)?.findings ?? []);
   const [loading, setLoading] = useState(() => readPageCache(FINDINGS_DEFAULT_KEY) === undefined);
@@ -376,6 +379,8 @@ export default function Findings() {
               <div className="flex flex-wrap items-center gap-1.5 mono text-[10px]">
                 <button
                   onClick={() => handleStatusChange(activeFinding.id, 'open')}
+                  {...writeGuard(suspended)}
+                  data-write="finding-status"
                   className={`px-2.5 py-1 rounded border btn-tactile ${
                     activeFinding.status === 'open' ? 'bg-amber-500/20 border-amber-500 text-amber-500 font-bold' : 'border-line text-soft'
                   }`}
@@ -384,6 +389,8 @@ export default function Findings() {
                 </button>
                 <button
                   onClick={() => handleStatusChange(activeFinding.id, 'resolved')}
+                  {...writeGuard(suspended)}
+                  data-write="finding-status"
                   className={`px-2.5 py-1 rounded border btn-tactile ${
                     activeFinding.status === 'resolved' ? 'bg-ok/20 border-ok text-ok font-bold' : 'border-line text-soft'
                   }`}
@@ -392,6 +399,8 @@ export default function Findings() {
                 </button>
                 <button
                   onClick={() => handleStatusChange(activeFinding.id, 'acknowledged')}
+                  {...writeGuard(suspended)}
+                  data-write="finding-status"
                   className={`px-2.5 py-1 rounded border btn-tactile ${
                     activeFinding.status === 'acknowledged' ? 'bg-raised border-accent text-accent font-bold' : 'border-line text-soft'
                   }`}
@@ -400,6 +409,8 @@ export default function Findings() {
                 </button>
                 <button
                   onClick={() => handleStatusChange(activeFinding.id, 'in_progress')}
+                  {...writeGuard(suspended)}
+                  data-write="finding-status"
                   className={`px-2.5 py-1 rounded border btn-tactile ${
                     activeFinding.status === 'in_progress' ? 'bg-raised border-soft text-soft font-bold' : 'border-line text-soft'
                   }`}

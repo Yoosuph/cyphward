@@ -22,6 +22,8 @@ import { OverviewSkeleton } from '../components/Skeleton';
 import BoardReportModal from '../components/BoardReportModal';
 import Modal from '../components/Modal';
 import { getOverview, launchScan, getDomains, getExecutiveSummary } from '../lib/api';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 import { useAuth } from '../lib/auth';
 import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
@@ -49,6 +51,8 @@ export default function Overview() {
   const [greeting, setGreeting] = useState<string | null>(null);
 
   const { user, primaryDomain, organization: activeOrganization } = useAuth();
+  // Hooks stay above the early returns below.
+  const suspended = useOrgSuspended();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -213,11 +217,12 @@ export default function Overview() {
 
           <button
             data-tour="start-scan"
+            data-write="scan-launch"
             // Until the domain list loads (or if it fails), never send the user to
             // "add a domain": the Scans page loads its own list and launcher.
             onClick={() => !domainsLoaded ? navigate('/scans') : verifiedDomains.length ? setScanModalOpen(true) : navigate(pendingDomain ? '/domains' : '/onboarding/add-domain')}
-            disabled={!canManageDomains}
-            className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
+            {...writeGuard(suspended, !canManageDomains)}
+            className="flex items-center justify-center gap-2 px-4 py-2 rounded text-xs mono font-medium bg-accent text-white disabled:opacity-50 hover:opacity-90 shadow-md shadow-accent/20 transition-all min-h-[38px] btn-tactile"
           >
             <Play size={13} fill="currentColor" />
             <span>{!canManageDomains ? 'WAITING FOR ADMIN' : !domainsLoaded || verifiedDomains.length ? 'START SCAN' : pendingDomain ? 'VERIFY DOMAIN' : 'ADD DOMAIN'}</span>
@@ -677,7 +682,7 @@ export default function Overview() {
             Cancel
           </button>
           <button
-            disabled={launching || !selectedDomain}
+            {...writeGuard(suspended, launching || !selectedDomain)}
             onClick={handleLaunchScan}
             className="px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2 btn-tactile shadow-md shadow-accent/20"
           >

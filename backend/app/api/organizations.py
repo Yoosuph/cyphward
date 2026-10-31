@@ -15,6 +15,7 @@ from backend.app.core.database import execute_one, execute_query
 from backend.app.api.demo_login import refuse_demo_account
 from backend.app.billing.subscriptions import resolve_plan
 from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role, session_memberships
+from backend.app.core.suspension import is_suspended, refuse_suspended_owner, require_active_admin, require_active_owner
 from backend.app.core.plans import (
     DEFAULT_PLAN,
     parse_plan,
@@ -77,7 +78,7 @@ def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> L
     )
 
 
-@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account)])
+@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account), Depends(refuse_suspended_owner)])
 def create_organization(
     req: CreateOrganizationRequest,
     user: Dict[str, Any] = Depends(get_current_user),
@@ -150,13 +151,15 @@ def get_current_organization(org: Dict[str, Any] = Depends(get_current_org)) -> 
         "created_at": org.get("created_at"),
         "role": membership_role(org),
         "user_id": org.get("current_user_id"),
+        # Reads keep working while suspended; the app uses this to show the banner (core/suspension.py).
+        "suspended": is_suspended(org["id"]),
     }
 
 
 @router.patch("/current")
 def update_current_organization(
     req: UpdateOrganizationRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Update the active organization profile (admin/owner only; whitelisted columns)."""
     updates: List[str] = []
@@ -281,7 +284,7 @@ def _purge_evidence_files(org_id: str) -> None:
 @router.post("/close")
 def close_organization(
     req: CloseOrganizationRequest,
-    org: Dict[str, Any] = Depends(require_owner),
+    org: Dict[str, Any] = Depends(require_active_owner),
 ) -> Dict[str, Any]:
     """Owner-only workspace closure (right to be forgotten, review P2).
 

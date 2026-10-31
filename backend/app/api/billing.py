@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from backend.app.billing.provider import provider
 from backend.app.billing.subscriptions import effective_status, resolve_plan
 from backend.app.core.auth import get_current_org, log_audit, membership_role, require_owner
+from backend.app.core.suspension import require_active_owner
 from backend.app.core.database import execute_one, execute_query, get_db
 from backend.app.core.plans import parse_plan
 
@@ -69,7 +70,7 @@ def list_invoices(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any
 @router.post("/subscription")
 def set_subscription(
     req: SetPlanRequest,
-    org: Dict[str, Any] = Depends(require_owner),
+    org: Dict[str, Any] = Depends(require_active_owner),
 ) -> Dict[str, Any]:
     """Choosing a plan cannot create a paid period or restart a trial."""
     parse_plan(req.plan)
@@ -77,14 +78,17 @@ def set_subscription(
 
 
 @router.post("/subscription/renew")
-def renew_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+def renew_subscription(org: Dict[str, Any] = Depends(require_active_owner)) -> Dict[str, Any]:
     """Keep the endpoint explicit for older clients, without granting time."""
     manual_billing_required()
 
 
 @router.post("/subscription/cancel")
 def cancel_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
-    """Owner cancels at period end (quotas hold until the period lapses)."""
+    """Owner cancels at period end (quotas hold until the period lapses).
+
+    Allowed while the organisation is suspended (founder decision: a customer can always stop paying). Plan and
+    renewal requests, which add cost, stay refused (core/suspension.py)."""
     org_id = str(org["id"])
     with get_db() as conn:
         with conn.transaction():

@@ -22,6 +22,8 @@ import {
   FileText,
 } from "lucide-react";
 import { getScans, getScanDetail, launchScan, getDomains } from "../lib/api";
+import { writeGuard } from "../lib/suspension";
+import { useOrgSuspended } from "../lib/useOrgSuspended";
 import type { Scan, Domain, StageInfo, ScanCoverage } from "../types";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../lib/auth";
@@ -43,6 +45,7 @@ function omissionReason(reason: unknown) {
     recon_budget_exhausted: "Scan work budget exhausted",
     recon_stage_deadline: "Stage time limit reached; evaluation incomplete",
     third_party_service: "Hands off to a third-party service; not assessed",
+    check_failed: "The check did not finish for this host",
   };
   return reasons[String(reason)] || String(reason);
 }
@@ -717,8 +720,8 @@ function ScanSummary({
           </button>
         </div>
       )}
-      {scan.error_message && (
-        <p className="scan-check-error">{scan.error_message}</p>
+      {scan.failure && (
+        <p className="scan-check-error" data-testid="scan-failure">{scan.failure.message}</p>
       )}
       <div className="scan-summary-actions">
         <button
@@ -747,6 +750,7 @@ export default function Scans() {
   const canManageScans = ["owner", "admin"].includes(
     organization?.membership_role || "member",
   );
+  const suspended = useOrgSuspended();
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState(false);
@@ -915,7 +919,7 @@ export default function Scans() {
       ?.focus({ preventScroll: true });
   };
   const handleLaunch = async () => {
-    if (!canManageScans || !domainId || launching) return;
+    if (!canManageScans || !domainId || launching || suspended) return;
     setLaunching(true);
     setLaunchError("");
     try {
@@ -947,7 +951,8 @@ export default function Scans() {
   const launchButton = canManageScans && (
     <button
       className="scan-button scan-button--primary scan-start"
-      disabled={domainsLoading}
+      data-write="scan-launch"
+      {...writeGuard(suspended, domainsLoading)}
       aria-label={domains.length ? "Start scan" : "Verify domain"}
       onClick={() => {
         setLaunchError("");
@@ -1361,7 +1366,7 @@ export default function Scans() {
             </button>
             <button
               className="scan-button scan-button--primary"
-              disabled={launching || !domainId}
+              {...writeGuard(suspended, launching || !domainId)}
               onClick={handleLaunch}
             >
               {launching ? (

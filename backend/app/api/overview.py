@@ -7,6 +7,7 @@ from typing import Dict, Any
 from backend.app.core.database import get_db
 from backend.app.risk.engine import compute_risk_score, latest_assessment, seven_day_baseline
 from backend.app.core.auth import get_current_org
+from backend.app.core.scan_failures import customer_scan
 
 router = APIRouter(prefix="/api/v1/overview", tags=["Overview"])
 
@@ -40,7 +41,7 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
             # 4. Recent scans
             cur.execute("""
                 SELECT s.id, s.status, s.score, s.current_stage, s.stage_progress, s.started_at, s.completed_at, s.created_at,
-                       d.domain
+                       s.failure_code, s.error_message, d.domain
                 FROM scans s
                 JOIN domains d ON s.domain_id = d.id
                 WHERE s.org_id = %s
@@ -94,5 +95,6 @@ def get_overview(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
         },
         "subscores": scoring["subscores"],
         "factors": scoring["factors"],
-        "recent_scans": recent_scans,
+        # Failures and stage notes go out as reviewed wording only (core/scan_failures.py).
+        "recent_scans": [customer_scan(scan) for scan in recent_scans],
     }

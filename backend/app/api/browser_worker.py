@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.app.core import browser_jobs, config
 from backend.app.core.auth import log_audit, require_admin
+from backend.app.core.suspension import require_active_admin
 from backend.app.core.database import execute_one
 from backend.app.core.execution_fence import ClaimLost
 from shared.browser_contracts import (
@@ -164,7 +165,7 @@ def fail_job(job_id: str, body: JobFailure, claim: JobAuthority) -> dict:
 
 
 @customer_router.post("/{domain_id}/consent-observation", status_code=202)
-def request_observation(domain_id: str, org: dict = Depends(require_admin)) -> dict:
+def request_observation(domain_id: str, org: dict = Depends(require_active_admin)) -> dict:
     """Owner/admin asks for a first-visit cookie observation of a verified domain."""
     if not config.BROWSER_CONSENT_ENABLED:
         raise HTTPException(404, "Not found.")

@@ -54,6 +54,9 @@ def claim_recon(
     owner: str, phase: str, lease_seconds: int, scan_id: str | None = None,
     privacy_capable: bool = True,
 ) -> dict | None:
+    """Claim the oldest runnable recon job. A suspended organisation's queued
+    scans are not claimed: they wait in the queue and run once the suspension
+    is lifted (core/suspension.py). Scans already running are left to finish."""
     if phase not in {"worker", "local"} or lease_seconds < 1:
         raise ValueError("Invalid recon claim")
     with get_db() as conn:
@@ -69,6 +72,8 @@ def claim_recon(
                       AND (s.execution_phase IS NULL OR s.execution_phase=%s)
                       AND (s.current_stage IS NULL OR NOT (s.current_stage = ANY(%s)))
                       AND d.verification_status='verified'
+                      AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                                      WHERE os.org_id=s.org_id AND os.status='suspended')
                       AND (%s::uuid IS NULL OR s.id=%s::uuid)
                     ORDER BY s.created_at, s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1
                 """,
@@ -210,13 +215,18 @@ def report_progress(
 
 
 def fail_claim(claim: ExecutionClaim, error: str, progress: dict | None = None) -> None:
+    """Mark the scan failed. The raw text is kept for the owner console; the stored failure code picks the
+    reviewed sentence customers see (core/scan_failures.py)."""
+    from backend.app.core.scan_failures import classify
+
     with owned_transaction(claim) as (cur, row):
         cur.execute(
-            """UPDATE scans SET status='failed', error_message=%s, stage_progress=%s::jsonb,
+            """UPDATE scans SET status='failed', error_message=%s, failure_code=%s, stage_progress=%s::jsonb,
             completed_at=clock_timestamp(), claimed_by=NULL, lease_expires_at=NULL, claim_token=NULL,
             execution_phase=NULL, claim_generation=claim_generation+1 WHERE id=%s""",
             (
                 error[:2000],
+                classify(error),
                 json.dumps(
                     progress
                     if progress is not None

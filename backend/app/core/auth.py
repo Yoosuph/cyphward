@@ -26,6 +26,12 @@ from backend.app.core.database import execute_one
 
 ACCESS_TOKEN_TYPE = "access"
 
+# POST routes that only read: they interpret existing evidence and write no customer record (AI use is only
+# metered in rate_limits). The public demo allows them, and a suspended organisation keeps them
+# (test_suspension_gate.py).
+READ_ONLY_POSTS = frozenset({"/api/v1/ai/explain", "/api/v1/ai/remediate", "/api/v1/ai/executive-summary",
+                             "/api/v1/ai/chat", "/api/v1/ai/chat/stream"})
+
 
 def issue_access_token(profile: Dict[str, Any], session_id: Optional[str] = None) -> str:
     """Mint a Cyphward access token for a profile row.
@@ -129,10 +135,8 @@ def get_current_user(
             raise HTTPException(status_code=401, detail="The public demo session has ended.")
         # These POSTs interpret existing evidence. All account/workspace mutations
         # are refused, including routes that do not use organisation role gates.
-        read_posts = {"/api/v1/ai/explain", "/api/v1/ai/remediate", "/api/v1/ai/executive-summary",
-                      "/api/v1/ai/chat", "/api/v1/ai/chat/stream"}
         if request and request.method not in {"GET", "HEAD", "OPTIONS"} and not (
-            request.method == "POST" and request.url.path in read_posts
+            request.method == "POST" and request.url.path in READ_ONLY_POSTS
         ):
             raise HTTPException(status_code=403, detail="The public demo is view-only. Create your own account to make changes.")
     return profile

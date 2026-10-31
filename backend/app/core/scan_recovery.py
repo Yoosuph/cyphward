@@ -19,11 +19,21 @@ INTERRUPTED_MESSAGE = (
 )
 
 
+# Local-mode queue pick. Suspended organisations are left out, as in the worker claim (scan_execution.claim_recon),
+# so their queued scans wait without holding the two slots other organisations' scans need (core/suspension.py).
+LOCAL_QUEUE_SQL = """SELECT s.id FROM scans s JOIN domains d ON d.id=s.domain_id AND d.org_id=s.org_id
+    WHERE d.verification_status='verified' AND (s.status='queued'
+    OR (s.status='running' AND s.execution_phase='local' AND s.lease_expires_at < clock_timestamp()))
+      AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                      WHERE os.org_id=s.org_id AND os.status='suspended')
+    ORDER BY s.created_at LIMIT %s"""
+
+
 def recover_interrupted_scans() -> int:
     if SCANNER_MODE != "local":
         return 0
     rows = execute_query(
-        """UPDATE scans SET status = 'failed',error_message=%s,completed_at=now()
+        """UPDATE scans SET status = 'failed',error_message=%s,failure_code='interrupted',completed_at=now()
         WHERE claimed_by IS NULL AND status = 'running'
           AND execution_phase IS NULL AND claim_token IS NULL RETURNING id""",
         (INTERRUPTED_MESSAGE,),
@@ -60,14 +70,7 @@ async def recover_scan_queue(stop: asyncio.Event) -> None:
                         task.add_done_callback(finished)
                 slots = max(0, 2 - len(tasks))
                 if SCANNER_MODE == "local" and slots:
-                    rows = await asyncio.to_thread(
-                        execute_query,
-                        """SELECT s.id FROM scans s JOIN domains d ON d.id=s.domain_id AND d.org_id=s.org_id
-                        WHERE d.verification_status='verified' AND (s.status='queued'
-                        OR (s.status='running' AND s.execution_phase='local' AND s.lease_expires_at < clock_timestamp()))
-                        ORDER BY s.created_at LIMIT %s""",
-                        (slots,),
-                    )
+                    rows = await asyncio.to_thread(execute_query, LOCAL_QUEUE_SQL, (slots,))
                     for row in rows or []:
                         task = asyncio.create_task(
                             execute_scan_pipeline(str(row["id"]))

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react';
-import { AlertCircle, AlertTriangle, CalendarPlus, LogOut, Layers, PauseCircle, PlayCircle, UserMinus, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CalendarPlus, LogOut, Layers, PauseCircle, PlayCircle, UserMinus, UserPlus, XCircle, type LucideIcon } from 'lucide-react';
 import Dialog from '../components/ui/Dialog';
 import { TypedNameGate, typedNameMatches } from '../components/ui/ConfirmDialog';
 import { useToast } from '../components/Toast';
@@ -206,7 +206,7 @@ export function ExtendTrialAction({ orgId, orgName, trialEndsAt, onDone }: {
 }
 
 /* ── Organization: suspend / unsuspend ──────────────────────────────────── */
-const SUSPENSION_RULE = 'In this phase a suspension is a marker in the owner console only: the customer can still sign in, see their data, run scans and pay as before. You can lift it at any time.';
+const SUSPENSION_RULE = 'While suspended, its members can still sign in and read their data, but changes that add something are refused: no new scans, domains, settings, new members or promotions, compliance records, documents, packs or snapshots, and its owners cannot create a new organization. They can still cancel their subscription, revoke reviewer access, withdraw an invitation and lower a role. Scheduled scans and queued scans pause until you lift it. Owner actions keep working. You can lift it at any time.';
 
 export function SuspendAction({ orgId, orgName, suspended, onDone }: {
   orgId: string; orgName: string; suspended: boolean; onDone: () => void;
@@ -231,7 +231,7 @@ export function SuspendAction({ orgId, orgName, suspended, onDone }: {
         run={async (reason, typed) => {
           await ownerPost(`/organizations/${orgId}/${verb}`, { reason, confirm_name: typed });
           onDone();
-          return suspended ? `${orgName} is no longer suspended.` : `${orgName} is marked as suspended.`;
+          return suspended ? `${orgName} is no longer suspended.` : `${orgName} is suspended.`;
         }}
       />
     </>
@@ -254,11 +254,37 @@ export function RemoveMemberAction({ orgId, orgName, userId, email, role, onDone
         confirmLabel="REMOVE MEMBER"
         typedName={orgName}
         testId="member-remove-dialog"
-        summary={<>Removes <span className="text-ink break-all">{email}</span> ({role}) from <span className="text-ink">{orgName}</span>. They lose access to this organization at their next request. Their account and the organization's data stay; the owner log keeps their role and join date so the membership can be restored. An organization always keeps at least one owner.</>}
+        summary={<>Removes <span className="text-ink break-all">{email}</span> ({role}) from <span className="text-ink">{orgName}</span>. They lose access to this organization at their next request. Their account and the organization's data stay; the owner log keeps their email, role and join date, and the membership can be restored from it once. An organization always keeps at least one owner.</>}
         run={async (reason, typed) => {
           await ownerPost(`/organizations/${orgId}/members/${userId}/remove`, { reason, confirm_name: typed });
           onDone();
           return `${email} was removed from ${orgName}.`;
+        }}
+      />
+    </>
+  );
+}
+
+/* ── Organization: restore a removed member ─────────────────────────────── */
+export function RestoreMemberAction({ orgId, orgName, auditId, email, role, onDone }: {
+  orgId: string; orgName: string; auditId: string; email: string; role: string; onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ActionButton icon={UserPlus} label="RESTORE" onClick={() => setOpen(true)} testId="member-restore-open" />
+      <ActionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Restore member"
+        confirmLabel="RESTORE MEMBER"
+        typedName={orgName}
+        testId="member-restore-dialog"
+        summary={<>Adds <span className="text-ink break-all">{email}</span> back to <span className="text-ink">{orgName}</span> as {role}, with the join date from the removal record. Refused if they are already a member, if this removal was already restored, or while the organization is suspended. The change and your reason are kept in the owner log, and the customer's activity log shows it was done by Cyphward.</>}
+        run={async (reason, typed) => {
+          await ownerPost(`/organizations/${orgId}/members/restore`, { reason, confirm_name: typed, audit_id: auditId });
+          onDone();
+          return `${email} was restored to ${orgName}.`;
         }}
       />
     </>

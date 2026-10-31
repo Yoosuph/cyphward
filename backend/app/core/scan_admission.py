@@ -18,7 +18,7 @@ _KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 @dataclass
 class Admission:
-    outcome: str  # created | replayed | active | quota
+    outcome: str  # created | replayed | active | quota | suspended
     scan: Optional[Dict[str, Any]] = None
     domain: Optional[str] = None
     limit: Optional[int] = None
@@ -65,6 +65,13 @@ def admit_scan(
                     org = cur.fetchone()
                     if not org:
                         raise HTTPException(status_code=404, detail="Workspace not found.")
+                    # Suspension (core/suspension.py), read under the organization row lock the owner's suspend
+                    # also takes first, so a scan can't slip in while a suspension commits. Checked before the
+                    # replay lookup: a suspended organisation gets no scan, not even a replayed one.
+                    cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s", (org_id,))
+                    suspension = cur.fetchone()
+                    if suspension and suspension["status"] == "suspended":
+                        return Admission("suspended")
 
                     # Request mapping first: a retry remains a replay even after
                     # quota exhaustion or the original scan becomes terminal.

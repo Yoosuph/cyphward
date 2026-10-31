@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.compliance import reviewer, status
 from backend.app.compliance.practitioner import TextError
 from backend.app.core.auth import get_current_user, require_owner
+from backend.app.core.suspension import ensure_active, require_active_owner, suspension_gate
 from backend.app.core.database import execute_one
 from backend.app.core.rate_limit import check_rate_limit
 
@@ -66,7 +67,7 @@ def list_grants(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
 
 
 @owner_router.post("", status_code=201)
-def grant(body: GrantIn, org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+def grant(body: GrantIn, org: Dict[str, Any] = Depends(require_active_owner)) -> Dict[str, Any]:
     if status.is_starter(org):
         raise HTTPException(status_code=403, detail=GROWTH_DETAIL)
     org_id = str(org["id"])
@@ -85,6 +86,7 @@ def grant(body: GrantIn, org: Dict[str, Any] = Depends(require_owner)) -> Dict[s
 
 @owner_router.post("/{grant_id}/revoke")
 def revoke(grant_id: str, org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+    # Allowed while suspended: revoking outside access only reduces it (founder decision). Granting stays refused.
     try:
         reviewer.revoke(str(org["id"]), grant_id, str(org["current_user_id"]))
     except reviewer.NotFound:
@@ -140,11 +142,19 @@ def _write(ctx: Dict[str, Any], call) -> Dict[str, Any]:
         raise _busy(exc)
 
 
+@suspension_gate
+def require_active_reviewer(ctx: Dict[str, Any] = Depends(reviewer.require_reviewer)) -> Dict[str, Any]:
+    """A reviewer's writes land in the granting organisation's compliance records, so they pause while it is
+    suspended (core/suspension.py). Reading through the grant keeps working."""
+    ensure_active(ctx["org"]["id"])
+    return ctx
+
+
 @router.post("/requirements/{key}/review", status_code=201)
-def record_review(key: str, body: ReviewIn, ctx: Dict[str, Any] = Depends(reviewer.require_reviewer)) -> Dict[str, Any]:
+def record_review(key: str, body: ReviewIn, ctx: Dict[str, Any] = Depends(require_active_reviewer)) -> Dict[str, Any]:
     return {"practitioner_review": _write(ctx, lambda: reviewer.record_review(ctx, key[:120], body.outcome, body.comment, body.request_key))}
 
 
 @router.post("/requirements/{key}/clause-reference", status_code=201)
-def record_clause(key: str, body: ClauseIn, ctx: Dict[str, Any] = Depends(reviewer.require_reviewer)) -> Dict[str, Any]:
+def record_clause(key: str, body: ClauseIn, ctx: Dict[str, Any] = Depends(require_active_reviewer)) -> Dict[str, Any]:
     return {"clause_review": _write(ctx, lambda: reviewer.record_clause(ctx, key[:120], body.verified, body.note, body.request_key))}

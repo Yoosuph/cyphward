@@ -288,8 +288,10 @@ def test_suspend_and_unsuspend_need_the_typed_name_are_audited_and_reversible(wo
     assert {"owner.action.suspend", "owner.action.unsuspend"} <= {a["action"] for a in owner_actions}
 
 
-def test_customer_api_is_unchanged_while_suspended(world, more, urls):
-    """The phase 1 rule: suspension is an owner-side marker. The customer's own API answers exactly as before."""
+def test_customer_reads_are_unchanged_and_writes_refused_while_suspended(world, more, urls):
+    """The phase 2 rule (core/suspension.py; this replaced phase 1's "unchanged" test): reads answer as before
+    apart from the new `suspended` flag, writes are refused with 403 organization_suspended, and unsuspending
+    restores them."""
     token = _customer_token(world, urls)
     customer = TestClient(app)
     auth = {"Authorization": f"Bearer {token}"}
@@ -298,17 +300,24 @@ def test_customer_api_is_unchanged_while_suspended(world, more, urls):
         return {path: customer.get(path, headers=auth) for path in
                 ("/api/v1/organizations/current", "/api/v1/members", "/api/v1/domains", "/api/v1/settings")}
 
+    def without_flag(body):
+        return {k: v for k, v in body.items() if k != "suspended"} if isinstance(body, dict) else body
+
     before = snapshot()
+    assert before["/api/v1/organizations/current"].json()["suspended"] is False
     owner = _signed_in(world)
-    assert owner.post(f"{OWNER}/organizations/{world['org']}/suspend",
-                      json={"reason": REASON, "confirm_name": world["org_name"]}, headers=ORIGIN).status_code == 200
+    named = {"reason": REASON, "confirm_name": world["org_name"]}
+    assert owner.post(f"{OWNER}/organizations/{world['org']}/suspend", json=named, headers=ORIGIN).status_code == 200
     during = snapshot()
     for path, resp in during.items():
         assert resp.status_code == before[path].status_code == 200, (path, resp.text)
-        assert resp.json() == before[path].json(), path
-        assert "suspen" not in resp.text.lower(), path
+        assert without_flag(resp.json()) == without_flag(before[path].json()), path
+    assert during["/api/v1/organizations/current"].json()["suspended"] is True
     write = customer.patch("/api/v1/organizations/current", json={"sector": "Logistics"}, headers=auth)
-    assert write.status_code == 200 and "suspen" not in write.text.lower()
+    assert write.status_code == 403 and write.json()["detail"]["code"] == "organization_suspended", write.text
+    assert owner.post(f"{OWNER}/organizations/{world['org']}/unsuspend", json=named, headers=ORIGIN).status_code == 200
+    write = customer.patch("/api/v1/organizations/current", json={"sector": "Logistics"}, headers=auth)
+    assert write.status_code == 200, write.text
 
 
 # ── Members ────────────────────────────────────────────────────────────────

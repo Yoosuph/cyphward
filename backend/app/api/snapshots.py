@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.app.compliance import status
 from backend.app.core.auth import get_current_org, require_admin, require_owner
+from backend.app.core.suspension import require_active_admin, require_active_owner
 from backend.app.snapshots import store
 
 router = APIRouter(prefix="/api/v1/snapshots", tags=["Assessment snapshots"])
@@ -50,7 +51,7 @@ def get_retention(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, A
 
 
 @router.put("/retention")
-def set_retention(req: RetentionIn, org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+def set_retention(req: RetentionIn, org: Dict[str, Any] = Depends(require_active_owner)) -> Dict[str, Any]:
     try:
         months = store.set_retention(org, org.get("current_user_id"), req.months)
     except ValueError as exc:
@@ -59,7 +60,7 @@ def set_retention(req: RetentionIn, org: Dict[str, Any] = Depends(require_owner)
 
 
 @router.post("", status_code=201)
-def create_snapshot(req: SnapshotIn, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def create_snapshot(req: SnapshotIn, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     if not store.valid_request_key(req.request_key):
         raise HTTPException(status_code=422, detail="request_key must be 8-80 letters, digits or . _ : -")
     try:

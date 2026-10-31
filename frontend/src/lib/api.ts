@@ -13,6 +13,7 @@ import {
   type SessionUser,
 } from './session';
 import { clearPageCache } from './pageCache';
+import { flagSuspended, SUSPENDED_CODE } from './suspension';
 import { reportArtifactSchema, type ReportArtifact, type ArtifactContext } from './reportArtifacts';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
@@ -81,6 +82,7 @@ async function apiFetch<T>(
       // Carry the HTTP status so callers can branch (403 vs 409 vs 400).
       error.status = res.status;
       error.code = err.code || err.detail?.code;
+      if (error.code === SUSPENDED_CODE) flagSuspended(getActiveOrgId());
       error.scanId = err.scan_id || err.detail?.scan_id;
       throw error;
     }

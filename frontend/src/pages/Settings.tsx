@@ -20,6 +20,8 @@ import { ErrorPanel, humanError } from '../components/ui/StatePanels';
 import Modal from '../components/Modal';
 import BoardReportModal from '../components/BoardReportModal';
 import { QRCodeSVG } from 'qrcode.react';
+import { writeGuard } from '../lib/suspension';
+import { useOrgSuspended } from '../lib/useOrgSuspended';
 
 type SettingsTab = 'general' | 'team' | 'auth';
 
@@ -48,6 +50,7 @@ export default function Settings() {
 
   // Account self-service deletion (typed email + password when set).
   const { user: sessionUser, signOut } = useAuth();
+  const suspended = useOrgSuspended();
   const [delEmail, setDelEmail] = useState('');
   const [delPw, setDelPw] = useState('');
   const [delBusy, setDelBusy] = useState(false);
@@ -573,7 +576,8 @@ export default function Settings() {
               <div className="flex justify-end pt-2">
                 <button
                   type="submit"
-                  disabled={savingCompany}
+                  data-write="settings-save"
+                  {...writeGuard(suspended, savingCompany)}
                   className="btn-tactile px-4 py-2 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 >
                   {savingCompany ? <RefreshCw size={13} className="animate-spin" /> : null}
@@ -612,6 +616,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={handleCancelSub}
+                    // Cancelling stays open while suspended (a customer can always stop paying).
                     disabled={billingBusy || !billing.subscription || billing.subscription?.cancel_at_period_end}
                     className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
                   >
@@ -683,7 +688,7 @@ export default function Settings() {
               />
               <button
                 type="submit"
-                disabled={closeBusy || !closeSlug.trim()}
+                {...writeGuard(suspended, closeBusy || !closeSlug.trim())}
                 className="btn-tactile px-3 py-1.5 rounded text-xs mono bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
               >
                 {closeBusy ? 'CLOSING…' : 'CLOSE WORKSPACE'}
@@ -704,7 +709,9 @@ export default function Settings() {
             {canManageRoles && (
               <button
                 onClick={() => setMemberModalOpen(true)}
-                className="btn-tactile flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 transition-opacity"
+                data-write="member-invite"
+                {...writeGuard(suspended)}
+                className="btn-tactile flex items-center gap-1.5 px-3 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 <Plus size={13} />
                 <span>Invite Member</span>
@@ -736,6 +743,7 @@ export default function Settings() {
                       {canManageRoles ? (
                         <select
                           value={(m.role || 'member').toLowerCase()}
+                          // Lowering a role stays open while suspended; the server refuses a promotion.
                           disabled={roleBusyId === m.id}
                           onChange={e => handleRoleChange(m.id, e.target.value)}
                           aria-label={`Role for ${m.email || m.full_name || 'this member'}`}
@@ -1072,7 +1080,7 @@ export default function Settings() {
             </button>
             <button
               type="submit"
-              disabled={addingMember}
+              {...writeGuard(suspended, addingMember)}
               className="btn-tactile px-4 py-1.5 rounded text-xs mono font-medium bg-accent text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
             >
               {addingMember ? <RefreshCw size={12} className="animate-spin" /> : null}

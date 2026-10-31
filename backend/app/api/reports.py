@@ -12,6 +12,7 @@ from datetime import datetime
 
 from backend.app.core.database import execute_query, execute_one
 from backend.app.core.auth import get_current_org, require_admin, log_audit
+from backend.app.core.suspension import require_active_admin
 from backend.app.core.plans import require_quota
 from backend.app.risk.check_set import COVERAGE_VERSION, NUCLEI_LINE, domain_coverage_line
 from backend.app.risk.engine import compute_risk_score, latest_assessment
@@ -199,7 +200,7 @@ def list_reports(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[str, An
 @router.post("", status_code=201)
 def create_report(
     req: CreateReportRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Freeze an assessment snapshot and generate the report from it (Packet 04).
 
@@ -278,7 +279,7 @@ def get_report(report_id: str, org: Dict[str, Any] = Depends(get_current_org)) -
 async def send_executive_report_email(
     req: SendReportEmailRequest,
     background_tasks: BackgroundTasks,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ):
     """
     Generates and dispatches a high-fidelity Executive Security Briefing email

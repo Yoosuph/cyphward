@@ -11,6 +11,7 @@ from backend.app.core.database import execute_one, execute_query
 from backend.app.scanner.domain_verifier import generate_verification_token, verify_domain_dns_txt
 from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core.auth import get_current_org, require_admin, log_audit, membership_role
+from backend.app.core.suspension import require_active_admin
 from backend.app.core.plans import entitlements_for, require_quota, usage_for_org
 
 router = APIRouter(prefix="/api/v1/domains", tags=["Domains"])
@@ -65,7 +66,7 @@ def list_monitored_hosts(
 def add_monitored_host(
     domain_id: str,
     req: AddHostRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Register a hostname under a VERIFIED domain (admin/owner).
 
@@ -121,7 +122,7 @@ def add_monitored_host(
 def remove_monitored_host(
     domain_id: str,
     host_id: str,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Remove a registered host (admin/owner)."""
     _get_owned_domain(domain_id, org["id"])
@@ -157,7 +158,7 @@ def list_domains(org: Dict[str, Any] = Depends(get_current_org)) -> List[Dict[st
 @router.post("", dependencies=[Depends(refuse_demo_account)])
 def add_domain(
     req: AddDomainRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Register a new domain and generate a sovereign DNS TXT verification token."""
     domain_clean = req.domain.strip().lower()
@@ -213,7 +214,7 @@ def add_domain(
 @router.post("/{domain_id}/verify", dependencies=[Depends(refuse_demo_account)])
 async def verify_domain(
     domain_id: str,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
 ) -> Dict[str, Any]:
     """Perform real DNS TXT verification for domain ownership (no simulation paths)."""
     domain_row = execute_one(
@@ -264,7 +265,7 @@ async def verify_domain(
 
 
 @router.delete("/{domain_id}")
-def delete_domain(domain_id: str, org: Dict[str, Any] = Depends(require_admin)) -> Dict[str, Any]:
+def delete_domain(domain_id: str, org: Dict[str, Any] = Depends(require_active_admin)) -> Dict[str, Any]:
     """Delete a domain and associated assets (admin/owner only)."""
     deleted = execute_one(
         "DELETE FROM domains WHERE id = %s AND org_id = %s RETURNING id, domain",

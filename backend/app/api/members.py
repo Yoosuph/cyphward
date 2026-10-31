@@ -32,6 +32,7 @@ from backend.app.core.auth import (
     log_audit,
     membership_role,
 )
+from backend.app.core.suspension import ensure_active, is_suspended, require_active_admin, suspended_refusal
 from backend.app.core.security import hash_opaque_token, new_opaque_token
 from backend.app.services.mailer import (
     generate_invite_email_html,
@@ -44,6 +45,7 @@ logger = logging.getLogger("cyphward.members")
 router = APIRouter(prefix="/api/v1/members", tags=["Members"])
 
 MVP_ROLES = {"owner", "admin", "member"}
+ROLE_RANK = {"member": 0, "admin": 1, "owner": 2}
 INVITE_TTL_DAYS = 7
 
 
@@ -99,7 +101,7 @@ def list_invites(org: Dict[str, Any] = Depends(require_admin)) -> List[Dict[str,
 @router.post("/invite", status_code=201)
 async def invite_member(
     req: InviteMemberRequest,
-    org: Dict[str, Any] = Depends(require_admin),
+    org: Dict[str, Any] = Depends(require_active_admin),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     role = (req.role or "member").lower().strip()
@@ -215,6 +217,9 @@ def accept_invite(
         raise HTTPException(status_code=400, detail="This invitation was sent to a different email address.")
     if not user.get("email_verified_at"):
         raise HTTPException(status_code=403, detail="Verify your email address to join this workspace.")
+    # Joining adds a member, which a suspended organisation cannot do (core/suspension.py). The organisation comes
+    # from the invitation, not from a header, so this route checks it here (allow-listed in test_suspension_gate.py).
+    ensure_active(invite["org_id"])
 
     # Single-use consume first — conditional write, so a double submit can
     # never grant two memberships or re-open the token.
@@ -271,7 +276,7 @@ def accept_invite(
 
 
 @router.delete("/invites/{invite_id}")
-def revoke_invite(
+def revoke_invite(  # allowed while suspended: withdrawing a pending invitation only removes access
     invite_id: str,
     org: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
@@ -307,6 +312,10 @@ def update_member_role(
         raise HTTPException(status_code=404, detail="Member not found in this organization.")
     if (role == "owner" or target["role"] == "owner") and membership_role(org) != "owner":
         raise HTTPException(status_code=403, detail="Only owners can modify owner roles")
+    # While the organisation is suspended, lowering a role (protective) is allowed; a promotion is refused
+    # (founder decision, core/suspension.py). This route is on the reviewed allow-list for that reason.
+    if ROLE_RANK[role] > ROLE_RANK.get(target["role"], 0) and is_suspended(org["id"]):
+        raise suspended_refusal()
 
     # Never demote the last owner — the workspace would become unmanageable.
     if target["role"] == "owner" and role != "owner":
