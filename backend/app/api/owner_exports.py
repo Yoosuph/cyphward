@@ -48,12 +48,13 @@ def _send(request: Request, owner: Dict[str, Any], kind: str, filters: Dict[str,
 
 @router.get("/organizations.csv")
 def export_organizations(request: Request, q: str = Query("", max_length=100), billing: lists.OrgBilling = "",
-                         plan: lists.PlanFilter = "", suspended: lists.YesNo = "", sort: lists.OrgSort = "created",
-                         dir: lists.Dir = "desc",
+                         plan: lists.PlanFilter = "", suspended: lists.YesNo = "", deleted: lists.OrgDeleted = "",
+                         sort: lists.OrgSort = "created", dir: lists.Dir = "desc",
                          owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Response:
-    rows_q, _ = lists.organizations(q, billing, plan, suspended, sort, dir, reads.EXPORT_MAX + 1, 0)
+    rows_q, _ = lists.organizations(q, billing, plan, suspended, sort, dir, reads.EXPORT_MAX + 1, 0, deleted)
     rows, = reads.bounded_read([rows_q])
-    filters = {"q": q, "billing": billing, "plan": plan, "suspended": suspended, "sort": sort, "dir": dir}
+    filters = {"q": q, "billing": billing, "plan": plan, "suspended": suspended, "deleted": deleted, "sort": sort,
+               "dir": dir}
     return _send(request, owner, "organizations", filters, rows, lists.ORG_CSV)
 
 
@@ -70,9 +71,10 @@ def export_users(request: Request, q: str = Query("", max_length=100), mfa: list
 
 @router.get("/subscriptions.csv")
 def export_subscriptions(request: Request, q: str = Query("", max_length=100), status: lists.SubStatus = "",
-                         plan: lists.PlanFilter = "", sort: lists.SubSort = "period_end", dir: lists.Dir = "asc",
+                         plan: lists.PlanFilter = "", deleted: lists.OrgDeleted = "",
+                         sort: lists.SubSort = "period_end", dir: lists.Dir = "asc",
                          owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Response:
-    rows_q, _ = lists.subscriptions(q, status, plan, sort, dir, reads.EXPORT_MAX + 1, 0)
+    rows_q, _ = lists.subscriptions(q, status, plan, sort, dir, reads.EXPORT_MAX + 1, 0, deleted)
     rows, = reads.bounded_read([rows_q])
-    filters = {"q": q, "status": status, "plan": plan, "sort": sort, "dir": dir}
+    filters = {"q": q, "status": status, "plan": plan, "deleted": deleted, "sort": sort, "dir": dir}
     return _send(request, owner, "subscriptions", filters, rows, lists.SUB_CSV)

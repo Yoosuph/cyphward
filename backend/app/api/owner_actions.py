@@ -32,6 +32,16 @@ write is refused with 403 `organization_suspended`, new and scheduled scans
 pause, and queued scans wait. Owner actions here are never blocked by a
 suspension (restoring a member is refused, so a suspended organization does
 not gain members). It is not written to the customer's activity log.
+
+Deleting an organization (docs/admin-delete-org/README.md) has three actions:
+`delete` (a soft delete: status 'deleted', hidden from customers and from the
+owner lists, queued scans cancelled), `restore` (within 30 days) and `purge`
+(only after those 30 days, with the name and the word DELETE typed, and only
+when no compliance record is still inside its retention period and no breach
+incident was opened in the last six years; it deletes the
+organization row, its tenant data cascades, and its stored evidence files are
+queued for the reconcile script). Guardrails are in core/org_guard.py. Every
+other organization action refuses a deleted organization until it is restored.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -41,9 +51,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 
 from backend.app.core import database
+from backend.app.core import org_guard
 from backend.app.core import owner as owner_mod
 from backend.app.core.plans import PLANS, parse_plan
 from backend.app.core.scan_cancel import CANCEL_ACTIVE_SCAN_SQL
+from backend.app.compliance.evidence_file_store import QUEUE_PURGE_SQL
 
 router = APIRouter(prefix="/api/v1/owner", tags=["Owner console actions"])
 
@@ -71,6 +83,26 @@ class TrialBody(OrgActionBody):
 
 
 NAME_MISMATCH = "The name you typed does not match this organization. Nothing was changed."
+# Reviewed wording for the delete, restore and purge actions (frontend/src/owner/ownerApi.ts REVIEWED_DETAILS).
+DELETED_REFUSED = ("This organization has been deleted. Restore it before making any other change. "
+                   "Nothing was changed.")
+ALREADY_DELETED = "This organization is already deleted."
+NOT_DELETED = "This organization is not deleted. Nothing was changed."
+PROTECTED_REFUSED = ("This organization is protected and cannot be deleted or purged from the console. "
+                     "Nothing was changed.")
+PAID_REFUSED = ("This organization has an active paid subscription. It must be cancelled before the organization "
+                "can be deleted. Nothing was changed.")
+RESTORE_WINDOW_PASSED = ("The 30-day restore window for this organization has passed, so it can no longer be "
+                         "restored. Nothing was changed.")
+PURGE_TOO_EARLY = ("The 30-day restore window has not passed yet, so this organization cannot be purged. "
+                   "Nothing was changed.")
+PURGE_WORD_MISMATCH = "Type the word DELETE in capitals to confirm the purge. Nothing was changed."
+RETENTION_HOLD_CODE = "retention_hold"
+# Counts only follow in the refusal; "compliance" is left out of the sentence for the console's claim-wording filter.
+RETENTION_HOLD = ("Some records of this organization are still inside their retention period, so it cannot be "
+                  "purged yet. Nothing was changed.")
+DELETE_ORG_MESSAGES = (DELETED_REFUSED, ALREADY_DELETED, NOT_DELETED, PROTECTED_REFUSED, PAID_REFUSED,
+                       RESTORE_WINDOW_PASSED, PURGE_TOO_EARLY, PURGE_WORD_MISMATCH, RETENTION_HOLD)
 
 
 def _check_name(org: Dict[str, Any], typed: str) -> None:
@@ -133,15 +165,22 @@ def _customer_log(cur, org_id: Optional[str], user_id: Optional[str], action: st
     )
 
 
-def _lock_org(cur, org_id: str) -> Dict[str, Any]:
-    """Same lock order as customer billing: organization row first."""
+def _lock_org(cur, org_id: str, allow_deleted: bool = False) -> Dict[str, Any]:
+    """Same lock order as customer billing: organization row first, then its subscription and lifecycle rows.
+
+    A deleted organization is refused (409) unless the action is one of delete, restore or purge."""
     cur.execute("SELECT id, name, plan FROM organizations WHERE id = %s FOR UPDATE", (org_id,))
     org = cur.fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found.")
-    cur.execute("SELECT id, plan, status, current_period_end, trial_ends_at FROM subscriptions "
+    cur.execute("SELECT id, plan, status, current_period_end, trial_ends_at, cancel_at_period_end FROM subscriptions "
                 "WHERE org_id = %s FOR UPDATE", (org_id,))
-    return {"org": org, "sub": cur.fetchone()}
+    sub = cur.fetchone()
+    cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s FOR UPDATE", (org_id,))
+    lifecycle = (cur.fetchone() or {}).get("status") or "active"
+    if lifecycle == "deleted" and not allow_deleted:
+        raise HTTPException(status_code=409, detail=DELETED_REFUSED)
+    return {"org": org, "sub": sub, "status": lifecycle}
 
 
 # ── Plan ───────────────────────────────────────────────────────────────────
@@ -219,11 +258,9 @@ def suspend_organization(org_id: str, body: OrgActionBody, request: Request,
     org_id = _uuid(org_id)
 
     def work(cur):
-        org = _lock_org(cur, org_id)["org"]
-        _check_name(org, body.confirm_name)
-        cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s FOR UPDATE", (org_id,))
-        current = cur.fetchone()
-        if current and current["status"] == "suspended":
+        locked = _lock_org(cur, org_id)
+        _check_name(locked["org"], body.confirm_name)
+        if locked["status"] == "suspended":
             raise HTTPException(status_code=409, detail="This organization is already suspended.")
         cur.execute(
             "INSERT INTO organization_suspensions (org_id, status, changed_at, changed_by) "
@@ -330,11 +367,10 @@ def restore_member(org_id: str, body: RestoreBody, request: Request,
     audit_id = _uuid(body.audit_id)
 
     def work(cur):
-        org = _lock_org(cur, org_id)["org"]
+        locked = _lock_org(cur, org_id)
+        org = locked["org"]
         _check_name(org, body.confirm_name)
-        cur.execute("SELECT status FROM organization_suspensions WHERE org_id = %s", (org_id,))
-        suspension = cur.fetchone()
-        if suspension and suspension["status"] == "suspended":
+        if locked["status"] == "suspended":
             raise HTTPException(status_code=409, detail="This organization is suspended. Lift the suspension "
                                                         "before restoring a member. Nothing was changed.")
         cur.execute(
@@ -383,6 +419,177 @@ def restore_member(org_id: str, body: RestoreBody, request: Request,
                           "joined_at": meta.get("joined_at"), "members_after": members}}
 
     return _run(request, owner, "owner.action.restore_member", "organization", org_id, body.reason, work)
+
+
+# ── Delete, restore, purge ─────────────────────────────────────────────────
+class PurgeBody(OrgActionBody):
+    # The word DELETE, typed by the owner as a second confirmation (exact, capitals).
+    confirm_word: str = Field(min_length=1, max_length=20)
+
+
+def _guard_protected(org: Dict[str, Any]) -> bool:
+    """Refuse a protected organization unless the override flag is on. True when the override was used."""
+    if not org_guard.is_protected(org):
+        return False
+    if not org_guard.override_enabled():
+        raise HTTPException(status_code=409, detail=PROTECTED_REFUSED)
+    return True
+
+
+# The queued-scan half of the shared cancel transition (core/scan_cancel.py): fences any claim and records the
+# cancellation; running scans are left to finish.
+CANCEL_QUEUED_SCANS_SQL = """
+    UPDATE scans
+    SET status = 'cancelled', completed_at = now(),
+        claimed_by = NULL, lease_expires_at = NULL, claim_token = NULL,
+        execution_phase = NULL, claim_generation = claim_generation + 1
+    WHERE org_id = %s AND status = 'queued'
+    RETURNING id
+"""
+
+
+@router.post("/organizations/{org_id}/delete")
+def delete_organization(org_id: str, body: OrgActionBody, request: Request,
+                        owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Soft delete: mark the organization deleted (reversible with /restore for 30 days). Nothing is removed.
+
+    Customers lose sight of it at once (it leaves their memberships; its routes answer 404), it leaves the owner
+    lists by default, its queued scans are cancelled, a running scan finishes and scheduled scans skip it. Refused
+    while it has an active paid subscription, and for a protected organization (core/org_guard.py)."""
+    org_id = _uuid(org_id)
+
+    def work(cur):
+        locked = _lock_org(cur, org_id, allow_deleted=True)
+        org, sub, before = locked["org"], locked["sub"], locked["status"]
+        _check_name(org, body.confirm_name)
+        if before == "deleted":
+            raise HTTPException(status_code=409, detail=ALREADY_DELETED)
+        override = _guard_protected(org)
+        if org_guard.paid_subscription_active(sub):
+            raise HTTPException(status_code=409, detail=PAID_REFUSED)
+        cur.execute(
+            "INSERT INTO organization_suspensions (org_id, status, changed_at, changed_by, deleted_at, deleted_by) "
+            "VALUES (%s, 'deleted', now(), %s, now(), %s) "
+            "ON CONFLICT (org_id) DO UPDATE SET status = 'deleted', changed_at = now(), "
+            "changed_by = EXCLUDED.changed_by, deleted_at = now(), deleted_by = EXCLUDED.deleted_by "
+            "RETURNING deleted_at, deleted_at + make_interval(days => %s) AS restore_until",
+            (org_id, owner["user_id"], owner["user_id"], org_guard.RESTORE_WINDOW_DAYS))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="The organization changed; reload and try again.")
+        cur.execute(CANCEL_QUEUED_SCANS_SQL, (org_id,))
+        cancelled = [str(r["id"]) for r in cur.fetchall()]
+        return {"result": {"organization_id": org_id, "deleted": True, "deleted_at": _iso(row["deleted_at"]),
+                           "restore_until": _iso(row["restore_until"]), "queued_scans_cancelled": len(cancelled)},
+                "audit": {"from": before, "to": "deleted", "deleted_at": row["deleted_at"],
+                          "restore_until": row["restore_until"], "queued_scans_cancelled": cancelled,
+                          "subscription_status": (sub or {}).get("status"),
+                          "cancel_at_period_end": (sub or {}).get("cancel_at_period_end"),
+                          "protected_override": override}}
+
+    return _run(request, owner, "owner.action.delete_org", "organization", org_id, body.reason, work)
+
+
+@router.post("/organizations/{org_id}/restore")
+def restore_organization(org_id: str, body: OrgActionBody, request: Request,
+                         owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Undo a soft delete inside the 30-day window. The organization returns to the status it had before (a
+    suspended one comes back suspended). Scans cancelled by the delete stay cancelled."""
+    org_id = _uuid(org_id)
+
+    def work(cur):
+        locked = _lock_org(cur, org_id, allow_deleted=True)
+        _check_name(locked["org"], body.confirm_name)
+        if locked["status"] != "deleted":
+            raise HTTPException(status_code=409, detail=NOT_DELETED)
+        cur.execute("SELECT deleted_at, deleted_at + make_interval(days => %s) > now() AS restorable "
+                    "FROM organization_suspensions WHERE org_id = %s", (org_guard.RESTORE_WINDOW_DAYS, org_id))
+        window = cur.fetchone() or {}
+        if not window.get("restorable"):
+            raise HTTPException(status_code=409, detail=RESTORE_WINDOW_PASSED)
+        # The status before the delete, from the delete's own audit row. If it cannot be read, come back suspended,
+        # never more open than before: the owner can then lift the suspension deliberately.
+        cur.execute(
+            "SELECT metadata->>'from' AS prior FROM owner_audit WHERE target_type = 'organization' AND target_id = %s "
+            "AND action = 'owner.action.delete_org' AND outcome = 'success' ORDER BY created_at DESC LIMIT 1",
+            (org_id,))
+        prior = (cur.fetchone() or {}).get("prior")
+        status = prior if prior in ("active", "suspended") else "suspended"
+        cur.execute(
+            "UPDATE organization_suspensions SET status = %s, changed_at = now(), changed_by = %s, "
+            "deleted_at = NULL, deleted_by = NULL WHERE org_id = %s AND status = 'deleted' RETURNING changed_at",
+            (status, owner["user_id"], org_id))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=409, detail="The organization changed; reload and try again.")
+        return {"result": {"organization_id": org_id, "deleted": False, "status": status},
+                "audit": {"from": "deleted", "to": status, "deleted_at": window.get("deleted_at"),
+                          "prior_status_recorded": prior is not None}}
+
+    return _run(request, owner, "owner.action.restore_org", "organization", org_id, body.reason, work)
+
+
+PURGE_LOCK_TIMEOUT = "5s"
+PURGE_STATEMENT_TIMEOUT = "60s"
+
+
+@router.post("/organizations/{org_id}/purge")
+def purge_organization(org_id: str, body: PurgeBody, request: Request,
+                       owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
+    """Permanently remove a deleted organization's data, after the restore window, in one transaction.
+
+    Needs the exact name and the word DELETE. Refused (with counts only) while any reviewer grant, pack, snapshot,
+    compliance document or evidence file is still inside its retention period, or any breach incident was opened in
+    the last six years (core/org_guard.py). The organization
+    row is deleted and its tenant data cascades, as the customer's own closing does; the owner audit keeps the
+    record. Stored evidence files are queued in compliance_evidence_purge_queue in the same transaction and deleted
+    later by backend/scripts/reconcile_evidence_files.py, never inline."""
+    org_id = _uuid(org_id)
+
+    def work(cur):
+        cur.execute(f"SET LOCAL lock_timeout = '{PURGE_LOCK_TIMEOUT}'")
+        cur.execute(f"SET LOCAL statement_timeout = '{PURGE_STATEMENT_TIMEOUT}'")
+        cur.execute("SET LOCAL TimeZone = 'UTC'")
+        locked = _lock_org(cur, org_id, allow_deleted=True)
+        org = locked["org"]
+        _check_name(org, body.confirm_name)
+        if body.confirm_word != org_guard.PURGE_WORD:
+            raise HTTPException(status_code=409, detail=PURGE_WORD_MISMATCH)
+        if locked["status"] != "deleted":
+            raise HTTPException(status_code=409, detail=NOT_DELETED)
+        override = _guard_protected(org)
+        cur.execute("SELECT deleted_at, deleted_at + make_interval(days => %s) <= now() AS due "
+                    "FROM organization_suspensions WHERE org_id = %s", (org_guard.RESTORE_WINDOW_DAYS, org_id))
+        window = cur.fetchone() or {}
+        if not window.get("due"):
+            raise HTTPException(status_code=409, detail=PURGE_TOO_EARLY)
+        counts = org_guard.retention_counts(cur, org_id)
+        held = {k: counts[k] for k in org_guard.RETAINED_KINDS}
+        if any(held.values()):
+            raise HTTPException(status_code=409, detail={"code": RETENTION_HOLD_CODE, "message": RETENTION_HOLD,
+                                                         "counts": held,
+                                                         "retention_months": counts["retention_months"],
+                                                         "incident_retention_years":
+                                                             org_guard.INCIDENT_RETENTION_YEARS})
+        cur.execute(
+            "SELECT (SELECT count(*) FROM organization_members WHERE org_id = %(o)s) AS members, "
+            "(SELECT count(*) FROM domains WHERE org_id = %(o)s) AS domains, "
+            "(SELECT count(*) FROM scans WHERE org_id = %(o)s) AS scans, "
+            "(SELECT count(*) FROM findings WHERE org_id = %(o)s) AS findings, "
+            "(SELECT count(*) FROM compliance_evidence_files WHERE org_id = %(o)s) AS evidence_files",
+            {"o": org_id})
+        removed = {k: int(v) for k, v in (cur.fetchone() or {}).items()}
+        cur.execute(QUEUE_PURGE_SQL, (org_id, org_id))
+        queued = cur.fetchone() is not None
+        cur.execute("DELETE FROM organizations WHERE id = %s RETURNING id", (org_id,))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=409, detail="The organization changed; reload and try again.")
+        return {"result": {"organization_id": org_id, "purged": True, "evidence_files_queued": queued},
+                "audit": {"from": "deleted", "to": "purged", "name": org.get("name"),
+                          "deleted_at": window.get("deleted_at"), "removed": removed,
+                          "evidence_files_queued": queued, "retention_months": counts["retention_months"],
+                          "protected_override": override}}
+
+    return _run(request, owner, "owner.action.purge_org", "organization", org_id, body.reason, work)
 
 
 # ── Scan ───────────────────────────────────────────────────────────────────

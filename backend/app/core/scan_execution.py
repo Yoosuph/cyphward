@@ -73,7 +73,7 @@ def claim_recon(
                       AND (s.current_stage IS NULL OR NOT (s.current_stage = ANY(%s)))
                       AND d.verification_status='verified'
                       AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
-                                      WHERE os.org_id=s.org_id AND os.status='suspended')
+                                      WHERE os.org_id=s.org_id AND os.status IN ('suspended', 'deleted'))
                       AND (%s::uuid IS NULL OR s.id=%s::uuid)
                     ORDER BY s.created_at, s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1
                 """,

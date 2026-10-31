@@ -25,7 +25,7 @@ LOCAL_QUEUE_SQL = """SELECT s.id FROM scans s JOIN domains d ON d.id=s.domain_id
     WHERE d.verification_status='verified' AND (s.status='queued'
     OR (s.status='running' AND s.execution_phase='local' AND s.lease_expires_at < clock_timestamp()))
       AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
-                      WHERE os.org_id=s.org_id AND os.status='suspended')
+                      WHERE os.org_id=s.org_id AND os.status IN ('suspended', 'deleted'))
     ORDER BY s.created_at LIMIT %s"""
 
 

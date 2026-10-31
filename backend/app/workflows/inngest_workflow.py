@@ -164,6 +164,9 @@ async def _email_org_members(org_id: str, subject: str, html: str, text: str) ->
             FROM organization_members m
             JOIN profiles p ON p.id = m.user_id
             WHERE m.org_id = %s AND p.email IS NOT NULL AND p.email <> ''
+              -- A scan that was running when its organisation was deleted still finishes, but emails nobody.
+              AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                              WHERE os.org_id = m.org_id AND os.status = 'deleted')
             """,
             (org_id,),
         ) or []
@@ -1124,7 +1127,7 @@ async def _daily_scan_sweep(run_day: date | None = None, cron_authority: dict | 
         FROM domains d
         WHERE d.verification_status = 'verified'
           AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
-                          WHERE os.org_id = d.org_id AND os.status = 'suspended')
+                          WHERE os.org_id = d.org_id AND os.status IN ('suspended', 'deleted'))
         ORDER BY d.created_at ASC
         """
     ) or []
