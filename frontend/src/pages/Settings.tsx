@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
@@ -10,7 +10,9 @@ import {
   Plus,
   Sparkles,
   Check,
+  Bell,
 } from 'lucide-react';
+import NotificationSettings from '../components/NotificationSettings';
 import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, getExecutiveSummary, mfaStatus, mfaEnroll, mfaDisableRequest, mfaDisableConfirm, forgetTrustedBrowsers, exportOrganization, closeOrganization, getSubscription, cancelSubscription, listInvoices, deleteOwnAccount, totpEnrollStart, totpEnrollConfirm, totpDisable } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
@@ -23,13 +25,23 @@ import { QRCodeSVG } from 'qrcode.react';
 import { writeGuard } from '../lib/suspension';
 import { useOrgSuspended } from '../lib/useOrgSuspended';
 
-type SettingsTab = 'general' | 'team' | 'auth';
+type SettingsTab = 'general' | 'team' | 'auth' | 'notifications';
+const TAB_ORDER = ['general', 'team', 'auth', 'notifications'] as const;
 
 export default function Settings() {
   const confirmAction = useConfirm();
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [searchParams] = useSearchParams();
+  // ?tab=notifications opens a section directly (the bell's settings button and the email's settings link).
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const asked = searchParams.get('tab');
+    return (TAB_ORDER as readonly string[]).includes(asked || '') ? (asked as SettingsTab) : 'general';
+  });
+  useEffect(() => {
+    const asked = searchParams.get('tab');
+    if (asked && (TAB_ORDER as readonly string[]).includes(asked)) setActiveTab(asked as SettingsTab);
+  }, [searchParams]);
   const [loadError, setLoadError] = useState<unknown>(null);
 
   const [companyName, setCompanyName] = useState('');
@@ -434,8 +446,8 @@ export default function Settings() {
 
   // Arrow keys, Home and End move between the section tabs (WAI-ARIA tabs pattern).
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const order = ['general', 'team', 'auth'] as const;
-    const at = order.indexOf(activeTab as typeof order[number]);
+    const order = TAB_ORDER;
+    const at = order.indexOf(activeTab);
     const next = e.key === 'ArrowRight' ? order[(at + 1) % order.length]
       : e.key === 'ArrowLeft' ? order[(at + order.length - 1) % order.length]
       : e.key === 'Home' ? order[0] : e.key === 'End' ? order[order.length - 1] : null;
@@ -510,7 +522,30 @@ export default function Settings() {
           <Key size={14} />
           <span>AUTHENTICATION</span>
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          id="settings-tab-notifications"
+          aria-selected={activeTab === 'notifications'}
+          aria-controls={activeTab === 'notifications' ? 'settings-panel-notifications' : undefined}
+          tabIndex={activeTab === 'notifications' ? 0 : -1}
+          onClick={() => setActiveTab('notifications')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs mono border-b-2 transition-all whitespace-nowrap ${
+            activeTab === 'notifications' ? 'border-accent text-ink font-semibold' : 'border-transparent text-soft hover:text-ink'
+          }`}
+        >
+          <Bell size={14} />
+          <span>NOTIFICATIONS</span>
+        </button>
       </div>
+
+      {activeTab === 'notifications' && (
+        <div className="p-6 rounded-lg border border-line bg-raised space-y-4" role="tabpanel" id="settings-panel-notifications"
+             aria-labelledby="settings-tab-notifications">
+          <NotificationSettings focusCategory={searchParams.get('category')} />
+        </div>
+      )}
 
       {activeTab === 'general' && (
         <div className="space-y-6" role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">

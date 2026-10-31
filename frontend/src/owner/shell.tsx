@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import NotificationBell from '../components/NotificationBell';
+import { ownerNotificationLink, ownerNotifications } from './ownerApi';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import {
   Activity, BarChart3, Building2, CreditCard, LogOut, Mail, Menu, Moon, PanelLeftClose, PanelLeftOpen, Radar, ScrollText,
@@ -185,6 +187,7 @@ function OwnerTopbar({ section, collapsed, onToggleSidebar, onSignOut }: {
           <span className="eyebrow hidden sm:flex items-center gap-1.5 text-[10px]">
             <span className="live-dot" /> OWNER CONSOLE
           </span>
+          <NotificationBell source={ownerNotifications} linkFor={ownerNotificationLink} />
           <ThemeButton />
           <button className="icon-btn hover-lift md:hidden text-soft hover:text-accent" onClick={onSignOut} title="Sign out" aria-label="Sign out">
             <LogOut size={14} />

@@ -1,4 +1,4 @@
-"""Notifications phase 1: one helper every trigger calls (docs/notifications-phase1/README.md).
+"""Notifications phase 1: one helper every trigger calls (rules in this module).
 
     notifications.emit("scan_failed", org_id, key=f"scan_failed:{scan_id}", params={...}, cur=cur)
 

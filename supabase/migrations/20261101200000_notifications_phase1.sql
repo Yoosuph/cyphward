@@ -1,4 +1,4 @@
--- Notifications phase 1 (docs/notifications-phase1/README.md, backend/app/services/notifications.py).
+-- Notifications phase 1 (backend/app/services/notifications.py).
 --
 --   notifications              extended, not replaced. Existing rows (one per organisation, user_id NULL) are kept
 --                              and still shown to every member of that organisation. New rows are one per
