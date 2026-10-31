@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend.app.api.demo_login import refuse_demo_account
 from backend.app.core import owner as owner_mod
 from backend.app.core.auth import get_current_org, get_current_user
 from backend.app.services import notification_messages as msg
@@ -80,7 +81,7 @@ def get_preferences(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[st
             "email_note": "Email is sent only for critical alerts. Everything else stays in the app."}
 
 
-@router.put("/preferences/{category}")
+@router.put("/preferences/{category}", dependencies=[Depends(refuse_demo_account)])
 def put_preference(category: str, body: PreferenceBody,
                    user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if category not in msg.CATEGORIES:
@@ -104,7 +105,8 @@ def owner_list(request: Request, limit: int = Query(svc.PAGE_CAP, ge=1, le=200),
 
 
 @owner_router.get("/unread-count")
-def owner_unread(owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
+def owner_unread(owner: Dict[str, Any] = Depends(owner_mod.require_owner_passive)) -> Dict[str, Any]:
+    """The bell's 60-second poll: a number only, and not counted as activity for the idle sign-out."""
     return {"unread_count": svc.owner_unread(owner["user_id"])}
 
 

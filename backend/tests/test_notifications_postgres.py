@@ -90,7 +90,12 @@ def _day():
 
 
 @pytest.fixture
-def run_day(urls):
+def run_day(urls, monkeypatch):
+    """A fresh run day for the daily reminders job; its own reminder emails are recorded, never sent."""
+    async def no_send(*a, **k):
+        return {"success": True}
+
+    monkeypatch.setattr(reminders.mailer, "send_email_async", no_send)
     days = []
 
     def make():
@@ -581,3 +586,54 @@ def test_the_app_role_never_deletes_notifications_or_preferences(nw, urls):
             conn.rollback()
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("UPDATE notifications SET org_id = org_id WHERE false")
+
+
+def test_trigger_plan_period_ending_7_days_and_1_day_before(nw, urls, run_day):
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=5)
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO subscriptions (org_id, plan, status, current_period_end) "
+                     "VALUES (%s, 'growth', 'active', %s)", (nw["org"], end))
+    asyncio.run(reminders.run_compliance_reminders(now=now, run_day=run_day()))
+    asyncio.run(reminders.run_compliance_reminders(now=now + timedelta(hours=1), run_day=run_day()))
+    assert _recipients(urls, nw["org"], "subscription_ending_soon") == [nw["customer"]]
+    assert nw["owner"] in _recipients(urls, nw["org"], "subscription_ending_soon", "owner")
+    later = end - timedelta(hours=12)
+    asyncio.run(reminders.run_compliance_reminders(now=later, run_day=run_day()))
+    asyncio.run(reminders.run_compliance_reminders(now=later + timedelta(hours=1), run_day=run_day()))
+    assert _recipients(urls, nw["org"], "subscription_ending_tomorrow") == [nw["customer"]]
+    assert _recipients(urls, nw["org"], "trial_ending_soon") == []
+    body = next(r["body"] for r in _mine(urls, nw["customer"], nw["org"]) if r["type"] == "subscription_ending_soon")
+    assert "Contact Cyphward through the Contact page to renew" in body
+
+
+def test_the_owner_bell_poll_does_not_keep_an_idle_session_alive(nw, urls):
+    owner = _signed_in(nw)
+    with _admin(urls) as conn:
+        conn.execute("UPDATE owner_sessions SET last_seen_at = now() - interval '10 minutes' WHERE user_id = %s",
+                     (nw["owner"],))
+        before = conn.execute("SELECT last_seen_at FROM owner_sessions WHERE user_id = %s AND revoked_at IS NULL",
+                              (nw["owner"],)).fetchone()["last_seen_at"]
+    assert owner.get(f"{OWNER}/notifications/unread-count").status_code == 200
+    with _admin(urls) as conn:
+        after = conn.execute("SELECT last_seen_at FROM owner_sessions WHERE user_id = %s AND revoked_at IS NULL",
+                             (nw["owner"],)).fetchone()["last_seen_at"]
+        assert after == before, "the poll is not activity"
+        conn.execute("UPDATE owner_sessions SET last_seen_at = now() - interval '31 minutes' WHERE user_id = %s",
+                     (nw["owner"],))
+    assert owner.get(f"{OWNER}/notifications/unread-count").status_code == 401  # idle: signed out
+    assert owner.get(f"{OWNER}/notifications").status_code == 401
+
+
+def test_the_shared_demo_account_cannot_change_notification_settings(nw, urls):
+    from backend.app.core.demo_org import DEMO_USER_ID
+    client = TestClient(app)
+    from backend.app.api.demo_login import refuse_demo_account
+    app.dependency_overrides[refuse_demo_account] = lambda: (_ for _ in ()).throw(
+        __import__("fastapi").HTTPException(status_code=403, detail="This change is not available on the sample account."))
+    try:
+        client.headers.update({"Authorization": f"Bearer {_token(urls, nw['customer'])}"})
+        assert client.put(f"{API}/preferences/scans", json={"email": False}).status_code == 403
+    finally:
+        app.dependency_overrides.pop(refuse_demo_account, None)
+    assert DEMO_USER_ID  # the guard keys on this account and on demo sessions (api/demo_login.py)

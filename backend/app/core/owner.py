@@ -171,6 +171,16 @@ def require_setup_session(request: Request) -> Dict[str, Any]:
 
 def require_owner(request: Request) -> Dict[str, Any]:
     """Owner session from the console cookie only; never a bearer token or a setup session."""
+    return _owner_session(request, touch=True)
+
+
+def require_owner_passive(request: Request) -> Dict[str, Any]:
+    """The same checks as require_owner, without counting the call as activity. For background polls (the
+    notification bell's unread count), so an open tab cannot keep an idle session alive."""
+    return _owner_session(request, touch=False)
+
+
+def _owner_session(request: Request, touch: bool) -> Dict[str, Any]:
     row = _session_for(request, "console")
     now = datetime.now(timezone.utc)
     if row is None:
@@ -184,7 +194,8 @@ def require_owner(request: Request) -> Dict[str, Any]:
         execute_query("UPDATE owner_sessions SET revoked_at = now() WHERE id = %s AND revoked_at IS NULL",
                       (row["id"],))
         raise HTTPException(status_code=401, detail="Owner session expired — sign in again.")
-    execute_query("UPDATE owner_sessions SET last_seen_at = now() WHERE id = %s", (row["id"],))
+    if touch:
+        execute_query("UPDATE owner_sessions SET last_seen_at = now() WHERE id = %s", (row["id"],))
     return {"user_id": str(row["user_id"]), "email": row.get("email"), "session_id": str(row["id"]),
             "expires_at": expires_at}
 
