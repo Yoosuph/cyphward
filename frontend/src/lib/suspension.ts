@@ -12,9 +12,10 @@ export const SUSPENDED_EVENT = 'cyphward:organization-suspended';
 /** Reviewed wording. Plain English, no claim language (backend/tests/test_ux_copy_claims.py). */
 export const SUSPENDED_TITLE = 'This organisation is suspended.';
 export const SUSPENDED_BODY =
-  'Changes are paused: new scans, domains, settings, members, compliance records, documents, packs and snapshots. ' +
-  'Scheduled scans are paused too and start again when the suspension is lifted. You can still sign in and read ' +
-  'your dashboards, scans, findings, reports and compliance pages.';
+  'Changes are paused: new scans, domains, settings, new members and promotions, compliance records, documents, ' +
+  'packs and snapshots. Scheduled scans are paused too and start again when the suspension is lifted. You can ' +
+  'still sign in and read your dashboards, scans, findings, reports and compliance pages, and you can still cancel ' +
+  'your subscription, revoke reviewer access, withdraw an invitation or lower a member\'s role.';
 /** Tooltip on a disabled write button. */
 export const SUSPENDED_HINT = 'Paused while this organisation is suspended';
 

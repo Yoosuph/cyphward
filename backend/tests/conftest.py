@@ -207,6 +207,11 @@ class FakeStore:
         if s.startswith("SELECT status FROM organization_suspensions WHERE org_id = %s"):
             status = self.suspensions.get(str(params[0]))
             return [{"status": status}] if status else []
+        if s.startswith("SELECT 1 AS owns FROM organization_members m JOIN organization_suspensions os"):
+            uid = str(params[0])
+            return [{"owns": 1}] if any(m["user_id"] == uid and m["role"] == "owner"
+                                        and self.suspensions.get(str(m["org_id"])) == "suspended"
+                                        for m in self.memberships) else []
         if s.startswith("SELECT org_id FROM organization_suspensions WHERE status = 'suspended'"):
             return [{"org_id": oid} for oid in params[0] if self.suspensions.get(str(oid)) == "suspended"]
 

@@ -15,7 +15,7 @@ from backend.app.core.database import execute_one, execute_query
 from backend.app.api.demo_login import refuse_demo_account
 from backend.app.billing.subscriptions import resolve_plan
 from backend.app.core.auth import get_current_user, get_current_org, require_admin, require_owner, log_audit, membership_role, session_memberships
-from backend.app.core.suspension import is_suspended, require_active_admin, require_active_owner
+from backend.app.core.suspension import is_suspended, refuse_suspended_owner, require_active_admin, require_active_owner
 from backend.app.core.plans import (
     DEFAULT_PLAN,
     parse_plan,
@@ -78,7 +78,7 @@ def list_my_organizations(user: Dict[str, Any] = Depends(get_current_user)) -> L
     )
 
 
-@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account)])
+@router.post("", status_code=201, dependencies=[Depends(refuse_demo_account), Depends(refuse_suspended_owner)])
 def create_organization(
     req: CreateOrganizationRequest,
     user: Dict[str, Any] = Depends(get_current_user),

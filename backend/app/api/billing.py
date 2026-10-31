@@ -84,8 +84,11 @@ def renew_subscription(org: Dict[str, Any] = Depends(require_active_owner)) -> D
 
 
 @router.post("/subscription/cancel")
-def cancel_subscription(org: Dict[str, Any] = Depends(require_active_owner)) -> Dict[str, Any]:
-    """Owner cancels at period end (quotas hold until the period lapses)."""
+def cancel_subscription(org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+    """Owner cancels at period end (quotas hold until the period lapses).
+
+    Allowed while the organisation is suspended (founder decision: a customer can always stop paying). Plan and
+    renewal requests, which add cost, stay refused (core/suspension.py)."""
     org_id = str(org["id"])
     with get_db() as conn:
         with conn.transaction():

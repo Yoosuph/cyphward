@@ -108,17 +108,24 @@ try {
     assert.ok(await banner(page), `${route}: the suspension banner is shown`);
     const shown = await page.$eval('[data-testid="org-suspended-banner"]', (e) => e.innerText);
     assert.match(shown, /This organisation is suspended\./, `${route}: banner title`);
-    assert.match(shown, /You can still sign in and read your dashboards, scans, findings, reports and compliance pages\./, `${route}: what still works`);
-    assert.match(shown, /new scans, domains, settings, members/, `${route}: what is paused`);
+    assert.match(shown, /You can still sign in and read your dashboards, scans, findings, reports and compliance pages/, `${route}: what still works`);
+    assert.match(shown, /new scans, domains, settings, new members and promotions/, `${route}: what is paused`);
+    assert.match(shown, /cancel your subscription, revoke reviewer access, withdraw an invitation or lower a member's role/, `${route}: what stays open`);
     assert.match(shown, /info@cyphward\.com/, `${route}: who to contact`);
     const links = await page.$$eval('[data-testid="org-suspended-banner"] a', (as) => as.map((a) => a.getAttribute("href")));
     assert.deepEqual(links, ["mailto:info@cyphward.com", "/contact"], `${route}: contact links`);
     let states = await writeStates(page);
+    if (route === "/settings") {  // cancelling the subscription stays open while suspended
+      const cancel = await page.$$eval("button", (bs) => bs.filter((b) => b.textContent.trim() === "CANCEL").map((b) => b.disabled));
+      assert.deepEqual(cancel, [false], "/settings: subscription cancel stays enabled while suspended");
+    }
     if (tab) {  // a second tab of the same page (Settings > Team)
       await page.click(tab);
       await settle(page, 300);
       states = [...states, ...(await writeStates(page))];
       writes = [...writes, ...tabWrites];
+      const roleSelects = await page.$$eval("select", (ss) => ss.filter((x) => [...x.options].some((o) => o.value === "member")).map((x) => x.disabled));
+      assert.ok(roleSelects.length > 0 && roleSelects.every((d) => d === false), "/settings team: role changes stay open (the server refuses promotions)");
     }
     for (const w of writes) {
       const found = states.filter((s) => s.write === w);
@@ -204,7 +211,7 @@ try {
     ownerOrgSuspended = true;
     const s = await open(`/admin/organizations/${ORG_ID}`);
     await s.page.waitForSelector('[data-testid="org-suspended-note"]');
-    assert.match(await s.page.$eval('[data-testid="org-suspended-note"]', (e) => e.innerText), /every change, new scan and scheduled scan is paused/);
+    assert.match(await s.page.$eval('[data-testid="org-suspended-note"]', (e) => e.innerText), /new scans, scheduled scans and changes that add something are paused/);
     assert.equal((await s.page.$$('[data-testid="member-restore-open"]')).length, 0, "no restore while suspended");
     assert.match(await text(s.page), /lift the suspension to restore/);
     await s.close();

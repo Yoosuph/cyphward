@@ -55,7 +55,7 @@ def test_every_gated_route_refuses_a_suspended_organisation(world, more, urls):
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": world["org"]}
     leaks = []
     routes = [r for r in gated_routes() if "/compliance/reviewer/" not in r[1]]  # those need a reviewer grant
-    assert len(routes) >= 35
+    assert len(routes) == 32
     for method, path in routes:
         url = re.sub(r"\{[^}]+\}", str(uuid4()), path)
         resp = customer.request(method, url, headers=headers, json={})
@@ -330,3 +330,70 @@ def test_restore_refuses_non_owners(world, more, urls):
         assert owner.post(path, json=body, headers={**ORIGIN, "Authorization": f"Bearer {token}"}).status_code == 401
     assert owner.post(path, json=body).status_code in (401, 403)  # no console Origin
     assert _membership(urls, world, more["member"]) is None
+
+
+# ── Founder decisions (2026-10-31) against the real database ──────────────
+def _customer(world, urls):
+    token = _customer_token(world, urls)
+    return TestClient(app), {"Authorization": f"Bearer {token}", "X-Organization-Id": world["org"]}
+
+
+def test_billing_cancel_allowed_and_cost_changes_refused_while_suspended(world, more, urls):
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO subscriptions (org_id, plan, status, provider, current_period_start, "
+                     "current_period_end) VALUES (%s, 'growth', 'active', 'manual', now(), now() + interval '20 days')",
+                     (world["org"],))
+    _suspend(_signed_in(world), world)
+    customer, headers = _customer(world, urls)
+    cancel = customer.post("/api/v1/billing/subscription/cancel", headers=headers)
+    assert cancel.status_code == 200 and cancel.json()["subscription"]["cancel_at_period_end"] is True, cancel.text
+    assert _refused(customer.post("/api/v1/billing/subscription", headers=headers, json={"plan": "growth"}))
+    assert _refused(customer.post("/api/v1/billing/subscription/renew", headers=headers))
+
+
+def test_reviewer_revoke_allowed_and_grant_refused_while_suspended(world, more, urls):
+    _suspend(_signed_in(world), world)
+    customer, headers = _customer(world, urls)
+    revoke = customer.post(f"/api/v1/compliance/reviewer-grants/{uuid4()}/revoke", headers=headers)
+    assert revoke.status_code == 404, revoke.text  # past the suspension check; no such grant
+    grant = customer.post("/api/v1/compliance/reviewer-grants", headers=headers,
+                          json={"email": f"rev-{world['tag']}@outside.test", "days": 7,
+                                "purpose": "Review our readiness answers"})
+    assert _refused(grant)
+
+
+def test_member_downgrade_allowed_and_promotion_refused_while_suspended(world, more, urls):
+    with _admin(urls) as conn:
+        conn.execute("UPDATE organization_members SET role = 'admin' WHERE org_id = %s AND user_id = %s",
+                     (world["org"], more["member"]))
+    _suspend(_signed_in(world), world)
+    customer, headers = _customer(world, urls)
+    down = customer.patch(f"/api/v1/members/{more['member']}", headers=headers, json={"role": "member"})
+    assert down.status_code == 200, down.text
+    assert _membership(urls, world, more["member"])["role"] == "member"
+    up = customer.patch(f"/api/v1/members/{more['member']}", headers=headers, json={"role": "admin"})
+    assert _refused(up) and _membership(urls, world, more["member"])["role"] == "member"
+    assert _refused(customer.post("/api/v1/members/invite", headers=headers,
+                                  json={"email": f"new-{world['tag']}@views.test", "full_name": "New", "role": "member"}))
+    withdraw = customer.delete(f"/api/v1/members/invites/{uuid4()}", headers=headers)
+    assert withdraw.status_code == 404, withdraw.text  # past the suspension check; no such invitation
+
+
+def test_new_organisation_refused_only_for_owners_of_a_suspended_organisation(world, more, urls):
+    from backend.app.core import sessions
+    _suspend(_signed_in(world), world)
+    customer, headers = _customer(world, urls)
+    refused = customer.post("/api/v1/organizations", headers={"Authorization": headers["Authorization"]},
+                            json={"name": f"Fresh Start {world['tag']}"})
+    assert _refused(refused) and "An organisation you own is suspended" in refused.json()["detail"]["message"]
+    with _admin(urls) as conn:  # the owner of an active organisation (org B) is unaffected
+        profile = conn.execute("SELECT * FROM profiles WHERE id = %s", (more["user_b"],)).fetchone()
+    other = sessions.issue_session(profile)["access_token"]
+    made = customer.post("/api/v1/organizations", headers={"Authorization": f"Bearer {other}"},
+                         json={"name": f"Second Org {world['tag']}"})
+    assert made.status_code == 201, made.text
+    with _admin(urls) as conn:
+        assert conn.execute("SELECT count(*) AS n FROM organizations WHERE name = %s",
+                            (f"Fresh Start {world['tag']}",)).fetchone()["n"] == 0
+        conn.execute("DELETE FROM organizations WHERE id = %s", (made.json()["organization"]["id"],))
+        conn.execute("DELETE FROM audit_log WHERE resource_id = %s", (str(made.json()["organization"]["id"]),))

@@ -16,7 +16,7 @@ from fastapi.routing import APIRoute
 from backend.app.core import suspension
 from backend.app.core.auth import READ_ONLY_POSTS
 from backend.app.main import app
-from conftest import ALICE, BOB, ORG_A, ORG_B, CAROL, FINDING_A1, SCAN_A1, DOM_A1
+from conftest import ADMI, ALICE, BOB, ORG_A, ORG_B, CAROL, FINDING_A1, SCAN_A1, DOM_A1
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -32,7 +32,13 @@ ALLOWED = {
         "mfa/start", "mfa/send", "mfa/verify", "mfa/enroll", "mfa/disable/request", "mfa/disable/confirm",
         "totp/enroll/start", "totp/enroll/confirm", "totp/disable", "otp/send", "otp/verify", "welcome",
         "trusted-browsers/forget", "account/delete", "google/one-tap", "exchange")},
-    ("POST", "/api/v1/organizations"): "creates a new organisation for the person; no existing organisation changes",
+    # Protective changes stay open while suspended (founder decision, 2026-10-31).
+    ("POST", "/api/v1/billing/subscription/cancel"): "cancelling only stops future cost; a customer can always stop paying",
+    ("POST", "/api/v1/compliance/reviewer-grants/{grant_id}/revoke"): "revoking outside access only reduces it",
+    ("DELETE", "/api/v1/members/invites/{invite_id}"): "withdrawing a pending invitation only removes access",
+    ("PATCH", "/api/v1/members/{user_id}"):
+        "the same route lowers and raises roles: the handler allows lowering and refuses a promotion with "
+        "organization_suspended (test_member_role_changes_while_suspended)",
     ("POST", "/api/v1/members/invites/accept"):
         "the organisation comes from the invitation token, so the handler calls suspension.ensure_active on it "
         "(test_invite_accept_is_refused_for_a_suspended_organisation)",
@@ -103,8 +109,9 @@ def test_the_named_write_paths_are_gated():
         ("DELETE", "/api/v1/domains/{domain_id}"), ("POST", "/api/v1/domains/{domain_id}/hosts"),
         ("PATCH", "/api/v1/organizations/current"), ("POST", "/api/v1/settings/company"),
         ("POST", "/api/v1/organizations/close"),
-        ("POST", "/api/v1/members/invite"), ("PATCH", "/api/v1/members/{user_id}"),
-        ("DELETE", "/api/v1/members/invites/{invite_id}"),
+        ("POST", "/api/v1/members/invite"), ("POST", "/api/v1/organizations"),
+        ("POST", "/api/v1/billing/subscription"), ("POST", "/api/v1/billing/subscription/renew"),
+        ("POST", "/api/v1/compliance/reviewer-grants"),
         ("POST", "/api/v1/compliance/attestations"), ("POST", "/api/v1/compliance/incidents"),
         ("PATCH", "/api/v1/compliance/incidents/{incident_id}"),
         ("POST", "/api/v1/compliance/documents/{kind}/generate"),
@@ -132,7 +139,7 @@ def test_every_gate_is_built_on_the_shared_dependency():
     gates = {c for c in calls if suspension.is_gate(c)}
     assert suspension.require_active_org in gates
     from backend.app.api.compliance_reviewer import require_active_reviewer
-    for gate in gates - {suspension.require_active_org, require_active_reviewer}:
+    for gate in gates - {suspension.require_active_org, require_active_reviewer, suspension.refuse_suspended_owner}:
         assert gate.__name__ == "dependency" and gate.__qualname__.startswith("require_active_role"), gate
 
 
@@ -149,7 +156,7 @@ def _refused(resp):
     body = resp.json()
     return (resp.status_code == 403 and isinstance(body.get("detail"), dict)
             and body["detail"].get("code") == suspension.SUSPENDED_CODE
-            and body["detail"].get("message") == suspension.SUSPENDED_MESSAGE)
+            and body["detail"].get("message") in (suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE))
 
 
 def test_a_suspended_organisation_is_refused_on_every_gated_route(client, store, auth_headers, override_deps):
@@ -164,7 +171,7 @@ def test_a_suspended_organisation_is_refused_on_every_gated_route(client, store,
         if not _refused(resp):
             leaks.append((method, path, resp.status_code, resp.text[:120]))
     assert not leaks, leaks
-    assert len(gated_routes()) >= 35
+    assert len(gated_routes()) == 34
 
 
 def test_the_refusal_names_no_internal_detail(client, store, auth_headers):
@@ -279,9 +286,80 @@ def test_new_backend_wording_has_no_claim_language():
     import inspect
     from backend.app.api import owner_actions
     from backend.app.core import scan_failures
-    texts = [suspension.SUSPENDED_MESSAGE, *scan_failures.CATEGORIES.values(), scan_failures.STAGE_NOTE_FALLBACK,
+    texts = [suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE, *scan_failures.CATEGORIES.values(),
+             scan_failures.STAGE_NOTE_FALLBACK,
              inspect.getsource(owner_actions.restore_member)]
     hits = [(p, t[:60]) for t in texts for p in BANNED if p in t.lower()]
     assert not hits, hits
     # The refusal names the existing contact address only.
-    assert re.findall(r"[\w.]+@[\w.]+\w", suspension.SUSPENDED_MESSAGE) == ["info@cyphward.com"]
+    for message in (suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE):
+        assert re.findall(r"[\w.]+@[\w.]+\w", message) == ["info@cyphward.com"]
+
+
+# ── Founder decisions (2026-10-31): protective changes allowed, cost and access additions refused ──
+def _not_suspension_refusal(resp):
+    try:
+        detail = resp.json().get("detail")
+    except ValueError:
+        return True
+    return not (isinstance(detail, dict) and detail.get("code") == suspension.SUSPENDED_CODE)
+
+
+def test_billing_cancel_is_allowed_while_suspended_and_cost_changes_are_refused(client, store, auth_headers):
+    from datetime import datetime, timedelta, timezone
+    end = datetime.now(timezone.utc) + timedelta(days=9)
+    store.subscriptions.append({"id": "sub", "org_id": ORG_A, "plan": "growth", "status": "active",
+                                "current_period_end": end, "trial_ends_at": None, "cancel_at_period_end": False})
+    store.suspensions[ORG_A] = "suspended"
+    headers = auth_headers(ALICE, org=ORG_A)
+    cancel = client.post("/api/v1/billing/subscription/cancel", headers=headers)
+    assert cancel.status_code == 200, cancel.text
+    assert cancel.json()["subscription"]["cancel_at_period_end"] is True
+    assert _refused(client.post("/api/v1/billing/subscription", headers=headers, json={"plan": "growth"}))
+    assert _refused(client.post("/api/v1/billing/subscription/renew", headers=headers))
+
+
+def test_reviewer_revoke_is_allowed_while_suspended_and_grant_is_refused(client, store, auth_headers):
+    store.suspensions[ORG_A] = "suspended"
+    headers = auth_headers(ALICE, org=ORG_A)
+    revoke = client.post(f"/api/v1/compliance/reviewer-grants/{uuid4()}/revoke", headers=headers)
+    assert revoke.status_code != 403 and _not_suspension_refusal(revoke), revoke.text
+    grant = client.post("/api/v1/compliance/reviewer-grants", headers=headers,
+                        json={"email": "rev@outside.test", "days": 7, "purpose": "Review our readiness answers"})
+    assert _refused(grant)
+
+
+def test_member_role_changes_while_suspended(client, store, auth_headers):
+    """Lowering a role and withdrawing an invitation stay open; promotions and invitations are refused."""
+    store.suspensions[ORG_A] = "suspended"
+    headers = auth_headers(ALICE, org=ORG_A)
+    down = client.patch(f"/api/v1/members/{ADMI}", headers=headers, json={"role": "member"})
+    assert down.status_code == 200, down.text
+    assert next(m for m in store.memberships if m["user_id"] == ADMI and m["org_id"] == ORG_A)["role"] == "member"
+    assert _refused(client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "admin"}))
+    assert next(m for m in store.memberships if m["user_id"] == BOB and m["org_id"] == ORG_A)["role"] == "member"
+    assert _refused(client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "owner"}))
+    assert client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "member"}).status_code == 200
+    withdraw = client.delete(f"/api/v1/members/invites/{uuid4()}", headers=headers)
+    assert withdraw.status_code == 404 and _not_suspension_refusal(withdraw)  # past the gate; no such invitation
+    assert _refused(client.post("/api/v1/members/invite", headers=headers,
+                                json={"email": "new@acme.test", "full_name": "New", "role": "member"}))
+    store.suspensions[ORG_A] = "active"  # promotions work again once the suspension is lifted
+    assert client.patch(f"/api/v1/members/{BOB}", headers=headers, json={"role": "admin"}).status_code == 200
+
+
+def test_owner_of_a_suspended_organisation_cannot_create_a_new_one(client, store, auth_headers):
+    for uid in (ALICE, BOB, CAROL):
+        store.profiles[uid]["email_verified_at"] = "2026-01-01T00:00:00"
+    store.suspensions[ORG_A] = "suspended"
+    refused = client.post("/api/v1/organizations", headers=auth_headers(ALICE), json={"name": "Fresh Start Ltd"})
+    assert _refused(refused)
+    assert refused.json()["detail"]["message"] == suspension.SUSPENDED_OWNER_MESSAGE
+    assert not any(o["name"] == "Fresh Start Ltd" for o in store.organizations.values())
+    # A member (not an owner) of the suspended organisation, and the owner of an active one, are unaffected.
+    for uid, name in ((BOB, "Bob Side Project"), (CAROL, "Carol Second Org")):
+        resp = client.post("/api/v1/organizations", headers=auth_headers(uid), json={"name": name})
+        assert resp.status_code == 201, (uid, resp.text)
+    store.suspensions[ORG_A] = "active"
+    resp = client.post("/api/v1/organizations", headers=auth_headers(ALICE), json={"name": "Fresh Start Ltd"})
+    assert resp.status_code == 201, resp.text

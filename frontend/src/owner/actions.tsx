@@ -206,7 +206,7 @@ export function ExtendTrialAction({ orgId, orgName, trialEndsAt, onDone }: {
 }
 
 /* ── Organization: suspend / unsuspend ──────────────────────────────────── */
-const SUSPENSION_RULE = 'While suspended, its members can still sign in and read their data, but every change is refused: no new scans, domains, settings, members, compliance records, documents, packs or snapshots. Scheduled scans and queued scans pause until you lift it. Owner actions keep working. You can lift it at any time.';
+const SUSPENSION_RULE = 'While suspended, its members can still sign in and read their data, but changes that add something are refused: no new scans, domains, settings, new members or promotions, compliance records, documents, packs or snapshots, and its owners cannot create a new organization. They can still cancel their subscription, revoke reviewer access, withdraw an invitation and lower a role. Scheduled scans and queued scans pause until you lift it. Owner actions keep working. You can lift it at any time.';
 
 export function SuspendAction({ orgId, orgName, suspended, onDone }: {
   orgId: string; orgName: string; suspended: boolean; onDone: () => void;

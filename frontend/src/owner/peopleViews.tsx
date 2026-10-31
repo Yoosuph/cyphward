@@ -161,7 +161,7 @@ export function OrganizationDetailView() {
             {org.suspended && (
               <div role="status" data-testid="org-suspended-note" className="lg:col-span-2 p-3 rounded border border-accent/40 bg-accent/10 text-sm text-ink flex flex-wrap items-center gap-2">
                 <Pill tone="bad">suspended</Pill>
-                <span>Since {fmtDate(org.suspension_changed_at)}. Members can sign in and read their data; every change, new scan and scheduled scan is paused, and they see a notice on every page. Owner actions keep working.</span>
+                <span>Since {fmtDate(org.suspension_changed_at)}. Members can sign in and read their data; new scans, scheduled scans and changes that add something are paused (cancelling, revoking access and lowering roles stay open), and they see a notice on every page. Owner actions keep working.</span>
               </div>
             )}
             <Panel title={`Members (${(data.members as Row[]).length})`}>

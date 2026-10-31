@@ -4,9 +4,14 @@ The rule the founder approved:
 
 * A suspended organisation can still sign in and read its own data: dashboards, scans, findings, reports and the
   compliance views. Read endpoints are unchanged.
-* It cannot change anything: no new scan (manual, scheduled or re-check), no domain added or verified, no settings,
-  no member invited or removed, no compliance record created or changed, no document generated or approved, no
-  pack or snapshot issued.
+* It cannot add or extend anything: no new scan (manual, scheduled or re-check), no domain added or verified, no
+  settings, no member invited, promoted or re-added, no compliance record created or changed, no new reviewer
+  access, no document generated or approved, no pack or snapshot issued, no subscription change that adds cost.
+* Protective changes stay open (founder decision, 2026-10-31): cancelling the subscription, revoking reviewer
+  access, withdrawing a pending invitation and lowering a member's role. Promotions are refused in the role-change
+  handler (api/members.py), since the same route also lowers roles.
+* An owner of a suspended organisation cannot create a new organisation (`refuse_suspended_owner`); people who own
+  no suspended organisation are unaffected.
 * Scheduled scans and scans already waiting in the queue pause. Their rows stay and they run again once the
   suspension is lifted.
 * Owner console actions are never blocked.
@@ -22,7 +27,7 @@ from typing import Any, Callable, Dict, Iterable, Optional, Set
 
 from fastapi import Depends, HTTPException
 
-from backend.app.core.auth import get_current_org, membership_role
+from backend.app.core.auth import get_current_org, get_current_user, membership_role
 from backend.app.core.database import execute_one
 
 SUSPENDED_CODE = "organization_suspended"
@@ -31,6 +36,13 @@ SUSPENDED_MESSAGE = (
     "This organisation is suspended, so changes are paused. You can still sign in and read your dashboards, "
     "scans, findings, reports and compliance pages. To ask about it, contact us at info@cyphward.com or through "
     "the contact page."
+)
+
+
+# Reviewed wording for the new-organisation refusal (same stable code).
+SUSPENDED_OWNER_MESSAGE = (
+    "An organisation you own is suspended, so you cannot create a new one for now. To ask about it, contact us at "
+    "info@cyphward.com or through the contact page."
 )
 
 
@@ -76,6 +88,20 @@ def require_active_org(org: Dict[str, Any] = Depends(get_current_org)) -> Dict[s
     """The caller's organisation, refused with 403 when it is suspended. Use on every customer write route."""
     ensure_active(org.get("id"))
     return org
+
+
+@suspension_gate
+def refuse_suspended_owner(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """For creating a new organisation: refused (403, organization_suspended) when the person owns any suspended
+    organisation, so a suspension cannot be stepped around with a fresh workspace."""
+    row = execute_one(
+        "SELECT 1 AS owns FROM organization_members m JOIN organization_suspensions os ON os.org_id = m.org_id "
+        "WHERE m.user_id = %s AND m.role = 'owner' AND os.status = 'suspended' LIMIT 1",
+        (str(user["id"]),),
+    )
+    if row:
+        raise HTTPException(status_code=403, detail={"code": SUSPENDED_CODE, "message": SUSPENDED_OWNER_MESSAGE})
+    return user
 
 
 def require_active_role(*roles: str) -> Callable:

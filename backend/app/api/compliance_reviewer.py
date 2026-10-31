@@ -85,7 +85,8 @@ def grant(body: GrantIn, org: Dict[str, Any] = Depends(require_active_owner)) ->
 
 
 @owner_router.post("/{grant_id}/revoke")
-def revoke(grant_id: str, org: Dict[str, Any] = Depends(require_active_owner)) -> Dict[str, Any]:
+def revoke(grant_id: str, org: Dict[str, Any] = Depends(require_owner)) -> Dict[str, Any]:
+    # Allowed while suspended: revoking outside access only reduces it (founder decision). Granting stays refused.
     try:
         reviewer.revoke(str(org["id"]), grant_id, str(org["current_user_id"]))
     except reviewer.NotFound:

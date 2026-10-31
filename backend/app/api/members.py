@@ -32,7 +32,7 @@ from backend.app.core.auth import (
     log_audit,
     membership_role,
 )
-from backend.app.core.suspension import ensure_active, require_active_admin
+from backend.app.core.suspension import ensure_active, is_suspended, require_active_admin, suspended_refusal
 from backend.app.core.security import hash_opaque_token, new_opaque_token
 from backend.app.services.mailer import (
     generate_invite_email_html,
@@ -45,6 +45,7 @@ logger = logging.getLogger("cyphward.members")
 router = APIRouter(prefix="/api/v1/members", tags=["Members"])
 
 MVP_ROLES = {"owner", "admin", "member"}
+ROLE_RANK = {"member": 0, "admin": 1, "owner": 2}
 INVITE_TTL_DAYS = 7
 
 
@@ -275,9 +276,9 @@ def accept_invite(
 
 
 @router.delete("/invites/{invite_id}")
-def revoke_invite(
+def revoke_invite(  # allowed while suspended: withdrawing a pending invitation only removes access
     invite_id: str,
-    org: Dict[str, Any] = Depends(require_active_admin),
+    org: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
     row = execute_one(
         """
@@ -297,7 +298,7 @@ def revoke_invite(
 def update_member_role(
     user_id: str,
     req: UpdateMemberRoleRequest,
-    org: Dict[str, Any] = Depends(require_active_admin),
+    org: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
     role = req.role.lower().strip()
     if role not in MVP_ROLES:
@@ -311,6 +312,10 @@ def update_member_role(
         raise HTTPException(status_code=404, detail="Member not found in this organization.")
     if (role == "owner" or target["role"] == "owner") and membership_role(org) != "owner":
         raise HTTPException(status_code=403, detail="Only owners can modify owner roles")
+    # While the organisation is suspended, lowering a role (protective) is allowed; a promotion is refused
+    # (founder decision, core/suspension.py). This route is on the reviewed allow-list for that reason.
+    if ROLE_RANK[role] > ROLE_RANK.get(target["role"], 0) and is_suspended(org["id"]):
+        raise suspended_refusal()
 
     # Never demote the last owner — the workspace would become unmanageable.
     if target["role"] == "owner" and role != "owner":

@@ -616,7 +616,8 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={handleCancelSub}
-                    {...writeGuard(suspended, billingBusy || !billing.subscription || Boolean(billing.subscription?.cancel_at_period_end))}
+                    // Cancelling stays open while suspended (a customer can always stop paying).
+                    disabled={billingBusy || !billing.subscription || billing.subscription?.cancel_at_period_end}
                     className="btn-tactile px-3 py-1.5 rounded text-xs mono border border-line hover:border-line-strong text-soft hover:text-ink disabled:opacity-50"
                   >
                     {billing.subscription?.cancel_at_period_end ? 'CANCELS AT PERIOD END' : 'CANCEL'}
@@ -742,7 +743,8 @@ export default function Settings() {
                       {canManageRoles ? (
                         <select
                           value={(m.role || 'member').toLowerCase()}
-                          {...writeGuard(suspended, roleBusyId === m.id)}
+                          // Lowering a role stays open while suspended; the server refuses a promotion.
+                          disabled={roleBusyId === m.id}
                           onChange={e => handleRoleChange(m.id, e.target.value)}
                           aria-label={`Role for ${m.email || m.full_name || 'this member'}`}
                           className="bg-inset border border-line rounded px-2 py-1 text-[11px] text-ink mono focus:outline-none focus:border-accent"
