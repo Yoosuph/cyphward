@@ -12,6 +12,7 @@ import logging
 from backend.app.core.config import SCANNER_MODE
 from backend.app.core.database import execute_query
 from backend.app.core import scan_execution as execution
+from backend.app.services import notifications
 
 logger = logging.getLogger("cyphward.scan_recovery")
 INTERRUPTED_MESSAGE = (
@@ -35,9 +36,13 @@ def recover_interrupted_scans() -> int:
     rows = execute_query(
         """UPDATE scans SET status = 'failed',error_message=%s,failure_code='interrupted',completed_at=now()
         WHERE claimed_by IS NULL AND status = 'running'
-          AND execution_phase IS NULL AND claim_token IS NULL RETURNING id""",
+          AND execution_phase IS NULL AND claim_token IS NULL RETURNING id, org_id""",
         (INTERRUPTED_MESSAGE,),
     )
+    for row in rows or []:
+        if row.get("org_id"):
+            notifications.emit("scan_failed", row["org_id"], key=f"scan_failed:{row['id']}",
+                               params={"scan_id": row["id"], "code": "interrupted"})
     return len(rows or [])
 
 

@@ -70,8 +70,7 @@ from backend.app.risk.coverage import assessment_coverage
 from backend.app.risk.domain_coverage import org_domain_coverage
 from backend.app.compliance.scan_evidence import evidence_for_scan
 from backend.app.ai.factory import get_ai_provider
-from backend.app.services.notifications import notify
-from backend.app.services.mailer import send_email_async
+from backend.app.services import notifications
 from shared.contracts import STAGE_SECURITY_CHECKS, empty_stage_progress, ScanJobLimits
 from shared.scan_scope import select_targets
 from shared.scan_budget import ReconBudget, gather_with_deadline
@@ -155,57 +154,8 @@ def _load_observations(scan_id: str) -> Dict[str, Any]:
     return observations
 
 
-async def _email_org_members(org_id: str, subject: str, html: str, text: str) -> None:
-    """Best-effort email fanout to all org members (critical / reopened only)."""
-    try:
-        recipients = execute_query(
-            """
-            SELECT DISTINCT p.email, p.full_name
-            FROM organization_members m
-            JOIN profiles p ON p.id = m.user_id
-            WHERE m.org_id = %s AND p.email IS NOT NULL AND p.email <> ''
-            """,
-            (org_id,),
-        ) or []
-    except Exception:
-        return
-
-    for rec in recipients:
-        try:
-            await send_email_async(
-                rec["email"],
-                subject,
-                html,
-                text,
-                rec.get("full_name"),
-                kind="alerts",
-            )
-        except Exception:
-            continue
-
-
-def _finding_email_html(
-    org_name: str,
-    title: str,
-    severity: str,
-    description: str,
-    remediation: str,
-    hostname: str,
-    is_reopen: bool = False,
-) -> str:
-    verb = "Reopened" if is_reopen else "New"
-    color = "#E5532B" if severity == "critical" else "#F97316"
-    return f"""<!DOCTYPE html>
-<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#0A0907; color:#F5F2EB; padding:24px;">
-  <div style="max-width:560px;margin:0 auto;background:#12100C;border:1px solid #2D271F;border-radius:8px;padding:24px;">
-    <div style="font-family:monospace;font-size:12px;letter-spacing:2px;color:#E5532B;">CYPHWARD · {verb.upper()} {severity.upper()} FINDING</div>
-    <h1 style="font-size:18px;margin:16px 0 8px;">{title}</h1>
-    <p style="font-size:13px;color:#A8A095;margin:0 0 12px;">{org_name} · {hostname}</p>
-    <p style="font-size:14px;line-height:1.6;color:#DDD7CD;">{description}</p>
-    <p style="font-size:13px;color:#E5532B;"><strong>Remediation:</strong> {remediation}</p>
-    <p style="font-size:12px;color:#8C8477;margin-top:20px;">Sign in to Cyphward to triage this finding in the findings workspace.</p>
-  </div>
-</body></html>"""
+# An open finding whose rating rises to high or critical is notified (services/notifications.emit_finding).
+_SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 # ===========================================================================
@@ -437,8 +387,6 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
         logger.info("scan=%s finalize skipped: status=%s", scan_id, status or "missing")
         return {"scan_id": scan_id, "status": status}
 
-    email_jobs: List[Dict[str, Any]] = []
-
     try:
         if not _still_running(scan_id):
             return {"scan_id": scan_id, "status": _scan_status(scan_id)}
@@ -528,14 +476,8 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             if res:
                 asset_id_map[hname] = res["id"]
                 if not prior_asset:
-                    notify(
-                        org_id,
-                        "new_asset",
-                        f"New asset discovered: {hname}",
-                        f"{atype} on {domain} was observed during scan #{str(scan_id)[:8]}.",
-                        "info",
-                        "/assets",
-                    )
+                    notifications.emit("asset_discovered", org_id, key=f"asset:{res['id']}",
+                                       params={"hostname": hname, "domain": domain})
 
         # Registered-but-unresolved hosts: visible inventory (never clobber
         # an existing assessed row — DO NOTHING on conflict).
@@ -743,6 +685,10 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                 if reopened:
                     nf["_is_reopened"] = True
                     baseline["reopened"].append(nf)
+                elif _SEVERITY_RANK.get(nf["severity"], 0) > _SEVERITY_RANK.get(prior.get("severity"), 0):
+                    # An open finding whose rating went up to high or critical "became" high or critical.
+                    notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain,
+                                               scan_id=scan_id)
 
             # Auto-resolve findings on scanned assets that were not re-observed
             # — but only when their detector actually completed for that host.
@@ -811,49 +757,19 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
                         (row["id"], org_id, json.dumps({"scan_id": scan_id, "evidence": nf["evidence"], "source": "pipeline"})),
                     )
 
-        # Baseline change notifications (in-app for all; email for critical / reopened)
+        # Baseline change notifications (services/notifications.py: reviewed wording, one row per member).
+        # Critical ones are emailed only once this scan has completed (email_after_scan): finalize_scan delivers
+        # after the completion commit, and a scan that fails instead never sends them.
         for nf in baseline["new"]:
-            if nf["severity"] == "critical":
-                notify(
-                    org_id, "critical_finding",
-                    f"Critical finding: {nf['title']}",
-                    (nf.get("description") or "")[:480],
-                    "critical", "/findings",
-                )
-                email_jobs.append({
-                    "subject": f"[Cyphward] Critical finding: {nf['title']}",
-                    "html": _finding_email_html(org_name, nf["title"], "critical", nf.get("description") or "", nf.get("remediation") or "", nf.get("hostname") or domain, False),
-                    "text": f"Critical finding on {nf.get('hostname') or domain}: {nf['title']}. {nf.get('remediation') or ''}",
-                })
-            elif nf["severity"] == "high":
-                notify(
-                    org_id, "high_risk_exposure",
-                    f"High risk exposure: {nf['title']}",
-                    (nf.get("description") or "")[:480],
-                    "high", "/findings",
-                )
-
+            notifications.emit_finding(org_id, nf["id"], nf["severity"], nf.get("hostname") or domain, scan_id=scan_id)
         for nf in baseline["reopened"]:
-            notify(
-                org_id, "finding_reopened",
-                f"Finding reopened: {nf['title']}",
-                (nf.get("description") or "")[:480],
-                nf.get("severity") or "high", "/findings",
-            )
-            sev = nf.get("severity") or "high"
-            email_jobs.append({
-                "subject": f"[Cyphward] Finding reopened: {nf['title']}",
-                "html": _finding_email_html(org_name, nf["title"], sev, nf.get("description") or "", nf.get("remediation") or "", nf.get("hostname") or domain, True),
-                "text": f"Finding reopened on {nf.get('hostname') or domain}: {nf['title']}. {nf.get('remediation') or ''}",
-            })
-
+            if not notifications.emit_finding(org_id, nf["id"], nf.get("severity"), nf.get("hostname") or domain,
+                                              scan_id=scan_id, reopened=True):
+                notifications.emit("finding_reopened", org_id, key=f"finding_reopened:{nf['id']}:{scan_id}",
+                                   params={"hostname": nf.get("hostname") or domain})
         for rf in baseline["resolved"]:
-            notify(
-                org_id, "finding_resolved",
-                f"Finding resolved: {rf['title']}",
-                f"Auto-resolved after scan — no longer observed on {rf.get('hostname') or domain}.",
-                "info", "/findings",
-            )
+            notifications.emit("finding_resolved", org_id, key=f"finding_resolved:{rf['id']}:{scan_id}",
+                               params={"hostname": rf.get("hostname") or domain})
 
         norm_dur = int((time.time() - t0) * 1000)
         progress["normalization"] = {"status": "completed", "items": len(normalized_all), "duration_ms": norm_dur}
@@ -959,24 +875,15 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             ai_dur = int((time.time() - t0) * 1000)
             progress["ai_analysis"] = {"status": "failed", "error": str(ai_err), "duration_ms": ai_dur}
 
-        not_evaluated_msg = (
-            f" · {len(baseline['not_evaluated'])} not evaluated" if baseline['not_evaluated'] else ''
-        )
-        if final_score is not None and score_result.get("grade"):
-            score_msg = f"Score {final_score}/100 · grade {score_result['grade']} · within declared scope"
-        elif final_score is not None:
-            score_msg = f"Known-risk score {final_score}/100 · {score_result['posture_label'].lower()}"
-        else:
-            score_msg = f"No score · {score_result['posture_label']}"
         execution.finish_assessment(require_execution(scan_id), str(org_id), score_result, progress, {
             'domain': domain, 'score': final_score, 'findings': len(normalized_all),
             'new': len(baseline['new']), 'reopened': len(baseline['reopened']),
             'resolved': len(baseline['resolved']), 'not_evaluated': len(baseline['not_evaluated']),
         }, {
+            'params': {'domain': domain, 'score': final_score, 'grade': score_result.get('grade'),
+                       'posture_label': score_result.get('posture_label'), 'new': len(baseline['new']),
+                       'resolved': len(baseline['resolved']), 'not_evaluated': len(baseline['not_evaluated'])},
             'model': SCORE_MODEL, 'scope': SCORE_SCOPE,
-            'title': f'Scan completed for {domain}',
-            'body': f"{score_msg} · {len(normalized_all)} findings observed · {len(baseline['new'])} new · {len(baseline['resolved'])} resolved{not_evaluated_msg}.",
-            'severity': 'medium' if final_score is not None and final_score < 70 else 'info',
         }, compliance_evidence=compliance_rows)
 
         return {
@@ -991,8 +898,6 @@ async def _finalize_scan_owned(scan_id: str) -> Dict[str, Any]:
             "resolved_findings": len(baseline["resolved"]),
             "not_evaluated_findings": len(baseline["not_evaluated"]),
             "ai_analyzed": len(ai_explanations),
-            "_email_jobs": email_jobs,
-            "_email_org_id": org_id,
         }
 
     except ClaimLost:
@@ -1026,12 +931,9 @@ async def finalize_scan(scan_id: str, claim: ExecutionClaim) -> Dict[str, Any]:
     result = await execution.run_owned(claim, lambda: _finalize_scan_owned(scan_id), execution.CORE_LEASE_SECONDS)
     if result.get('status') == 'completed':
         await _queue_browser_observation(scan_id)
-    jobs = result.pop('_email_jobs', [])
-    org_id = result.pop('_email_org_id', None)
-    # Email is best-effort after the authoritative completion transaction. A
-    # restart after commit can lose delivery; this is not exactly-once mail.
-    if result.get('status') == 'completed' and org_id and jobs:
-        await asyncio.gather(*[_email_org_members(org_id,j['subject'],j['html'],j['text']) for j in jobs],return_exceptions=True)
+    # Critical-finding emails go out after the authoritative completion transaction, from the notification
+    # outbox (at most once per row; the daily sweep picks up anything a restart left pending).
+    await notifications.deliver_pending_emails()
     return result
 
 

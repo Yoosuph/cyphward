@@ -353,7 +353,11 @@ def run_days(world):
 
 
 def _notes(world, org):
-    return world.rows("SELECT type, title, link FROM notifications WHERE org_id = %s AND type = 'compliance_report_due'", (org,))
+    # One row per recipient (notifications phase 1): one entry per reminder event.
+    # Events, not rows: a reminder folded into an unread one within 15 minutes counts through group_keys.
+    return world.rows("SELECT DISTINCT n.type, n.link, k AS dedupe_key FROM notifications n, "
+                      "unnest(array_prepend(n.dedupe_key, n.group_keys)) k "
+                      "WHERE n.org_id = %s AND n.type = 'compliance_report_due'", (org,))
 
 
 def test_owners_and_admins_get_one_reminder_per_half_year_and_not_after_a_pack_is_issued(world, mail, run_days):
