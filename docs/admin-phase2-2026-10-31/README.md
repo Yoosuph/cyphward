@@ -24,6 +24,8 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
   are disabled with a tooltip. Compliance becomes view only. A suspension that starts mid-session shows the banner
   on the first refused write.
 - Owner actions are never blocked. Restoring a member is refused while suspended.
+- Protective changes stay open (see the founder decisions below): cancelling the subscription, revoking reviewer
+  access, withdrawing a pending invitation and lowering a member's role.
 
 ### Write routes and how each is gated
 
@@ -58,7 +60,7 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
 | `POST /api/v1/auth/trusted-browsers/forget` | allow-list: personal account and sign-in: acts on the person, not on an organisation |
 | `POST /api/v1/auth/welcome` | allow-list: personal account and sign-in: acts on the person, not on an organisation |
 | `POST /api/v1/billing/subscription` | require_active_owner (owner) |
-| `POST /api/v1/billing/subscription/cancel` | require_active_owner (owner) |
+| `POST /api/v1/billing/subscription/cancel` | allow-list: cancelling only stops future cost; a customer can always stop paying |
 | `POST /api/v1/billing/subscription/renew` | require_active_owner (owner) |
 | `POST /api/v1/browser-worker/claim` | allow-list: scanner or browser worker protocol: machine credentials and a claimed job, no organisation session |
 | `POST /api/v1/browser-worker/jobs/{job_id}/fail` | allow-list: scanner or browser worker protocol: machine credentials and a claimed job, no organisation session |
@@ -72,7 +74,7 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
 | `POST /api/v1/compliance/incidents` | require_active_admin (owner/admin) |
 | `PATCH /api/v1/compliance/incidents/{incident_id}` | require_active_admin (owner/admin) |
 | `POST /api/v1/compliance/reviewer-grants` | require_active_owner (owner) |
-| `POST /api/v1/compliance/reviewer-grants/{grant_id}/revoke` | require_active_owner (owner) |
+| `POST /api/v1/compliance/reviewer-grants/{grant_id}/revoke` | allow-list: revoking outside access only reduces it |
 | `POST /api/v1/compliance/reviewer/requirements/{key}/clause-reference` | require_active_reviewer (reviewer grant) |
 | `POST /api/v1/compliance/reviewer/requirements/{key}/review` | require_active_reviewer (reviewer grant) |
 | `POST /api/v1/contact` | allow-list: public form or newsletter flow: no organisation |
@@ -85,8 +87,8 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
 | `PATCH /api/v1/findings/{finding_id}/status` | require_active_admin (owner/admin) |
 | `POST /api/v1/members/invite` | require_active_admin (owner/admin) |
 | `POST /api/v1/members/invites/accept` | allow-list: the organisation comes from the invitation token, so the handler calls suspension.ensure_active on it (test_invite_accept_is_refused_for_a_suspended_organisation) |
-| `DELETE /api/v1/members/invites/{invite_id}` | require_active_admin (owner/admin) |
-| `PATCH /api/v1/members/{user_id}` | require_active_admin (owner/admin) |
+| `DELETE /api/v1/members/invites/{invite_id}` | allow-list: withdrawing a pending invitation only removes access |
+| `PATCH /api/v1/members/{user_id}` | allow-list: the same route lowers and raises roles: the handler allows lowering and refuses a promotion with organization_suspended (test_member_role_changes_while_suspended) |
 | `POST /api/v1/newsletter/confirm` | allow-list: public form or newsletter flow: no organisation |
 | `POST /api/v1/newsletter/drafts` | allow-list: newsletter draft upload with the drafts key; no organisation |
 | `POST /api/v1/newsletter/drafts/{issue_id}/send` | allow-list: owner or newsletter staff send; no organisation |
@@ -94,7 +96,7 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
 | `POST /api/v1/newsletter/unsubscribe` | allow-list: public form or newsletter flow: no organisation |
 | `POST /api/v1/notifications/read-all` | allow-list: the person's own read markers; no organisation record |
 | `PATCH /api/v1/notifications/{notification_id}/read` | allow-list: the person's own read marker; no organisation record |
-| `POST /api/v1/organizations` | allow-list: creates a new organisation for the person; no existing organisation changes |
+| `POST /api/v1/organizations` | refuse_suspended_owner (refused if the person owns a suspended organisation) |
 | `POST /api/v1/organizations/close` | require_active_owner (owner) |
 | `PATCH /api/v1/organizations/current` | require_active_admin (owner/admin) |
 | `POST /api/v1/owner/logout` | allow-list: owner console: separate owner session; owner actions are never blocked by a suspension |
@@ -126,18 +128,26 @@ analytics and lists, plain scan-failure wording, and restoring a removed member 
 | `POST /api/v1/snapshots` | require_active_admin (owner/admin) |
 | `PUT /api/v1/snapshots/retention` | require_active_owner (owner) |
 
-37 gated, 59 allow-listed. The `require_active_*` role gates all depend on `require_active_org`.
+34 gated, 62 allow-listed. The `require_active_*` role gates all depend on `require_active_org`.
 
-Judgement calls, for review:
+Founder decisions (2026-10-31). Each one has its own test in `test_suspension_gate.py` and `test_admin_phase2_postgres.py`.
 
-- `POST /billing/subscription/cancel` is gated. The literal rule covers settings changes, so a suspended owner
-  cannot schedule a cancellation.
-- `POST /compliance/reviewer-grants/{id}/revoke` and `PATCH /members/{user_id}` are gated too, so a suspended
-  organisation cannot remove outside access itself; the owner console can remove members.
-- `POST /organizations/close` is gated, since closing would delete the organisation and its suspension row.
-- `POST /organizations` (create a new organisation) is allow-listed. A suspended customer could create a new
-  organisation and add the same domain there. Raise it if that should be refused.
-- Notification read markers and the five AI answer routes are allow-listed: they write no organisation record
+- **Billing cancel is allowed** while suspended: a customer can always stop paying. Plan and renewal requests, which
+  add cost, stay refused.
+- **Revoking reviewer access is allowed.** Granting new reviewer access stays refused.
+- **Member changes:**
+  - Lowering a role and withdrawing a pending invitation are allowed.
+  - Invitations, promotions and re-adding removed members are refused. The routes are the invite, invite accept and
+    the owner restore.
+  - `PATCH /members/{user_id}` both raises and lowers roles, so it is on the allow-list. Its handler refuses a
+    promotion with `organization_suspended`.
+  - Customers have no route that removes an existing member; removal is an owner-console action.
+- **A new organisation is refused** for anyone who owns a suspended organisation (`refuse_suspended_owner`). The
+  refusal uses the same code with its own reviewed message. Unaffected:
+  - people who are members of a suspended organisation but own none;
+  - owners of active organisations.
+- `POST /organizations/close` stays gated, because closing would delete the organisation and its suspension row.
+- Notification read markers and the five AI answer routes are allow-listed. They write no organisation record
   (AI use is only rate-limited).
 
 ## 2. Indexes (`supabase/migrations/20261031100000_admin_indexes.sql`)
