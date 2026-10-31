@@ -44,6 +44,7 @@ ALLOWED = {
         "(test_invite_accept_is_refused_for_a_suspended_organisation)",
     ("PATCH", "/api/v1/notifications/{notification_id}/read"): "the person's own read marker; no organisation record",
     ("POST", "/api/v1/notifications/read-all"): "the person's own read markers; no organisation record",
+    ("PUT", "/api/v1/notifications/preferences/{category}"): "the person's own notification settings; no organisation record",
     **{("POST", path): "read-only AI answer (core.auth.READ_ONLY_POSTS): writes no customer record"
        for path in READ_ONLY_POSTS},
     **{("POST", f"/api/v1/scanner/{p}"): _WORKER for p in (
@@ -55,7 +56,8 @@ ALLOWED = {
         "session", "logout", "setup/authenticator", "setup/complete",
         "organizations/{org_id}/plan", "organizations/{org_id}/trial", "organizations/{org_id}/suspend",
         "organizations/{org_id}/unsuspend", "organizations/{org_id}/members/{user_id}/remove",
-        "organizations/{org_id}/members/restore", "scans/{scan_id}/cancel", "users/{user_id}/sign-out")},
+        "organizations/{org_id}/members/restore", "scans/{scan_id}/cancel", "users/{user_id}/sign-out",
+        "notifications/read-all", "notifications/{notification_id}/read")},
     **{("POST", f"/api/v1/newsletter/{p}"): _PUBLIC for p in ("subscribe", "confirm", "unsubscribe")},
     ("POST", "/api/v1/newsletter/drafts"): "newsletter draft upload with the drafts key; no organisation",
     ("POST", "/api/v1/newsletter/drafts/{issue_id}/send"): "owner or newsletter staff send; no organisation",

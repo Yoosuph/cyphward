@@ -854,6 +854,76 @@ def generate_password_changed_alert_text(user_name: str) -> str:
     )
 
 
+def generate_notification_email_html(user_name: str, title: str, body: str, open_url: str,
+                                     preferences_url: str, footer: str) -> str:
+    """Critical notification email (notifications phase 1). Same light layout as the security alert above.
+
+    Every value comes from the reviewed templates in notification_messages.py and is escaped here."""
+    first_name = escape((user_name or "").strip().split(" ")[0] or "there")
+    title, body = escape(title or ""), escape(body or "")
+    open_url, preferences_url, footer = escape(open_url, quote=True), escape(preferences_url, quote=True), escape(footer)
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="format-detection" content="telephone=no">
+  <title>{title}</title>
+  <style>
+    html {{ color-scheme: only light; -webkit-color-scheme: only light; }}
+    body {{ margin: 0; padding: 24px 0; background-color: #F3F1EC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color-scheme: only light; -webkit-text-size-adjust: 100%; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 24px 0; background-color: #F3F1EC; color: #1F1A14; color-scheme: only light; -webkit-text-size-adjust: 100%;" bgcolor="#F3F1EC">
+  <div style="display:none; max-height:0; overflow:hidden; font-size:1px; line-height:1px; color:#F3F1EC;">
+    {title}
+  </div>
+  <center>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#FFFFFF" style="max-width: 520px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E6E2DA; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(31,26,20,0.08);">
+      <tr>
+        <td style="height: 4px; background: linear-gradient(90deg, #B33614, #E5532B, #FF8F6B, #E5532B); font-size: 0; line-height: 0;">&nbsp;</td>
+      </tr>
+      <tr>
+        <td style="padding: 26px 28px 30px;">
+          <div style="font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: #8A8377; font-weight: 700; margin-bottom: 16px;">
+            CYPH<span style="color: #E5532B;">WARD</span> &middot; ALERT
+          </div>
+          <div style="font-size: 17px; font-weight: 700; color: #1F1A14; line-height: 1.4; margin-bottom: 12px;">{title}</div>
+          <div style="font-size: 14px; color: #3A352D; line-height: 1.6; margin-bottom: 8px;">Hi {first_name},</div>
+          <div style="font-size: 14px; color: #3A352D; line-height: 1.6; margin-bottom: 22px;">{body}</div>
+          <a href="{open_url}" style="display: inline-block; background: #E5532B; color: #FFFFFF; text-decoration: none; border-radius: 8px; padding: 12px 22px; font-weight: 700; font-size: 14px;">Open Cyphward</a>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 14px 28px; border-top: 1px solid #EFECE5; background-color: #FBFAF7; font-size: 11px; color: #8A8377; line-height: 1.6;">
+          {footer} <a href="{preferences_url}" style="color: #8A8377;">Notification settings</a><br>
+          &mdash; Cyphward &middot; Security monitoring, made simple
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>
+"""
+
+
+def generate_notification_email_text(user_name: str, title: str, body: str, open_url: str,
+                                     preferences_url: str, footer: str) -> str:
+    first_name = (user_name or "").strip().split(" ")[0] or "there"
+    return (
+        f"{title}\n\n"
+        f"Hi {first_name},\n\n{body}\n\n"
+        f"Open Cyphward: {open_url}\n\n"
+        f"{footer}\nNotification settings: {preferences_url}\n\n"
+        "— Cyphward\n"
+        "Security monitoring, made simple"
+    )
+
+
 _INVITE_ROLE_NOTES = {
     "owner": "You have full control of the workspace, including settings and membership.",
     "admin": "You can invite people, change settings, and manage findings.",
