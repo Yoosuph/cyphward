@@ -70,12 +70,12 @@ These are refused for both soft delete and purge:
 
 - the sample-data demo organisation, `DEMO_ORG_ID`;
 - the public demo workspace, `DEMO_LOGIN_ORG_ID` (in production this is the InnovaTech workspace);
-- the id in **`INNOVATECH_ORG_ID`**;
+- the INNOVATECH organisation, **`5e3fe575-caea-4ea9-acab-353e72487d36`**, built in (`INNOVATECH_ORG_ID_BUILTIN`), plus any id in `INNOVATECH_ORG_ID`, which can add an id but cannot remove the built-in one;
 - any organisation whose name contains "innovatech" (letters only, any case, so "Innova-Tech" counts too).
 
 The override is **`OWNER_ALLOW_PROTECTED_ORG_DELETE=true`**. It is off by default, read on every request, and any other value means off. The audit row records that the override was used.
 
-**Before release:** set `INNOVATECH_ORG_ID` on the API service to the InnovaTech organisation's id. This PR did not read production, so the id has not been checked here. Until it is set, the InnovaTech organisation is protected only through `DEMO_LOGIN_ORG_ID` (if that is configured) and the name match.
+The built-in id was supplied with the founder's decisions of 2026-10-31. This PR did not read production, so it has not been compared with the production row here. Because the id is built in, no environment change is needed for the protection.
 
 ### Paid subscription
 

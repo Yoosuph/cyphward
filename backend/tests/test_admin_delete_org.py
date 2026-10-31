@@ -221,3 +221,19 @@ def test_new_wording_has_no_claim_language_and_names_only_the_existing_contact()
     assert re.findall(r"[\w.]+@[\w.]+\w", suspension.DELETED_OWNER_MESSAGE) == ["info@cyphward.com"]
     for t in texts:
         assert "organization_suspensions" not in t and "deleted_at" not in t and "%" not in t
+
+
+def test_the_innovatech_organisation_is_protected_by_its_literal_id_without_configuration(monkeypatch):
+    for key in (org_guard.OVERRIDE_ENV, org_guard.INNOVATECH_ENV, "DEMO_LOGIN_ORG_ID"):
+        monkeypatch.delenv(key, raising=False)
+    innovatech = "5e3fe575-caea-4ea9-acab-353e72487d36"
+    assert org_guard.INNOVATECH_ORG_ID_BUILTIN == innovatech
+    # Protected by id alone: a renamed organisation keeps its protection.
+    assert org_guard.is_protected({"id": innovatech, "name": "Renamed Workspace Ltd"})
+    assert org_guard.is_protected({"id": innovatech.upper(), "name": "Renamed Workspace Ltd"})
+    # The environment variable adds an id; it cannot take this one away.
+    monkeypatch.setenv(org_guard.INNOVATECH_ENV, str(uuid4()))
+    assert org_guard.is_protected({"id": innovatech, "name": "Renamed Workspace Ltd"})
+    with pytest.raises(HTTPException) as refused:
+        owner_actions._guard_protected({"id": innovatech, "name": "Renamed Workspace Ltd"})
+    assert refused.value.detail == owner_actions.PROTECTED_REFUSED

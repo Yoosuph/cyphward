@@ -2,10 +2,11 @@
 
 * Restore window: a soft-deleted organisation can be restored for RESTORE_WINDOW_DAYS days from deleted_at; the
   purge is possible only after that. Both are worked out with the database clock (now()).
-* Protected organisations: the platform's sample-data demo organisation (core/demo_org.DEMO_ORG_ID), the public
-  demo workspace (DEMO_LOGIN_ORG_ID; in production this is the InnovaTech workspace), the id in INNOVATECH_ORG_ID,
-  and any organisation whose name contains "innovatech" (letters only, any case) are refused for soft delete and
-  purge unless OWNER_ALLOW_PROTECTED_ORG_DELETE is "true". The flag is off by default and read on every request.
+* Protected organisations: the platform's sample-data demo organisation (core/demo_org.DEMO_ORG_ID), the INNOVATECH
+  organisation (INNOVATECH_ORG_ID_BUILTIN, plus any id in the INNOVATECH_ORG_ID environment variable), the public
+  demo workspace (DEMO_LOGIN_ORG_ID) and any organisation whose name contains "innovatech" (letters only, any case)
+  are refused for soft delete and purge unless OWNER_ALLOW_PROTECTED_ORG_DELETE is "true". The flag is off by
+  default and read on every request.
 * Paid subscription: soft delete is refused while the subscription is active, its period has not ended, and it is
   not already set to cancel at the period end. The customer's owner can cancel it, also while suspended
   (core/suspension.py), and the soft delete is then allowed.
@@ -26,6 +27,9 @@ from backend.app.core.demo_org import DEMO_ORG_ID
 RESTORE_WINDOW_DAYS = 30
 OVERRIDE_ENV = "OWNER_ALLOW_PROTECTED_ORG_DELETE"
 INNOVATECH_ENV = "INNOVATECH_ORG_ID"
+# The production INNOVATECH organisation, protected without any configuration (id supplied with the founder's
+# decisions of 2026-10-31). INNOVATECH_ORG_ID can add another id; it cannot remove this one.
+INNOVATECH_ORG_ID_BUILTIN = "5e3fe575-caea-4ea9-acab-353e72487d36"
 PROTECTED_NAME = "innovatech"
 PURGE_WORD = "DELETE"
 INCIDENT_RETENTION_YEARS = 6
@@ -39,7 +43,7 @@ def _uuid(value: Any) -> Optional[str]:
 
 
 def protected_ids() -> Set[str]:
-    ids = {DEMO_ORG_ID}
+    ids = {DEMO_ORG_ID, INNOVATECH_ORG_ID_BUILTIN}
     for key in ("DEMO_LOGIN_ORG_ID", INNOVATECH_ENV):
         value = _uuid(os.getenv(key, ""))
         if value:

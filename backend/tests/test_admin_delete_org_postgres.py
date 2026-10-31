@@ -485,27 +485,46 @@ def test_purge_after_the_window_with_both_confirmations_removes_the_data(world, 
     _cleanup_reviewer(urls, ids)
 
 
-def test_purge_rolls_back_whole_on_a_failure(world, more, urls, monkeypatch):
+def test_a_purge_timeout_answers_503_rolls_back_and_writes_no_rejected_audit_row(world, more, urls, monkeypatch):
+    """A statement timeout inside the purge: 503 with the reviewed wording, nothing removed or queued, and no
+    `rejected` owner audit row (a failure is not a refusal; the error is logged, as for every owner action)."""
     from backend.app.api import owner_actions
     owner = _signed_in(world)
     _delete(owner, world)
     _age_deletion(urls, world["org"], 31)
-    # A statement timeout far too short for anything: the transaction fails and nothing is removed or queued.
-    monkeypatch.setattr(owner_actions, "PURGE_STATEMENT_TIMEOUT", "1ms")
     file_id = str(uuid4())
-    with _admin(urls) as conn:
+    with _admin(urls) as conn:  # an old file, so a purge that got through would queue it
         conn.execute("INSERT INTO compliance_evidence_files (id, org_id, question_key, display_name, content_type, "
                      "size_bytes, sha256, storage_path, uploaded_at) VALUES (%s, %s, 'q', 'f.pdf', 'application/pdf', "
                      "1, %s, %s, now() - interval '5 years')",
                      (file_id, world["org"], SHA, f"org/{world['org']}/{file_id}"))
+    real_counts = org_guard.retention_counts
+
+    def slow_counts(cur, org_id):
+        cur.execute("SELECT pg_sleep(2)")  # longer than the patched statement timeout: always cancelled
+        return real_counts(cur, org_id)
+
+    monkeypatch.setattr(owner_actions, "PURGE_STATEMENT_TIMEOUT", "200ms")
+    monkeypatch.setattr(org_guard, "retention_counts", slow_counts)
+    before = _audits(urls, world, "owner.action.purge_org")
     resp = owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN)
-    if resp.status_code == 200:  # a very fast machine can finish inside 1 ms; then there is nothing to check here
-        pytest.skip("purge finished inside the 1 ms timeout")
-    assert resp.status_code in (409, 503), resp.text
-    assert _org_exists(urls, world["org"])
+    assert resp.status_code == 503, resp.text
+    assert resp.json() == {"detail": "The change could not be saved. Nothing was changed."}
+    assert "pg_sleep" not in resp.text and "canceling statement" not in resp.text
+    assert _audits(urls, world, "owner.action.purge_org") == before == [], "no rejected (or success) row"
+    assert _org_exists(urls, world["org"]) and _status(urls, world["org"])["status"] == "deleted"
     with _admin(urls) as conn:
         assert conn.execute("SELECT count(*) AS n FROM compliance_evidence_purge_queue WHERE org_id = %s",
                             (world["org"],)).fetchone()["n"] == 0
+        assert conn.execute("SELECT count(*) AS n FROM compliance_evidence_files WHERE org_id = %s",
+                            (world["org"],)).fetchone()["n"] == 1
+    # With the normal timeout the same purge goes through.
+    monkeypatch.setattr(org_guard, "retention_counts", real_counts)
+    monkeypatch.setattr(owner_actions, "PURGE_STATEMENT_TIMEOUT", "60s")
+    assert owner.post(_org_url(world, "purge"), json=_purge_body(world), headers=ORIGIN).status_code == 200
+    assert [a["outcome"] for a in _audits(urls, world, "owner.action.purge_org")] == ["success"]
+    with _admin(urls) as conn:
+        conn.execute("DELETE FROM compliance_evidence_purge_queue WHERE org_id = %s", (world["org"],))
 
 
 # ── Typed name, owner only ─────────────────────────────────────────────────
@@ -701,3 +720,191 @@ def test_migration_file_sha256_is_recorded():
     digest = hashlib.sha256(DELETE_MIGRATION.read_bytes()).hexdigest()
     readme = (Path(__file__).resolve().parents[2] / "docs" / "admin-delete-org" / "README.md").read_text()
     assert digest in readme, f"record the migration sha256 in the README: {digest}"
+
+
+# ── Retention dates: "the latest of" each record's dates, and the exact window end ─────────────────────────────
+# org_guard.retention_counts runs inside one transaction that is rolled back, so now() is one fixed instant: a date
+# of exactly now() - period is at the window end (released), one microsecond later is inside it (held). The
+# organisation keeps records for 12 months; incidents for 6 years.
+OLD = "now() - interval '8 years'"            # outside both periods
+EDGE = "now() - interval '12 months'"         # exactly at the end of the 12-month period: released
+INSIDE = f"({EDGE} + interval '1 microsecond')"  # still inside: held
+EDGE6 = "now() - interval '6 years'"          # exactly at the end of the incident period: released
+INSIDE6 = f"({EDGE6} + interval '1 microsecond')"
+KINDS = ("reviewer_grants", "packs", "snapshots", "documents", "evidence_files", "incidents")
+
+
+@pytest.fixture
+def held(urls):
+    """A throwaway organisation (12-month retention) in an open transaction; `count(kind)` runs the purge's query."""
+    conn = psycopg.connect(urls[1], row_factory=dict_row)
+    try:
+        conn.execute("SET LOCAL TimeZone = 'UTC'")  # as the purge does
+        exact = conn.execute(f"SELECT {EDGE} + make_interval(months => 12) = now() AS m, "
+                             f"{EDGE6} + make_interval(years => 6) = now() AS y").fetchone()
+        if not (exact["m"] and exact["y"]):  # 29 February: subtracting and adding a year is not exact
+            pytest.skip("today's date has no exact 12-month or 6-year inverse")
+        ids = {"org": str(uuid4()), "owner": str(uuid4()), "reviewer": str(uuid4())}
+        conn.execute("INSERT INTO profiles (id, email, full_name, role, provider, email_verified_at) VALUES "
+                     "(%s, %s, 'Owner', 'Member', 'email', now()), (%s, %s, 'Reviewer', 'Member', 'email', now())",
+                     (ids["owner"], f"own-{ids['owner'][:8]}@held.test", ids["reviewer"], f"rev-{ids['reviewer'][:8]}@held.test"))
+        conn.execute("INSERT INTO organizations (id, name, slug, plan, evidence_retention_months) "
+                     "VALUES (%s, 'Held Org', %s, 'growth', 12)", (ids["org"], f"held-{ids['org'][:8]}"))
+        conn.execute("SET LOCAL session_replication_role = replica")  # back-dated rows; the guards refuse them
+
+        def count(kind=None):
+            with conn.cursor() as cur:
+                got = org_guard.retention_counts(cur, ids["org"])
+            assert got["retention_months"] == 12
+            return {k: got[k] for k in KINDS} if kind is None else got[kind]
+
+        yield conn, ids, count
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def _grant(conn, ids, granted, expires=None, revoked=None, review=None, verification=None):
+    gid = str(uuid4())
+    conn.execute(f"INSERT INTO compliance_reviewer_grants (id, org_id, reviewer_email, purpose, granted_by, granted_at, "
+                 f"expires_at, revoked_at) VALUES (%s, %s, %s, 'Review', %s, {granted}, "
+                 f"{expires or f'{granted} + interval {chr(39)}30 days{chr(39)}'}, {revoked or 'NULL'})",
+                 (gid, ids["org"], f"rev-{gid[:8]}@held.test", ids["owner"]))
+    if review:
+        conn.execute(f"INSERT INTO compliance_practitioner_reviews (org_id, requirement_key, grant_id, reviewer_user_id, "
+                     f"reviewer_name, reviewed_at, outcome, reviewer_domain) VALUES (%s, 'ndpa.s24', %s, %s, 'Reviewer', "
+                     f"{review}, 'reviewed', 'held.test')", (ids["org"], gid, ids["reviewer"]))
+    if verification:
+        conn.execute(f"INSERT INTO compliance_clause_verifications (org_id, requirement_key, verified, grant_id, "
+                     f"reviewer_user_id, reviewer_name, verified_at, reviewer_domain) VALUES (%s, 'ndpa.s24', true, %s, "
+                     f"%s, 'Reviewer', {verification}, 'held.test')", (ids["org"], gid, ids["reviewer"]))
+
+
+# (label, granted, expires, revoked, review, verification, held?)
+GRANT_CASES = [
+    ("granted inside", INSIDE, None, None, None, None, True),
+    ("granted at the edge", f"({EDGE} - interval '30 days')", EDGE, f"({EDGE} - interval '30 days')", None, None, False),
+    ("revoked inside, granted long ago", OLD, None, INSIDE, None, None, True),
+    ("revoked at the edge", OLD, None, EDGE, None, None, False),
+    ("never revoked, expiry inside", f"({INSIDE} - interval '30 days')", INSIDE, None, None, None, True),
+    ("never revoked, expiry at the edge", f"({EDGE} - interval '30 days')", EDGE, None, None, None, False),
+    ("revoked long ago, expiry inside: the revocation is the last event", f"({INSIDE} - interval '30 days')", INSIDE,
+     f"({INSIDE} - interval '29 days')", None, None, False),
+    ("practitioner review inside, grant long ago", OLD, None, OLD, INSIDE, None, True),
+    ("practitioner review at the edge", OLD, None, OLD, EDGE, None, False),
+    ("clause verification inside, grant long ago", OLD, None, OLD, None, INSIDE, True),
+    ("clause verification at the edge", OLD, None, OLD, None, EDGE, False),
+    ("everything long ago", OLD, None, OLD, OLD, OLD, False),
+]
+
+
+@pytest.mark.parametrize("label, granted, expires, revoked, review, verification, expect", GRANT_CASES,
+                         ids=[c[0] for c in GRANT_CASES])
+def test_a_reviewer_grant_is_held_from_its_latest_event(held, label, granted, expires, revoked, review, verification,
+                                                        expect):
+    conn, ids, count = held
+    _grant(conn, ids, granted, expires, revoked, review, verification)
+    assert count() == {**{k: 0 for k in KINDS}, "reviewer_grants": int(expect)}, label
+
+
+def _document(conn, ids, generated, approvals=()):  # one approval per document (unique)
+    did = str(uuid4())
+    conn.execute(f"INSERT INTO compliance_documents (id, org_id, kind, version, generated_at, generator, inputs_hash, "
+                 f"text_sha256, text, questionnaire_version) VALUES (%s, %s, 'privacy_policy', 1, {generated}, "
+                 f"'template', %s, %s, 'Draft — not legal advice. Text.', 't')", (did, ids["org"], SHA, SHA))
+    for approved in approvals:
+        conn.execute(f"INSERT INTO compliance_document_approvals (org_id, document_id, approved_at, text_sha256, "
+                     f"open_placeholders) VALUES (%s, %s, {approved}, %s, 0)", (ids["org"], did, SHA))
+
+
+DOCUMENT_CASES = [
+    ("generated inside", INSIDE, (), True),
+    ("generated at the edge", EDGE, (), False),
+    ("generated long ago, approved inside", OLD, (INSIDE,), True),
+    ("generated long ago, approved at the edge", OLD, (EDGE,), False),
+    ("generated and approved long ago", OLD, (OLD,), False),
+]
+
+
+@pytest.mark.parametrize("label, generated, approvals, expect", DOCUMENT_CASES, ids=[c[0] for c in DOCUMENT_CASES])
+def test_a_compliance_document_is_held_from_its_latest_event(held, label, generated, approvals, expect):
+    conn, ids, count = held
+    _document(conn, ids, generated, approvals)
+    assert count() == {**{k: 0 for k in KINDS}, "documents": int(expect)}, label
+
+
+FILE_CASES = [
+    ("uploaded inside", INSIDE, None, True),
+    ("uploaded at the edge", EDGE, None, False),
+    ("uploaded long ago, removed inside", OLD, INSIDE, True),
+    ("uploaded long ago, removed at the edge", OLD, EDGE, False),
+    ("uploaded and removed long ago", OLD, OLD, False),
+]
+
+
+@pytest.mark.parametrize("label, uploaded, removed, expect", FILE_CASES, ids=[c[0] for c in FILE_CASES])
+def test_an_evidence_file_is_held_from_its_latest_event(held, label, uploaded, removed, expect):
+    conn, ids, count = held
+    fid = str(uuid4())
+    conn.execute(f"INSERT INTO compliance_evidence_files (id, org_id, question_key, display_name, content_type, size_bytes, "
+                 f"sha256, storage_path, uploaded_at, removed_at) VALUES (%s, %s, 'q1', 'f.pdf', 'application/pdf', 1, "
+                 f"%s, %s, {uploaded}, {removed or 'NULL'})", (fid, ids["org"], SHA, f"org/{ids['org']}/{fid}"))
+    assert count() == {**{k: 0 for k in KINDS}, "evidence_files": int(expect)}, label
+
+
+@pytest.mark.parametrize("when, expect", [(INSIDE, True), (EDGE, False)], ids=["inside", "at the edge"])
+def test_snapshots_and_packs_are_held_from_their_own_date(held, when, expect):
+    conn, ids, count = held
+    sid = str(uuid4())
+    conn.execute(f"INSERT INTO assessment_snapshots (id, org_id, seq, schema_version, content, content_sha256, created_at) "
+                 f"VALUES (%s, %s, 1, 1, '{{}}'::jsonb, %s, {when})", (sid, ids["org"], SHA))
+    conn.execute(f"INSERT INTO evidence_packs (org_id, snapshot_id, kind, pack_version, issued_at, html, html_sha256, pdf, "
+                 f"pdf_sha256) VALUES (%s, %s, 'readiness_pack', 't', {when}, '<p>x</p>', %s, '\\x00'::bytea, %s)",
+                 (ids["org"], sid, SHA, SHA))
+    assert count() == {**{k: 0 for k in KINDS}, "snapshots": int(expect), "packs": int(expect)}
+
+
+# (label, detected, became aware, recorded, held?). became_aware_at must be no earlier than detected_at - 30 days.
+INCIDENT_CASES = [
+    ("detected last (aware 20 days before it)", INSIDE6, f"({INSIDE6} - interval '20 days')", OLD, True),
+    ("detected last, at the edge", EDGE6, f"({EDGE6} - interval '20 days')", OLD, False),
+    ("became aware last", OLD, INSIDE6, OLD, True),
+    ("became aware last, at the edge", OLD, EDGE6, OLD, False),
+    ("recorded last", OLD, OLD, INSIDE6, True),
+    ("recorded last, at the edge", OLD, OLD, EDGE6, False),
+    ("everything long ago", OLD, OLD, OLD, False),
+    ("two years ago: inside 6 years though past the 12-month setting", "now() - interval '2 years'",
+     "now() - interval '2 years'", "now() - interval '2 years'", True),
+]
+
+
+@pytest.mark.parametrize("label, detected, aware, recorded, expect", INCIDENT_CASES, ids=[c[0] for c in INCIDENT_CASES])
+def test_a_breach_incident_is_held_six_years_from_its_latest_opening_date(held, label, detected, aware, recorded, expect):
+    conn, ids, count = held
+    conn.execute(f"INSERT INTO compliance_incidents (org_id, title, severity, status, detected_at, became_aware_at, "
+                 f"created_at, updated_at) VALUES (%s, 'Incident', 'high', 'closed', {detected}, {aware}, {recorded}, "
+                 f"{recorded})", (ids["org"],))
+    assert count() == {**{k: 0 for k in KINDS}, "incidents": int(expect)}, label
+
+
+def test_the_literal_innovatech_id_is_refused_without_the_override(world, more, urls, monkeypatch):
+    for key in (org_guard.OVERRIDE_ENV, org_guard.INNOVATECH_ENV, "DEMO_LOGIN_ORG_ID"):
+        monkeypatch.delenv(key, raising=False)
+    innovatech = "5e3fe575-caea-4ea9-acab-353e72487d36"
+    org = {"org": innovatech, "org_name": "Neutral Name Ltd"}
+    with _admin(urls) as conn:
+        existed = conn.execute("SELECT 1 FROM organizations WHERE id = %s", (innovatech,)).fetchone() is not None
+        if not existed:
+            conn.execute("INSERT INTO organizations (id, name, slug, plan) VALUES (%s, %s, %s, 'growth')",
+                         (innovatech, org["org_name"], f"neutral-{uuid4().hex[:8]}"))
+        org["org_name"] = conn.execute("SELECT name FROM organizations WHERE id = %s", (innovatech,)).fetchone()["name"]
+    try:
+        owner = _signed_in(world)
+        resp = owner.post(_org_url(org, "delete"), json=_named(org), headers=ORIGIN)
+        assert resp.status_code == 409 and "protected" in resp.json()["detail"]
+        assert _status(urls, innovatech) is None
+        assert owner.get(_org_url(org)).json()["organization"]["protected"] is True
+    finally:
+        with _admin(urls) as conn:
+            if not existed:
+                conn.execute("DELETE FROM organizations WHERE id = %s", (innovatech,))
