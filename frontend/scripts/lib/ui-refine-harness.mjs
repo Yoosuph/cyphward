@@ -96,14 +96,15 @@ export async function startHarness() {
     page.on("pageerror", (e) => errors.push(e.message));
     if (reducedMotion) await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     await page.setRequestInterception(true);
-    page.on("request", (request) => {
+    page.on("request", async (request) => {
       const url = new URL(request.url());
       if (!url.pathname.startsWith("/api/")) return url.origin === origin ? void request.continue() : void request.abort();
       const p = url.pathname;
       const method = request.method();
       if ([...state.failures].some((k) => p.endsWith(k))) return json(request, state.failStatus, { detail: state.failDetail });
-      // A suite can answer its own endpoints first: state.route(path, method, request) -> [status, body] or undefined.
-      const own = state.route?.(p, method, request);
+      // A suite can answer its own endpoints first: state.route(path, method, request) -> [status, body] or undefined,
+      // or a promise of one (to delay an answer).
+      const own = await state.route?.(p, method, request);
       if (own) return json(request, own[0], own[1]);
       if (p.startsWith("/api/v1/owner")) {
         if (p.endsWith("/me")) return json(request, 200, owner.me);

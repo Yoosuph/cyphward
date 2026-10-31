@@ -244,5 +244,11 @@ def email_subject(title: str) -> str:
     return f"Cyphward: {title}"[:200]
 
 
+# What the email switch in Settings controls (GET /notifications/preferences, and the frontend's PREFS_NOTE).
+# Notification email goes out only for critical events; the compliance reminders (an answer about to expire, the
+# six-monthly report) keep their own emails, which the compliance email switch stops. Never say "only for critical".
+EMAIL_NOTE = ("Email goes out for critical alerts, such as a critical finding or a suspension, and for compliance "
+              "reminders. Everything else stays in the app.")
+
 EMAIL_FOOTER = ("You get this email because critical {label} alerts are on for your account. "
                 "To stop these emails, change your notification settings.")

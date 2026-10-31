@@ -204,3 +204,28 @@ def test_trigger_recheck_resolved(client, auth_headers, store, monkeypatch):
     assert {str(n["user_id"]) for n in rows} == _org_a_members_but(store, ALICE) and len(rows) == len({n["user_id"] for n in rows})
     assert all(n["dedupe_key"].startswith("finding_resolved:recheck:task-1:") for n in rows)
     assert all("A recheck no longer sees the issue" in n["body"] for n in rows)
+
+
+REVIEWED_EMAIL_NOTE = ("Email goes out for critical alerts, such as a critical finding or a suspension, and for "
+                       "compliance reminders. Everything else stays in the app.")
+
+
+def _email_note_is_accurate(text: str) -> bool:
+    """The note must name both kinds of email that go out, and never claim email is for critical alerts only."""
+    lowered = text.lower()
+    return ("critical alerts" in lowered and "compliance reminders" in lowered
+            and "only for critical" not in lowered and "only critical" not in lowered)
+
+
+def test_the_email_note_is_the_reviewed_wording_in_the_api_and_the_frontend():
+    from pathlib import Path
+    assert msg.EMAIL_NOTE == REVIEWED_EMAIL_NOTE and _email_note_is_accurate(msg.EMAIL_NOTE)
+    source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "notifications.ts").read_text()
+    note = source[source.index("export const PREFS_NOTE"):source.index(";", source.index("export const PREFS_NOTE"))]
+    assert _email_note_is_accurate(note.replace("' +\n  '", "")), note
+
+
+def test_putting_back_the_old_email_note_fails_the_check():
+    old = "Email is sent only for critical alerts. Everything else stays in the app."
+    assert not _email_note_is_accurate(old)
+    assert not _email_note_is_accurate("Email is sent only for critical alerts, such as a critical finding.")

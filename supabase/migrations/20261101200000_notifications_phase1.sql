@@ -76,8 +76,11 @@ BEGIN
     ALTER TABLE notifications ADD CONSTRAINT notifications_group_count_positive
       CHECK (group_count >= 1) NOT VALID;
   END IF;
+  -- Re-created when an earlier draft of this file (without 'skipped') left a narrower check behind.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_email_status_check'
-                 AND conrelid = 'public.notifications'::regclass) THEN
+                 AND conrelid = 'public.notifications'::regclass
+                 AND pg_get_constraintdef(oid) LIKE '%skipped%') THEN
+    ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_email_status_check;
     ALTER TABLE notifications ADD CONSTRAINT notifications_email_status_check
       CHECK (email_status IS NULL OR email_status IN ('pending', 'sending', 'sent', 'failed', 'skipped')) NOT VALID;
   END IF;

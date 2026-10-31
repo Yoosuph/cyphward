@@ -213,7 +213,10 @@ def test_muting_hides_in_app_and_stops_email_but_never_hides_critical_from_the_o
     theirs = _client(urls, nw["member"], nw["org"]).get(API).json()
     # The first email to them had gone before the second event, so the second has its own row (and email).
     assert theirs["unread_count"] == 2 and [n["count"] for n in theirs["notifications"]] == [1, 1]
-    prefs = {p["category"]: p for p in customer.get(f"{API}/preferences").json()["preferences"]}
+    got = customer.get(f"{API}/preferences").json()
+    assert got["email_note"] == ("Email goes out for critical alerts, such as a critical finding or a suspension, and "
+                                 "for compliance reminders. Everything else stays in the app.")
+    prefs = {p["category"]: p for p in got["preferences"]}
     assert prefs["findings"]["in_app"] is False and prefs["findings"]["email"] is False and prefs["scans"]["in_app"]
     assert customer.put(f"{API}/preferences/nonsense", json={"email": False}).status_code == 404
 
@@ -663,12 +666,26 @@ def test_a_second_critical_event_after_the_email_went_gets_its_own_row_and_email
     assert len(mine()) == 2 and "Critical finding on c.test" in mine()[1]["subject"]
 
 
-def test_a_critical_finding_email_waits_for_its_scan_and_is_skipped_if_the_scan_fails(nw, urls, notification_mail):
+def _end_scan(nw, urls, claim, state):
+    if state == "failed":
+        ex.fail_claim(claim, RAW)
+    elif state == "cancelled":  # the owner console's or the customer's cancel: the row ends cancelled
+        with _admin(urls) as conn:
+            conn.execute("UPDATE scans SET status = 'cancelled', claimed_by = NULL, claim_token = NULL, "
+                         "execution_phase = NULL, lease_expires_at = NULL WHERE id = %s", (nw["scan"],))
+    else:  # removed altogether
+        with _admin(urls) as conn:
+            conn.execute("DELETE FROM scans WHERE id = %s", (nw["scan"],))
+
+
+@pytest.mark.parametrize("state", ["failed", "cancelled", "deleted"])
+def test_a_critical_finding_email_waits_for_its_scan_and_is_skipped_if_the_scan_does_not_complete(
+        nw, urls, notification_mail, state):
     claim = _claim(nw)  # the world's scan, now running
     notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test", scan_id=nw["scan"])
     asyncio.run(notifications.deliver_pending_emails())
     assert [m for m in notification_mail if nw["tag"] in m["to"]] == [], "nothing goes out while the scan runs"
-    ex.fail_claim(claim, RAW)
+    _end_scan(nw, urls, claim, state)
     result = asyncio.run(notifications.deliver_pending_emails())
     assert result["scan_not_completed"] >= 3 and [m for m in notification_mail if nw["tag"] in m["to"]] == []
     rows = [r for r in _mine(urls, nw["customer"], nw["org"]) if r["type"] == "finding_critical"]
@@ -770,3 +787,15 @@ def test_trigger_six_monthly_report_due(nw, urls, run_day):
     assert _recipients(urls, nw["org"], "compliance_report_due") == sorted([nw["customer"], nw["admin"]])
     row = _mine(urls, nw["admin"], nw["org"])[0]
     assert row["dedupe_key"] == f"dpo_report:{nw['org']}:{dpo_period(now)['key']}" and row["link"] == "/comply"
+
+
+def test_reapplying_over_the_first_draft_widens_the_email_state_check(admin):
+    """If the first draft of this file (email states without 'skipped') had been applied, applying this one fixes it."""
+    admin.execute("ALTER TABLE notifications DROP CONSTRAINT notifications_email_status_check")
+    admin.execute("ALTER TABLE notifications ADD CONSTRAINT notifications_email_status_check CHECK "
+                  "(email_status IS NULL OR email_status IN ('pending', 'sending', 'sent', 'failed')) NOT VALID")
+    admin.execute(MIGRATION.read_text())
+    definition = admin.execute("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint "
+                               "WHERE conname = 'notifications_email_status_check'").fetchone()["d"]
+    assert "skipped" in definition
+    assert _grant_problems(admin) == []

@@ -48,6 +48,7 @@ let items = fixtures();
 let prefs = PREFS.map((p) => ({ ...p }));
 const net = { lists: 0, reads: [], readAll: 0, puts: [], ownerCounts: 0, ownerLists: 0, ownerReads: [] };
 const fail = { list: null, read: null, put: null };
+let countDelayMs = 0;  // the owner count route answers this much later (the busy-poll probe)
 const page = (list) => ({ notifications: list, unread_count: list.filter((n) => !n.read_at).length, limit: 50, offset: 0, has_more: false });
 let ownerItems = [{ ...fixtures()[0], id: "o1", org_id: ORG_ID, org_name: "Acme Traders", title: "Acme Traders: Critical finding on shop.acme.ng" }];
 
@@ -73,7 +74,11 @@ h.state.route = (p, method, request) => {
     prefs = prefs.map((x) => (x.category === m[1] ? { ...x, ...body } : x));
     return [200, { preference: prefs.find((x) => x.category === m[1]) }];
   }
-  if (p === "/api/v1/owner/notifications/unread-count") { net.ownerCounts += 1; return [200, { unread_count: ownerItems.filter((n) => !n.read_at).length }]; }
+  if (p === "/api/v1/owner/notifications/unread-count") {
+    net.ownerCounts += 1;
+    const answer = [200, { unread_count: ownerItems.filter((n) => !n.read_at).length }];
+    return countDelayMs ? new Promise((resolve) => setTimeout(() => resolve(answer), countDelayMs)) : answer;
+  }
   if (p === "/api/v1/owner/notifications" && method === "GET") { net.ownerLists += 1; return [200, page(ownerItems)]; }
   m = p.match(/^\/api\/v1\/owner\/notifications\/([^/]+)\/read$/);
   if (m && method === "POST") {
@@ -283,6 +288,25 @@ try {
     await settle(pg, 400);
     assert.deepEqual(net.ownerReads, ["o1"]);
     assert.match(new URL(pg.url()).pathname, new RegExp(`/admin/organizations/${ORG_ID}$`), "opens the organisation");
+    await close();
+  }
+
+  // 6b. Opening the owner panel while a count poll is still in flight still loads the list (it is queued, not
+  //     dropped): the count route answers 1.2 s late, a focus starts a poll, then the bell is clicked at once.
+  {
+    ownerItems = [{ ...fixtures()[0], id: "o2", org_id: ORG_ID, org_name: "Acme Traders", title: "Acme Traders: Critical finding on shop.acme.ng" }];
+    const { page: pg, close } = await open("/admin");
+    await pg.waitForSelector('[data-testid="notif-bell"]');
+    await settle(pg, 300);
+    countDelayMs = 1200;
+    const lists = net.ownerLists;
+    await pg.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await sleep(100);
+    await pg.click('[data-testid="notif-bell"]');
+    await pg.waitForSelector('[data-testid="notif-item"]', { timeout: 6000 });
+    assert.equal(net.ownerLists, lists + 1, "the list loaded once, after the in-flight poll");
+    assert.ok(!(await text(pg)).includes("Loading…"), "the panel is not left loading");
+    countDelayMs = 0;
     await close();
   }
 

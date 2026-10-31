@@ -110,10 +110,18 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
   const openRef = useRef(open);
   openRef.current = open;
 
+  // A list load asked for while another call is in flight is queued, never dropped: it runs as soon as that call
+  // ends (otherwise a count poll in flight when the panel opens would leave the panel on "Loading…").
+  const listQueued = useRef(false);
+
   /** `list`: load the page (panel opened, or after a mark). Otherwise a poll. */
-  const load = useCallback(async (list: boolean) => {
-    if (!enabled || busy.current) return;
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  const load = useCallback(async (list: boolean): Promise<void> => {
+    if (!enabled) return;
+    if (busy.current) {
+      if (list) listQueued.current = true;
+      return;  // a poll that finds a call in flight is simply skipped; the next tick asks again
+    }
+    if (!list && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     busy.current = true;
     setLoading(true);
     try {
@@ -130,6 +138,10 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
     } finally {
       busy.current = false;
       setLoading(false);
+      if (listQueued.current) {
+        listQueued.current = false;
+        void load(true);  // the list load that arrived while this call was in flight
+      }
     }
   }, [source, enabled]);
 
