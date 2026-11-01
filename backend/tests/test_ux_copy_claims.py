@@ -61,6 +61,8 @@ FILES = (
     "components/NotificationSettings.tsx",
     "lib/notifications.ts",
     "components/Topbar.tsx",
+    # Notifications on phones: the sheet, swipe to clear and the Clear button (docs/notifications-mobile-2026-11-01).
+    "components/NotificationRow.tsx",
 )
 
 

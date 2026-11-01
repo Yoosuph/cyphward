@@ -59,7 +59,11 @@ export const NOTIFY_TITLE = 'Notifications';
 export const NOTIFY_EMPTY = 'Nothing new. Scan results, findings and account changes will show here.';
 export const NOTIFY_ERROR = 'Notifications could not be loaded. Try again in a moment.';
 export const NOTIFY_MARK_ERROR = 'That could not be marked as read. Try again in a moment.';
-export const PREFS_ERROR = 'Your notification settings could not be loaded. Try again in a moment.';
+/** Swipe to clear and its button: the row leaves the panel and is marked read. Nothing is deleted. */
+export const NOTIFY_CLEAR = 'Clear';
+export const NOTIFY_CLEARED = 'Notification cleared';
+export const NOTIFY_CLOSE = 'Close notifications';
+export const PREFS_ERROR ='Your notification settings could not be loaded. Try again in a moment.';
 export const PREFS_SAVE_ERROR = 'That setting could not be saved. Nothing was changed.';
 export const PREFS_NOTE =
   'Email goes out for critical alerts, such as a critical finding or a suspension, and for compliance reminders ' +
