@@ -18,7 +18,7 @@ import {
   Layers,
 } from 'lucide-react';
 import ScoreRing from '../components/ScoreRing';
-import { OverviewSkeleton } from '../components/Skeleton';
+import { OverviewSkeleton } from '../components/skeletons/RouteSkeleton';
 import BoardReportModal from '../components/BoardReportModal';
 import Modal from '../components/Modal';
 import { getOverview, launchScan, getDomains, getExecutiveSummary } from '../lib/api';
@@ -29,7 +29,7 @@ import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
 import { startTour, tourSeen } from '../lib/tour';
-import { readPageCache, writePageCache } from '../lib/pageCache';
+import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
 
 export default function Overview() {
   // Last-seen overview paints at once on a revisit; loadData refreshes it.
@@ -92,12 +92,13 @@ export default function Overview() {
 
   const loadData = useCallback(async () => {
     const id = ++requestId.current;
+    const ticket = pageCacheTicket();
     try {
       const [overview, domainResult] = await Promise.allSettled([getOverview(), getDomains()]);
       if (id !== requestId.current) return;
       if (overview.status === 'fulfilled' && overview.value) {
         setData(overview.value);
-        writePageCache('overview', overview.value);
+        writePageCache('overview', overview.value, ticket);
         setRefreshFailed(false);
         setLastRefreshed(new Date());
       } else {
@@ -105,7 +106,7 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
-        writePageCache('overview:domains', domainResult.value);
+        writePageCache('overview:domains', domainResult.value, ticket);
         setDomainsLoaded(true);
         setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
@@ -566,7 +567,7 @@ export default function Overview() {
                 {recent_scans.map((scan, idx) => (
                   <tr
                     key={scan.id}
-                    style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+                    style={{ animationDelay: `calc(var(--motion-stagger) * ${Math.min(idx, 8)})` }}
                     className="stagger-row hover:bg-inset/40 transition-colors"
                   >
                     <td className="stack-title py-3 font-semibold text-ink">{scan.domain}</td>

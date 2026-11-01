@@ -29,7 +29,9 @@
     "test:admin-phase2": "node scripts/check-admin-phase2.mjs",
     "test:notifications": "node scripts/check-notifications.mjs",
     "test:notifications-mobile": "node scripts/check-notifications-mobile.mjs",
-    "test:admin-delete-org": "node scripts/check-admin-delete-org.mjs"
+    "test:admin-delete-org": "node scripts/check-admin-delete-org.mjs",
+    "test:motion-cache": "node scripts/check-motion-cache.mjs",
+    "capture:motion-cache": "node scripts/capture-motion-cache.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.454.0",

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Check, Copy, Download, FileText, Info, Sparkles } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../../components/StatusChip';
 import Dialog from '../../components/ui/Dialog';
-import { LoadingPanel } from '../../components/ui/StatePanels';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
 import {
@@ -177,7 +178,8 @@ function Card({ d, zone, canEdit, busy, onGenerate, onView }: {
 
 export default function DocumentsTab({ canEdit, zone }: { canEdit: boolean; zone: string }) {
   const toast = useToast();
-  const [data, setData] = useState<DocumentList | null>(null);
+  // Last-seen list paints at once on a revisit (lib/queryCache); load() refreshes it.
+  const [data, setData] = useState<DocumentList | null>(() => readPageCache<DocumentList>('comply:documents') ?? null);
   const [gated, setGated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyKind, setBusyKind] = useState<DocumentKind | null>(null);
@@ -187,7 +189,7 @@ export default function DocumentsTab({ canEdit, zone }: { canEdit: boolean; zone
   const load = useCallback(async () => {
     setError(null);
     try {
-      setData(await listDocuments());
+      { const ticket = pageCacheTicket(); const fresh = await listDocuments(); writePageCache('comply:documents', fresh, ticket); setData(fresh); }
       setGated(false);
     } catch (e) {
       if (isGrowthGate(e)) setGated(true);
@@ -227,7 +229,7 @@ export default function DocumentsTab({ canEdit, zone }: { canEdit: boolean; zone
 
   if (gated) return <GrowthGate what="The documents" />;
   if (error && !data) return <LoadError title="We could not load your documents" message={error} onRetry={() => void load()} />;
-  if (!data) return <LoadingPanel label="documents" />;
+  if (!data) return <CompliancePanelSkeleton section="documents" />;
 
   return (
     <div className="space-y-5" data-testid="documents">

@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCachedQuery } from '../lib/queryCache';
+import { SkeletonRegion } from '../components/ui/Skeleton';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronLeft, ChevronRight, Search, type LucideIcon } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
@@ -12,38 +14,26 @@ export const SessionEndedContext = createContext<() => void>(() => {});
 /** The signed-in owner (to hide actions that would target their own account). */
 export const OwnerMeContext = createContext<{ email: string } | null>(null);
 
-/** Load one console view; stale responses (filters changed) are ignored. */
+/**
+ * Load one console view through the shared cache (lib/queryCache, owner scope): a view seen before paints its last
+ * data at once and is asked for again on mount; a filter or page change keeps the current rows (dimmed) until the
+ * new ones arrive. No focus or interval revalidation here: console reads are audited and count as session activity,
+ * so polling them would keep an idle session alive. Stale responses (filters changed) are ignored.
+ */
 export function useOwnerView<T>(path: string, params?: Record<string, string | number | undefined>) {
   const onSessionEnded = useContext(SessionEndedContext);
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const key = `${path}?${JSON.stringify(params || {})}`;
-  const latest = useRef(key);
-
-  const load = useCallback(async () => {
-    latest.current = key;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await ownerGet<T>(path, params);
-      if (latest.current === key) setData(result);
-    } catch (e) {
-      const err = e as OwnerApiError;
-      if (err.status === 401) onSessionEnded();
-      // The message is already reviewed wording (ownerApi.ownerErrorText): never the server's own text.
-      else if (latest.current === key) setError(err.message || 'The console could not load this view. Try again in a moment.');
-    } finally {
-      if (latest.current === key) setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const fetcher = useCallback(() => ownerGet<T>(path, paramsRef.current), [path]);
+  const q = useCachedQuery<T>(key, fetcher, { space: 'owner', revalidateOnFocus: false, keepPrevious: true });
+  const err = q.error as OwnerApiError | null;
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  return { data, error, loading, reload: load };
+    if (err?.status === 401) onSessionEnded();
+  }, [err, onSessionEnded]);
+  // The message is already reviewed wording (ownerApi.ownerErrorText): never the server's own text.
+  const error = err && err.status !== 401 ? (err.message || 'The console could not load this view. Try again in a moment.') : null;
+  return { data: q.data, error, loading: q.loading || q.refreshing, placeholder: q.placeholder, reload: q.reload };
 }
 
 /* ── Formatting ─────────────────────────────────────────────────────────── */
@@ -193,11 +183,34 @@ export function Pager({ offset, limit, total, count, onChange }: { offset: numbe
   );
 }
 
-/** Loading and error states for a console view: the same shared panels the customer app uses. */
-export function ViewState({ loading, error, onRetry, empty, children }: { loading: boolean; error: string | null; onRetry: () => void; empty?: boolean; children: ReactNode }) {
-  if (error) return <ErrorPanel title="This view did not load" message={error} onRetry={onRetry} retrying={loading} />;
-  if (loading && empty !== false) return <LoadingPanel label="this view" />;
-  return <div className="content-fade-in">{children}</div>;
+/**
+ * Loading and error states for a console view: the shared panels the customer app uses, and the view's own
+ * skeleton (same grid and panels as the loaded view) while there is nothing to show. With data on screen a failed
+ * refresh shows a one-line notice above it instead of replacing it.
+ */
+export function ViewState({ loading, error, onRetry, empty, children, skeleton, label = 'this view', placeholder = false }: {
+  loading: boolean; error: string | null; onRetry: () => void; empty?: boolean; children: ReactNode; skeleton?: ReactNode; label?: string;
+  /** The data on screen is the previous filter's: dim it until the new data arrives. */
+  placeholder?: boolean;
+}) {
+  if (error && empty !== false) return <ErrorPanel title="This view did not load" message={error} onRetry={onRetry} retrying={loading} />;
+  if (empty !== false) return skeleton ? <SkeletonRegion label={label}>{skeleton}</SkeletonRegion> : <LoadingPanel label={label} />;
+  return (
+    <div className={`content-fade-in transition-opacity ${placeholder ? 'opacity-70' : ''}`} aria-busy={placeholder || undefined}>
+      {error && <RefreshNotice message={error} onRetry={onRetry} retrying={loading} />}
+      {children}
+    </div>
+  );
+}
+
+/** A refresh failed while earlier data stays on screen. */
+export function RefreshNotice({ message, onRetry, retrying }: { message: string; onRetry: () => void; retrying: boolean }) {
+  return (
+    <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-raised px-4 py-2.5 text-xs text-soft" data-testid="state-refresh-error">
+      <span>{message} Showing what was loaded before.</span>
+      <button type="button" className="btn-mini touch-target" onClick={onRetry} disabled={retrying}>{retrying ? 'TRYING AGAIN…' : 'TRY AGAIN'}</button>
+    </div>
+  );
 }
 
 export function Empty({ children }: { children: ReactNode }) {

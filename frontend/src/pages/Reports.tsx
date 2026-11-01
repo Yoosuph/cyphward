@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
 import { RefreshCw, FileText, Plus, Send, Eye, Download } from 'lucide-react';
 import { listReportsStrict, createReport, getReport, type ReportRow } from '../lib/api';
 import { useToast } from '../components/Toast';
-import { readPageCache, writePageCache } from '../lib/pageCache';
+import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
 import { EmptyPanel, ErrorPanel, LoadingPanel, humanError } from '../components/ui/StatePanels';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -10,6 +11,8 @@ import { useOrgZone } from '../lib/orgZone';
 import { fmtDayZone } from './compliance/shared';
 import StatusChip from '../components/StatusChip';
 import { PageHead } from '../components/ui';
+import { SkeletonRegion } from '../components/ui/Skeleton';
+import { AppTableSkeleton, REPORT_COLUMNS, ReportsSkeleton } from '../components/skeletons/RouteSkeleton';
 import ReportPreview from '../components/ReportPreview';
 import { sendReportEmail, getEvidenceRetention, setEvidenceRetention, type EvidenceRetention } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -101,11 +104,12 @@ export default function Reports() {
   const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
+    const ticket = pageCacheTicket();
     // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const res = await listReportsStrict();
       setReports(res.reports);
-      writePageCache('reports', res.reports);
+      writePageCache('reports', res.reports, ticket);
       setLoadError(null);
     } catch (e) {
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
@@ -118,6 +122,8 @@ export default function Reports() {
   useEffect(() => {
     load();
   }, [load]);
+  // Back to the tab after a while: ask again (lib/queryCache, focus revalidation).
+  useRevalidateOnFocus(load);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -191,6 +197,8 @@ export default function Reports() {
     toast('Report downloaded.');
   };
 
+  if (loading && reports.length === 0) return <ReportsSkeleton />;
+
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
@@ -220,7 +228,7 @@ export default function Reports() {
       <RetentionNote />
 
       {loading ? (
-        <LoadingPanel label="saved reports" />
+        <SkeletonRegion label="saved reports"><AppTableSkeleton columns={REPORT_COLUMNS} rows={6} twoLine inset={false} /></SkeletonRegion>
       ) : loadError && reports.length === 0 ? (
         <ErrorPanel title="We could not load your reports" message={loadError} onRetry={() => { setLoading(true); void load(); }} />
       ) : reports.length === 0 ? (

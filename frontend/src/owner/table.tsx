@@ -4,7 +4,8 @@ import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download } 
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
 import { useToast } from '../components/Toast';
 import { OwnerApiError, ownerDownload } from './ownerApi';
-import { SessionEndedContext, Stat } from './ui';
+import { RefreshNotice, SessionEndedContext, Stat } from './ui';
+import { SkControl, SkLine, SkTableRows, SkeletonRegion } from '../components/ui/Skeleton';
 
 /**
  * The owner console's list building blocks (docs/admin-2026-10-29): one table, one filter bar, one pager, one KPI
@@ -101,15 +102,34 @@ export function OwnerTable<T>({ caption, columns, rows, rowKey, sort, dir, onSor
   );
 }
 
-/** Loading, error and empty states for a list, from the shared StatePanels; children render only with rows. */
-export function ListState({ loading, error, onRetry, hasData, count, label, empty, children }: {
+/**
+ * Loading, error and empty states for a list, from the shared StatePanels; children render only with rows.
+ * Nothing to show yet: the list's own skeleton (its column names, table rows, the pager line), or `skeleton`.
+ * A filter or page change keeps the current rows, dimmed, until the new ones arrive (`placeholder`); a background
+ * refresh changes nothing on screen. A failed refresh with rows on screen shows a notice above them.
+ */
+export function ListState({ loading, error, onRetry, hasData, count, label, empty, children, columns, skeleton, placeholder = false }: {
   loading: boolean; error: string | null; onRetry: () => void; hasData: boolean; count: number; label: string;
-  empty: { title: string; help: string }; children: ReactNode;
+  empty: { title: string; help: string }; children: ReactNode; columns?: string[]; skeleton?: ReactNode; placeholder?: boolean;
 }) {
-  if (error) return <ErrorPanel title={`The ${label} did not load`} message={error} onRetry={onRetry} retrying={loading} />;
-  if (!hasData) return <LoadingPanel label={label} />;
-  if (count === 0) return <EmptyPanel title={empty.title} help={empty.help} />;
-  return <div className={`content-fade-in ${loading ? 'opacity-70' : ''}`} aria-busy={loading}>{children}</div>;
+  if (error && !hasData) return <ErrorPanel title={`The ${label} did not load`} message={error} onRetry={onRetry} retrying={loading} />;
+  if (!hasData) {
+    if (skeleton) return <SkeletonRegion label={label}>{skeleton}</SkeletonRegion>;
+    if (!columns) return <LoadingPanel label={label} />;
+    return (
+      <SkeletonRegion label={label}>
+        <SkTableRows columns={columns} rows={8} />
+        <div className="flex items-center justify-between gap-3 pt-4"><SkLine width={110} size={10.5} /><div className="flex gap-2"><SkControl width={110} height={32} /><SkControl width={34} height={32} /><SkControl width={34} height={32} /></div></div>
+      </SkeletonRegion>
+    );
+  }
+  if (count === 0 && !error) return <EmptyPanel title={empty.title} help={empty.help} />;
+  return (
+    <div className={`content-fade-in transition-opacity ${placeholder ? 'opacity-70' : ''}`} aria-busy={placeholder || undefined}>
+      {error && <RefreshNotice message={error} onRetry={onRetry} retrying={loading} />}
+      {children}
+    </div>
+  );
 }
 
 /* ── Filter bar ─────────────────────────────────────────────────────────── */

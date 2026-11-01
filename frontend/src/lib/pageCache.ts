@@ -1,45 +1,29 @@
 /**
- * Last-seen data for the app's list pages, so revisiting a page paints its
- * previous contents at once while a fresh request runs (stale-while-revalidate).
+ * Last-seen data for the app's pages: the customer-app face of lib/queryCache (one store, one policy; see there
+ * and docs/ui-motion-cache-2026-11-01/AUDIT.md). Pages with their own loaders (filters, polling, several requests)
+ * use these calls; simpler reads use useCachedQuery.
  *
- * Deliberately narrow:
- *  - memory only (never Web Storage), so it dies with the tab;
- *  - every key is scoped to the signed-in user AND organization, and nothing
- *    is read or written without both;
- *  - cleared on sign-in, sign-out, idle logout and after any write request
- *    (see apiFetch), so a page never re-shows data a mutation changed;
- *  - opt-in per page for display data only. Auth, MFA, billing and live scan
- *    progress never go through it.
+ *   const ticket = pageCacheTicket();          // when the request STARTS
+ *   const res = await getThing();
+ *   writePageCache('thing', res, ticket);      // dropped if the user, organisation or a write changed meanwhile
+ *
+ * Memory only, scoped to the signed-in user AND organisation; cleared on sign-in, sign-out, idle logout,
+ * organisation switch and after any write request (see apiFetch).
  */
-import { loadSession } from './session';
-
-const store = new Map<string, unknown>();
-
-function activeOrgId(): string | null {
-  try {
-    return localStorage.getItem('cyphward-org-id') || sessionStorage.getItem('cyphward-org-id');
-  } catch {
-    return null;
-  }
-}
-
-function scopedKey(key: string): string | null {
-  const userId = loadSession()?.user?.id;
-  const orgId = activeOrgId();
-  if (!userId || !orgId) return null;
-  return `${userId}\u0000${orgId}\u0000${key}`;
-}
+import { cacheTicket, clearQueryCache, readQueryCache, writeQueryCache, type CacheTicket } from './queryCache';
 
 export function readPageCache<T>(key: string): T | undefined {
-  const k = scopedKey(key);
-  return k ? (store.get(k) as T | undefined) : undefined;
+  return readQueryCache<T>(key, 'app')?.data;
 }
 
-export function writePageCache<T>(key: string, value: T): void {
-  const k = scopedKey(key);
-  if (k) store.set(k, value);
+export function pageCacheTicket(): CacheTicket {
+  return cacheTicket('app');
+}
+
+export function writePageCache<T>(key: string, value: T, ticket: CacheTicket): void {
+  writeQueryCache(key, value, ticket);
 }
 
 export function clearPageCache(): void {
-  store.clear();
+  clearQueryCache();
 }

@@ -5,6 +5,7 @@
  */
 
 import type { NotificationItem, NotificationSource } from '../lib/notifications';
+import { clearQueryCache } from '../lib/queryCache';
 /** The record counts that hold a purge back (backend core/org_guard.py). Integers only; the console words them. */
 export type RetentionHold = {
   counts: { reviewer_grants: number; packs: number; snapshots: number; documents: number; evidence_files: number; incidents: number };
@@ -115,8 +116,15 @@ export function ownerErrorText(status: number, detail?: unknown): string {
 }
 
 async function ownerFetch<T>(path: string, init?: RequestInit, base = '/api/v1/owner'): Promise<T> {
-  const res = await ownerRequest(`${base}${path}`, init);
-  return res.json() as Promise<T>;
+  const write = (init?.method || 'GET').toUpperCase() !== 'GET';
+  try {
+    const res = await ownerRequest(`${base}${path}`, init);
+    return res.json() as Promise<T>;
+  } finally {
+    // Any console action may change what a cached view shows (lib/queryCache). Marking notifications read changes
+    // no cached view.
+    if (write && !path.startsWith('/notifications')) clearQueryCache('owner');
+  }
 }
 
 async function ownerRequest(url: string, init?: RequestInit): Promise<Response> {

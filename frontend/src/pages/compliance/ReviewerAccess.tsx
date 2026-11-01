@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Info, RefreshCw, UserCheck } from 'lucide-react';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -41,7 +43,8 @@ function daysUntil(value: string): number {
 export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [data, setData] = useState<ReviewerGrantList | null>(null);
+  // Last-seen list paints at once on a revisit (lib/queryCache); load() refreshes it.
+  const [data, setData] = useState<ReviewerGrantList | null>(() => readPageCache<ReviewerGrantList>('comply:reviewers') ?? null);
   const [error, setError] = useState<string | null>(null);
   const [gated, setGated] = useState(false);
   const [email, setEmail] = useState('');
@@ -53,7 +56,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
 
   const load = useCallback(async () => {
     try {
-      setData(await listReviewerGrants());
+      { const ticket = pageCacheTicket(); const fresh = await listReviewerGrants(); writePageCache('comply:reviewers', fresh, ticket); setData(fresh); }
       setError(null);
     } catch (e) {
       if ((e as { status?: number })?.status === 403) setGated(true);
@@ -123,7 +126,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
 
   if (gated) return <GrowthGate what="Reviewer access" />;
   if (error && !data) return <LoadError message={error} onRetry={() => void load()} />;
-  if (!data) return <p className="text-xs mono text-soft">LOADING REVIEWER ACCESS…</p>;
+  if (!data) return <CompliancePanelSkeleton section="reviewers" />;
 
   return (
     <div className="space-y-6" data-testid="reviewer-access">

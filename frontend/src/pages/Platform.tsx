@@ -9,6 +9,7 @@ import {
   type PlatformOverdueScan,
 } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { PlatformSkeleton } from '../components/skeletons/RouteSkeleton';
 
 export default function Platform() {
   const toast = useToast();
@@ -18,7 +19,7 @@ export default function Platform() {
   const [orgId, setOrgId] = useState('');
   const [tenant, setTenant] = useState<PlatformTenant | null>(null);
   const [overdue, setOverdue] = useState<PlatformOverdueScan[]>([]);
-  const [busy, setBusy] = useState<'health' | 'tenant' | 'overdue' | null>(null);
+  const [busy, setBusy] = useState<'health' | 'tenant' | 'overdue' | null>('health');
 
   useEffect(() => {
     setBusy('health');
@@ -65,6 +66,9 @@ export default function Platform() {
       setBusy(null);
     }
   };
+
+  // Platform reads are audited and never cached; the skeleton covers the first health check.
+  if (busy === 'health' && !health && !denied) return <PlatformSkeleton />;
 
   if (denied) {
     return (

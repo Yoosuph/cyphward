@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { LoadingScreen } from '../components/ui';
+import { SkCard, SkeletonRegion } from '../components/ui/Skeleton';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown, Info } from 'lucide-react';
 import CyphwardLogo from '../components/CyphwardLogo';
@@ -193,7 +195,14 @@ function OrgView({ orgId }: { orgId: string }) {
   useEffect(() => { setData(null); void load(); }, [load]);
 
   if (error) return <LoadError message={error} onRetry={() => void load()} />;
-  if (!data) return <p className="text-xs mono text-soft">LOADING…</p>;
+  if (!data) {
+    return (
+      <SkeletonRegion label="this organisation's readiness" className="space-y-5">
+        <SkCard title={false} lines={2} className={CARD} />
+        {[0, 1, 2].map(i => <SkCard key={i} lines={3} className={CARD} />)}
+      </SkeletonRegion>
+    );
+  }
   const r = data.readiness;
   return (
     <div className="space-y-5" data-testid="review-org">
@@ -236,7 +245,7 @@ export default function Reviews() {
     return () => { cancelled = true; };
   }, [user]);
 
-  if (loading) return <div className="p-8 mono text-xs text-soft">LOADING…</div>;
+  if (loading) return <LoadingScreen label="Checking your session" />;
   if (!user) return <Navigate to="/login" replace />;
 
   const selected = grants?.find(g => g.org_id === org) ?? null;
