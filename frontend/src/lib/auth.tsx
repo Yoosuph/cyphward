@@ -157,6 +157,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const persistTenant = (t: Tenant | null, orgId?: string) => {
     try {
+      // Another organisation (or none): nothing cached for the previous one may be shown or stored again.
+      const previousOrgId = localStorage.getItem(ORG_ID_KEY) || sessionStorage.getItem(ORG_ID_KEY);
+      const nextOrgId = t ? (orgId || t.id || t.slug || null) : null;
+      if (previousOrgId !== nextOrgId) clearPageCache();
       if (t) {
         localStorage.setItem(KEY, JSON.stringify(t));
         sessionStorage.setItem(KEY, JSON.stringify(t));

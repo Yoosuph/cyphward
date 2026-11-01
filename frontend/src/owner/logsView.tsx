@@ -236,7 +236,7 @@ export function LogsView() {
   const { q, offset, params, set } = useListParams();
   const source: Source = params.get('source') === 'owner' ? 'owner' : 'customer';
   const limit = 100;
-  const { data, error, loading, reload } = useOwnerView<Row>('/logs', { source, q, offset, limit });
+  const { data, error, loading, placeholder, reload } = useOwnerView<Row>('/logs', { source, q, offset, limit });
   const [openKey, setOpenKey] = useState<string | null>(null);
   const baseId = useId();
 
@@ -261,7 +261,7 @@ export function LogsView() {
         </div>
         <SearchBox value={q} onChange={v => set({ q: v, offset: 0 })} placeholder={source === 'owner' ? 'Search action, outcome or email' : 'Search action, email or organization'} />
       </div>
-      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={rows.length} label="log entries"
+      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={rows.length} label="log entries" columns={head} placeholder={placeholder}
                  empty={{ title: 'No log entries match', help: q ? 'Nothing matches this search. Try a shorter word or clear it.' : 'Entries appear here as they are recorded.' }}>
         <div className="rounded-lg border border-line bg-raised min-w-0">
           <div className="ledger-wrap owner-table-wrap">

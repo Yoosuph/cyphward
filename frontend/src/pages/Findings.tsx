@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
 import { PageHead } from '../components/ui';
 import {
   ShieldAlert,
@@ -22,8 +23,9 @@ import { writeGuard } from '../lib/suspension';
 import { useOrgSuspended } from '../lib/useOrgSuspended';
 import type { Finding, FindingSeverity, FindingStatus, FindingExplanation, RemediationGuide } from '../types';
 import { useToast } from '../components/Toast';
-import { readPageCache, writePageCache } from '../lib/pageCache';
-import { FindingCardSkeleton, Skeleton, SkeletonText, FindingsSkeleton } from '../components/Skeleton';
+import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { Skeleton, SkeletonText } from '../components/Skeleton';
+import { FindingsListSkeleton, FindingsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Drawer from '../components/Drawer';
 import Modal from '../components/Modal';
 import { SeverityBadge } from '../components/ui/SeverityBadge';
@@ -39,6 +41,8 @@ export default function Findings() {
   const [loading, setLoading] = useState(() => readPageCache(FINDINGS_DEFAULT_KEY) === undefined);
   const [loadError, setLoadError] = useState<unknown>(null);
   const shownKey = useRef<string | null>(null); // cache key of the rows on screen
+  // The whole-page skeleton is for the first load only; a filter change keeps the header and filters on screen.
+  const [everLoaded, setEverLoaded] = useState(() => readPageCache(FINDINGS_DEFAULT_KEY) !== undefined);
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -70,6 +74,7 @@ export default function Findings() {
   const toast = useToast();
 
   const loadFindings = async () => {
+    const ticket = pageCacheTicket();
     const cacheKey = `findings:${selectedSeverity}:${selectedCategory}:${search}`;
     const cached = readPageCache<FindingsCache>(cacheKey);
     if (cached) {
@@ -89,7 +94,7 @@ export default function Findings() {
       setFindings(res.findings);
       setCategories(res.categories);
       setLoadError(null);
-      writePageCache<FindingsCache>(cacheKey, { findings: res.findings, categories: res.categories });
+      writePageCache<FindingsCache>(cacheKey, { findings: res.findings, categories: res.categories }, ticket);
       if (activeFinding) {
         const updated = res.findings.find(f => f.id === activeFinding.id);
         if (updated) setActiveFinding(updated);
@@ -100,12 +105,15 @@ export default function Findings() {
       toast('Could not load issues. Try again in a moment.');
     } finally {
       setLoading(false);
+      setEverLoaded(true);
     }
   };
 
   useEffect(() => {
     loadFindings();
   }, [selectedSeverity, selectedCategory]);
+  // Back to the tab after a while: ask again (lib/queryCache, focus revalidation).
+  useRevalidateOnFocus(loadFindings);
 
   const handleStatusChange = async (findingId: string, newStatus: FindingStatus) => {
     try {
@@ -177,7 +185,7 @@ export default function Findings() {
   const visible = findings.filter(f => statusView === 'all' || (statusView === 'resolved' ? f.status === 'resolved' : f.status !== 'resolved'));
   const filtered = selectedSeverity !== 'all' || selectedCategory !== 'all' || !!search;
 
-  if (loading && findings.length === 0) {
+  if (loading && !everLoaded) {
     return <FindingsSkeleton />;
   }
 
@@ -253,9 +261,7 @@ export default function Findings() {
       {/* Findings List */}
       <div className="space-y-3">
         {loading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <FindingCardSkeleton key={i} />
-          ))
+          <FindingsListSkeleton />
         ) : loadError && findings.length === 0 ? (
           <ErrorPanel
             title="We could not load your issues"
@@ -274,7 +280,7 @@ export default function Findings() {
             <div
               key={finding.id}
               onClick={() => setActiveFinding(finding)}
-              style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+              style={{ animationDelay: `calc(var(--motion-stagger) * ${Math.min(idx, 8)})` }}
               className={`p-4 rounded-lg border transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group stagger-row card-hover ${
                 activeFinding?.id === finding.id
                   ? 'border-accent bg-raised shadow-md'

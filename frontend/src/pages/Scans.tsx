@@ -27,7 +27,8 @@ import { useOrgSuspended } from "../lib/useOrgSuspended";
 import type { Scan, Domain, StageInfo, ScanCoverage } from "../types";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../lib/auth";
-import { Skeleton, ScanDrawerSkeleton } from "../components/Skeleton";
+import { ScanDrawerSkeleton } from "../components/Skeleton";
+import { ScansBodySkeleton } from "../components/skeletons/RouteSkeleton";
 import Dialog from "../components/ui/Dialog";
 import "./Scans.css";
 
@@ -1023,15 +1024,7 @@ export default function Scans() {
         </div>
       )}
       {loading && !scans.length ? (
-        <div
-          className="scan-panel scan-loading"
-          role="status"
-          aria-label="Loading scans"
-        >
-          <Skeleton height={24} width="35%" />
-          <Skeleton height={70} />
-          <Skeleton height={100} />
-        </div>
+        <ScansBodySkeleton />
       ) : !activeScan ? (
         !listError && (
           <section className="scan-panel scan-empty">

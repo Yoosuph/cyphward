@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import {
@@ -20,8 +21,8 @@ import {
 import { getDomainsStrict, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
-import { readPageCache, writePageCache } from '../lib/pageCache';
-import { DomainsSkeleton, TableRowSkeleton } from '../components/Skeleton';
+import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { AppTableRows, DOMAIN_COLUMNS, DomainsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
 import { EmptyPanel, ErrorPanel, humanError } from '../components/ui/StatePanels';
 import { useOrgZone } from '../lib/orgZone';
@@ -68,11 +69,12 @@ export default function Domains() {
   domainsRef.current = domains;
 
   const loadDomains = async () => {
+    const ticket = pageCacheTicket();
     // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const list = await getDomainsStrict();
       setDomains(list);
-      writePageCache('domains', list);
+      writePageCache('domains', list, ticket);
       setLoadError(null);
     } catch (e) {
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
@@ -85,6 +87,8 @@ export default function Domains() {
   useEffect(() => {
     loadDomains();
   }, []);
+  // Back to the tab after a while: ask again (lib/queryCache, focus revalidation).
+  useRevalidateOnFocus(loadDomains);
 
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,12 +292,7 @@ export default function Domains() {
             </thead>
             <tbody className="divide-y divide-line/60">
               {loading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <TableRowSkeleton
-                    key={i}
-                    cols={[150, 95, 220, 90, 60, 110]}
-                  />
-                ))
+                <AppTableRows columns={DOMAIN_COLUMNS} rows={3} />
               ) : domains.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-4">
@@ -307,7 +306,7 @@ export default function Domains() {
                   <>
                   <tr
                     key={dom.id}
-                    style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+                    style={{ animationDelay: `calc(var(--motion-stagger) * ${Math.min(idx, 8)})` }}
                     className="stagger-row hover:bg-inset/40 transition-colors"
                   >
                     <td className="stack-title py-3 px-4 font-bold text-ink">

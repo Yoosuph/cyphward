@@ -529,7 +529,10 @@ try {
     assert.ok(await clickExact("Record an incident"));
     await page.waitForSelector('[role="dialog"] [data-testid="incident-form"]');
     assert.equal(await page.evaluate(() => document.querySelector("#inc-detected").type + "/" + document.querySelector("#inc-aware").type), "datetime-local/datetime-local", `${name}: native pickers`);
-    assert.ok((await bodyText()).includes("Time in America/New_York (UTC-04:00)"), `${name}: zone beside the time field`);
+    // The offset is today's (daylight saving ends in New York on the first Sunday of November), not a fixed -04:00.
+    const nyOffset = new Intl.DateTimeFormat("en-US", { timeZone: ORG_ZONE, timeZoneName: "longOffset" })
+      .formatToParts(new Date()).find((p) => p.type === "timeZoneName").value.replace("GMT", "UTC");
+    assert.ok((await bodyText()).includes(`Time in America/New_York (${nyOffset})`), `${name}: zone beside the time field (${nyOffset})`);
     await setVal("#inc-title", "Shared drive link left public");
     await setVal("#inc-severity", "high");
     await setVal("#inc-detected", "2026-10-15T09:30");

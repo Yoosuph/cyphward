@@ -307,7 +307,7 @@ ${summary.compliance_verdict}
 
       {/* Brevo Email Dispatch Input Bar */}
       {showEmailInput && (
-        <div className="no-print p-2.5 rounded-lg border border-accent/40 bg-inset/70 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 animate-in fade-in-50 duration-200">
+        <div className="no-print p-2.5 rounded-lg border border-accent/40 bg-inset/70 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 content-fade-in">
           <div className="relative flex-1">
             <Mail size={13} className="absolute left-2.5 top-2.5 text-accent" />
             <input

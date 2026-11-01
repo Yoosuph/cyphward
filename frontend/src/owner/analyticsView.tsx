@@ -1,4 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
+import { AnalyticsKpiSkeleton, ChartSkeleton } from './skeletons';
+import { SkLine } from '../components/ui/Skeleton';
 import { useSearchParams } from 'react-router-dom';
 import { OwnerApiError, newsletterStats, type NewsletterStats } from './ownerApi';
 import { Empty, PageHead, Panel, Pill, SessionEndedContext, statusTone, useOwnerView } from './ui';
@@ -82,7 +84,7 @@ function NewsletterPanel() {
     <Panel title="Newsletter subscribers">
       {state.off ? <Empty>The newsletter is switched off.</Empty>
         : state.error ? <p className="text-xs text-soft" role="alert">{state.error}</p>
-        : !state.stats ? <p className="text-xs text-soft">Loading…</p>
+        : !state.stats ? <div className="grid grid-cols-3 gap-3" aria-hidden="true">{[0, 1, 2].map(i => <div key={i} className="space-y-1"><SkLine width="70%" size={11} /><SkLine width="50%" size={20} /></div>)}</div>
         : (
           <dl className="grid grid-cols-3 gap-3 text-sm" data-testid="newsletter-counts">
             <div><dt className="text-[11px] mono uppercase text-soft">Confirmed</dt><dd className="text-xl font-bold mono">{n(state.stats.confirmed)}</dd></div>
@@ -104,7 +106,7 @@ export function AnalyticsView() {
     <>
       <PageHead title="Analytics" subtitle="Counts across the platform. No customer addresses or content."
                 actions={<RangeSelector value={range} onChange={setRange} />} />
-      <ListState loading={summary.loading} error={summary.error} onRetry={summary.reload} hasData={!!s} count={1} label="analytics"
+      <ListState loading={summary.loading} error={summary.error} onRetry={summary.reload} hasData={!!s} count={1} label="analytics" skeleton={<AnalyticsKpiSkeleton />} placeholder={summary.placeholder}
                  empty={{ title: '', help: '' }}>
         {s && (
           <>
@@ -124,8 +126,8 @@ export function AnalyticsView() {
         )}
       </ListState>
       <div className="grid lg:grid-cols-2 gap-5 mt-1">
-        <Panel title={`Scans per day, last ${range} days`} className="lg:col-span-2">
-          {series.error ? <p className="text-xs text-soft" role="alert">{series.error}</p> : !t ? <p className="text-xs text-soft">Loading…</p> : (
+        <Panel title={`Scans per day, last ${range} days`} className={`lg:col-span-2 transition-opacity ${series.placeholder ? 'opacity-70' : ''}`}>
+          {series.error ? <p className="text-xs text-soft" role="alert">{series.error}</p> : !t ? <ChartSkeleton /> : (
             <StackedDays days={t.scans_per_day} label="Scans per day" testId="scans-chart" parts={[
               { key: 'completed', className: 'bg-[var(--ok)]', name: 'completed' },
               { key: 'failed', className: 'bg-[var(--accent)]', name: 'failed' },
@@ -135,14 +137,14 @@ export function AnalyticsView() {
             ]} />
           )}
         </Panel>
-        <Panel title={`New findings per day by severity, last ${range} days`} className="lg:col-span-2">
-          {series.error ? <p className="text-xs text-soft" role="alert">{series.error}</p> : !t ? <p className="text-xs text-soft">Loading…</p> : (
+        <Panel title={`New findings per day by severity, last ${range} days`} className={`lg:col-span-2 transition-opacity ${series.placeholder ? 'opacity-70' : ''}`}>
+          {series.error ? <p className="text-xs text-soft" role="alert">{series.error}</p> : !t ? <ChartSkeleton /> : (
             <StackedDays days={t.findings_per_day} label="New findings per day" testId="findings-chart"
                          parts={SEVERITIES.map(sev => ({ key: sev, className: `sev-bar sev-${sev}`, name: sev }))} />
           )}
         </Panel>
         <Panel title="Subscriptions by status">
-          {!s ? <p className="text-xs text-soft">Loading…</p> : s.subscription_status.length === 0 ? <Empty>No subscriptions recorded.</Empty> : (
+          {!s ? <div className="space-y-2" aria-hidden="true">{[0, 1, 2].map(i => <SkLine key={i} width="100%" size={14} />)}</div> : s.subscription_status.length === 0 ? <Empty>No subscriptions recorded.</Empty> : (
             <ul className="space-y-2" data-testid="subscription-status-counts">
               {s.subscription_status.map(r => (
                 <li key={r.status} className="flex items-center justify-between gap-3 text-sm">

@@ -1,7 +1,6 @@
 import { ReactNode } from 'react';
 import CyphwardLogo from './CyphwardLogo';
 import type { ChipLevel } from './StatusChip';
-import { Skeleton, SkeletonText } from './Skeleton';
 
 export * from './Skeleton';
 
@@ -42,27 +41,6 @@ export function PageHead({ title, note, actions, meta }: {
       </div>
       {meta}
     </header>
-  );
-}
-
-export function Loading({ label }: { label: string }) {
-  return (
-    <div className="space-y-4 py-4 animate-fade-in w-full" role="status" aria-busy="true">
-      <div className="flex items-center gap-2">
-        <span className="live-dot" />
-        <p className="eyebrow text-accent">LOADING · {label}</p>
-      </div>
-      <div className="p-6 rounded-lg border border-line bg-raised space-y-4">
-        <Skeleton width="45%" height={24} />
-        <SkeletonText lines={3} lastLineWidth="55%" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3">
-          <Skeleton height={68} rounded="md" />
-          <Skeleton height={68} rounded="md" />
-          <Skeleton height={68} rounded="md" />
-          <Skeleton height={68} rounded="md" />
-        </div>
-      </div>
-    </div>
   );
 }
 

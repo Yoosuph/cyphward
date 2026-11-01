@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
+import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CheckCheck, ChevronDown, ClipboardList, FileCheck2, FolderOpen, Info, ListChecks, Lock, Search, ShieldCheck, Siren, Users, RefreshCw } from 'lucide-react';
 import './compliance/compliance.css';
-import { PageHead, Skeleton, SkeletonText } from '../components/ui';
-import { ErrorPanel, LoadingPanel } from '../components/ui/StatePanels';
+import { PageHead } from '../components/ui';
+import { ErrorPanel } from '../components/ui/StatePanels';
+import { CompliancePanelSkeleton, ComplianceSkeleton } from '../components/skeletons/RouteSkeleton';
 import { resolveZone } from '../lib/datetime';
 import { useOrgZone } from '../lib/orgZone';
 import StatusChip, { type ChipLevel } from '../components/StatusChip';
@@ -41,18 +44,6 @@ const CARD = 'rounded-2xl border border-line bg-raised';
 const TAB_ICONS = [ShieldCheck, ListChecks, Siren, FolderOpen, FileCheck2, Users];
 const TAB_NOTES: Record<string, string> = { readiness: 'Review the evidence behind each requirement and decide what to work on next.', questions: 'Record what your team does, assign evidence owners and keep answers up to date.', incidents: 'Record events and follow the response work through to closure.', packs: 'Prepare dated evidence for management and practitioner reviews.', documents: 'Draft, review and approve your organisation’s policy documents.', reviewers: 'Give a practitioner scoped access to support your review.' };
 
-function ComplianceLoading() {
-  return <div className="compliance-page space-y-6 pb-12" data-testid="state-loading" role="status" aria-busy="true" aria-label="Loading compliance workspace">
-    <PageHead title="Compliance readiness" note="Organise evidence, close gaps and prepare for review." />
-    <p className="text-xs mono text-soft">Loading your compliance workspace…</p>
-    <Skeleton height={68} rounded="lg" />
-    <Skeleton height={58} rounded="lg" />
-    <div className="compliance-overview-grid" aria-hidden="true">
-      {[0, 1].map(key => <div key={key} className={`${CARD} p-6 space-y-5`}><Skeleton width="55%" height={15}/><Skeleton width="70%" height={35}/><SkeletonText lines={3}/><Skeleton height={68}/></div>)}
-    </div>
-    <Skeleton height={160} rounded="lg" />
-  </div>;
-}
 
 /** What every tab panel receives. Add a field here when a new tab needs more from the page. */
 interface TabContext {
@@ -308,17 +299,18 @@ export default function Compliance() {
     requestAnimationFrame(() => tabRefs.current[key]?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   };
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [data, setData] = useState<ComplianceOverview | null>(null);
+  // Last-seen overview and questionnaire paint at once on a revisit (lib/queryCache); load() refreshes them.
+  const [data, setData] = useState<ComplianceOverview | null>(() => readPageCache<ComplianceOverview>('comply:overview') ?? null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [qn, setQn] = useState<Questionnaire | null>(null);
+  const [qn, setQn] = useState<Questionnaire | null>(() => readPageCache<Questionnaire>('comply:questionnaire') ?? null);
   const [qnGated, setQnGated] = useState(false);
   const [qnError, setQnError] = useState<string | null>(null);
 
   const loadQuestionnaire = useCallback(async () => {
     setQnError(null);
     try {
-      setQn(await getQuestionnaire());
+      { const ticket = pageCacheTicket(); const fresh = await getQuestionnaire(); writePageCache('comply:questionnaire', fresh, ticket); setQn(fresh); }
       setQnGated(false);
     } catch (e) {
       if (isGrowthGate(e)) setQnGated(true);
@@ -330,7 +322,7 @@ export default function Compliance() {
     setLoading(true);
     setError(null);
     try {
-      setData(await getComplianceOverview());
+      { const ticket = pageCacheTicket(); const fresh = await getComplianceOverview(); writePageCache('comply:overview', fresh, ticket); setData(fresh); }
     } catch (e) {
       const message = errorText(e, 'Something went wrong on our side. Try again in a moment.');
       setError(message);
@@ -342,8 +334,11 @@ export default function Compliance() {
   }, [loadQuestionnaire, toast]);
 
   useEffect(() => { void load(); }, [load]);
+  // Back to the tab after a while: ask again (lib/queryCache). Only the readiness view: the other sections hold
+  // forms a refresh could reset mid-answer.
+  useRevalidateOnFocus(() => (tab === 'readiness' ? load() : undefined));
 
-  if (loading && !data) return <ComplianceLoading />;
+  if (loading && !data) return <ComplianceSkeleton section={tab} />;
   if (error && !data) {
     return (
       <div className="max-w-7xl mx-auto pb-16 content-fade-in">
@@ -375,7 +370,7 @@ export default function Compliance() {
 
   const questions = qnGated ? <GrowthGate what="The questionnaire" />
     : qnError && !qn ? <LoadError title="We could not load the questions" message={qnError} onRetry={() => void loadQuestionnaire()} />
-    : !qn ? <LoadingPanel label="questions" />
+    : !qn ? <CompliancePanelSkeleton section="questions" />
     : <>{qnError && <LoadError title="Your questions were not refreshed" message={qnError} onRetry={() => void loadQuestionnaire()} />}<QuestionnaireTab data={qn} canEdit={canEdit} onSaved={() => void load()} /></>;
 
   const readiness = (

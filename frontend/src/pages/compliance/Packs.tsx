@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Download, FileText, Info, Plus, RefreshCw } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
-import { EmptyPanel, LoadingPanel } from '../../components/ui/StatePanels';
+import { EmptyPanel } from '../../components/ui/StatePanels';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
 import { downloadPack, issuePack, listPacks, type EvidencePack, type PackKind, type PackList } from '../../lib/api';
@@ -62,7 +64,8 @@ function PackDetails({ p, zone, onDownload, onClose }: { p: EvidencePack; zone: 
 export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: string }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [data, setData] = useState<PackList | null>(null);
+  // Last-seen list paints at once on a revisit (lib/queryCache); load() refreshes it.
+  const [data, setData] = useState<PackList | null>(() => readPageCache<PackList>('comply:packs') ?? null);
   const [gated, setGated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -70,7 +73,7 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
 
   const load = useCallback(async () => {
     try {
-      setData(await listPacks());
+      { const ticket = pageCacheTicket(); const fresh = await listPacks(); writePageCache('comply:packs', fresh, ticket); setData(fresh); }
       setError(null);
     } catch (e) {
       if (isGrowthGate(e)) setGated(true);
@@ -113,7 +116,7 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
 
   if (gated) return <GrowthGate what="Evidence packs" />;
   if (error && !data) return <LoadError title="We could not load your packs" message={error} onRetry={() => void load()} />;
-  if (!data) return <LoadingPanel label="packs" />;
+  if (!data) return <CompliancePanelSkeleton section="packs" />;
 
   return (
     <div className="space-y-5" data-testid="packs">
