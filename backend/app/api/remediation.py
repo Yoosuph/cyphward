@@ -23,7 +23,7 @@ from backend.app.scanner.dns_resolver import resolve_host_dns
 from backend.app.scanner.http_probe import probe_http_service
 from backend.app.scanner.nuclei_runner import run_nuclei_template
 from backend.app.scanner.security_checks import run_security_checks
-from backend.app.services.notifications import notify
+from backend.app.services import notifications
 
 router = APIRouter(prefix="/api/v1/remediation", tags=["Remediation"])
 
@@ -381,10 +381,8 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_active
             """,
             (task["f_id"], org["id"]),
         )
-        notify(org["id"], "finding_reopened",
-               f"Reopened: {task['f_title']}",
-               f"Recheck against {hostname} shows the issue still exists.",
-               "high", "/findings")
+        notifications.emit("finding_still_open", org["id"], key=f"finding_still_open:{task_id}:{(updated_task or {}).get('updated_at')}",
+                           params={"hostname": hostname}, actor_id=org.get("current_user_id"))
         log_audit(org["id"], org.get("current_user_id"), "remediation.recheck_failed",
                   "remediation_task", task_id, {"hostname": hostname, "detector": detector["name"]})
         return {
@@ -409,10 +407,8 @@ async def verify_task(task_id: str, org: Dict[str, Any] = Depends(require_active
         """,
         (task["f_id"], org["id"]),
     )
-    notify(org["id"], "finding_resolved",
-           f"Resolved: {task['f_title']}",
-           f"Recheck against {hostname} confirms the issue is fixed.",
-           "info", "/findings")
+    notifications.emit("finding_resolved", org["id"], key=f"finding_resolved:recheck:{task_id}:{(updated_task or {}).get('updated_at')}",
+                       params={"hostname": hostname, "recheck": True}, actor_id=org.get("current_user_id"))
     log_audit(org["id"], org.get("current_user_id"), "remediation.verified",
               "remediation_task", task_id,
               {"hostname": hostname, "detector": detector["name"],

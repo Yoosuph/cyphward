@@ -47,12 +47,13 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 
 from backend.app.core import database
 from backend.app.core import org_guard
 from backend.app.core import owner as owner_mod
+from backend.app.services import notifications
 from backend.app.core.plans import PLANS, parse_plan
 from backend.app.core.scan_cancel import CANCEL_ACTIVE_SCAN_SQL
 from backend.app.compliance.evidence_file_store import QUEUE_PURGE_SQL
@@ -252,7 +253,7 @@ def extend_trial(org_id: str, body: TrialBody, request: Request,
 
 # ── Suspension ─────────────────────────────────────────────────────────────
 @router.post("/organizations/{org_id}/suspend")
-def suspend_organization(org_id: str, body: OrgActionBody, request: Request,
+def suspend_organization(org_id: str, body: OrgActionBody, request: Request, background: BackgroundTasks,
                          owner: Dict[str, Any] = Depends(owner_mod.require_owner_mutation)) -> Dict[str, Any]:
     """Mark the organization suspended (reversible with /unsuspend). Customer writes and scans pause (module doc)."""
     org_id = _uuid(org_id)
@@ -271,10 +272,13 @@ def suspend_organization(org_id: str, body: OrgActionBody, request: Request,
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=409, detail="The organization changed; reload and try again.")
+        notifications.emit("org_suspended", org_id, key=f"org_suspended:{org_id}:{_iso(row['changed_at'])}", cur=cur)
         return {"result": {"organization_id": org_id, "suspended": True, "changed_at": _iso(row["changed_at"])},
                 "audit": {"from": "active", "to": "suspended"}}
 
-    return _run(request, owner, "owner.action.suspend", "organization", org_id, body.reason, work)
+    result = _run(request, owner, "owner.action.suspend", "organization", org_id, body.reason, work)
+    background.add_task(notifications.deliver_pending_emails)  # the critical email, after the commit
+    return result
 
 
 @router.post("/organizations/{org_id}/unsuspend")
@@ -293,6 +297,8 @@ def unsuspend_organization(org_id: str, body: OrgActionBody, request: Request,
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=409, detail="This organization is not suspended.")
+        notifications.emit("org_unsuspended", org_id, key=f"org_unsuspended:{org_id}:{_iso(row['changed_at'])}",
+                           cur=cur)
         return {"result": {"organization_id": org_id, "suspended": False, "changed_at": _iso(row["changed_at"])},
                 "audit": {"from": "suspended", "to": "active"}}
 
@@ -338,6 +344,8 @@ def remove_member(org_id: str, user_id: str, body: OrgActionBody, request: Reque
         cur.execute("SELECT count(*) AS n FROM organization_members WHERE org_id = %s", (org_id,))
         remaining = int(cur.fetchone()["n"])
         _customer_log(cur, org_id, None, "member.removed", "profile", user_id, {"role": member["role"]})
+        notifications.emit("member_removed", org_id, cur=cur, params={"email": member["email"]},
+                           key=f"member_removed:{org_id}:{user_id}:{_iso(member['created_at'])}")
         return {"result": {"organization_id": org_id, "removed_user_id": user_id, "role": member["role"],
                            "members": remaining},
                 "audit": {"user_id": user_id, "email": member["email"], "role": member["role"],

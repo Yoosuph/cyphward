@@ -325,8 +325,10 @@ def test_thresholds_30_and_7_remind_once_each_and_nothing_else(world, team, mail
     result = _run(run_day)
     assert result["claimed"] is True and result["reminded"] == 2
     assert _reminder_rows(world, d25) == [30] and _reminder_rows(world, d5) == [7] and _reminder_rows(world, d40) == []
-    notes = world.rows("SELECT type, title, body, link FROM notifications WHERE org_id = %s ORDER BY created_at", (org_id,))
-    assert len(notes) == 2 and {n["type"] for n in notes} == {"compliance_renewal"} and {n["link"] for n in notes} == {"/comply"}
+    # One row per recipient per reminder (notifications phase 1); two reminders, each with its own key.
+    notes = world.rows("SELECT DISTINCT type, link, dedupe_key FROM notifications WHERE org_id = %s", (org_id,))
+    assert len(notes) == 2 and {n["link"] for n in notes} == {"/comply"}
+    assert {n["type"] for n in notes} == {"attestation_expiring_30", "attestation_expiring_7"}
 
 
 def test_emails_go_to_the_owner_and_org_owners_and_admins_only_with_no_answer_content(world, team, mail, run_day):
@@ -371,7 +373,7 @@ def test_a_retry_cannot_double_send(world, team, mail, run_day):
     second = _run(run_day)
     assert second["claimed"] is True and second["reminded"] == 0 and second["due"] == 0
     assert len(mail) == sent_after_first and _reminder_rows(world, answer) == [7]
-    assert len(world.rows("SELECT 1 FROM notifications WHERE org_id = %s", (org_id,))) == 1
+    assert len(world.rows("SELECT DISTINCT dedupe_key FROM notifications WHERE org_id = %s", (org_id,))) == 1
     # And a run the same day while it is completed does not even claim.
     assert _run(run_day)["claimed"] is False
 

@@ -41,6 +41,21 @@ def execution_db(admission_db, disposable_postgres_url, monkeypatch):
     yield admission_db
 
 
+@pytest.fixture
+def member(execution_db):
+    """One organisation member: scan notifications are one row per member (notifications phase 1)."""
+    conn, org, _ = execution_db
+    uid = str(uuid4())
+    conn.execute("INSERT INTO profiles (id, email, full_name) VALUES (%s, %s, 'Execution Member')",
+                 (uid, f"exec-{uid[:8]}@execution.test"))
+    conn.execute("INSERT INTO organization_members (user_id, org_id, role) VALUES (%s, %s, 'owner')", (uid, org))
+    conn.commit()
+    yield uid
+    conn.rollback()
+    conn.execute("DELETE FROM profiles WHERE id = %s", (uid,))
+    conn.commit()
+
+
 def queued(db):
     conn, org, domains = db
     result = admission.admit_scan(
@@ -327,7 +342,7 @@ def test_core_takeover_fences_indirect_findings_assets_scores_and_progress(
 
 
 def test_terminal_records_are_atomic_and_replay_cannot_duplicate(
-    execution_db, monkeypatch
+    execution_db, member, monkeypatch
 ):
     conn, org, _ = execution_db
     core = ex.handoff_to_core(held(execution_db))
@@ -733,7 +748,7 @@ def test_late_progress_is_monotonic_with_independent_connections(execution_db):
     )
 
 
-def test_unassessed_completion_atomically_persists_null_score_and_coverage(execution_db, monkeypatch):
+def test_unassessed_completion_atomically_persists_null_score_and_coverage(execution_db, member, monkeypatch):
     conn, org, _ = execution_db
     worker = held(execution_db)
     ex.store_observation(worker, "discovery", {"target_selection": {
@@ -788,7 +803,7 @@ def _clean_declared_scope_scan(execution_db, domain_index):
 
 
 def test_declared_scope_complete_scan_grades_only_when_every_verified_domain_is_complete(
-        execution_db, monkeypatch):
+        execution_db, member, monkeypatch):
     conn, org, domains = execution_db
     no_external(monkeypatch)
 
@@ -805,6 +820,9 @@ def test_declared_scope_complete_scan_grades_only_when_every_verified_domain_is_
     # The second verified domain was never scanned: no grade, no healthy 100.
     assert result["score"] is None and scoring["grade"] is None
     assert [d["state"] for d in scoring["domain_coverage"]] == ["complete", "not_scanned"]
+    # Read the first notice, so the second scan's notice is its own row (unread repeats within 15 minutes fold).
+    conn.execute("UPDATE notifications SET read_at = now() WHERE org_id = %s", (org,))
+    conn.commit()
 
     second = _clean_declared_scope_scan(execution_db, 1)
     result = asyncio.run(wf.finalize_scan(second.scan_id, second))
@@ -819,5 +837,5 @@ def test_declared_scope_complete_scan_grades_only_when_every_verified_domain_is_
         "SELECT body FROM notifications WHERE org_id=%s AND type='scan_completed' ORDER BY created_at",
         (org,)).fetchall()]
     assert len(bodies) == 2
-    assert bodies[0].startswith("No score · Not all domains assessed")
-    assert bodies[1].startswith("Score 100.0/100 · grade A · within declared scope")
+    assert bodies[0].startswith("No score: Not all domains assessed")
+    assert bodies[1].startswith("Score 100/100, grade A, within the declared scope.")

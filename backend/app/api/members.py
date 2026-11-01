@@ -34,6 +34,7 @@ from backend.app.core.auth import (
 )
 from backend.app.core.suspension import ensure_active, is_suspended, require_active_admin, suspended_refusal
 from backend.app.core.security import hash_opaque_token, new_opaque_token
+from backend.app.services import notifications
 from backend.app.services.mailer import (
     generate_invite_email_html,
     generate_invite_email_text,
@@ -172,6 +173,8 @@ async def invite_member(
 
     log_audit(org["id"], str(user["id"]), "member.invited", "invite", str(invite_row["id"]),
               {"email": email_clean, "role": role, "email_sent": email_sent})
+    notifications.emit("member_invited", org["id"], key=f"invite:{invite_row['id']}",
+                       params={"email": email_clean}, actor_id=user["id"])
     message = (
         f"Invite sent to {email_clean}."
         if email_sent
@@ -263,6 +266,9 @@ def accept_invite(
 
     log_audit(invite["org_id"], str(user["id"]), "member.invite_accepted", "invite", str(invite["id"]),
               {"email": invite.get("email"), "role": invite.get("role")})
+    notifications.emit("member_joined", invite["org_id"], key=f"invite_accepted:{invite['id']}",
+                       params={"name": (user.get("full_name") or "").strip() or invite.get("email")},
+                       actor_id=user["id"])
     org_row = execute_one(
         "SELECT id, slug, name FROM organizations WHERE id = %s", (invite["org_id"],)
     )

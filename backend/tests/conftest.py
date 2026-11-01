@@ -101,6 +101,10 @@ class FakeCursor:
     def fetchall(self):
         return list(self._rows)
 
+    @property
+    def connection(self):
+        return FakeConn(self._store)
+
     def fetchone(self):
         return self._rows[0] if self._rows else None
 
@@ -298,10 +302,6 @@ class FakeStore:
             org_id,score,subscores,factors,model,scope,risk_points,scan_id,coverage=params
             self.snapshots.append(dict(org_id=str(org_id),domain_id=None,score=score,model=model,scope=scope,
                 risk_points=risk_points,scan_id=scan_id,assessment_coverage=json.loads(coverage),subscores=json.loads(subscores),factors=json.loads(factors),created_at='2026-10-13T00:00:00'))
-            return []
-        if s.startswith("INSERT INTO notifications (org_id,type,title,body,severity,link)"):
-            org_id,title,body,severity=params
-            self.notifications.append(dict(org_id=org_id,type='scan_completed',title=title,body=body,severity=severity))
             return []
         if s.startswith('INSERT INTO audit_log (org_id,user_id,action,resource_type,resource_id,metadata)'):
             org_id,scan_id,metadata=params
@@ -1421,6 +1421,33 @@ class FakeStore:
                 rows.append(row)
             return rows
 
+        # --- notifications phase 1 (services/notifications.emit; the real SQL runs in test_notifications_postgres) --
+        if s.startswith("SELECT o.name, EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = o.id"):
+            o = self.organizations.get(str(params[0]))
+            return [{"name": o["name"], "deleted": self.suspensions.get(str(params[0])) == "deleted"}] if o else []
+        if s.startswith("SELECT d.domain FROM scans s JOIN domains d ON d.id = s.domain_id WHERE s.id = %s"):
+            return []
+        if s.startswith("SELECT user_id FROM organization_members WHERE org_id = %s"):
+            rows = [m for m in self.memberships if str(m["org_id"]) == str(params[0])]
+            if "role = ANY" in s:
+                rows = [m for m in rows if m["role"] in params[1]]
+            if "user_id = ANY" in s:
+                rows = [m for m in rows if str(m["user_id"]) in params[1]]
+            return [{"user_id": m["user_id"]} for m in rows]
+        if s.startswith("SELECT user_id FROM platform_owners ORDER BY user_id"):
+            return [{"user_id": u} for u in sorted(self.platform_owners)]
+        if s.startswith("SELECT in_app_muted, email_muted FROM notification_preferences"):
+            return []
+        if s.startswith("SELECT pg_advisory_xact_lock"):
+            return [{}]
+        if s.startswith("SELECT 1 AS seen FROM notifications"):
+            return [{"seen": 1} for n in self.notifications if n.get("audience") == params[0]
+                    and n.get("user_id") == params[1] and n.get("dedupe_key") == params[2]][:1]
+        if s.startswith("SELECT id, group_count FROM notifications"):
+            return []
+        if s.startswith("SELECT count(*) AS n FROM notifications WHERE audience"):
+            return [{"n": 0}]
+
         # --- notifications (remediation verify notices) -------------------
         if s.startswith("INSERT INTO notifications"):
             cols_match = re.search(r"INSERT INTO notifications \(([^)]+)\)", s)
@@ -2126,3 +2153,21 @@ def fake_file_storage(monkeypatch):
     file_storage.set_storage(fake)
     yield fake
     file_storage.set_storage(None)
+
+
+# ---------------------------------------------------------------------------
+# Notification email (notifications phase 1): no test sends mail. Every send from services/notifications is recorded
+# here instead; tests that check delivery read `notification_mail`.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def notification_mail(monkeypatch):
+    from backend.app.services import notifications as notifications_service
+
+    sent: list = []
+
+    async def record(to_email, subject, html, text, name, unsubscribe):
+        sent.append({"to": to_email, "subject": subject, "html": html, "text": text, "unsubscribe": unsubscribe})
+        return {"success": True, "method": "test"}
+
+    monkeypatch.setattr(notifications_service, "_send", record)
+    return sent

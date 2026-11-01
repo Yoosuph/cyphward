@@ -27,6 +27,7 @@
     "test:admin-phase1": "node scripts/check-admin-phase1.mjs",
     "test:owner-logs": "node scripts/check-owner-logs.mjs",
     "test:admin-phase2": "node scripts/check-admin-phase2.mjs",
+    "test:notifications": "node scripts/check-notifications.mjs",
     "test:admin-delete-org": "node scripts/check-admin-delete-org.mjs"
   },
   "dependencies": {

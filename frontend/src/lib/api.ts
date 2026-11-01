@@ -15,6 +15,7 @@ import {
 import { clearPageCache } from './pageCache';
 import { flagSuspended, SUSPENDED_CODE } from './suspension';
 import { reportArtifactSchema, type ReportArtifact, type ArtifactContext } from './reportArtifacts';
+import type { NotificationItem, NotificationPage, NotificationPreference, NotificationSource } from './notifications';
 import type {
   OverviewData, Domain, Asset, Finding, FindingStatus,
   Scan, FindingExplanation, RemediationGuide, ExecutiveSummary, SettingsData,
@@ -73,7 +74,9 @@ async function apiFetch<T>(
 
     // Any write may change what a cached list page shows; drop it all.
     // /ai/* POSTs only read (explain, remediate, summaries, chat).
-    if ((options?.method || 'GET').toUpperCase() !== 'GET' && !endpoint.startsWith('/ai/')) clearPageCache();
+    // Notification marks and settings change no cached page.
+    if ((options?.method || 'GET').toUpperCase() !== 'GET' && !endpoint.startsWith('/ai/')
+        && !endpoint.startsWith('/notifications')) clearPageCache();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -468,29 +471,43 @@ export async function getReport(reportId: string): Promise<{ report: ReportRow }
 }
 
 // ============================================================================
-// Notifications (spec §31)
+// Notifications (phase 1; lib/notifications.ts has the bell's wording and polling)
 // ============================================================================
-export interface AppNotification {
-  id: string;
-  type: string;
-  title: string;
-  body?: string | null;
-  severity: string;
-  link?: string | null;
-  read_at?: string | null;
-  created_at: string;
+export type AppNotification = NotificationItem;
+
+/** The newest page (50 at most) and the unread count. Throws on failure so the bell can show its error state. */
+export async function listNotifications(limit = 50, unreadOnly = false): Promise<NotificationPage> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (unreadOnly) qs.set('unread_only', 'true');
+  const data = await apiFetch<NotificationPage>(`/notifications?${qs}`, { cache: 'no-store' }, true);
+  return data ?? { notifications: [], unread_count: 0 };
 }
 
-export async function listNotifications(unreadOnly = false): Promise<{ notifications: AppNotification[]; unread_count: number }> {
-  const data = await apiFetch<{ notifications: AppNotification[]; unread_count: number }>(
-    `/notifications${unreadOnly ? '?unread_only=true' : ''}`
-  );
-  if (data) return data;
-  return { notifications: [], unread_count: 0 };
+export async function markNotificationRead(id: string): Promise<unknown> {
+  return apiFetch(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }, true);
 }
 
-export async function markNotificationRead(id: string): Promise<any> {
-  return apiFetch(`/notifications/${id}/read`, { method: 'PATCH' });
+export async function markAllNotificationsRead(): Promise<unknown> {
+  return apiFetch('/notifications/read-all', { method: 'POST' }, true);
+}
+
+export const customerNotifications: NotificationSource = {
+  list: (limit) => listNotifications(limit),
+  markRead: markNotificationRead,
+  markAllRead: markAllNotificationsRead,
+};
+
+export async function getNotificationPreferences(): Promise<NotificationPreference[]> {
+  const data = await apiFetch<{ preferences?: NotificationPreference[] }>('/notifications/preferences', { cache: 'no-store' }, true);
+  return Array.isArray(data?.preferences) ? data!.preferences : [];
+}
+
+export async function setNotificationPreference(
+  category: string, change: { in_app?: boolean; email?: boolean },
+): Promise<NotificationPreference | null> {
+  const data = await apiFetch<{ preference?: NotificationPreference }>(
+    `/notifications/preferences/${encodeURIComponent(category)}`, { method: 'PUT', body: JSON.stringify(change) }, true);
+  return data?.preference ?? null;
 }
 
 // ============================================================================

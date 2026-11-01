@@ -20,7 +20,7 @@ import html
 import logging
 import os
 import socket
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.compliance import questionnaire as qn
@@ -36,7 +36,7 @@ from backend.app.core.cron_claim import (
     release_cron_run,
 )
 from backend.app.core.execution_fence import ClaimLost
-from backend.app.services import mailer
+from backend.app.services import mailer, notification_messages, notifications
 
 logger = logging.getLogger("cyphward.compliance.reminders")
 
@@ -60,7 +60,7 @@ WHERE a.superseded_by IS NULL
 ORDER BY a.expires_at, a.id
 """
 RECIPIENTS_SQL = """
-SELECT DISTINCT ON (lower(p.email)) p.email, p.full_name
+SELECT DISTINCT ON (lower(p.email)) p.id, p.email, p.full_name
 FROM profiles p
 WHERE p.email IS NOT NULL AND p.email <> '' AND p.id IN (
   -- Current members only: the answer's owner, if they are still a member, plus the organisation's owners and admins.
@@ -89,9 +89,9 @@ def dpo_period(now: datetime) -> Dict[str, Any]:
 
 
 def dpo_notification_copy() -> Dict[str, str]:
-    return {"title": "Six-monthly data-security report is due",
-            "body": "A DPO's six-monthly report covers data security for the last six months. Issue a data-security "
-                    "section from the Packs area; it is supporting evidence, not a Compliance Audit Return."}
+    """The in-app wording, from the reviewed templates (services/notification_messages.py)."""
+    title, body = notification_messages.render("compliance_report_due", {})
+    return {"title": title, "body": body}
 
 
 def dpo_email_copy(org_name: str, url: str) -> Dict[str, str]:
@@ -111,7 +111,6 @@ def dpo_email_copy(org_name: str, url: str) -> Dict[str, str]:
 
 
 def _record_dpo_reminder(claim: Dict[str, Any], item: Dict[str, Any], period: str) -> Optional[List[Dict[str, Any]]]:
-    copy = dpo_notification_copy()
     with database.get_db() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
@@ -120,11 +119,11 @@ def _record_dpo_reminder(claim: Dict[str, Any], item: Dict[str, Any], period: st
                             "RETURNING org_id", (item["id"], period))
                 if cur.fetchone() is None:
                     return None
-                cur.execute("INSERT INTO notifications (org_id, type, title, body, severity, link) "
-                            "VALUES (%s, 'compliance_report_due', %s, %s, 'info', %s)",
-                            (item["id"], copy["title"], copy["body"], LINK_PATH))
                 cur.execute(RECIPIENTS_SQL, (item["id"], None))
-                return cur.fetchall()
+                people = cur.fetchall()
+                notifications.emit("compliance_report_due", item["id"], key=f"dpo_report:{item['id']}:{period}",
+                                   recipients=[p["id"] for p in people], cur=cur)
+                return people
 
 
 async def _dpo_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any]) -> None:
@@ -146,6 +145,9 @@ async def _dpo_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any
         for person in recipients:
             if not await asyncio.to_thread(_claim_is_current, claim):
                 raise ClaimLost("Scheduler claim is no longer current")
+            if await asyncio.to_thread(notifications.email_muted, person["id"], "compliance"):
+                result["email_muted"] += 1
+                continue
             try:
                 await mailer.send_email_async(person["email"], email["subject"], email["html"], email["text"],
                                               person.get("full_name"), kind="alerts")
@@ -153,6 +155,36 @@ async def _dpo_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any
             except Exception:
                 result["email_failures"] += 1
                 logger.warning("DPO reminder email failed for an organisation member", exc_info=True)
+
+
+# Trials and plan periods that end within 7 days (notifications phase 1). Each subscription period gets the 7-day
+# notice once and the 1-day notice once; a period first seen inside the last day gets the 1-day notice only.
+BILLING_DUE_SQL = """
+SELECT s.id, s.org_id, s.status, s.current_period_end, o.display_timezone
+FROM subscriptions s JOIN organizations o ON o.id = s.org_id
+WHERE s.status IN ('trialing', 'active') AND s.current_period_end > %s
+  AND s.current_period_end <= %s + interval '7 days'
+  AND NOT EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = s.org_id AND os.status = 'deleted')
+ORDER BY s.current_period_end, s.id
+"""
+
+
+def billing_kind(status: str, ends_at: datetime, now: datetime) -> str:
+    what = "trial" if status == "trialing" else "subscription"
+    return f"{what}_ending_tomorrow" if ends_at - now <= timedelta(days=1) else f"{what}_ending_soon"
+
+
+def _billing_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any]) -> None:
+    for sub in database.execute_query(BILLING_DUE_SQL, (now, now)) or []:
+        kind = billing_kind(sub["status"], sub["current_period_end"], now)
+        with database.get_db() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    lock_cron_claim(cur, claim)
+                    result["billing_notified"] += notifications.emit(
+                        kind, sub["org_id"], key=f"{kind}:{sub['id']}:{sub['current_period_end'].isoformat()}",
+                        params={"date": expiry_date_text(sub["current_period_end"], sub["display_timezone"])},
+                        cur=cur)
 
 
 def _claimant_id() -> str:
@@ -178,9 +210,10 @@ def link() -> str:
 
 
 def notification_copy(subject_text: str, expiry_text: str, threshold: int) -> Dict[str, str]:
-    return {"title": f"Renewal due in {threshold} days: {subject_text}"[:200],
-            "body": f"The answer that backs this item expires on {expiry_text}. "
-                    "Review it and record a fresh answer to keep your records current."}
+    """The in-app wording, from the reviewed templates (services/notification_messages.py)."""
+    kind = "attestation_expiring_7" if threshold <= 7 else "attestation_expiring_30"
+    title, body = notification_messages.render(kind, {"item": subject_text, "date": expiry_text})
+    return {"title": title, "body": body}
 
 
 def email_copy(org_name: str, subject_text: str, expiry_text: str, threshold: int, url: str) -> Dict[str, str]:
@@ -216,7 +249,6 @@ def _record_reminder(claim: Dict[str, Any], item: Dict[str, Any], subject_text: 
                      ) -> Optional[List[Dict[str, Any]]]:
     """Under the held claim: the reminder row, then the in-app notification, in one transaction.
     Returns the email recipients, or None when another run already recorded this reminder."""
-    copy = notification_copy(subject_text, expiry_text, item["threshold_days"])
     with database.get_db() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
@@ -226,13 +258,13 @@ def _record_reminder(claim: Dict[str, Any], item: Dict[str, Any], subject_text: 
                     "ON CONFLICT DO NOTHING RETURNING attestation_id", (item["id"], item["threshold_days"]))
                 if cur.fetchone() is None:
                     return None
-                cur.execute(
-                    "INSERT INTO notifications (org_id, type, title, body, severity, link) "
-                    "VALUES (%s, 'compliance_renewal', %s, %s, %s, %s)",
-                    (item["org_id"], copy["title"], copy["body"],
-                     "medium" if item["threshold_days"] <= 7 else "info", LINK_PATH))
                 cur.execute(RECIPIENTS_SQL, (item["org_id"], item["owner_user_id"]))
-                return cur.fetchall()
+                people = cur.fetchall()
+                notifications.emit(f"attestation_expiring_{item['threshold_days']}", item["org_id"],
+                                   key=f"attestation:{item['id']}:{item['threshold_days']}",
+                                   params={"item": subject_text, "date": expiry_text},
+                                   recipients=[p["id"] for p in people], cur=cur)
+                return people
 
 
 def _claim_is_current(claim: Dict[str, Any]) -> bool:
@@ -248,7 +280,7 @@ def _claim_is_current(claim: Dict[str, Any]) -> bool:
 
 async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     result = {"due": 0, "reminded": 0, "emails_sent": 0, "email_failures": 0, "skipped": 0,
-              "dpo_reminded": 0, "dpo_skipped": 0}
+              "dpo_reminded": 0, "dpo_skipped": 0, "email_muted": 0, "billing_notified": 0}
     due = await asyncio.to_thread(_due, now)
     result["due"] = len(due)
     for item in due:
@@ -266,6 +298,9 @@ async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
         for person in recipients:
             if not await asyncio.to_thread(_claim_is_current, claim):
                 raise ClaimLost("Scheduler claim is no longer current")
+            if await asyncio.to_thread(notifications.email_muted, person["id"], "compliance"):
+                result["email_muted"] += 1
+                continue
             try:
                 await mailer.send_email_async(person["email"], email["subject"], email["html"], email["text"],
                                               person.get("full_name"), kind="alerts")
@@ -274,6 +309,9 @@ async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
                 result["email_failures"] += 1
                 logger.warning("compliance reminder email failed for an organisation member", exc_info=True)
     await _dpo_sweep(claim, now, result)
+    await asyncio.to_thread(_billing_sweep, claim, now, result)
+    # Catch-up for critical notification emails a restart left pending (services/notifications.py).
+    result["notification_emails"] = await notifications.deliver_pending_emails()
     return result
 
 

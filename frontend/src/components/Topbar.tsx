@@ -6,6 +6,8 @@ import { useAuth } from '../lib/auth';
 import { useToast } from './Toast';
 import CyphwardLogo from './CyphwardLogo';
 import { useReviewGrants } from '../lib/reviewerGrants';
+import NotificationBell from './NotificationBell';
+import { customerNotifications } from '../lib/api';
 
 const modKey = /mac/i.test(navigator.platform || '') ? '⌘K' : 'CTRL·K';
 
@@ -104,6 +106,8 @@ export default function Topbar({
               <span className="font-semibold">REVIEWS</span>
             </Link>
           )}
+
+          <NotificationBell source={customerNotifications} settingsPath="/settings?tab=notifications" />
 
           <button className="icon-btn hover-lift" onClick={toggleTheme} aria-label="Toggle color theme" title="Toggle theme">
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}

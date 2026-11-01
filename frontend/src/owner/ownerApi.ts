@@ -4,6 +4,7 @@
  * is sent by the browser (same origin) and is never readable from script.
  */
 
+import type { NotificationItem, NotificationSource } from '../lib/notifications';
 /** The record counts that hold a purge back (backend core/org_guard.py). Integers only; the console words them. */
 export type RetentionHold = {
   counts: { reviewer_grants: number; packs: number; snapshots: number; documents: number; evidence_files: number; incidents: number };
@@ -243,3 +244,25 @@ export const newsletterSend = (id: string, subject: string, theme: NewsletterThe
     method: 'POST',
     body: JSON.stringify({ approve: true, subject, theme }),
   }, NEWSLETTER);
+
+/* ── Notifications (owner-relevant events; backend/app/api/notifications.py owner_router) ── */
+type OwnerNotificationPage = { notifications: NotificationItem[]; unread_count: number; has_more?: boolean };
+
+/** The bell's source. Reads of the list are written to the owner audit; the 60-second poll asks for a count only. */
+export const ownerNotifications: NotificationSource = {
+  async list(limit) {
+    const page = await ownerGet<Partial<OwnerNotificationPage> & { items?: unknown }>('/notifications', { limit });
+    return { notifications: Array.isArray(page?.notifications) ? page.notifications : [],
+             unread_count: Number(page?.unread_count) || 0, has_more: Boolean(page?.has_more) };
+  },
+  async unreadCount() {
+    const page = await ownerGet<{ unread_count?: number }>('/notifications/unread-count');
+    return Number(page?.unread_count) || 0;
+  },
+  markRead: (id) => ownerPost(`/notifications/${encodeURIComponent(id)}/read`, {}),
+  markAllRead: () => ownerPost('/notifications/read-all', {}),
+};
+
+/** Owner rows open the organisation in the console (customer paths mean nothing here). */
+export const ownerNotificationLink = (item: NotificationItem): string | null =>
+  item.org_id && /^[0-9a-f-]{36}$/i.test(item.org_id) ? `/organizations/${item.org_id}` : null;

@@ -56,6 +56,11 @@ FILES = (
     "pages/Settings.tsx",
     "pages/Findings.tsx",
     "pages/Remediation.tsx",
+    # Notifications phase 1: the bell, its panel, the settings section and their wording.
+    "components/NotificationBell.tsx",
+    "components/NotificationSettings.tsx",
+    "lib/notifications.ts",
+    "components/Topbar.tsx",
 )
 
 

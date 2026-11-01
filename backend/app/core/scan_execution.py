@@ -218,7 +218,9 @@ def fail_claim(claim: ExecutionClaim, error: str, progress: dict | None = None) 
     """Mark the scan failed. The raw text is kept for the owner console; the stored failure code picks the
     reviewed sentence customers see (core/scan_failures.py)."""
     from backend.app.core.scan_failures import classify
+    from backend.app.services import notifications
 
+    code = classify(error)
     with owned_transaction(claim) as (cur, row):
         cur.execute(
             """UPDATE scans SET status='failed', error_message=%s, failure_code=%s, stage_progress=%s::jsonb,
@@ -226,7 +228,7 @@ def fail_claim(claim: ExecutionClaim, error: str, progress: dict | None = None) 
             execution_phase=NULL, claim_generation=claim_generation+1 WHERE id=%s""",
             (
                 error[:2000],
-                classify(error),
+                code,
                 json.dumps(
                     progress
                     if progress is not None
@@ -235,6 +237,8 @@ def fail_claim(claim: ExecutionClaim, error: str, progress: dict | None = None) 
                 claim.scan_id,
             ),
         )
+        notifications.emit("scan_failed", row["org_id"], key=f"scan_failed:{claim.scan_id}",
+                           params={"scan_id": claim.scan_id, "code": code}, cur=cur)
 
 
 def finish_assessment(
@@ -250,8 +254,12 @@ def finish_assessment(
 
     `compliance_evidence` (rows from compliance.mapping.domain_rows, or "error"
     when they could not be computed) is optional evidence: it is inserted
-    under a savepoint so a failure there never fails the assessment.
+    under a savepoint so a failure there never fails the assessment. The scan-finished notification is written
+    the same way (services/notifications.emit), from the reviewed template; `notification["params"]` carries its
+    values (domain, score, new and resolved counts).
     """
+    from backend.app.services import notifications
+
     with owned_transaction(claim) as (cur, row):
         if str(row["org_id"]) != str(org_id) or claim.phase != "core":
             raise ClaimLost("Invalid assessment authority")
@@ -278,16 +286,8 @@ def finish_assessment(
                 json.dumps((score.get("assessment") or {}).get("coverage")),
             ),
         )
-        cur.execute(
-            """INSERT INTO notifications (org_id,type,title,body,severity,link)
-            VALUES (%s,'scan_completed',%s,%s,%s,'/scans')""",
-            (
-                org_id,
-                notification["title"],
-                notification["body"],
-                notification["severity"],
-            ),
-        )
+        notifications.emit("scan_completed", org_id, key=f"scan_completed:{claim.scan_id}",
+                           params={"scan_id": claim.scan_id, **(notification.get("params") or {})}, cur=cur)
         cur.execute(
             """INSERT INTO audit_log (org_id,user_id,action,resource_type,resource_id,metadata)
             VALUES (%s,NULL,'scan.completed','scan',%s,%s::jsonb)""",
