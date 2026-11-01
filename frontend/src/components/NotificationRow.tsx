@@ -86,14 +86,21 @@ export default function NotificationRow({ item, reduceMotion, onOpen, onMark, on
   };
 
   const onClickCapture = (e: ReactMouseEvent) => {
-    const onAction = (e.target as Element).closest?.('.notif-swipe-action');
-    if (swallowClick.current || (revealed && !onAction)) {
-      // A tap on an open row closes it instead of opening the item.
+    if (swallowClick.current) {
+      // The click a drag can leave behind.
       e.preventDefault();
       e.stopPropagation();
       swallowClick.current = false;
-      if (revealed) reset();
+      return;
     }
+    if (!revealed) return;
+    // On an open row, Clear (uncovered or the button) and Mark read do what they say and close the row themselves.
+    // Closing it here would re-render before their own click handlers run (React flushes a click's updates between
+    // the capture and bubble phases) and unmount the uncovered Clear. A tap anywhere else only closes the row.
+    if ((e.target as Element).closest?.('.notif-swipe-action, .notif-actions button')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    reset();
   };
 
   const state = dragging ? 'dragging' : revealed ? 'revealed' : 'idle';
@@ -120,12 +127,12 @@ export default function NotificationRow({ item, reduceMotion, onOpen, onMark, on
         <div className="notif-actions">
           {!item.read_at && (
             <button type="button" className="notif-tool notif-mark" data-testid="notif-mark"
-                    aria-label={`Mark read: ${item.title}`} onClick={() => onMark(item)}>
+                    aria-label={`Mark read: ${item.title}`} onClick={() => { reset(); onMark(item); }}>
               Mark read
             </button>
           )}
           <button type="button" className="notif-tool notif-clear" data-testid="notif-clear"
-                  aria-label={`${NOTIFY_CLEAR}: ${item.title}`} onClick={() => onClear(item)}>
+                  aria-label={`${NOTIFY_CLEAR}: ${item.title}`} onClick={() => { reset(); onClear(item); }}>
             {NOTIFY_CLEAR}
           </button>
         </div>

@@ -2176,8 +2176,8 @@ main.page:focus{outline:none}
 .notif-panel.is-sheet{position:fixed; z-index:90; width:auto;
   top:var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px)));
   left:calc(16px + env(safe-area-inset-left, 0px)); right:calc(16px + env(safe-area-inset-right, 0px));
-  max-height:calc(100vh - var(--notif-sheet-top, 74px) - 16px - env(safe-area-inset-bottom, 0px));
-  max-height:calc(100dvh - var(--notif-sheet-top, 74px) - 16px - env(safe-area-inset-bottom, 0px))}
+  max-height:calc(100vh - var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px))) - 16px - env(safe-area-inset-bottom, 0px));
+  max-height:calc(100dvh - var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px))) - 16px - env(safe-area-inset-bottom, 0px))}
 .notif-panel.is-sheet .notif-body{flex:1 1 auto; min-height:0}
 @media (max-width:900px){
   .notif-tool{min-height:44px; min-width:44px}

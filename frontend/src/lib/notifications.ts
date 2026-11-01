@@ -45,7 +45,8 @@ export interface NotificationPreference {
 
 /** Where a bell reads from and writes to. Every call throws on failure; the bell shows reviewed wording. */
 export interface NotificationSource {
-  list(limit: number): Promise<NotificationPage>;
+  /** `offset` (default 0) skips that many rows: used to fill slots that cleared rows leave on the first page. */
+  list(limit: number, offset?: number): Promise<NotificationPage>;
   markRead(id: string): Promise<unknown>;
   markAllRead(): Promise<unknown>;
   /** Owner console: the count-only poll. The list is audited and counts as activity, so it is never polled. */
@@ -54,6 +55,8 @@ export interface NotificationSource {
 
 export const POLL_MS = 60_000;
 export const PAGE_SIZE = 50;
+/** At most this many extra pages are read to fill the slots cleared rows leave (each owner list read is audited). */
+export const TOP_UP_PAGES = 3;
 
 export const NOTIFY_TITLE = 'Notifications';
 export const NOTIFY_EMPTY = 'Nothing new. Scan results, findings and account changes will show here.';
@@ -63,7 +66,7 @@ export const NOTIFY_MARK_ERROR = 'That could not be marked as read. Try again in
 export const NOTIFY_CLEAR = 'Clear';
 export const NOTIFY_CLEARED = 'Notification cleared';
 export const NOTIFY_CLOSE = 'Close notifications';
-export const PREFS_ERROR ='Your notification settings could not be loaded. Try again in a moment.';
+export const PREFS_ERROR = 'Your notification settings could not be loaded. Try again in a moment.';
 export const PREFS_SAVE_ERROR = 'That setting could not be saved. Nothing was changed.';
 export const PREFS_NOTE =
   'Email goes out for critical alerts, such as a critical finding or a suspension, and for compliance reminders ' +
@@ -118,6 +121,11 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
   // ends (otherwise a count poll in flight when the panel opens would leave the panel on "Loading…").
   const listQueued = useRef(false);
 
+  // Cleared rows: hidden from every list load while this bell is mounted (the server still lists them, as read).
+  // `clearing` also holds rows whose clear is in flight, so a second clear of the same row sends nothing.
+  const hidden = useRef(new Set<string>());
+  const clearing = useRef(new Set<string>());
+
   /** `list`: load the page (panel opened, or after a mark). Otherwise a poll. */
   const load = useCallback(async (list: boolean): Promise<void> => {
     if (!enabled) return;
@@ -132,9 +140,21 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
       if (!list && source.unreadCount) {
         setCount(await source.unreadCount());
       } else {
-        const next = await source.list(PAGE_SIZE);
-        setPage(next);
-        setCount(next.unread_count || 0);
+        const first = await source.list(PAGE_SIZE);
+        const keep = (rows: NotificationItem[]) => rows.filter(n => !hidden.current.has(n.id));
+        const rows = keep(first.notifications);
+        // Cleared rows still take slots on the server's page: read on until the page is full again (or there is no
+        // more), so "Nothing new" never shows while older rows are left.
+        let offset = first.notifications.length;
+        let more = Boolean(first.has_more);
+        for (let i = 0; i < TOP_UP_PAGES && more && rows.length < PAGE_SIZE && offset > 0; i++) {
+          const extra = await source.list(PAGE_SIZE, offset);
+          rows.push(...keep(extra.notifications));
+          offset += extra.notifications.length;
+          more = Boolean(extra.has_more) && extra.notifications.length > 0;
+        }
+        setPage({ ...first, notifications: rows.slice(0, PAGE_SIZE), has_more: more || rows.length > PAGE_SIZE });
+        setCount(first.unread_count || 0);
       }
       setError(false);
     } catch {
@@ -179,12 +199,29 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
       await source.markRead(id);
       return true;
     } catch {
+      // Put the row and the count back (the reload below may fail too, so neither waits for it).
       setPage(before);
+      setCount(c => c + (wasUnread ? 1 : 0));
       return false;
     } finally {
       if (openRef.current) refresh(); else poll();
     }
   }, [page, source, refresh, poll]);
+
+  /** Clear: hide the row now and mark it read through the same route. true when marked, false when the server
+   *  refused (the row and the count come back), null when this row was already cleared (nothing is sent). */
+  const clear = useCallback(async (id: string): Promise<boolean | null> => {
+    if (clearing.current.has(id)) return null;
+    clearing.current.add(id);
+    hidden.current.add(id);
+    setPage(p => p && { ...p, notifications: p.notifications.filter(n => n.id !== id) });
+    const ok = await markRead(id);
+    if (!ok) {
+      hidden.current.delete(id);
+      clearing.current.delete(id);
+    }
+    return ok;
+  }, [markRead]);
 
   const markAllRead = useCallback(async () => {
     try {
@@ -197,5 +234,5 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
     }
   }, [source, refresh, poll]);
 
-  return { page, count, error, loading, refresh, markRead, markAllRead };
+  return { page, count, error, loading, refresh, markRead, markAllRead, clear };
 }

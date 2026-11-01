@@ -11,6 +11,11 @@
 //   - the unread count drops only for an unread row; a failed mark puts the row back with reviewed wording
 //   - reduced motion: the row does not slide and nothing animates, Clear shows at once
 //   - a vertical gesture on a row scrolls the list and clears nothing
+//   - on a row swiped open, Mark read and Clear do what they say; a tap elsewhere closes the row
+//   - a clear whose call returns after the panel closed announces nothing when the panel reopens
+//   - crossing 900px with the panel open keeps focus in the panel
+//   - when the mark and the reload both fail, the count comes back, and Try again brings the row back
+//   - cleared rows do not take slots: the next page fills them (no "Nothing new" while older rows are left)
 //   - the owner console bell does the same through its own route
 //   - the audit (44px targets, labels, contrast, no claim wording, no overflow) mid-swipe and after a clear
 import assert from "node:assert/strict";
@@ -63,22 +68,31 @@ const ownerFixtures = () => [
 const h = await startHarness();
 let items = fixtures();
 let ownerItems = ownerFixtures();
-const net = { reads: [], ownerReads: [] };
-const fail = { read: null };
-const page = (list) => ({ notifications: list, unread_count: list.filter((n) => !n.read_at).length, limit: 50, offset: 0, has_more: false });
+const net = { reads: [], ownerReads: [], lists: [] };
+const fail = { read: null, list: null };
+let readDelayMs = 0;  // the customer mark-read answers this much later
+const later = (answer, ms) => (ms ? new Promise((resolve) => setTimeout(() => resolve(answer), ms)) : answer);
+// Pages like the server: newest first, `limit` rows from `offset`, has_more when more follow.
+const page = (list, limit = 50, offset = 0) => ({ notifications: list.slice(offset, offset + limit),
+  unread_count: list.filter((n) => !n.read_at).length, limit, offset, has_more: list.length > offset + limit });
+const paging = (request) => { const q = new URL(request.url()).searchParams; return [Number(q.get("limit") || 50), Number(q.get("offset") || 0)]; };
 const markIn = (list, id) => list.map((n) => (n.id === id ? { ...n, read_at: n.read_at || new Date().toISOString() } : n));
 
-h.state.route = (p, method) => {
-  if (p === "/api/v1/notifications" && method === "GET") return [200, page(items)];
+h.state.route = (p, method, request) => {
+  if (p === "/api/v1/notifications" && method === "GET") {
+    const [limit, offset] = paging(request);
+    net.lists.push(offset);
+    return fail.list || [200, page(items, limit, offset)];
+  }
   let m = p.match(/^\/api\/v1\/notifications\/([^/]+)\/read$/);
   if (m && method === "PATCH") {
     net.reads.push(m[1]);
-    if (fail.read) return fail.read;
+    if (fail.read) return later(fail.read, readDelayMs);
     items = markIn(items, m[1]);
-    return [200, { notification: items.find((n) => n.id === m[1]) }];
+    return later([200, { notification: items.find((n) => n.id === m[1]) }], readDelayMs);
   }
   if (p === "/api/v1/owner/notifications/unread-count") return [200, { unread_count: ownerItems.filter((n) => !n.read_at).length }];
-  if (p === "/api/v1/owner/notifications" && method === "GET") return [200, page(ownerItems)];
+  if (p === "/api/v1/owner/notifications" && method === "GET") return [200, page(ownerItems, ...paging(request))];
   m = p.match(/^\/api\/v1\/owner\/notifications\/([^/]+)\/read$/);
   if (m && method === "POST") {
     net.ownerReads.push(m[1]);
@@ -280,12 +294,32 @@ try {
     await sleep(300);
     assert.equal((await swipeState(pg, "n2")).state, "idle", "a tap on the open row closes it");
     assert.equal(new URL(pg.url()).pathname, "/overview", "and does not open the item");
+    // On an open row, Mark read does what it says (and the row closes) without opening the item.
+    await drag(pg, "n3", -70);
+    await sleep(300);
+    assert.equal((await swipeState(pg, "n3")).state, "revealed");
+    await pg.tap(`${row("n3")} [data-testid="notif-mark"]`);
+    await settle(pg, 300);
+    assert.deepEqual(net.reads, ["n3"], "Mark read on an open row marks it read");
+    assert.equal(await pg.$eval(row("n3"), (li) => li.dataset.read), "true");
+    assert.equal((await swipeState(pg, "n3")).state, "idle", "and the row closes");
+    assert.equal(await badge(pg), "2");
+    assert.equal(new URL(pg.url()).pathname, "/overview");
+    // ...and the row's own Clear button clears it.
+    await drag(pg, "n3", -70);
+    await sleep(300);
+    await pg.tap(`${row("n3")} [data-testid="notif-clear"]`);
+    await settle(pg, 300);
+    assert.deepEqual(await ids(pg), ["n1", "n2", "n4"], "Clear on an open row clears it");
+    assert.deepEqual(net.reads, ["n3", "n3"], "one call for the clear (the earlier one was Mark read)");
+    assert.equal(await badge(pg), "2", "clearing the now-read row leaves the count");
+    net.reads = [];
     // A full swipe clears it: gone, marked read once, count down by one, announced.
     await drag(pg, "n2", -240);
     await settle(pg, 300);
-    assert.deepEqual(await ids(pg), ["n1", "n3", "n4"], "the swiped row is gone");
+    assert.deepEqual(await ids(pg), ["n1", "n4"], "the swiped row is gone");
     assert.deepEqual(net.reads, ["n2"], "mark-read was called exactly once");
-    assert.equal(await badge(pg), "2", "the unread count dropped by one");
+    assert.equal(await badge(pg), "1", "the unread count dropped by one");
     assert.equal(await announced(pg), "Notification cleared");
     assert.equal(new URL(pg.url()).pathname, "/overview", "the swipe did not open the item");
     // A short swipe then a tap on the uncovered Clear.
@@ -293,21 +327,23 @@ try {
     await sleep(300);
     await pg.tap(`${row("n1")} [data-testid="notif-swipe-clear"]`);
     await settle(pg, 300);
-    assert.deepEqual(await ids(pg), ["n3", "n4"]);
+    assert.deepEqual(await ids(pg), ["n4"]);
     assert.deepEqual(net.reads, ["n2", "n1"]);
-    assert.equal(await badge(pg), "1");
+    assert.equal(await badge(pg), null, "nothing unread");
     // Clearing a row that was already read leaves the unread count alone (the call is harmless).
     await drag(pg, "n4", -240);
     await settle(pg, 300);
-    assert.deepEqual(await ids(pg), ["n3"]);
-    assert.equal(await badge(pg), "1", "a read row does not change the count");
+    assert.deepEqual(await ids(pg), []);
+    assert.equal(await badge(pg), null, "a read row does not change the count");
     assert.equal(net.reads.filter((x) => x === "n4").length, 1);
     check("390 after clears", await audit(pg, { mobile: true, tabStops: 0 }));
     // Close and reopen: cleared rows stay gone, and nothing more is sent.
     await pg.click('[data-testid="notif-close"]');
     await sleep(150);
-    await openPanel(pg);
-    assert.deepEqual(await ids(pg), ["n3"], "cleared rows stay hidden after the panel reopens");
+    await pg.click('[data-testid="notif-bell"]');
+    await pg.waitForSelector('[data-testid="notif-empty"]');
+    assert.deepEqual(await ids(pg), [], "cleared rows stay hidden after the panel reopens");
+    assert.ok(await pg.$('[data-testid="notif-empty"]'), "and only then does the empty state show");
     assert.equal(net.reads.length, 3, "no extra mark-read calls");
     assert.equal(await announced(pg), "", "a reopened panel has nothing stale to announce");
     await close();
@@ -344,6 +380,20 @@ try {
     assert.match(t, /That could not be marked as read\. Try again in a moment\./);
     assert.ok(!t.includes("Traceback") && !t.includes("psycopg"), "no raw text");
     fail.read = null;
+    // The mark and the reload after it both fail: the count comes back (the list shows the load error), and
+    // Try again brings the row back.
+    fail.read = [500, { detail: RAW }];
+    fail.list = [500, { detail: RAW }];
+    await pg.click(`${row("n3")} [data-testid="notif-clear"]`);
+    await settle(pg, 400);
+    assert.equal(await badge(pg), "1", "the count is put back when the reload fails too");
+    assert.ok(await pg.$('[data-testid="notif-error"]'), "the load error shows");
+    fail.read = null;
+    fail.list = null;
+    await pg.click('[data-testid="notif-error"] button');
+    await settle(pg, 300);
+    assert.ok((await ids(pg)).includes("n3"), "Try again brings the row back");
+    assert.equal(await badge(pg), "1");
     // Clearing the last rows leaves the empty state and focus on the heading.
     await pg.click(`${row("n3")} [data-testid="notif-clear"]`);
     await settle(pg, 300);
@@ -401,10 +451,80 @@ try {
     await close();
   }
 
+  // 6b. A clear whose call comes back after the panel closed: the reopened panel announces nothing.
+  {
+    items = fixtures();
+    net.reads = [];
+    const { page: pg, close } = await open("/overview", { width: 390, height: 844 });
+    await openPanel(pg);
+    readDelayMs = 700;
+    await pg.click(`${row("n1")} [data-testid="notif-clear"]`);
+    await sleep(50);
+    await pg.keyboard.press("Escape");
+    await sleep(1100);
+    readDelayMs = 0;
+    await openPanel(pg);
+    await sleep(200);
+    assert.deepEqual(net.reads, ["n1"]);
+    assert.ok(!(await ids(pg)).includes("n1"), "the row was cleared");
+    assert.equal(await announced(pg), "", "nothing stale is announced on reopening");
+    await close();
+  }
+
+  // 6c. Crossing 900px with the panel open: it is rebuilt in its new place and focus stays in it.
+  {
+    items = fixtures();
+    const { page: pg, close } = await open("/overview", { width: 1000, height: 800, touch: false });
+    await openPanel(pg);
+    await pg.focus(`${row("n2")} [data-testid="notif-clear"]`);
+    await pg.setViewport({ width: 390, height: 844 });
+    await sleep(300);
+    let f = await active(pg);
+    assert.ok(await pg.$('[data-testid="notif-panel"].is-sheet'), "the sheet now");
+    assert.ok(f.inPanel, `focus stays in the panel going narrow: ${JSON.stringify(f)}`);
+    await pg.setViewport({ width: 1000, height: 800 });
+    await sleep(300);
+    f = await active(pg);
+    assert.ok(await pg.$('[data-testid="notif-panel"]:not(.is-sheet)'), "the popover again");
+    assert.ok(f.inPanel, `focus stays in the panel going wide: ${JSON.stringify(f)}`);
+    await pg.keyboard.press("Escape");
+    await sleep(150);
+    assert.equal((await active(pg)).testid, "notif-bell", "Escape still returns focus to the bell");
+    await close();
+  }
+
+  // 6d. Cleared rows do not take slots on the 50-row page: the next page fills them, so "Nothing new" never shows
+  //     while older rows are left.
+  {
+    const many = [];
+    for (let i = 0; i < 52; i++) {
+      many.push({ id: `p${i}`, kind: "scan_completed", category: "scans", severity: "info", title: `Scan finished for host ${i + 1}.acme.ng`,
+        body: null, link: "/scans", count: 1, read_at: i < 50 ? daysAgo(1) : null, created_at: hoursAgo(i + 1) });
+    }
+    items = many;
+    net.reads = [];
+    net.lists = [];
+    const { page: pg, close } = await open("/overview", { width: 390, height: 844 });
+    await openPanel(pg);
+    assert.equal((await ids(pg)).length, 50, "the first page");
+    assert.ok(!net.lists.some((o) => o > 0), "nothing hidden yet, so only the first page is read");
+    // Clear all fifty in one go.
+    await pg.$$eval('[data-testid="notif-clear"]', (bs) => bs.forEach((b) => b.click()));
+    await settle(pg, 800);
+    assert.equal(net.reads.length, 50);
+    const left = await ids(pg);
+    assert.deepEqual(left, ["p50", "p51"], `the older rows fill the freed slots: ${left}`);
+    assert.ok(net.lists.includes(50), "the next page was read from offset 50");
+    assert.equal(await pg.$('[data-testid="notif-empty"]'), null, "no \"Nothing new\" while rows are left");
+    assert.equal(await badge(pg), "2");
+    await close();
+  }
+
   // 7. The owner console bell: the same sheet and gestures, through its own route.
   {
     ownerItems = ownerFixtures();
     net.ownerReads = [];
+    net.reads = [];
     const { page: pg, close } = await open("/admin", { width: 320, height: 720 });
     assert.equal(await badge(pg), "2");
     await openPanel(pg);
@@ -431,7 +551,7 @@ try {
   }
 
   assert.deepEqual(problems, []);
-  console.log("notifications mobile: sheet geometry at 390/320 (customer and owner, dark and light), 1440 popover, safe-area rule, keyboard and close, swipe clear (once, announced, persists), reveal and tap, Clear button (keyboard, mouse, double press, failure), reduced motion, vertical scroll, owner bell, audits passed");
+  console.log("notifications mobile: sheet geometry at 390/320 (customer and owner, dark and light), 1440 popover, safe-area rule, keyboard and close, swipe clear (once, announced, persists), reveal and tap, controls on an open row, Clear button (keyboard, mouse, double press, failure, double failure), reduced motion, vertical scroll, late announce, 900px crossing, paging past cleared rows, owner bell, audits passed");
 } finally {
   await h.close();
 }

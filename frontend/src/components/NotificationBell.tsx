@@ -11,8 +11,10 @@
  * Wider screens keep the popover under the bell.
  *
  * Clear (a button on every row, or a swipe on touch screens; components/NotificationRow.tsx) hides the row for as
- * long as the app stays open and marks it read through the existing mark-read route. Nothing is deleted: after a
- * reload the row is back, as read. A second clear of the same row sends nothing.
+ * long as the app stays open and marks it read through the existing mark-read route (lib/notifications.ts `clear`).
+ * Nothing is deleted: after a reload the row is back, as read. A second clear of the same row sends nothing.
+ * Crossing the 900px line while the panel is open rebuilds it (popover <-> sheet); focus that was in it goes back to
+ * its heading.
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -41,7 +43,7 @@ interface Props {
 export default function NotificationBell({ source, linkFor, settingsPath, enabled = true }: Props) {
   const [open, setOpen] = useState(false);
   const [markError, setMarkError] = useState(false);
-  const { page, count, error, loading, refresh, markRead, markAllRead } = useNotifications(source, open, enabled);
+  const { page, count, error, loading, refresh, markRead, markAllRead, clear } = useNotifications(source, open, enabled);
   const nav = useNavigate();
   const panelId = useId();
   const headingId = useId();
@@ -53,11 +55,10 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [sheetTop, setSheetTop] = useState<number | null>(null);
 
-  // Cleared rows stay hidden while the app is open, across closes and list reloads (the server still lists them).
-  const [cleared, setCleared] = useState<ReadonlySet<string>>(() => new Set());
-  const clearing = useRef(new Set<string>());  // cleared or being cleared: a second clear sends nothing
   const [announce, setAnnounce] = useState('');
   const focusAfterClear = useRef<string | null>(null);
+  const openNow = useRef(open);
+  openNow.current = open;
 
   const close = useCallback(() => {
     setOpen(false);
@@ -115,7 +116,18 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
     };
   }, [open, sheet]);
 
-  const items = (page?.notifications ?? []).filter(n => !cleared.has(n.id));
+  // When the layout switches with the panel open, the panel is rebuilt in its new place; focus that was inside it
+  // (and is now lost to <body>) goes to its heading.
+  const lastSheet = useRef(sheet);
+  useLayoutEffect(() => {
+    if (lastSheet.current === sheet) return;
+    lastSheet.current = sheet;
+    if (!open) return;
+    const at = document.activeElement;
+    if (!at || at === document.body || !document.contains(at)) heading.current?.focus();
+  }, [sheet, open]);
+
+  const items = page?.notifications ?? [];
   const label = count > 0 ? `${NOTIFY_TITLE}, ${count} unread` : `${NOTIFY_TITLE}, none unread`;
   const shown = count > 99 ? '99+' : String(count);
 
@@ -129,26 +141,23 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
   };
 
   const clearItem = async (item: NotificationItem) => {
-    if (clearing.current.has(item.id)) return;
-    clearing.current.add(item.id);
     // When focus is on the row being cleared, it moves to the next row (or the one before, or the heading).
     const at = document.activeElement;
-    if (at && panel.current?.querySelector(`[data-testid="notif-item"][data-id="${CSS.escape(item.id)}"]`)?.contains(at)) {
-      const i = items.findIndex(n => n.id === item.id);
-      focusAfterClear.current = (items[i + 1] ?? items[i - 1])?.id ?? '';
-    }
+    const focusWasHere = Boolean(at && panel.current?.querySelector(`[data-testid="notif-item"][data-id="${CSS.escape(item.id)}"]`)?.contains(at));
+    const i = items.findIndex(n => n.id === item.id);
+    const nextId = (items[i + 1] ?? items[i - 1])?.id ?? '';
     setMarkError(false);
-    setCleared(s => new Set(s).add(item.id));
-    // Marking read again is harmless (the route is idempotent); the unread count drops only if the row was unread.
-    const ok = await markRead(item.id);
-    if (ok) {
-      setAnnounce('');
-      window.setTimeout(() => setAnnounce(NOTIFY_CLEARED), 50);  // emptied first so a second clear is announced too
-    } else {
-      clearing.current.delete(item.id);
-      setCleared(s => { const next = new Set(s); next.delete(item.id); return next; });
-      setMarkError(true);
-    }
+    // The row leaves at once; marking read again is harmless (the route is idempotent); the unread count drops only
+    // if the row was unread. null: this row was already cleared and nothing was sent.
+    const pending = clear(item.id);
+    if (focusWasHere) focusAfterClear.current = nextId;
+    const ok = await pending;
+    if (ok === null) return;
+    if (!ok) { setMarkError(true); return; }
+    if (!openNow.current) return;  // closed while the call was out: nothing to announce
+    setAnnounce('');
+    // Emptied first so a second clear is announced too; skipped if the panel closed in between.
+    window.setTimeout(() => { if (openNow.current) setAnnounce(NOTIFY_CLEARED); }, 50);
   };
 
   useLayoutEffect(() => {
@@ -157,7 +166,7 @@ export default function NotificationBell({ source, linkFor, settingsPath, enable
     focusAfterClear.current = null;
     const next = target ? panel.current.querySelector<HTMLElement>(`[data-testid="notif-item"][data-id="${CSS.escape(target)}"] .notif-open`) : null;
     (next ?? heading.current)?.focus();
-  }, [cleared]);
+  }, [page]);
 
   const panelStyle = sheet && sheetTop !== null ? ({ '--notif-sheet-top': `${sheetTop}px` } as CSSProperties) : undefined;
   const body = (
