@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import StrataField from './StrataField';
 import PublicHeader from './PublicHeader';
 import PublicFooter from './PublicFooter';
+import SocialFloat from './SocialFloat';
 import { usePageMotion } from '../lib/usePageMotion';
 
 /**
@@ -40,6 +41,7 @@ export default function PublicShell({
       </main>
 
       <PublicFooter anchorPrefix="/" />
+      <SocialFloat />
     </div>
   );
 }

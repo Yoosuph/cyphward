@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, ShieldCheck, Radar, Gauge, Wrench, Activity, Check, Terminal, Twitter, Instagram, Linkedin } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Radar, Gauge, Wrench, Activity, Check, Terminal } from 'lucide-react';
+import SocialFloat from '../components/SocialFloat';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
 import { usePageMotion } from '../lib/usePageMotion';
@@ -492,39 +493,7 @@ export default function Landing() {
       {/* Footer */}
       <PublicFooter anchorPrefix="" newsletter />
 
-      {/* Fixed side social buttons — stacked, small gap */}
-      <div className="social-float" aria-label="Cyphward on social media">
-        <a
-          href="https://x.com/cyphward"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Cyphward on X"
-          title="Cyphward on X"
-          className="social-float-btn"
-        >
-          <Twitter size={14} />
-        </a>
-        <a
-          href="https://www.instagram.com/cyphward_/"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Cyphward on Instagram"
-          title="Cyphward on Instagram"
-          className="social-float-btn"
-        >
-          <Instagram size={14} />
-        </a>
-        <a
-          href="https://www.linkedin.com/company/cyphward/"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Cyphward on LinkedIn"
-          title="Cyphward on LinkedIn"
-          className="social-float-btn"
-        >
-          <Linkedin size={14} />
-        </a>
-      </div>
+      <SocialFloat />
     </div>
   );
 }
