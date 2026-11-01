@@ -28,6 +28,7 @@
     "test:owner-logs": "node scripts/check-owner-logs.mjs",
     "test:admin-phase2": "node scripts/check-admin-phase2.mjs",
     "test:notifications": "node scripts/check-notifications.mjs",
+    "test:notifications-mobile": "node scripts/check-notifications-mobile.mjs",
     "test:admin-delete-org": "node scripts/check-admin-delete-org.mjs"
   },
   "dependencies": {

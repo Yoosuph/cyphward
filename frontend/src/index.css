@@ -2141,14 +2141,25 @@ main.page:focus{outline:none}
 .notif-tool:hover:not(:disabled){border-color:var(--ink)}
 .notif-tool:disabled{opacity:.55; cursor:default}
 .notif-tool:focus-visible, .notif-open:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.notif-head{flex:none}
 .notif-body{overflow-y:auto; overscroll-behavior:contain}
 .notif-state{padding:18px 14px; font-size:13px; color:var(--soft); display:flex; flex-direction:column; gap:10px; align-items:flex-start}
 .notif-note{margin:8px 12px 0; font-size:12px; color:var(--accent)}
 .notif-day{position:sticky; top:0; margin:0; padding:6px 12px; font-size:10px; letter-spacing:.12em; text-transform:uppercase;
   color:var(--soft); background:var(--raised); border-bottom:1px solid var(--line); font-family:"IBM Plex Mono", ui-monospace, monospace}
 .notif-list{list-style:none; margin:0; padding:0}
-.notif-item{display:flex; align-items:flex-start; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line)}
-.notif-item.is-unread{background:rgba(var(--accent-rgb), .06); box-shadow:inset 3px 0 0 var(--accent)}
+/* A row is a sliding layer (.notif-swipe) over the Clear action a swipe uncovers (components/NotificationRow.tsx).
+   touch-action: pan-y leaves vertical scrolling to the browser; only a sideways touch reaches the swipe. */
+.notif-item{position:relative; overflow:hidden; border-bottom:1px solid var(--line); touch-action:pan-y}
+.notif-swipe{position:relative; z-index:1; display:flex; align-items:flex-start; gap:8px; padding:10px 12px;
+  background-color:var(--raised); transition:transform .18s cubic-bezier(.16,1,.3,1)}
+.notif-swipe.is-dragging{transition:none}
+.notif-item.is-unread .notif-swipe{background-image:linear-gradient(rgba(var(--accent-rgb), .06), rgba(var(--accent-rgb), .06));
+  box-shadow:inset 3px 0 0 var(--accent)}
+.notif-actions{display:flex; flex-direction:column; align-items:stretch; gap:6px; flex:none}
+.notif-swipe-action{position:absolute; top:0; right:0; bottom:0; z-index:0; display:flex; align-items:center; justify-content:center;
+  gap:6px; background:var(--accent); color:#fff; font-size:13px; font-weight:700; cursor:pointer; user-select:none}
+.notif-swipe-action.is-over{z-index:2}
 .notif-open{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; text-align:left; background:none; border:0;
   padding:0; color:inherit; cursor:pointer}
 .notif-sev{font-size:10px; letter-spacing:.1em; text-transform:uppercase; font-weight:700; color:var(--soft);
@@ -2159,10 +2170,23 @@ main.page:focus{outline:none}
 .notif-item.is-read .notif-item-title{font-weight:500; color:var(--soft)}
 .notif-item-body{font-size:12px; line-height:1.5; color:var(--soft); overflow-wrap:anywhere}
 .notif-meta{font-size:11px; color:var(--soft)}
+/* Phones and tablets: a full-width sheet in <body>, 8px under the top bar (--notif-sheet-top is measured), with a
+   16px gutter plus any safe-area inset. The header stays put; the list scrolls inside the sheet. */
+.notif-panel.is-sheet{position:fixed; z-index:90; width:auto;
+  top:var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px)));
+  left:calc(16px + env(safe-area-inset-left, 0px)); right:calc(16px + env(safe-area-inset-right, 0px));
+  max-height:calc(100vh - var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px))) - 16px - env(safe-area-inset-bottom, 0px));
+  max-height:calc(100dvh - var(--notif-sheet-top, calc(74px + env(safe-area-inset-top, 0px))) - 16px - env(safe-area-inset-bottom, 0px))}
+.notif-panel.is-sheet .notif-body{flex:1 1 auto; min-height:0}
 @media (max-width:900px){
-  .notif-panel{position:fixed; left:8px; right:8px; top:64px; width:auto; max-height:calc(100vh - 140px)}
   .notif-tool{min-height:44px; min-width:44px}
 }
+/* Narrow phones: "Mark all read" keeps its name for screen readers and its tooltip, and shows the icon only. */
+@media (max-width:480px){
+  .notif-read-all-label{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0}
+  .notif-head{padding:8px 8px 8px 12px}
+}
+@media (prefers-reduced-motion: reduce){ .notif-swipe{transition:none} }
 @media (max-width:420px){
   .bar-tools{gap:8px}
 }

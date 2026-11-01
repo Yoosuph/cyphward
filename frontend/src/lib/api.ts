@@ -476,8 +476,9 @@ export async function getReport(reportId: string): Promise<{ report: ReportRow }
 export type AppNotification = NotificationItem;
 
 /** The newest page (50 at most) and the unread count. Throws on failure so the bell can show its error state. */
-export async function listNotifications(limit = 50, unreadOnly = false): Promise<NotificationPage> {
+export async function listNotifications(limit = 50, unreadOnly = false, offset = 0): Promise<NotificationPage> {
   const qs = new URLSearchParams({ limit: String(limit) });
+  if (offset > 0) qs.set('offset', String(offset));
   if (unreadOnly) qs.set('unread_only', 'true');
   const data = await apiFetch<NotificationPage>(`/notifications?${qs}`, { cache: 'no-store' }, true);
   return data ?? { notifications: [], unread_count: 0 };
@@ -492,7 +493,7 @@ export async function markAllNotificationsRead(): Promise<unknown> {
 }
 
 export const customerNotifications: NotificationSource = {
-  list: (limit) => listNotifications(limit),
+  list: (limit, offset) => listNotifications(limit, false, offset),
   markRead: markNotificationRead,
   markAllRead: markAllNotificationsRead,
 };

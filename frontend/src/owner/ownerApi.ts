@@ -250,8 +250,8 @@ type OwnerNotificationPage = { notifications: NotificationItem[]; unread_count: 
 
 /** The bell's source. Reads of the list are written to the owner audit; the 60-second poll asks for a count only. */
 export const ownerNotifications: NotificationSource = {
-  async list(limit) {
-    const page = await ownerGet<Partial<OwnerNotificationPage> & { items?: unknown }>('/notifications', { limit });
+  async list(limit, offset) {
+    const page = await ownerGet<Partial<OwnerNotificationPage> & { items?: unknown }>('/notifications', offset ? { limit, offset } : { limit });
     return { notifications: Array.isArray(page?.notifications) ? page.notifications : [],
              unread_count: Number(page?.unread_count) || 0, has_more: Boolean(page?.has_more) };
   },
