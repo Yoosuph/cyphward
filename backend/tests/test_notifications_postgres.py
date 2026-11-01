@@ -799,3 +799,21 @@ def test_reapplying_over_the_first_draft_widens_the_email_state_check(admin):
                                "WHERE conname = 'notifications_email_status_check'").fetchone()["d"]
     assert "skipped" in definition
     assert _grant_problems(admin) == []
+
+
+def test_a_soft_deleted_organisation_notifies_and_emails_no_member(nw, urls, notification_mail):
+    """Main's rule (core/org_guard.py): a deleted organisation emails nobody. The owner console still records it."""
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "a.test")  # pending email written before the delete
+    with _admin(urls) as conn:
+        conn.execute("INSERT INTO organization_suspensions (org_id, status, changed_at, changed_by, deleted_at) "
+                     "VALUES (%s, 'deleted', now(), %s, now()) ON CONFLICT (org_id) DO UPDATE SET status = 'deleted', "
+                     "deleted_at = now()", (nw["org"], nw["owner"]))
+    notifications.emit_finding(nw["org"], uuid4(), "critical", "b.test")
+    notifications.emit("scan_completed", nw["org"], key=f"t:{uuid4()}", params={"domain": "a.test"})
+    asyncio.run(notifications.deliver_pending_emails())
+    assert [m for m in notification_mail if nw["tag"] in m["to"]] == [], "no email after the delete"
+    customer_rows = _rows(urls, "SELECT type, email_status FROM notifications WHERE org_id = %s AND audience = 'customer'",
+                          (nw["org"],))
+    assert {(r["type"], r["email_status"]) for r in customer_rows} == {("finding_critical", "failed")}, \
+        "only the rows written before the delete, and their email was not sent"
+    assert len(_mine(urls, nw["owner"], nw["org"], "owner")) >= 1
