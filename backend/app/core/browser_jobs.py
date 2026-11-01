@@ -114,7 +114,7 @@ def claim(worker_id: str, lease_seconds: Optional[int] = None) -> Optional[Brows
                     WHERE (j.status='queued' OR (j.status='running' AND j.lease_expires_at < clock_timestamp()))
                       AND d.verification_status='verified' AND d.revoked_at IS NULL
                       AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
-                                      WHERE os.org_id = j.org_id AND os.status = 'suspended')
+                                      WHERE os.org_id = j.org_id AND os.status IN ('suspended', 'deleted'))
                     ORDER BY j.requested_at, j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1"""
                 )
                 pick = cur.fetchone()

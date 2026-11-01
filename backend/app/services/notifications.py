@@ -116,7 +116,8 @@ def _customer_recipients(cur, kind: msg.Kind, org_id: str, recipients: Optional[
 def _emit(cur, kind_name: str, org_id: str, key: str, params: Dict[str, Any],
           recipients: Optional[Iterable[Any]], actor_id: Optional[Any], email_after_scan: Optional[Any]) -> int:
     kind = msg.KINDS[kind_name]
-    org = _fetchone(cur, "SELECT name FROM organizations WHERE id = %s", (org_id,))
+    org = _fetchone(cur, "SELECT o.name, EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = o.id "
+                         "AND os.status = 'deleted') AS deleted FROM organizations o WHERE o.id = %s", (org_id,))
     if org is None:
         return 0
     params.setdefault("org_name", org["name"])
@@ -124,7 +125,9 @@ def _emit(cur, kind_name: str, org_id: str, key: str, params: Dict[str, Any],
         row = _fetchone(cur, "SELECT d.domain FROM scans s JOIN domains d ON d.id = s.domain_id WHERE s.id = %s",
                         (str(params["scan_id"]),))
         params["domain"] = row["domain"] if row else None
-    targets: List[Tuple[str, str]] = [
+    # A soft-deleted organisation (core/org_guard.py) notifies and emails none of its members; the owner console
+    # still records owner-relevant events about it.
+    targets: List[Tuple[str, str]] = [] if org.get("deleted") else [
         ("customer", uid) for uid in _customer_recipients(cur, kind, org_id, recipients)
         if not actor_id or uid != str(actor_id)]
     if kind.owner:
@@ -211,7 +214,9 @@ RETURNING n.id, n.org_id, n.user_id, n.category, n.title, n.body, n.link
 """
 RECIPIENT_SQL = """
 SELECT p.email, p.full_name,
-       EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = %s AND m.user_id = p.id) AS member,
+       EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = %s AND m.user_id = p.id
+               AND NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                               WHERE os.org_id = m.org_id AND os.status = 'deleted')) AS member,
        coalesce((SELECT email_muted FROM notification_preferences np
                  WHERE np.user_id = p.id AND np.category = %s), false) AS email_muted
 FROM profiles p WHERE p.id = %s

@@ -51,6 +51,7 @@ JOIN organizations o ON o.id = a.org_id
 CROSS JOIN LATERAL (SELECT min(x) AS threshold_days FROM unnest(%s::int[]) AS x
                     WHERE a.expires_at <= %s + make_interval(days => x)) t
 WHERE a.superseded_by IS NULL
+  AND NOT EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = a.org_id AND os.status = 'deleted')
   AND a.expires_at > %s
   AND a.answer ->> 'value' IS DISTINCT FROM 'not_sure'
   AND t.threshold_days IS NOT NULL
@@ -74,6 +75,7 @@ WHERE NOT EXISTS (SELECT 1 FROM dpo_reminders r WHERE r.org_id = o.id AND r.peri
   AND NOT EXISTS (SELECT 1 FROM evidence_packs p WHERE p.org_id = o.id AND p.issued_at >= %s AND p.dpo IS NOT NULL)
   AND EXISTS (SELECT 1 FROM domains d WHERE d.org_id = o.id AND d.verification_status = 'verified')
   AND EXISTS (SELECT 1 FROM organization_members m WHERE m.org_id = o.id AND m.role IN ('owner', 'admin'))
+  AND NOT EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = o.id AND os.status = 'deleted')
 ORDER BY o.id
 """
 
@@ -162,6 +164,7 @@ SELECT s.id, s.org_id, s.status, s.current_period_end, o.display_timezone
 FROM subscriptions s JOIN organizations o ON o.id = s.org_id
 WHERE s.status IN ('trialing', 'active') AND s.current_period_end > %s
   AND s.current_period_end <= %s + interval '7 days'
+  AND NOT EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = s.org_id AND os.status = 'deleted')
 ORDER BY s.current_period_end, s.id
 """
 

@@ -57,7 +57,9 @@ ALLOWED = {
         "organizations/{org_id}/plan", "organizations/{org_id}/trial", "organizations/{org_id}/suspend",
         "organizations/{org_id}/unsuspend", "organizations/{org_id}/members/{user_id}/remove",
         "organizations/{org_id}/members/restore", "scans/{scan_id}/cancel", "users/{user_id}/sign-out",
-        "notifications/read-all", "notifications/{notification_id}/read")},
+        "notifications/read-all", "notifications/{notification_id}/read",
+        # Delete organisation (docs/admin-delete-org): owner session + console Origin (test_admin_delete_org.py).
+        "organizations/{org_id}/delete", "organizations/{org_id}/restore", "organizations/{org_id}/purge")},
     **{("POST", f"/api/v1/newsletter/{p}"): _PUBLIC for p in ("subscribe", "confirm", "unsubscribe")},
     ("POST", "/api/v1/newsletter/drafts"): "newsletter draft upload with the drafts key; no organisation",
     ("POST", "/api/v1/newsletter/drafts/{issue_id}/send"): "owner or newsletter staff send; no organisation",
@@ -267,7 +269,7 @@ def test_the_scheduled_sweep_counts_suspended_admissions(monkeypatch):
     assert result["skipped_suspended"] == 1 and result["scheduled"] == 0 and sent == []
 
 
-def test_the_sweep_and_the_claim_leave_suspended_organisations_out_in_sql():
+def test_the_sweep_and_the_claim_leave_suspended_and_deleted_organisations_out_in_sql():
     import inspect
     from backend.app.core import scan_execution
     from backend.app.workflows import inngest_workflow as wf
@@ -276,7 +278,7 @@ def test_the_sweep_and_the_claim_leave_suspended_organisations_out_in_sql():
                    scan_recovery.LOCAL_QUEUE_SQL, inspect.getsource(browser_jobs.claim)):
         flat = " ".join(source.split())
         assert "NOT EXISTS (SELECT 1 FROM organization_suspensions os" in flat
-        assert "status='suspended'" in flat.replace(" = ", "=")
+        assert "status IN ('suspended', 'deleted')" in flat.replace(" = ", "="), source[:80]
 
 
 # ── Copy ───────────────────────────────────────────────────────────────────
@@ -292,11 +294,15 @@ def test_new_backend_wording_has_no_claim_language():
     from backend.app.core import scan_failures
     texts = [suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE, *scan_failures.CATEGORIES.values(),
              scan_failures.STAGE_NOTE_FALLBACK,
-             inspect.getsource(owner_actions.restore_member)]
+             inspect.getsource(owner_actions.restore_member),
+             # Delete organisation (docs/admin-delete-org)
+             suspension.DELETED_OWNER_MESSAGE, *owner_actions.DELETE_ORG_MESSAGES,
+             inspect.getsource(owner_actions.delete_organization), inspect.getsource(owner_actions.restore_organization),
+             inspect.getsource(owner_actions.purge_organization)]
     hits = [(p, t[:60]) for t in texts for p in BANNED if p in t.lower()]
     assert not hits, hits
     # The refusal names the existing contact address only.
-    for message in (suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE):
+    for message in (suspension.SUSPENDED_MESSAGE, suspension.SUSPENDED_OWNER_MESSAGE, suspension.DELETED_OWNER_MESSAGE):
         assert re.findall(r"[\w.]+@[\w.]+\w", message) == ["info@cyphward.com"]
 
 

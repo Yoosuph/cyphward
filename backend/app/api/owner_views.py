@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.app.core import owner as owner_mod
 from backend.app.core import owner_lists as lists
 from backend.app.core import owner_reads as reads
+from backend.app.core import org_guard
+from backend.app.core.org_guard import RESTORE_WINDOW_DAYS
 from backend.app.core.demo_org import DEMO_ORG_ID, DEMO_USER_ID
 from backend.app.core.config import BREVO_API_KEY
 from backend.app.core.database import execute_one, execute_query
@@ -112,13 +114,16 @@ def overview(request: Request, owner: Dict[str, Any] = Depends(owner_mod.require
 # below 1, a negative offset or an unknown filter or sort value is refused with 422.
 @router.get("/organizations")
 def organizations(request: Request, q: str = Query("", max_length=100), billing: lists.OrgBilling = "",
-                  plan: lists.PlanFilter = "", suspended: lists.YesNo = "", sort: lists.OrgSort = "created",
-                  dir: lists.Dir = "desc", limit: int = Query(50, ge=1), offset: int = Query(0, ge=0, le=100000),
+                  plan: lists.PlanFilter = "", suspended: lists.YesNo = "", deleted: lists.OrgDeleted = "",
+                  sort: lists.OrgSort = "created", dir: lists.Dir = "desc", limit: int = Query(50, ge=1),
+                  offset: int = Query(0, ge=0, le=100000),
                   owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
     limit = reads.page_size(limit)
-    filters = {"q": q, "billing": billing, "plan": plan, "suspended": suspended, "sort": sort, "dir": dir}
+    filters = {"q": q, "billing": billing, "plan": plan, "suspended": suspended, "deleted": deleted, "sort": sort,
+               "dir": dir}
     _view(request, owner, "organizations", metadata=_filters_meta(filters))
-    rows, total = reads.bounded_read(lists.organizations(q, billing, plan, suspended, sort, dir, limit, offset))
+    rows, total = reads.bounded_read(lists.organizations(q, billing, plan, suspended, sort, dir, limit, offset,
+                                                         deleted))
     return {"items": rows, "total": (total[0] if total else {}).get("n", 0), "limit": limit, "offset": offset,
             "sort": sort, "dir": dir}
 
@@ -179,8 +184,14 @@ def organization_detail(org_id: str, request: Request,
         """,
         (org_id,),
     )
+    # Lifecycle: suspended, or deleted with its restore window (owner_actions.RESTORE_WINDOW_DAYS), worked out with
+    # the database clock so the console and the actions agree.
     suspension = execute_one(
-        "SELECT status, changed_at, first_suspended_at FROM organization_suspensions WHERE org_id = %s", (org_id,))
+        "SELECT os.status, os.changed_at, os.first_suspended_at, os.deleted_at, p.email AS deleted_by_email, "
+        "os.deleted_at + make_interval(days => %s) AS restore_until, "
+        "os.deleted_at + make_interval(days => %s) > now() AS restorable "
+        "FROM organization_suspensions os LEFT JOIN profiles p ON p.id = os.deleted_by WHERE os.org_id = %s",
+        (RESTORE_WINDOW_DAYS, RESTORE_WINDOW_DAYS, org_id))
     # Owner actions on this organization (changes and refusals; views are left out), newest first.
     owner_actions = _rows(
         """
@@ -209,8 +220,23 @@ def organization_detail(org_id: str, request: Request,
         """,
         (org_id, org_id),
     )
-    org = {**org, "suspended": bool(suspension and suspension["status"] == "suspended"),
-           "suspension_changed_at": (suspension or {}).get("changed_at")}
+    lifecycle = suspension or {}
+    deleted = lifecycle.get("status") == "deleted"
+    sub = subscriptions[0] if subscriptions else None
+    org = {**org, "suspended": lifecycle.get("status") == "suspended",
+           "suspension_changed_at": lifecycle.get("changed_at"),
+           "status": lifecycle.get("status") or "active",
+           "deleted": deleted,
+           "deleted_at": lifecycle.get("deleted_at") if deleted else None,
+           "deleted_by_email": lifecycle.get("deleted_by_email") if deleted else None,
+           "restore_until": lifecycle.get("restore_until") if deleted else None,
+           # Restore is open inside the window; purge only after it (and only if no record is still retained).
+           "restorable": bool(deleted and lifecycle.get("restorable")),
+           "purge_window_passed": bool(deleted and not lifecycle.get("restorable")),
+           "restore_window_days": RESTORE_WINDOW_DAYS,
+           # The same answer the delete and purge actions give: protected, unless the override flag is on.
+           "protected": org_guard.is_protected(org) and not org_guard.override_enabled(),
+           "paid_subscription_active": org_guard.paid_subscription_active(sub)}
     return {"organization": org, "members": members, "domains": domains, "subscriptions": subscriptions,
             "invoices": invoices, "scans": scans, "open_findings": findings, "activity": activity,
             "owner_actions": owner_actions, "removed_members": removed_members,
@@ -248,7 +274,9 @@ def user_detail(user_id: str, request: Request,
     if not profile:
         raise HTTPException(status_code=404, detail="User not found.")
     memberships = _rows(
-        "SELECT o.id, o.name, m.role, m.created_at AS joined_at FROM organization_members m "
+        "SELECT o.id, o.name, m.role, m.created_at AS joined_at, "
+        "EXISTS (SELECT 1 FROM organization_suspensions os WHERE os.org_id = o.id AND os.status = 'deleted') AS deleted "
+        "FROM organization_members m "
         "JOIN organizations o ON o.id = m.org_id WHERE m.user_id = %s ORDER BY m.created_at",
         (user_id,),
     )
@@ -275,20 +303,22 @@ def user_detail(user_id: str, request: Request,
 # ── Subscriptions & invoices ───────────────────────────────────────────────
 @router.get("/subscriptions")
 def subscriptions(request: Request, q: str = Query("", max_length=100), status: lists.SubStatus = "",
-                  plan: lists.PlanFilter = "", sort: lists.SubSort = "period_end", dir: lists.Dir = "asc",
-                  limit: int = Query(50, ge=1), offset: int = Query(0, ge=0, le=100000),
+                  plan: lists.PlanFilter = "", deleted: lists.OrgDeleted = "", sort: lists.SubSort = "period_end",
+                  dir: lists.Dir = "asc", limit: int = Query(50, ge=1), offset: int = Query(0, ge=0, le=100000),
                   owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
     limit = reads.page_size(limit)
-    filters = {"q": q, "status": status, "plan": plan, "sort": sort, "dir": dir}
+    filters = {"q": q, "status": status, "plan": plan, "deleted": deleted, "sort": sort, "dir": dir}
     _view(request, owner, "subscriptions", metadata=_filters_meta(filters))
-    rows_q, total_q = lists.subscriptions(q, status, plan, sort, dir, limit, offset)
+    rows_q, total_q = lists.subscriptions(q, status, plan, sort, dir, limit, offset, deleted)
     rows, total, invoices = reads.bounded_read([rows_q, total_q, (
         """
         SELECT i.number, o.id AS org_id, o.name AS org_name, i.plan, i.amount_kobo, i.currency, i.status,
                i.period_start, i.period_end, i.created_at
         FROM invoices i JOIN organizations o ON o.id = i.org_id
+        WHERE %s <> '' OR NOT EXISTS (SELECT 1 FROM organization_suspensions os
+                                      WHERE os.org_id = o.id AND os.status = 'deleted')
         ORDER BY i.created_at DESC LIMIT 50
-        """, ())])
+        """, (deleted,))])
     return {"items": rows, "total": (total[0] if total else {}).get("n", 0), "limit": limit, "offset": offset,
             "sort": sort, "dir": dir, "invoices": invoices}
 
@@ -311,19 +341,24 @@ _SCAN_COLUMNS = f"""
 
 
 @router.get("/scans")
-def scans(request: Request, q: str = "", state: str = "", limit: int = Query(50, ge=1, le=100),
-          offset: int = Query(0, ge=0, le=100000),
+def scans(request: Request, q: str = "", state: str = "", deleted: lists.OrgDeleted = "",
+          limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=100000),
           owner: Dict[str, Any] = Depends(owner_mod.require_owner)) -> Dict[str, Any]:
-    _view(request, owner, "scans", metadata={k: v[:100] for k, v in (("q", q), ("state", state)) if v} or None)
-    params = {"q": q.strip(), "like": _like(q), "state": state.strip(), "limit": limit, "offset": offset}
+    _view(request, owner, "scans",
+          metadata={k: v[:100] for k, v in (("q", q), ("state", state), ("deleted", deleted)) if v} or None)
+    params = {"q": q.strip(), "like": _like(q), "state": state.strip(), "deleted": deleted, "limit": limit,
+              "offset": offset}
     rows = _rows(
         f"""
         SELECT * FROM (
-          SELECT {_SCAN_COLUMNS}
+          SELECT {_SCAN_COLUMNS},
+                 EXISTS (SELECT 1 FROM organization_suspensions os
+                          WHERE os.org_id = s.org_id AND os.status = 'deleted') AS org_deleted
           FROM scans s JOIN organizations o ON o.id = s.org_id LEFT JOIN domains d ON d.id = s.domain_id
           WHERE (%(q)s = '' OR d.domain ILIKE %(like)s OR o.name ILIKE %(like)s)
         ) x
         WHERE (%(state)s = '' OR x.state = %(state)s)
+          AND {lists.DELETED_FILTER.format(col="x.org_deleted")}
         ORDER BY x.created_at DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """,
