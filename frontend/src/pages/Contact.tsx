@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import StrataField from '../components/StrataField';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
+import SocialFloat from '../components/SocialFloat';
 import { usePageMotion } from '../lib/usePageMotion';
 
 const TOPICS = [
@@ -154,6 +155,7 @@ export default function Contact() {
         </div>
       </main>
       <PublicFooter anchorPrefix="/" />
+      <SocialFloat />
     </div>
   );
 }

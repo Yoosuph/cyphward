@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import StrataField from '../components/StrataField';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
+import SocialFloat from '../components/SocialFloat';
 import { usePageMotion } from '../lib/usePageMotion';
 
 // Add `image: '/team/<name>.jpg'` once a real, approved headshot exists
@@ -79,6 +80,7 @@ export default function Teams() {
         </section>
       </main>
       <PublicFooter anchorPrefix="/" />
+      <SocialFloat />
     </div>
   );
 }

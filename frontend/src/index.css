@@ -1270,7 +1270,6 @@ body.drawer-open {
 .social-float-btn{width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--line-strong); border-radius:6px; background:var(--inset); color:var(--soft); backdrop-filter:blur(6px); transition:color .16s, border-color .16s, transform .16s}
 .social-float-btn:hover{color:var(--ink); border-color:var(--accent); transform:translateY(-1px)}
 .social-float-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
-@media (max-width:900px){ .social-float{display:none} }
 
 /* Ledger swipe hint (mobile only) */
 .ledger-hint{display:none; font-family:var(--font-mono); font-size:10px; letter-spacing:.16em; color:var(--soft); text-align:right; margin-top:10px}
