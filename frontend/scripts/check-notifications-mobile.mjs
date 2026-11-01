@@ -16,6 +16,8 @@
 //   - crossing 900px with the panel open keeps focus in the panel
 //   - when the mark and the reload both fail, the count comes back, and Try again brings the row back
 //   - cleared rows do not take slots: the next page fills them (no "Nothing new" while older rows are left)
+//   - a row that arrives between two page reads shows once (no duplicate ids, no duplicate-key warning)
+//   - with the panel closed, a poll (60-second, focus, visibility) makes one list request at most
 //   - the owner console bell does the same through its own route
 //   - the audit (44px targets, labels, contrast, no claim wording, no overflow) mid-swipe and after a clear
 import assert from "node:assert/strict";
@@ -71,6 +73,7 @@ let ownerItems = ownerFixtures();
 const net = { reads: [], ownerReads: [], lists: [] };
 const fail = { read: null, list: null };
 let readDelayMs = 0;  // the customer mark-read answers this much later
+let afterFirstPage = null;  // runs once, right after the customer list answers a first-page read
 const later = (answer, ms) => (ms ? new Promise((resolve) => setTimeout(() => resolve(answer), ms)) : answer);
 // Pages like the server: newest first, `limit` rows from `offset`, has_more when more follow.
 const page = (list, limit = 50, offset = 0) => ({ notifications: list.slice(offset, offset + limit),
@@ -82,7 +85,10 @@ h.state.route = (p, method, request) => {
   if (p === "/api/v1/notifications" && method === "GET") {
     const [limit, offset] = paging(request);
     net.lists.push(offset);
-    return fail.list || [200, page(items, limit, offset)];
+    if (fail.list) return fail.list;
+    const answer = [200, page(items, limit, offset)];
+    if (offset === 0 && afterFirstPage) { const run = afterFirstPage; afterFirstPage = null; run(); }
+    return answer;
   }
   let m = p.match(/^\/api\/v1\/notifications\/([^/]+)\/read$/);
   if (m && method === "PATCH") {
@@ -112,6 +118,15 @@ const check = (label, r) => {
 
 async function open(route, { width = 390, height = 844, theme = "dark", reducedMotion = false, touch = true } = {}) {
   const tab = await h.newPage({ theme, reducedMotion });
+  // The bell's 60-second poll, kept so a test can run it on demand; console errors and warnings, kept for the
+  // duplicate-key probe.
+  await tab.page.evaluateOnNewDocument(() => {
+    window.__ticks = [];
+    const orig = window.setInterval.bind(window);
+    window.setInterval = (fn, ms, ...rest) => { if (ms === 60000) window.__ticks.push(fn); return orig(fn, ms, ...rest); };
+  });
+  tab.console = [];
+  tab.page.on("console", (msg) => { if (["error", "warn", "warning"].includes(msg.type())) tab.console.push(msg.text()); });
   await tab.page.setViewport({ width, height, hasTouch: touch, isMobile: touch && width < 900 });
   await tab.page.goto(`${h.origin}${route}`, { waitUntil: "domcontentloaded" });
   await tab.page.waitForSelector('[data-testid="notif-bell"]');
@@ -520,6 +535,74 @@ try {
     await close();
   }
 
+  // 6e. A notification that arrives between the first page read and the next one shifts the server's pages, so the
+  //     next page repeats a row: it shows once, with no duplicate-key warning.
+  {
+    const many = [];
+    for (let i = 0; i < 52; i++) {
+      many.push({ id: `p${i}`, kind: "scan_completed", category: "scans", severity: "info", title: `Scan finished for host ${i + 1}.acme.ng`,
+        body: null, link: "/scans", count: 1, read_at: null, created_at: hoursAgo(i + 1) });
+    }
+    items = many;
+    net.lists = [];
+    const tab = await open("/overview", { width: 390, height: 844 });
+    const pg = tab.page;
+    await openPanel(pg);
+    const fresh = { id: "new1", kind: "finding_critical", category: "findings", severity: "critical", title: "Critical finding on mail.acme.ng",
+      body: null, link: "/findings", count: 1, read_at: null, created_at: new Date().toISOString() };
+    afterFirstPage = () => { items = [fresh, ...items]; };  // lands after the reload's first page, before its next
+    await pg.click(`${row("p0")} [data-testid="notif-clear"]`);
+    await settle(pg, 600);
+    assert.equal(afterFirstPage, null, "the new row arrived between the two reads");
+    assert.ok(net.lists.includes(50), "the next page was read");
+    const list = await ids(pg);
+    assert.equal(new Set(list).size, list.length, `no row twice: ${list.filter((x, i) => list.indexOf(x) !== i)}`);
+    assert.ok(list.includes("p49") && list.includes("p50") && !list.includes("p0"), "the shifted row shows once, the cleared one not at all");
+    assert.equal(list.length, 50, "a full page");
+    const dupes = tab.console.filter((t) => /same key|duplicate key/i.test(t));
+    assert.deepEqual(dupes, [], "no duplicate-key warning");
+    await tab.close();
+  }
+
+  // 6f. With the panel closed, a poll makes one list request at most (the extra pages wait for the panel to open).
+  {
+    const many = [];
+    for (let i = 0; i < 52; i++) {
+      many.push({ id: `p${i}`, kind: "scan_completed", category: "scans", severity: "info", title: `Scan finished for host ${i + 1}.acme.ng`,
+        body: null, link: "/scans", count: 1, read_at: null, created_at: hoursAgo(i + 1) });
+    }
+    items = many;
+    const { page: pg, close } = await open("/overview", { width: 390, height: 844 });
+    await openPanel(pg);
+    await pg.click(`${row("p0")} [data-testid="notif-clear"]`);
+    await settle(pg, 300);
+    await pg.click(`${row("p1")} [data-testid="notif-clear"]`);
+    await settle(pg, 300);
+    assert.ok(net.lists.includes(50), "with the panel open, the freed slots are filled");
+    await pg.keyboard.press("Escape");
+    await settle(pg, 300);
+    for (const [label, fire] of [
+      ["the 60-second poll", () => pg.evaluate(() => { for (const fn of window.__ticks) fn(); })],
+      ["a focus", () => pg.evaluate(() => window.dispatchEvent(new Event("focus")))],
+      ["a visibility change", () => pg.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))],
+    ]) {
+      net.lists = [];
+      await fire();
+      await settle(pg, 300);
+      assert.ok(net.lists.length <= 1, `${label} with the panel closed: ${net.lists.length} list requests (${net.lists})`);
+      assert.ok(!net.lists.some((o) => o > 0), `${label}: no extra page`);
+    }
+    assert.equal(await badge(pg), "50", "the badge still follows the first page's count");
+    // Opening the panel reads on again.
+    net.lists = [];
+    await openPanel(pg);
+    await settle(pg, 300);
+    assert.ok(net.lists.includes(50), "opening the panel fills the freed slots");
+    const list = await ids(pg);
+    assert.ok(list.length === 50 && !list.includes("p0") && !list.includes("p1") && list.includes("p51"), `full page without the cleared rows: ${list.length}`);
+    await close();
+  }
+
   // 7. The owner console bell: the same sheet and gestures, through its own route.
   {
     ownerItems = ownerFixtures();
@@ -551,7 +634,7 @@ try {
   }
 
   assert.deepEqual(problems, []);
-  console.log("notifications mobile: sheet geometry at 390/320 (customer and owner, dark and light), 1440 popover, safe-area rule, keyboard and close, swipe clear (once, announced, persists), reveal and tap, controls on an open row, Clear button (keyboard, mouse, double press, failure, double failure), reduced motion, vertical scroll, late announce, 900px crossing, paging past cleared rows, owner bell, audits passed");
+  console.log("notifications mobile: sheet geometry at 390/320 (customer and owner, dark and light), 1440 popover, safe-area rule, keyboard and close, swipe clear (once, announced, persists), reveal and tap, controls on an open row, Clear button (keyboard, mouse, double press, failure, double failure), reduced motion, vertical scroll, late announce, 900px crossing, paging past cleared rows, no duplicate rows, one list request per closed poll, owner bell, audits passed");
 } finally {
   await h.close();
 }

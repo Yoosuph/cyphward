@@ -55,7 +55,8 @@ export interface NotificationSource {
 
 export const POLL_MS = 60_000;
 export const PAGE_SIZE = 50;
-/** At most this many extra pages are read to fill the slots cleared rows leave (each owner list read is audited). */
+/** At most this many extra pages are read, with the panel open, to fill the slots cleared rows leave (each owner
+ *  list read is audited). */
 export const TOP_UP_PAGES = 3;
 
 export const NOTIFY_TITLE = 'Notifications';
@@ -141,13 +142,22 @@ export function useNotifications(source: NotificationSource, open: boolean, enab
         setCount(await source.unreadCount());
       } else {
         const first = await source.list(PAGE_SIZE);
-        const keep = (rows: NotificationItem[]) => rows.filter(n => !hidden.current.has(n.id));
+        // Each row once: a notification that arrives between two page reads shifts the server's pages, so the next
+        // page can repeat a row already taken (React would warn about the duplicate key, and the row would show twice).
+        const seen = new Set<string>();
+        const keep = (rows: NotificationItem[]) => rows.filter(n => {
+          if (hidden.current.has(n.id) || seen.has(n.id)) return false;
+          seen.add(n.id);
+          return true;
+        });
         const rows = keep(first.notifications);
         // Cleared rows still take slots on the server's page: read on until the page is full again (or there is no
-        // more), so "Nothing new" never shows while older rows are left.
+        // more), so "Nothing new" never shows while older rows are left. Only while the panel is open: a poll with
+        // it closed reads the first page alone (it is there for the count), and opening the panel reads on.
         let offset = first.notifications.length;
         let more = Boolean(first.has_more);
-        for (let i = 0; i < TOP_UP_PAGES && more && rows.length < PAGE_SIZE && offset > 0; i++) {
+        const topUp = openRef.current;
+        for (let i = 0; topUp && i < TOP_UP_PAGES && more && rows.length < PAGE_SIZE && offset > 0; i++) {
           const extra = await source.list(PAGE_SIZE, offset);
           rows.push(...keep(extra.notifications));
           offset += extra.notifications.length;
