@@ -1,4 +1,5 @@
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { LoadingScreen } from '../../components/ui';
 import { ShieldCheck, Building, Globe, CheckCircle2, Radar, MailCheck } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import StrataField from '../../components/StrataField';
@@ -19,17 +20,8 @@ export default function OnboardingLayout() {
   const reviewGrants = useReviewGrants();
 
   if (loading) {
-    return (
-      <div className="auth-wrap">
-        <StrataField variant="auth" />
-        <div className="login-z w-full max-w-xl mx-auto my-auto px-4 text-center">
-          <div className="animate-pulse">
-            <ShieldCheck size={48} className="text-accent mx-auto mb-4" />
-            <p className="mono text-sm text-soft">Loading your workspace…</p>
-          </div>
-        </div>
-      </div>
-    );
+    // The same hand-off loader as the app shell while the session is checked.
+    return <LoadingScreen label="Checking your workspace" />;
   }
 
   if (!tenant && !user) {

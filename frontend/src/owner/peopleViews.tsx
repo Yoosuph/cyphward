@@ -1,4 +1,6 @@
 import { useContext, type ReactNode } from 'react';
+import { SkControl } from '../components/ui/Skeleton';
+import { DetailSkeleton, OverviewSkeleton, SubtitleSkeleton } from './skeletons';
 import { Link, useParams } from 'react-router-dom';
 import { Activity, AlertTriangle, Building2, Clock, CreditCard, Globe, Radar, Users } from 'lucide-react';
 import {
@@ -31,7 +33,7 @@ export function OverviewView() {
   return (
     <>
       <PageHead title="Overview" subtitle={data ? `As of ${fmtDate(new Date(data.as_of * 1000).toISOString())}` : 'Everything on the platform, at a glance.'} />
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="the overview" skeleton={<OverviewSkeleton />}>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <Stat label="Users" value={c.users_total ?? '—'} hint={`+${c.users_7d ?? 0} this week · +${c.users_30d ?? 0} in 30 days`} to="/users" icon={Users} />
           <Stat label="Organizations" value={c.orgs_total ?? '—'} hint={`+${c.orgs_7d ?? 0} this week`} to="/organizations" icon={Building2} />
@@ -121,7 +123,7 @@ export function OrganizationsView() {
   const suspended = params.get('suspended') || '';
   const deleted = params.get('deleted') || '';
   const filters = { q, billing, plan, suspended, deleted, sort, dir };
-  const { data, error, loading, reload } = useOwnerView<Row>('/organizations', { ...filters, offset, limit });
+  const { data, error, loading, placeholder, reload } = useOwnerView<Row>('/organizations', { ...filters, offset, limit });
   return (
     <>
       <PageHead title="Organizations" subtitle={data ? `${data.total} workspace${data.total === 1 ? '' : 's'} match` : 'Every customer workspace.'}
@@ -136,7 +138,7 @@ export function OrganizationsView() {
                       options={DELETED_OPTIONS} onChange={v => set({ deleted: v, offset: 0 })} />
         <SortSelect id="org-sort" columns={ORG_COLUMNS} sort={sort} dir={dir} onChange={(s, d) => set({ sort: s, dir: d, offset: 0 })} />
       </FilterBar>
-      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="organizations"
+      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="organizations" columns={ORG_COLUMNS.map(c => c.label)} placeholder={placeholder}
                  empty={{ title: 'No organizations match', help: 'Clear the search or a filter to see more.' }}>
         <OwnerTable caption="Organizations" columns={ORG_COLUMNS} rows={(data?.items || []) as Row[]} rowKey={o => o.id}
                     sort={sort} dir={dir} onSort={(s, d) => set({ sort: s, dir: d, offset: 0 })} testId="org-table" />
@@ -156,12 +158,12 @@ export function OrganizationDetailView() {
   const deleted = !!org?.deleted;
   return (
     <>
-      <PageHead title={org?.name || 'Organization'} subtitle={org ? <span className="mono text-xs">{org.slug} · {org.sector || 'no sector'} · created {fmtDate(org.created_at, false)}</span> : undefined}
+      <PageHead title={org?.name || 'Organization'} subtitle={org ? <span className="mono text-xs">{org.slug} · {org.sector || 'no sector'} · created {fmtDate(org.created_at, false)}</span> : <SubtitleSkeleton phoneLines={1} />}
                 actions={<div className="flex flex-wrap gap-2">
                   {org && !deleted && <SuspendAction orgId={org.id} orgName={org.name} suspended={!!org.suspended} onDone={reload} />}
                   <Link to="/organizations" className="btn-mini">← ALL ORGANIZATIONS</Link>
                 </div>} />
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="this organization" skeleton={<DetailSkeleton panels={[{ kind: 'dl', rows: 4 }, { kind: 'table', rows: 1, cols: ['Person', 'Role', 'Last seen', 'Action'] }, { kind: 'table', rows: 1, cols: ['Domain', 'Status', 'Verified'] }, { kind: 'dl', rows: 3 }, { wide: true, kind: 'table', rows: 1, cols: ['Domain', 'Status', 'Coverage', 'Score', 'Started'] }, { wide: true, kind: 'table', rows: 1, cols: ['When', 'Action', 'Outcome', 'By', 'Reason'] }, { wide: true, kind: 'table', rows: 1, cols: ['Action', 'By', 'When'] }]} />}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">
             {deleted && (
@@ -396,7 +398,7 @@ export function UsersView() {
   const mfa = params.get('mfa') || '';
   const verified = params.get('verified') || '';
   const filters = { q, mfa, verified, sort, dir };
-  const { data, error, loading, reload } = useOwnerView<Row>('/users', { ...filters, offset, limit });
+  const { data, error, loading, placeholder, reload } = useOwnerView<Row>('/users', { ...filters, offset, limit });
   return (
     <>
       <PageHead title="Users" subtitle={data ? `${data.total} account${data.total === 1 ? '' : 's'} match` : 'Every account on the platform.'}
@@ -410,7 +412,7 @@ export function UsersView() {
                       options={[['', 'All'], ['yes', 'Verified'], ['no', 'Not verified']]} onChange={v => set({ verified: v, offset: 0 })} />
         <SortSelect id="user-sort" columns={USER_COLUMNS} sort={sort} dir={dir} onChange={(s, d) => set({ sort: s, dir: d, offset: 0 })} />
       </FilterBar>
-      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="users"
+      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="users" columns={USER_COLUMNS.map(c => c.label)} placeholder={placeholder}
                  empty={{ title: 'No users match', help: 'Clear the search or a filter to see more.' }}>
         <OwnerTable caption="Users" columns={USER_COLUMNS} rows={(data?.items || []) as Row[]} rowKey={u => u.id}
                     sort={sort} dir={dir} onSort={(s, d) => set({ sort: s, dir: d, offset: 0 })} testId="user-table" />
@@ -428,12 +430,13 @@ export function UserDetailView() {
   const me = useContext(OwnerMeContext);
   return (
     <>
-      <PageHead title={u?.full_name || u?.email || 'User'} subtitle={u ? <span className="mono text-xs">{u.email} · joined {fmtDate(u.created_at, false)}</span> : undefined}
+      <PageHead title={u?.full_name || u?.email || 'User'} subtitle={u ? <span className="mono text-xs">{u.email} · joined {fmtDate(u.created_at, false)}</span> : <SubtitleSkeleton />}
                 actions={<div className="flex flex-wrap gap-2">
                   {u && u.email !== me?.email && <SignOutEverywhereAction userId={u.id} email={u.email} onDone={reload} />}
+                  {!u && !error && <SkControl width={200} height={30} />}
                   <Link to="/users" className="btn-mini">← ALL USERS</Link>
                 </div>} />
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="this user" skeleton={<DetailSkeleton panels={[{ kind: 'dl', rows: 6 }, { kind: 'table', rows: 1, cols: ['Organization', 'Role'] }, { wide: true, kind: 'text' }, { wide: true, kind: 'text' }]} />}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="Account">

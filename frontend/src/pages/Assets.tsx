@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
 import { PageHead } from '../components/ui';
 import {
   Server,
@@ -17,8 +18,9 @@ import {
 import { getAssets, getAssetDetail } from '../lib/api';
 import type { Asset, Finding } from '../types';
 import { useToast } from '../components/Toast';
-import { readPageCache, writePageCache } from '../lib/pageCache';
-import { TableRowSkeleton, AssetDrawerSkeleton, AssetsSkeleton } from '../components/Skeleton';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
+import { AssetDrawerSkeleton } from '../components/Skeleton';
+import { AppTableRows, ASSET_COLUMNS, AssetsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Drawer from '../components/Drawer';
 
 export default function Assets() {
@@ -26,6 +28,8 @@ export default function Assets() {
   const [assets, setAssets] = useState<Asset[]>(() => readPageCache<Asset[]>('assets:all:') ?? []);
   const [loading, setLoading] = useState(() => readPageCache('assets:all:') === undefined);
   const shownKey = useRef<string | null>(null); // cache key of the rows on screen
+  // The whole-page skeleton is for the first load only; a filter change keeps the header and filters on screen.
+  const [everLoaded, setEverLoaded] = useState(() => readPageCache('assets:all:') !== undefined);
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -34,31 +38,45 @@ export default function Assets() {
 
   const toast = useToast();
 
+  // Search is a draft until submitted; typing must not cancel the active filter request.
+  const beginLoad = useRequestGuard('app', `assets:${selectedType}`);
   const loadAssets = async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     const cacheKey = `assets:${selectedType}:${search}`;
     const cached = readPageCache<Asset[]>(cacheKey);
     if (cached) setAssets(cached);
     // Skeleton only when this view has nothing to show yet (not on a refresh).
     if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
     else if (cached) setLoading(false);
+    if (!cached && shownKey.current !== cacheKey) { setAssets([]); }
     shownKey.current = cacheKey;
     try {
       const res = await getAssets({
         search: search || undefined,
         asset_type: selectedType !== 'all' ? selectedType : undefined,
       });
+      if (!isCurrent()) return;
       setAssets(res.assets);
-      writePageCache(cacheKey, res.assets);
+      writePageCache(cacheKey, res.assets, ticket);
     } catch (e) {
+      if (!isCurrent()) return;
       toast('Failed to load assets');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void loadAssets();
+        return;
+      }
       setLoading(false);
+      setEverLoaded(true);
     }
   };
 
   useEffect(() => {
     loadAssets();
   }, [selectedType]);
+  // Back to the tab after a while: ask again (lib/queryCache, focus revalidation).
+  useRevalidateOnFocus(loadAssets);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +97,8 @@ export default function Assets() {
   };
 
   const assetTypes = ['all', 'Web Endpoint', 'API Gateway', 'Mail Server', 'VPN Gateway'];
+
+  if (loading && !everLoaded) return <AssetsSkeleton />;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 content-fade-in">
@@ -147,12 +167,7 @@ export default function Assets() {
             </thead>
             <tbody className="divide-y divide-line/60">
               {loading ? (
-                Array.from({ length: 7 }).map((_, i) => (
-                  <TableRowSkeleton
-                    key={i}
-                    cols={[170, 110, 85, 45, 130, 105, 65, 24]}
-                  />
-                ))
+                <AppTableRows columns={ASSET_COLUMNS} rows={7} twoLine />
               ) : assets.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-soft mono">
@@ -165,7 +180,7 @@ export default function Assets() {
                     key={asset.id}
                     onClick={() => handleOpenDrawer(asset.id)}
                     className="hover:bg-inset/50 transition-colors cursor-pointer group stagger-row"
-                    style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+                    style={{ animationDelay: `calc(var(--motion-stagger) * ${Math.min(idx, 8)})` }}
                   >
                     <td className="stack-title py-3 px-4 font-semibold text-ink">
                       <div className="flex items-center gap-2">

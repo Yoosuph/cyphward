@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRequestGuard, readPageCache, writePageCache } from '../../lib/pageCache';
+import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Info, Pencil, Plus, ShieldAlert } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../../components/StatusChip';
 import Dialog, { useDialogClose } from '../../components/ui/Dialog';
 import DateTimeField from '../../components/ui/DateTimeField';
-import { EmptyPanel, LoadingPanel } from '../../components/ui/StatePanels';
+import { EmptyPanel } from '../../components/ui/StatePanels';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
 import { localToUtc, resolveZone, utcToLocalInput } from '../../lib/datetime';
@@ -267,22 +269,32 @@ function IncidentRow({ i, nowMs, canEdit, onDetails, onEdit }: { i: Incident; no
 type Open = { kind: 'form'; incident: Incident | null } | { kind: 'details'; incident: Incident } | null;
 
 export default function IncidentsTab({ canEdit }: { canEdit: boolean }) {
-  const [data, setData] = useState<IncidentList | null>(null);
+  // Last-seen list paints at once on a revisit (lib/queryCache); load() refreshes it.
+  const [data, setData] = useState<IncidentList | null>(() => readPageCache<IncidentList>('comply:incidents') ?? null);
   const [gated, setGated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setError(null);
     try {
-      setData(await listIncidents());
+      const fresh = await listIncidents();
+      if (!isCurrent()) return;
+      writePageCache('comply:incidents', fresh, ticket);
+      setData(fresh);
       setGated(false);
     } catch (e) {
+      if (!isCurrent()) return;
       if (isGrowthGate(e)) setGated(true);
       else setError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -292,7 +304,7 @@ export default function IncidentsTab({ canEdit }: { canEdit: boolean }) {
 
   if (gated) return <GrowthGate what="The breach incident log" />;
   if (error && !data) return <LoadError title="We could not load your incidents" message={error} onRetry={() => void load()} />;
-  if (!data) return <LoadingPanel label="incidents" />;
+  if (!data) return <CompliancePanelSkeleton section="incidents" />;
   const zone = resolveZone(data.display_timezone);
   const live = (incident: Incident) => data.incidents.find(x => x.id === incident.id) || incident;
 

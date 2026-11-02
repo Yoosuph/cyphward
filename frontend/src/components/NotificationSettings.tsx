@@ -4,6 +4,7 @@
  * says so in reviewed wording. `focusCategory` (from the email's settings link) scrolls to and highlights a row.
  */
 import { useEffect, useRef, useState } from 'react';
+import { SkControl, SkLine, SkeletonRegion } from './ui/Skeleton';
 import { getNotificationPreferences, setNotificationPreference } from '../lib/api';
 import { PREFS_ERROR, PREFS_NOTE, PREFS_SAVE_ERROR, type NotificationPreference } from '../lib/notifications';
 
@@ -61,7 +62,18 @@ export default function NotificationSettings({ focusCategory }: { focusCategory?
           <button type="button" className="btn-mini" onClick={load}>Try again</button>
         </div>
       )}
-      {!failed && prefs === null && <p className="mt-4 text-sm text-soft">Loading…</p>}
+      {!failed && prefs === null && (
+        <SkeletonRegion label="notification settings" className="mt-4">
+          <ul className="divide-y divide-line border border-line rounded">
+            {[0, 1, 2, 3, 4].map(i => (
+              <li key={i} className="notif-pref">
+                <div className="min-w-0 flex-1 space-y-1"><SkLine width="40%" size={14} /><SkLine width="75%" size={12} /></div>
+                <div className="notif-pref-switches"><SkControl width={110} height={36} /><SkControl width={110} height={36} /></div>
+              </li>
+            ))}
+          </ul>
+        </SkeletonRegion>
+      )}
       {!failed && prefs !== null && prefs.length === 0 && (
         <p className="mt-4 text-sm text-soft">Notification settings are not available right now.</p>
       )}

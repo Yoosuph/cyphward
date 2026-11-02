@@ -18,7 +18,7 @@ import {
   Layers,
 } from 'lucide-react';
 import ScoreRing from '../components/ScoreRing';
-import { OverviewSkeleton } from '../components/Skeleton';
+import { OverviewSkeleton } from '../components/skeletons/RouteSkeleton';
 import BoardReportModal from '../components/BoardReportModal';
 import Modal from '../components/Modal';
 import { getOverview, launchScan, getDomains, getExecutiveSummary } from '../lib/api';
@@ -29,12 +29,12 @@ import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
 import { startTour, tourSeen } from '../lib/tour';
-import { readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 
 export default function Overview() {
-  // Last-seen overview paints at once on a revisit; loadData refreshes it.
-  const [data, setData] = useState<OverviewData | null>(() => readPageCache<OverviewData>('overview') ?? null);
-  const [loading, setLoading] = useState(() => readPageCache('overview') === undefined);
+  // Includes live scan progress: always load this payload fresh on a revisit.
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const requestId = useRef(0);
@@ -90,14 +90,16 @@ export default function Overview() {
     return () => clearTimeout(id);
   }, [tourDue]);
 
+  const beginLoad = useRequestGuard();
   const loadData = useCallback(async () => {
     const id = ++requestId.current;
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     try {
       const [overview, domainResult] = await Promise.allSettled([getOverview(), getDomains()]);
-      if (id !== requestId.current) return;
+      if (id !== requestId.current || !isCurrent()) return;
       if (overview.status === 'fulfilled' && overview.value) {
         setData(overview.value);
-        writePageCache('overview', overview.value);
         setRefreshFailed(false);
         setLastRefreshed(new Date());
       } else {
@@ -105,17 +107,18 @@ export default function Overview() {
       }
       if (domainResult.status === 'fulfilled') {
         setDomains(domainResult.value);
-        writePageCache('overview:domains', domainResult.value);
+        writePageCache('overview:domains', domainResult.value, ticket);
         setDomainsLoaded(true);
         setSelectedDomain(current => domainResult.value.some(d => d.id === current && d.verification_status === 'verified')
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
       }
     } catch (e) {
-      if (id === requestId.current) setRefreshFailed(true);
+      if (id === requestId.current && isCurrent()) setRefreshFailed(true);
     } finally {
-      if (id === requestId.current) setLoading(false);
+      if (id === requestId.current && isCurrent()) setLoading(false);
+      else if (id === requestId.current && isLatest()) void loadData();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => {
     loadData();
@@ -566,7 +569,7 @@ export default function Overview() {
                 {recent_scans.map((scan, idx) => (
                   <tr
                     key={scan.id}
-                    style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+                    style={{ animationDelay: `calc(var(--motion-stagger) * ${Math.min(idx, 8)})` }}
                     className="stagger-row hover:bg-inset/40 transition-colors"
                   >
                     <td className="stack-title py-3 font-semibold text-ink">{scan.domain}</td>

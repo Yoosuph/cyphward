@@ -25,6 +25,9 @@ export default {
         ok: withOpacity('--ok', '--ok-rgb'),
         warn: withOpacity('--warn', '--warn-rgb'),
       },
+      // Every transition-* utility uses the app's motion tokens (src/index.css :root --motion-*).
+      transitionDuration: { DEFAULT: 'var(--motion-base)', fast: 'var(--motion-fast)', slow: 'var(--motion-slow)' },
+      transitionTimingFunction: { DEFAULT: 'var(--motion-ease)', out: 'var(--motion-ease-out)' },
       fontFamily: {
         display: ['Fraunces', 'Georgia', 'serif'],
         body: ['"Space Grotesk"', '"Helvetica Neue"', 'Arial', 'sans-serif'],

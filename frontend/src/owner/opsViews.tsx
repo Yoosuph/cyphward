@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { DetailSkeleton, PanelListSkeleton, SkPanel, SkPanelTable, SystemSkeleton, SubtitleSkeleton } from './skeletons';
 import { Link, useParams } from 'react-router-dom';
 import { useListParams } from './peopleViews';
 import { CancelScanAction } from './actions';
@@ -48,7 +49,7 @@ export function SubscriptionsView() {
   const status = params.get('status') || '';
   const plan = params.get('plan') || '';
   const filters = { q, status, plan, sort, dir };
-  const { data, error, loading, reload } = useOwnerView<Row>('/subscriptions', { ...filters, offset, limit });
+  const { data, error, loading, placeholder, reload } = useOwnerView<Row>('/subscriptions', { ...filters, offset, limit });
   return (
     <>
       <PageHead title="Subscriptions" subtitle="Plans, renewal dates and invoices on record. Invoices are records, not proof of payment."
@@ -60,13 +61,14 @@ export function SubscriptionsView() {
                       options={[['', 'All'], ['starter', 'Starter'], ['growth', 'Growth'], ['other', 'Other']]} onChange={v => set({ plan: v, offset: 0 })} />
         <SortSelect id="sub-sort" columns={SUB_COLUMNS} sort={sort} dir={dir} onChange={(s, d) => set({ sort: s, dir: d, offset: 0 })} />
       </FilterBar>
-      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="subscriptions"
+      <ListState loading={loading} error={error} onRetry={reload} hasData={!!data} count={data?.items.length || 0} label="subscriptions" columns={SUB_COLUMNS.map(c => c.label)} placeholder={placeholder}
                  empty={{ title: 'No subscriptions match', help: status ? 'No subscription has this status. Choose another status.' : 'Subscriptions appear here once an organization has one.' }}>
         <OwnerTable caption="Subscriptions" columns={SUB_COLUMNS} rows={(data?.items || []) as Row[]} rowKey={s => s.id}
                     sort={sort} dir={dir} onSort={(s, d) => set({ sort: s, dir: d, offset: 0 })} testId="sub-table" />
         {data && <PagerBar offset={offset} limit={limit} total={data.total} count={data.items.length}
                            onPage={o => set({ offset: o })} onLimit={n => set({ limit: n === 50 ? 0 : n, offset: 0 })} />}
       </ListState>
+      {!data && !error && <div className="mt-5" aria-hidden="true"><SkPanel><SkPanelTable columns={['Invoice', 'Organization', 'Amount', 'Status', 'Period', 'Created']} rows={1} /></SkPanel></div>}
       {data && (
         <div className="mt-5">
           <Panel title="Recent invoices">
@@ -96,7 +98,7 @@ export function ScansView() {
   const { q, offset, params, set } = useListParams();
   const state = params.get('state') || '';
   const limit = 50;
-  const { data, error, loading, reload } = useOwnerView<Row>('/scans', { q, state, offset, limit });
+  const { data, error, loading, placeholder, reload } = useOwnerView<Row>('/scans', { q, state, offset, limit });
   return (
     <>
       <PageHead title="Scans" subtitle={`Every scan across customers. "Delayed" means queued for over ${Math.round((data?.queue_delay_seconds || 600) / 60)} minutes; "Worker stopped" means its claim expired.`} />
@@ -108,7 +110,7 @@ export function ScansView() {
           <FilterChip key={k || 'all'} active={state === k} onClick={() => set({ state: k, offset: 0 })}>{label}</FilterChip>
         ))}
       </div>
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} placeholder={placeholder} label="scans" skeleton={<PanelListSkeleton columns={['Domain', 'Organization', 'State', 'Coverage', 'Score', 'Duration', 'Created']} />}>
         {data && data.items.length === 0 ? <Empty>No scans match.</Empty> : (
           <Panel>
             <Table head={['Domain', 'Organization', 'State', 'Coverage', 'Score', 'Duration', 'Created']}>
@@ -143,12 +145,12 @@ export function ScanDetailView() {
   const coverage = s?.coverage || {};
   return (
     <>
-      <PageHead title={s?.domain || 'Scan'} subtitle={s ? <span className="mono text-xs">{s.org_name} · {STATE_LABEL[s.state] || s.state} · created {fmtDate(s.created_at)}</span> : undefined}
+      <PageHead title={s?.domain || 'Scan'} subtitle={s ? <span className="mono text-xs">{s.org_name} · {STATE_LABEL[s.state] || s.state} · created {fmtDate(s.created_at)}</span> : <SubtitleSkeleton />}
                 actions={<div className="flex flex-wrap gap-2">
                   {s && ACTIVE_STATES.includes(s.state) && <CancelScanAction scanId={s.id} domain={s.domain || 'this domain'} state={s.state} onDone={reload} />}
                   <Link to="/scans" className="btn-mini">← ALL SCANS</Link>
                 </div>} />
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="this scan" skeleton={<DetailSkeleton panels={[{ kind: 'dl', rows: 6 }, { kind: 'text' }, { wide: true, kind: 'table', rows: 2, cols: ['Stage', 'Status', 'Time', 'Items', 'Note'] }, { wide: true, kind: 'text' }]} />}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="Summary">
@@ -210,7 +212,7 @@ export function SystemView() {
   return (
     <>
       <PageHead title="System" subtitle="Live state of the API, database, background jobs and scanner." />
-      <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+      <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="system status" skeleton={<SystemSkeleton />}>
         {data && (
           <div className="grid lg:grid-cols-2 gap-5">
             <Panel title="API and database">

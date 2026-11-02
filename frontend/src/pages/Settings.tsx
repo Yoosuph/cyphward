@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PageHead } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -17,7 +17,8 @@ import { getSettings, updateCompanyProfile, addTeamMember, updateMemberRole, get
 import { useAuth } from '../lib/auth';
 import type { SettingsData, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
-import { SettingsSkeleton } from '../components/Skeleton';
+import { SettingsSkeleton } from '../components/skeletons/RouteSkeleton';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import { ErrorPanel, humanError } from '../components/ui/StatePanels';
 import Modal from '../components/Modal';
 import BoardReportModal from '../components/BoardReportModal';
@@ -30,7 +31,9 @@ const TAB_ORDER = ['general', 'team', 'auth', 'notifications'] as const;
 
 export default function Settings() {
   const confirmAction = useConfirm();
-  const [data, setData] = useState<SettingsData | null>(null);
+  // Last-seen settings paint at once on a revisit (organisation profile and members only: billing and MFA are
+  // always read fresh); loadSettings refreshes them.
+  const [data, setData] = useState<SettingsData | null>(() => readPageCache<SettingsData>('settings') ?? null);
   const [loading, setLoading] = useState(true);
   const [searchParams] = useSearchParams();
   // ?tab=notifications opens a section directly (the bell's settings button and the email's settings link).
@@ -44,10 +47,13 @@ export default function Settings() {
   }, [searchParams]);
   const [loadError, setLoadError] = useState<unknown>(null);
 
-  const [companyName, setCompanyName] = useState('');
-  const [cacRc, setCacRc] = useState('');
-  const [sector, setSector] = useState('');
+  const [companyName, setCompanyName] = useState(() => data?.organization.name || '');
+  const [cacRc, setCacRc] = useState(() => data?.organization.cac_rc || '');
+  const [sector, setSector] = useState(() => data?.organization.sector || '');
   const [savingCompany, setSavingCompany] = useState(false);
+  // A cached profile is immediately editable while its mount refresh is still in flight.
+  const companyEdits = useRef({ dirty: false, revision: 0 });
+  const markCompanyEdited = () => { companyEdits.current.dirty = true; companyEdits.current.revision++; };
 
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
@@ -186,20 +192,32 @@ export default function Settings() {
 
   const toast = useToast();
 
+  const beginLoad = useRequestGuard();
   const loadSettings = async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setLoading(true);
     try {
       const res = await getSettings();
+      if (!isCurrent()) return;
+      writePageCache('settings', res, ticket);
       setLoadError(null);
       setData(res);
-      setCompanyName(res.organization.name);
-      setCacRc(res.organization.cac_rc || '');
-      setSector(res.organization.sector || '');
+      if (!companyEdits.current.dirty) {
+        setCompanyName(res.organization.name);
+        setCacRc(res.organization.cac_rc || '');
+        setSector(res.organization.sector || '');
+      }
     } catch (e) {
+      if (!isCurrent()) return;
       // First load: the page shows an error with a retry. A later refresh keeps the page and says so.
       setLoadError(e);
       if (data) toast('Could not refresh settings. Showing what was loaded before.');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void loadSettings();
+        return;
+      }
       setLoading(false);
     }
   };
@@ -380,12 +398,14 @@ export default function Settings() {
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingCompany(true);
+    const savedRevision = companyEdits.current.revision;
     try {
       await updateCompanyProfile({
         name: companyName,
         cac_rc: cacRc,
         sector: sector,
       });
+      if (companyEdits.current.revision === savedRevision) companyEdits.current.dirty = false;
       toast('Company details updated successfully');
       await loadSettings();
     } catch (err: any) {
@@ -466,8 +486,9 @@ export default function Settings() {
     );
   }
 
-  if (loading || !data) {
-    return <SettingsSkeleton />;
+  // Skeleton only while there is nothing to show: a refresh after a save keeps the page (no flash).
+  if (!data) {
+    return <SettingsSkeleton tab={activeTab} />;
   }
 
   return (
@@ -563,7 +584,7 @@ export default function Settings() {
                     id="settings-company-name"
                     type="text"
                     value={companyName}
-                    onChange={e => setCompanyName(e.target.value)}
+                    onChange={e => { markCompanyEdited(); setCompanyName(e.target.value); }}
                     required
                     className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
@@ -575,7 +596,7 @@ export default function Settings() {
                     id="settings-cac-rc"
                     type="text"
                     value={cacRc}
-                    onChange={e => setCacRc(e.target.value)}
+                    onChange={e => { markCompanyEdited(); setCacRc(e.target.value); }}
                     placeholder="e.g. RC-1849204"
                     className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
@@ -587,7 +608,7 @@ export default function Settings() {
                     id="settings-sector"
                     type="text"
                     value={sector}
-                    onChange={e => setSector(e.target.value)}
+                    onChange={e => { markCompanyEdited(); setSector(e.target.value); }}
                     placeholder="e.g. Fintech & Digital Commerce"
                     className="app-form-control w-full bg-inset border border-line rounded px-3 py-2 text-ink mono focus:outline-none focus:border-accent"
                   />
@@ -766,7 +787,7 @@ export default function Settings() {
               </thead>
               <tbody className="divide-y divide-line/60">
                 {(data.members || []).map((m, idx) => (
-                  <tr key={m.id} className="hover:bg-inset/40 transition-colors" style={{ animationDelay: `${idx * 35}ms` }}>
+                  <tr key={m.id} className="hover:bg-inset/40 transition-colors">
                     <td className="py-2.5 font-semibold text-ink flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-accent/10 border border-accent/30 text-accent font-bold text-[10px] flex items-center justify-center">
                         {(m.full_name || m.email || '?').charAt(0).toUpperCase()}

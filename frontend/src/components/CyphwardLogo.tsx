@@ -30,7 +30,7 @@ export const CyphwardLogo = memo(function CyphwardLogo({
       viewBox="0 0 36 36"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className="shrink-0 transition-transform duration-200 hover:scale-105"
+      className="shrink-0 transition-transform hover:scale-105"
       aria-label="Cyphward shield"
     >
       <defs>

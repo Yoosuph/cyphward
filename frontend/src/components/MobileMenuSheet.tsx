@@ -148,7 +148,7 @@ export default function MobileMenuSheet({ open, onClose, onPalette }: Props) {
       {/* Compact Bottom Sheet Menu (Mobile Only) */}
       <div
         ref={dialogRef}
-        className="fixed inset-x-3 bottom-[74px] max-w-[390px] max-h-[calc(100dvh-100px)] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 overflow-y-auto min-[901px]:hidden"
+        className="fixed inset-x-3 bottom-[74px] max-w-[390px] max-h-[calc(100dvh-100px)] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 sheet-enter overflow-y-auto min-[901px]:hidden"
         role="dialog"
         aria-modal="true"
         aria-label="More pages menu"

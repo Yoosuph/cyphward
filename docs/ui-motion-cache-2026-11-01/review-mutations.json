@@ -1,0 +1,56 @@
+[
+  {
+    "mutation": "write-clear",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "writes: successful customer write clears entries and old tickets"
+  },
+  {
+    "mutation": "hook-focus-throttle",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "focus: no refetch before 30 seconds"
+  },
+  {
+    "mutation": "page-focus-throttle",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "focus: no refetch before 30 seconds"
+  },
+  {
+    "mutation": "owner-focus",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "owner-focus: no audited view reads on focus or visibility change"
+  },
+  {
+    "mutation": "org-clear",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "auth: org switch empties the store and invalidates generations"
+  },
+  {
+    "mutation": "signout-clear",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "auth: sign-out empties the store and invalidates generations"
+  },
+  {
+    "mutation": "asset-search-draft",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "search-draft /assets: typing a draft does not cancel the pending filter response"
+  },
+  {
+    "mutation": "finding-search-draft",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "search-draft /findings: typing a draft does not cancel the pending filter response"
+  },
+  {
+    "mutation": "owner-policy",
+    "caught": true,
+    "returncode": 1,
+    "expected_assertion": "owner-policy: /overview never enters the cache"
+  }
+]

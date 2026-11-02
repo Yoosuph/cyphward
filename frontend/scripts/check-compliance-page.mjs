@@ -526,10 +526,20 @@ try {
     await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 3000 });
 
     // Create: the form is a dialog with native pickers; a time typed in the organisation's zone goes out as UTC.
+    // Fix only the label's clock: other incident probes intentionally use live countdown time.
+    await page.evaluate(() => {
+      window.__labelDate = Date;
+      const RealDate = Date;
+      window.Date = class extends RealDate {
+        constructor(...args) { super(...(args.length ? args : ["2026-01-15T12:00:00Z"])); }
+        static now() { return RealDate.parse("2026-01-15T12:00:00Z"); }
+      };
+    });
     assert.ok(await clickExact("Record an incident"));
     await page.waitForSelector('[role="dialog"] [data-testid="incident-form"]');
     assert.equal(await page.evaluate(() => document.querySelector("#inc-detected").type + "/" + document.querySelector("#inc-aware").type), "datetime-local/datetime-local", `${name}: native pickers`);
-    assert.ok((await bodyText()).includes("Time in America/New_York (UTC-04:00)"), `${name}: zone beside the time field`);
+    assert.ok((await bodyText()).includes("Time in America/New_York (UTC-05:00)"), `${name}: January label uses the winter offset`);
+    await page.evaluate(() => { window.Date = window.__labelDate; delete window.__labelDate; });
     await setVal("#inc-title", "Shared drive link left public");
     await setVal("#inc-severity", "high");
     await setVal("#inc-detected", "2026-10-15T09:30");

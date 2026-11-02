@@ -11,6 +11,7 @@ import StatusChip from '../components/StatusChip';
 import StrataField from '../components/StrataField';
 import { toggleTheme, useThemeState } from '../lib/theme';
 import { lockScroll, unlockScroll } from '../lib/scrollLock';
+import { useRouteScroll } from '../lib/routeMotion';
 import type { OwnerMe } from './ownerApi';
 
 /**
@@ -63,9 +64,8 @@ export function OwnerShell({ me, signingOut, onSignOut, children }: {
   });
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
-  useEffect(() => {
-    if (location.key !== 'default') window.scrollTo(0, 0);
-  }, [location.pathname, location.key]);
+  // New pages open at the top before they paint; back/forward keeps the position (shared with the customer app).
+  useRouteScroll();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
@@ -264,7 +264,7 @@ function OwnerMenuSheet({ me, open, onClose, onSignOut }: { me: OwnerMe; open: b
       <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[1040] animate-fade-in min-[901px]:hidden" onClick={onClose} aria-hidden="true" />
       <div
         ref={dialogRef}
-        className="fixed inset-x-3 bottom-[74px] max-w-[390px] max-h-[calc(100dvh-100px)] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-200 overflow-y-auto min-[901px]:hidden"
+        className="fixed inset-x-3 bottom-[74px] max-w-[390px] max-h-[calc(100dvh-100px)] mx-auto bg-raised border border-line text-ink rounded-2xl z-[1050] flex flex-col shadow-2xl sheet-enter overflow-y-auto min-[901px]:hidden"
         role="dialog"
         aria-modal="true"
         aria-label="Owner console menu"

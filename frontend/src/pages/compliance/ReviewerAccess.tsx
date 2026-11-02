@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRequestGuard } from '../../lib/pageCache';
+import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Info, RefreshCw, UserCheck } from 'lucide-react';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -41,6 +43,7 @@ function daysUntil(value: string): number {
 export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const toast = useToast();
   const confirm = useConfirm();
+  // Reviewer grants and their audit history must always be read fresh.
   const [data, setData] = useState<ReviewerGrantList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gated, setGated] = useState(false);
@@ -51,15 +54,23 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     try {
-      setData(await listReviewerGrants());
+      const fresh = await listReviewerGrants();
+      if (!isCurrent()) return;
+      setData(fresh);
       setError(null);
     } catch (e) {
+      if (!isCurrent()) return;
       if ((e as { status?: number })?.status === 403) setGated(true);
       else setError(errorText(e, 'Could not load reviewer access.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -123,7 +134,7 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
 
   if (gated) return <GrowthGate what="Reviewer access" />;
   if (error && !data) return <LoadError message={error} onRetry={() => void load()} />;
-  if (!data) return <p className="text-xs mono text-soft">LOADING REVIEWER ACCESS…</p>;
+  if (!data) return <CompliancePanelSkeleton section="reviewers" />;
 
   return (
     <div className="space-y-6" data-testid="reviewer-access">

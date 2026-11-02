@@ -1,4 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { NewsletterDraftSkeleton, NewsletterListSkeleton, SubtitleSkeleton } from './skeletons';
+import { useRequestGuard, readQueryCache, writeQueryCache } from '../lib/queryCache';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowDown, ArrowUp, CalendarClock, FileText, Inbox, Mail, Send, UserMinus, Users } from 'lucide-react';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
@@ -43,13 +45,16 @@ type Loaded = { drafts: NewsletterDrafts; stats: NewsletterStats | null };
 /** Drafts and counts together. A 404 from the drafts route means the newsletter is switched off on the server. */
 function useNewsletter() {
   const onSessionEnded = useContext(SessionEndedContext);
-  const [data, setData] = useState<Loaded | null>(null);
+  // Through the shared cache (owner scope): a revisit paints the last drafts at once, then asks again.
+  const [data, setData] = useState<Loaded | null>(() => readQueryCache<Loaded>('newsletter:drafts', 'owner')?.data ?? null);
   const [off, setOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const live = useRef(true);
+  const beginLoad = useRequestGuard('owner');
 
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setLoading(true);
     setError(null);
     try {
@@ -60,24 +65,24 @@ function useNewsletter() {
           return null; // counts are a convenience; the drafts still show
         }),
       ]);
-      if (!live.current) return;
+      if (!isCurrent()) return;
       setOff(false);
+      writeQueryCache('newsletter:drafts', { drafts, stats }, ticket);
       setData({ drafts, stats });
     } catch (e) {
       const err = e as OwnerApiError;
-      if (!live.current) return;
+      if (!isCurrent()) return;
       if (err.status === 401) onSessionEnded();
       else if (err.status === 404) { setOff(true); setData(null); }
       else setError(humanError(err, 'The newsletter drafts did not load. Try again in a moment.', { passDetail: false }));
     } finally {
-      if (live.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
+      else if (isLatest()) void load();
     }
-  }, [onSessionEnded]);
+  }, [onSessionEnded, beginLoad]);
 
   useEffect(() => {
-    live.current = true;
     void load();
-    return () => { live.current = false; };
   }, [load]);
 
   return { data, off, error, loading, reload: load };
@@ -136,7 +141,7 @@ export function NewsletterView() {
     <>
       <PageHead title="Newsletter" subtitle="GrokBot writes drafts; nothing reaches subscribers until you send a draft from here." />
       {off ? <NewsletterOff /> : (
-        <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+        <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="newsletter drafts" skeleton={<NewsletterListSkeleton />}>
           {data && (
             <>
               <section aria-label="Newsletter overview" className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
@@ -258,7 +263,7 @@ export function NewsletterDraftView() {
     <>
       <PageHead
         title={issue ? issue.subject : 'Newsletter draft'}
-        subtitle={issue ? issue.preview : undefined}
+        subtitle={issue ? issue.preview : <SubtitleSkeleton />}
         actions={(
           <div className="flex flex-wrap gap-2">
             {canSend && (
@@ -272,7 +277,7 @@ export function NewsletterDraftView() {
         )}
       />
       {off ? <NewsletterOff /> : (
-        <ViewState loading={loading} error={error} onRetry={reload} empty={!data}>
+        <ViewState loading={loading} error={error} onRetry={reload} empty={!data} label="this draft" skeleton={<NewsletterDraftSkeleton />}>
           {data && !issue && (
             <EmptyPanel icon={<FileText size={20} />} title="This draft is not in the list"
                         help="It may be older than the 50 most recent drafts, or the link may be wrong. Go back to the list to pick a draft."

@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { useRouteScroll } from './lib/routeMotion';
+import { RouteSkeleton } from './components/skeletons/RouteSkeleton';
 import { appPageLoaders, prefetchAppPagesWhenIdle } from './lib/routePrefetch';
 import { AuthProvider, useAuth, IDLE_REASON_KEY } from './lib/auth';
 import { hostTarget, IDLE_NOTICE_PARAM } from './lib/hosts';
@@ -82,25 +84,6 @@ const SECTION_BY_PATH: Record<string, { idx: string; label: string }> = {
   '/comply': { idx: '10', label: 'COMPLIANCE' },
 };
 
-/**
- * In-shell placeholder for a cold page chunk (a deep link straight to an app
- * page). Later navigations never show it: route changes run as transitions,
- * so the current page stays up until the next one is ready.
- */
-function PageFallback() {
-  return (
-    <div className="page page-fallback" aria-busy="true" aria-label="Loading page">
-      <div className="skeleton skeleton-text" style={{ width: 180, height: 30 }} />
-      <div className="skeleton skeleton-text mt-3" style={{ width: '62%', height: 13 }} />
-      <div className="grid gap-4 mt-8 sm:grid-cols-2">
-        <div className="skeleton" style={{ height: 132, borderRadius: 10 }} />
-        <div className="skeleton" style={{ height: 132, borderRadius: 10 }} />
-      </div>
-      <div className="skeleton mt-4" style={{ height: 260, borderRadius: 10 }} />
-    </div>
-  );
-}
-
 /** Fallback while a route-split page chunk downloads. */
 function RouteLoading() {
   return <LoadingScreen label="Opening this page" />;
@@ -123,7 +106,7 @@ function HomeRoute() {
 }
 
 function AppShell() {
-  const { tenant, user, loading, onboardingStep } = useAuth();
+  const { tenant, user, loading, onboardingStep, organization } = useAuth();
   const location = useLocation();
   const [palOpen, setPalOpen] = useState(false);
   const [cyphBotOpen, setCyphBotOpen] = useState(false);
@@ -136,8 +119,6 @@ function AppShell() {
     }
   });
 
-  const navigationType = useNavigationType();
-
   // Close mobile drawer when route changes
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -149,10 +130,8 @@ function AppShell() {
     return () => window.removeEventListener(TOUR_EVENT, closeOverlays);
   }, []);
 
-  // New pages open at the top; back/forward keeps the browser's position.
-  useLayoutEffect(() => {
-    if (navigationType !== 'POP') window.scrollTo(0, 0);
-  }, [location.pathname, navigationType]);
+  // New pages open at the top; back/forward keeps the browser's position (shared with the owner console).
+  useRouteScroll();
 
   // Warm every app page chunk once the shell is idle, so taps never wait on a download.
   useEffect(() => (tenant ? prefetchAppPagesWhenIdle() : undefined), [tenant]);
@@ -232,15 +211,17 @@ function AppShell() {
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
         />
-        {/* Boundary sits outside the keyed page so later navigations (transitions)
-            keep the current page visible instead of re-showing a fallback. */}
-        <Suspense fallback={<PageFallback />}>
-          <main id="main" tabIndex={-1} className="page" key={location.pathname}>
-            {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
-            <SuspendedBanner />
+        {/* Only the content area changes on a route change: the shell above stays mounted. The page is keyed by
+            organisation and path, so another organisation's page state never carries over, and it re-enters with
+            the shared page motion. A page whose code is still downloading shows that page's own skeleton (never a
+            blank frame, never the previous page). */}
+        <main id="main" tabIndex={-1} className="page" key={`${organization?.id ?? ''}:${location.pathname}`}>
+          {user?.demo_session && <div role="note" className="mb-5 rounded-lg border border-accent/30 bg-raised p-3 text-xs text-soft"><strong className="text-ink">Demo workspace · View only.</strong> Account and organisation changes are disabled.</div>}
+          <SuspendedBanner />
+          <Suspense fallback={<RouteSkeleton pathname={location.pathname} search={location.search} />}>
             <Outlet />
-          </main>
-        </Suspense>
+          </Suspense>
+        </main>
       </div>
       {/* Mobile Floating Bottom Dock (CMD, ASSETS, FINDINGS, SCANS, MENU) */}
       <ButtonPlate

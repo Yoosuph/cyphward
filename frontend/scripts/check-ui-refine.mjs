@@ -126,7 +126,7 @@ try {
     assert.equal(await page.$eval("#settings-tab-team", (e) => e.getAttribute("aria-selected")), "true");
     assert.ok(await page.$('#settings-panel-team[role="tabpanel"]'), "the selected tab shows its panel");
     await page.keyboard.press("End");
-    assert.equal(await page.evaluate(() => document.activeElement?.id), "settings-tab-auth", "End moves to the last tab");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "settings-tab-notifications", "End moves to the last tab (Notifications, added after this suite)");
 
     await close();
   }

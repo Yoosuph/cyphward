@@ -8,6 +8,7 @@ import { OwnerShell, ThemeButton } from './shell';
 import { OwnerApiError, ownerMe, ownerSetupAuthenticator, ownerSetupComplete, ownerSignIn, ownerSignOut, type OwnerMe } from './ownerApi';
 import { OwnerMeContext, SessionEndedContext } from './ui';
 import { LoadingScreen } from '../components/ui';
+import { setOwnerScope } from '../lib/queryCache';
 import { ToastProvider } from '../components/Toast';
 import { OrganizationDetailView, OrganizationsView, OverviewView, UserDetailView, UsersView } from './peopleViews';
 import { LogsView } from './logsView';
@@ -36,9 +37,13 @@ export default function OwnerApp() {
 
   const load = useCallback(async (notice?: string) => {
     try {
-      setState({ kind: 'signed-in', me: await ownerMe() });
+      const me = await ownerMe();
+      // The console's cache scope is the owner signed in now (lib/queryCache); a different owner starts empty.
+      setOwnerScope(me.email);
+      setState({ kind: 'signed-in', me });
     } catch (e) {
       const err = e as OwnerApiError;
+      setOwnerScope(null);
       if (err.status === 401) setState({ kind: 'signed-out', notice });
       else setState({ kind: 'unavailable', message: err.message });
     }
@@ -84,8 +89,8 @@ export default function OwnerApp() {
   return (
     <Console
       me={state.me}
-      onSignedOut={() => setState({ kind: 'signed-out', notice: 'Signed out.' })}
-      onSessionEnded={() => setState({ kind: 'signed-out', notice: 'Your owner session ended. Sign in again.' })}
+      onSignedOut={() => { setOwnerScope(null); setState({ kind: 'signed-out', notice: 'Signed out.' }); }}
+      onSessionEnded={() => { setOwnerScope(null); setState({ kind: 'signed-out', notice: 'Your owner session ended. Sign in again.' }); }}
     />
   );
 }

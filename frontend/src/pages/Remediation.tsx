@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRevalidateOnFocus } from '../lib/queryCache';
 import {
   RefreshCw,
   ShieldCheck,
@@ -18,10 +19,12 @@ import {
 } from '../lib/api';
 import type { Finding } from '../types';
 import { useToast } from '../components/Toast';
-import { readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
-import { PageHead, Loading } from '../components/ui';
+import { PageHead } from '../components/ui';
+import { SkeletonRegion } from '../components/ui/Skeleton';
+import { AppTableSkeleton, RemediationSkeleton, TASK_COLUMNS } from '../components/skeletons/RouteSkeleton';
 import { writeGuard } from '../lib/suspension';
 import { useOrgSuspended } from '../lib/useOrgSuspended';
 
@@ -55,6 +58,8 @@ export default function Remediation() {
   const [loading, setLoading] = useState(() => readPageCache('remediation:') === undefined);
   const [tasks, setTasks] = useState<RemediationTask[]>(() => readPageCache<RemediationTask[]>('remediation:') ?? []);
   const shownKey = useRef<string | null>(null); // cache key of the rows on screen
+  // The whole-page skeleton is for the first load only; a filter change keeps the header and filters on screen.
+  const [everLoaded, setEverLoaded] = useState(() => readPageCache('remediation:') !== undefined);
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -66,28 +71,41 @@ export default function Remediation() {
   const [priority, setPriority] = useState('medium');
   const [creating, setCreating] = useState(false);
 
+  const beginLoad = useRequestGuard('app', `remediation:${statusFilter}`);
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     const cacheKey = `remediation:${statusFilter}`;
     const cached = readPageCache<RemediationTask[]>(cacheKey);
     if (cached) setTasks(cached);
     // Skeleton only when this view has nothing to show yet (not on a refresh).
     if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
     else if (cached) setLoading(false);
+    if (!cached && shownKey.current !== cacheKey) { setTasks([]); }
     shownKey.current = cacheKey;
     try {
       const res = await getRemediationTasks(statusFilter ? { status: statusFilter } : undefined);
+      if (!isCurrent()) return;
       setTasks(res.tasks);
-      writePageCache(cacheKey, res.tasks);
+      writePageCache(cacheKey, res.tasks, ticket);
     } catch (e: any) {
+      if (!isCurrent()) return;
       toast(e.message || 'Failed to load tasks');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void load();
+        return;
+      }
       setLoading(false);
+      setEverLoaded(true);
     }
-  }, [statusFilter, toast]);
+  }, [statusFilter, toast, beginLoad]);
 
   useEffect(() => {
     load();
   }, [load]);
+  // Back to the tab after a while: ask again (lib/queryCache, focus revalidation).
+  useRevalidateOnFocus(load);
 
   const openCreate = async () => {
     setCreateOpen(true);
@@ -177,6 +195,8 @@ export default function Remediation() {
     verified: tasks.filter(t => t.status === 'verified').length,
   };
 
+  if (loading && !everLoaded) return <RemediationSkeleton />;
+
   return (
     <div className="space-y-5 pb-10 content-fade-in">
       <PageHead
@@ -220,7 +240,7 @@ export default function Remediation() {
       </div>
 
       {loading ? (
-        <Loading label="REMEDIATION QUEUE" />
+        <SkeletonRegion label="the remediation queue"><AppTableSkeleton columns={TASK_COLUMNS} rows={6} twoLine inset={false} tableClass="sm:min-w-[720px]" /></SkeletonRegion>
       ) : tasks.length === 0 ? (
         <div className="p-10 rounded-lg border border-line bg-raised text-center">
           <ShieldCheck size={28} className="mx-auto text-accent mb-3" />
