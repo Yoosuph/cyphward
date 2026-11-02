@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useRevalidateOnFocus } from '../lib/queryCache';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CheckCheck, ChevronDown, ClipboardList, FileCheck2, FolderOpen, Info, ListChecks, Lock, Search, ShieldCheck, Siren, Users, RefreshCw } from 'lucide-react';
 import './compliance/compliance.css';
@@ -307,31 +307,48 @@ export default function Compliance() {
   const [qnGated, setQnGated] = useState(false);
   const [qnError, setQnError] = useState<string | null>(null);
 
+  const beginOverview = useRequestGuard();
+  const beginQuestionnaire = useRequestGuard();
   const loadQuestionnaire = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginQuestionnaire();
+    if (!isCurrent()) return;
     setQnError(null);
     try {
-      { const ticket = pageCacheTicket(); const fresh = await getQuestionnaire(); writePageCache('comply:questionnaire', fresh, ticket); setQn(fresh); }
+      const fresh = await getQuestionnaire();
+      if (!isCurrent()) return;
+      writePageCache('comply:questionnaire', fresh, ticket);
+      setQn(fresh);
       setQnGated(false);
     } catch (e) {
+      if (!isCurrent()) return;
       if (isGrowthGate(e)) setQnGated(true);
       else setQnError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void loadQuestionnaire();
     }
-  }, []);
+  }, [beginQuestionnaire]);
 
   const load = useCallback(async (manual = false) => {
+    const { ticket, isCurrent, isLatest } = beginOverview();
+    if (!isCurrent()) return;
     setLoading(true);
     setError(null);
     try {
-      { const ticket = pageCacheTicket(); const fresh = await getComplianceOverview(); writePageCache('comply:overview', fresh, ticket); setData(fresh); }
+      const fresh = await getComplianceOverview();
+      if (!isCurrent()) return;
+      writePageCache('comply:overview', fresh, ticket);
+      setData(fresh);
     } catch (e) {
+      if (!isCurrent()) return;
       const message = errorText(e, 'Something went wrong on our side. Try again in a moment.');
       setError(message);
       if (manual) toast('The page was not refreshed.');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
+      else if (isLatest()) void load(manual);
     }
-    void loadQuestionnaire();
-  }, [loadQuestionnaire, toast]);
+    if (isCurrent()) void loadQuestionnaire();
+  }, [beginOverview, loadQuestionnaire, toast]);
 
   useEffect(() => { void load(); }, [load]);
   // Back to the tab after a while: ask again (lib/queryCache). Only the readiness view: the other sections hold

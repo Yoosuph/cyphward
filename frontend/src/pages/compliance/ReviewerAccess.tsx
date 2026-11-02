@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { useRequestGuard } from '../../lib/pageCache';
 import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Info, RefreshCw, UserCheck } from 'lucide-react';
 import { useConfirm } from '../../components/ConfirmDialog';
@@ -43,8 +43,8 @@ function daysUntil(value: string): number {
 export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const toast = useToast();
   const confirm = useConfirm();
-  // Last-seen list paints at once on a revisit (lib/queryCache); load() refreshes it.
-  const [data, setData] = useState<ReviewerGrantList | null>(() => readPageCache<ReviewerGrantList>('comply:reviewers') ?? null);
+  // Reviewer grants and their audit history must always be read fresh.
+  const [data, setData] = useState<ReviewerGrantList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gated, setGated] = useState(false);
   const [email, setEmail] = useState('');
@@ -54,15 +54,23 @@ export default function ReviewerAccessTab({ zone }: { zone: string }) {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     try {
-      { const ticket = pageCacheTicket(); const fresh = await listReviewerGrants(); writePageCache('comply:reviewers', fresh, ticket); setData(fresh); }
+      const fresh = await listReviewerGrants();
+      if (!isCurrent()) return;
+      setData(fresh);
       setError(null);
     } catch (e) {
+      if (!isCurrent()) return;
       if ((e as { status?: number })?.status === 403) setGated(true);
       else setError(errorText(e, 'Could not load reviewer access.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
 

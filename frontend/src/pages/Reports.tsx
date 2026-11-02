@@ -3,7 +3,7 @@ import { useRevalidateOnFocus } from '../lib/queryCache';
 import { RefreshCw, FileText, Plus, Send, Eye, Download } from 'lucide-react';
 import { listReportsStrict, createReport, getReport, type ReportRow } from '../lib/api';
 import { useToast } from '../components/Toast';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
 import { EmptyPanel, ErrorPanel, LoadingPanel, humanError } from '../components/ui/StatePanels';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -103,21 +103,29 @@ export default function Reports() {
   const [emailNote, setEmailNote] = useState('');
   const [sending, setSending] = useState(false);
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const res = await listReportsStrict();
+      if (!isCurrent()) return;
       setReports(res.reports);
       writePageCache('reports', res.reports, ticket);
       setLoadError(null);
     } catch (e) {
+      if (!isCurrent()) return;
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
       if (listRef.current.length > 0) toast('The reports were not refreshed.');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void load();
+        return;
+      }
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, beginLoad]);
 
   useEffect(() => {
     load();

@@ -18,7 +18,7 @@ import {
 import { getAssets, getAssetDetail } from '../lib/api';
 import type { Asset, Finding } from '../types';
 import { useToast } from '../components/Toast';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import { AssetDrawerSkeleton } from '../components/Skeleton';
 import { AppTableRows, ASSET_COLUMNS, AssetsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Drawer from '../components/Drawer';
@@ -38,25 +38,35 @@ export default function Assets() {
 
   const toast = useToast();
 
+  // Search is a draft until submitted; typing must not cancel the active filter request.
+  const beginLoad = useRequestGuard('app', `assets:${selectedType}`);
   const loadAssets = async () => {
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     const cacheKey = `assets:${selectedType}:${search}`;
     const cached = readPageCache<Asset[]>(cacheKey);
     if (cached) setAssets(cached);
     // Skeleton only when this view has nothing to show yet (not on a refresh).
     if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
     else if (cached) setLoading(false);
+    if (!cached && shownKey.current !== cacheKey) { setAssets([]); }
     shownKey.current = cacheKey;
     try {
       const res = await getAssets({
         search: search || undefined,
         asset_type: selectedType !== 'all' ? selectedType : undefined,
       });
+      if (!isCurrent()) return;
       setAssets(res.assets);
       writePageCache(cacheKey, res.assets, ticket);
     } catch (e) {
+      if (!isCurrent()) return;
       toast('Failed to load assets');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void loadAssets();
+        return;
+      }
       setLoading(false);
       setEverLoaded(true);
     }

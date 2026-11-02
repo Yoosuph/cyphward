@@ -14,10 +14,12 @@ export const SessionEndedContext = createContext<() => void>(() => {});
 /** The signed-in owner (to hide actions that would target their own account). */
 export const OwnerMeContext = createContext<{ email: string } | null>(null);
 
+// Generic owner payloads contain billing, sessions/MFA, audits or live state (even analytics
+// timeseries includes today's queued/running scans). Keep them fresh; newsletter owns its separate cache.
 /**
- * Load one console view through the shared cache (lib/queryCache, owner scope): a view seen before paints its last
- * data at once and is asked for again on mount; a filter or page change keeps the current rows (dimmed) until the
- * new ones arrive. No focus or interval revalidation here: console reads are audited and count as session activity,
+ * Generic console views always fetch fresh data. A filter or page change keeps current rows dimmed until
+ * new rows arrive, and clears them if that request fails. No focus or interval revalidation here:
+ * console reads are audited and count as session activity,
  * so polling them would keep an idle session alive. Stale responses (filters changed) are ignored.
  */
 export function useOwnerView<T>(path: string, params?: Record<string, string | number | undefined>) {
@@ -26,7 +28,7 @@ export function useOwnerView<T>(path: string, params?: Record<string, string | n
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const fetcher = useCallback(() => ownerGet<T>(path, paramsRef.current), [path]);
-  const q = useCachedQuery<T>(key, fetcher, { space: 'owner', revalidateOnFocus: false, keepPrevious: true });
+  const q = useCachedQuery<T>(key, fetcher, { space: 'owner', revalidateOnFocus: false, keepPrevious: true, cache: false });
   const err = q.error as OwnerApiError | null;
   useEffect(() => {
     if (err?.status === 401) onSessionEnded();

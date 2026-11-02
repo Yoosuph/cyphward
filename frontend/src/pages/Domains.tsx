@@ -21,7 +21,7 @@ import {
 import { getDomainsStrict, addDomain, verifyDomain, deleteDomain, listMonitoredHosts, addMonitoredHost, removeMonitoredHost } from '../lib/api';
 import type { Domain } from '../types';
 import { useToast } from '../components/Toast';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import { AppTableRows, DOMAIN_COLUMNS, DomainsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
 import { EmptyPanel, ErrorPanel, humanError } from '../components/ui/StatePanels';
@@ -68,18 +68,26 @@ export default function Domains() {
   const toast = useToast();
   domainsRef.current = domains;
 
+  const beginLoad = useRequestGuard();
   const loadDomains = async () => {
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     // The skeleton is only for a first visit; refreshes keep the list on screen.
     try {
       const list = await getDomainsStrict();
+      if (!isCurrent()) return;
       setDomains(list);
       writePageCache('domains', list, ticket);
       setLoadError(null);
     } catch (e) {
+      if (!isCurrent()) return;
       setLoadError(humanError(e, 'Something went wrong on our side. Try again in a moment.'));
       if (domainsRef.current.length > 0) toast('The domain list was not refreshed.');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void loadDomains();
+        return;
+      }
       setLoading(false);
     }
   };

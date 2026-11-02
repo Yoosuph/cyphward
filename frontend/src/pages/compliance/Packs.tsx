@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../../lib/pageCache';
 import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Download, FileText, Info, Plus, RefreshCw } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
@@ -71,15 +71,24 @@ export default function PacksTab({ canEdit, zone }: { canEdit: boolean; zone: st
   const [busy, setBusy] = useState<string | null>(null);
   const [details, setDetails] = useState<EvidencePack | null>(null);
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     try {
-      { const ticket = pageCacheTicket(); const fresh = await listPacks(); writePageCache('comply:packs', fresh, ticket); setData(fresh); }
+      const fresh = await listPacks();
+      if (!isCurrent()) return;
+      writePageCache('comply:packs', fresh, ticket);
+      setData(fresh);
       setError(null);
     } catch (e) {
+      if (!isCurrent()) return;
       if (isGrowthGate(e)) setGated(true);
       else setError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
 

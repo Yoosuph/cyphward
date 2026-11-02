@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { NewsletterDraftSkeleton, NewsletterListSkeleton, SubtitleSkeleton } from './skeletons';
-import { cacheTicket, readQueryCache, writeQueryCache } from '../lib/queryCache';
+import { useRequestGuard, readQueryCache, writeQueryCache } from '../lib/queryCache';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowDown, ArrowUp, CalendarClock, FileText, Inbox, Mail, Send, UserMinus, Users } from 'lucide-react';
 import Dialog, { useDialogClose } from '../components/ui/Dialog';
@@ -50,10 +50,11 @@ function useNewsletter() {
   const [off, setOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const live = useRef(true);
+  const beginLoad = useRequestGuard('owner');
 
   const load = useCallback(async () => {
-    const ticket = cacheTicket('owner');
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setLoading(true);
     setError(null);
     try {
@@ -64,25 +65,24 @@ function useNewsletter() {
           return null; // counts are a convenience; the drafts still show
         }),
       ]);
-      if (!live.current) return;
+      if (!isCurrent()) return;
       setOff(false);
       writeQueryCache('newsletter:drafts', { drafts, stats }, ticket);
       setData({ drafts, stats });
     } catch (e) {
       const err = e as OwnerApiError;
-      if (!live.current) return;
+      if (!isCurrent()) return;
       if (err.status === 401) onSessionEnded();
       else if (err.status === 404) { setOff(true); setData(null); }
       else setError(humanError(err, 'The newsletter drafts did not load. Try again in a moment.', { passDetail: false }));
     } finally {
-      if (live.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
+      else if (isLatest()) void load();
     }
-  }, [onSessionEnded]);
+  }, [onSessionEnded, beginLoad]);
 
   useEffect(() => {
-    live.current = true;
     void load();
-    return () => { live.current = false; };
   }, [load]);
 
   return { data, off, error, loading, reload: load };

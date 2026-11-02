@@ -3,13 +3,19 @@
  * and docs/ui-motion-cache-2026-11-01/AUDIT.md). Pages with their own loaders (filters, polling, several requests)
  * use these calls; simpler reads use useCachedQuery.
  *
- *   const ticket = pageCacheTicket();          // when the request STARTS
+ *   const beginLoad = useRequestGuard();      // inside the component
+ *   // Inside the loader, guard success, catch and finally before setting any state:
+ *   const { ticket, isCurrent } = beginLoad();
  *   const res = await getThing();
- *   writePageCache('thing', res, ticket);      // dropped if the user, organisation or a write changed meanwhile
+ *   if (!isCurrent()) return;
+ *   writePageCache('thing', res, ticket);
+ *   setData(res);
  *
  * Memory only, scoped to the signed-in user AND organisation; cleared on sign-in, sign-out, idle logout,
  * organisation switch and after any write request (see apiFetch).
  */
+export { useRequestGuard } from './queryCache';
+
 import { cacheTicket, clearQueryCache, readQueryCache, writeQueryCache, type CacheTicket } from './queryCache';
 
 export function readPageCache<T>(key: string): T | undefined {

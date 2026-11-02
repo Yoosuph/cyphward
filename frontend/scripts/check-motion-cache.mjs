@@ -120,7 +120,7 @@ try {
     }
 
     // 4a. Revisit: the last data paints at once while a fresh request runs (customer app and owner console).
-    for (const [first, other, text] of [["/findings", "/assets", "Missing Email DMARC"], ["/admin/organizations", "/admin/users", "Kola Foods"]]) {
+    for (const [first, other, text] of [["/findings", "/assets", "Missing Email DMARC"], ["/admin/newsletter", "/admin/users", "Cyphward notes n1"]]) {
       const tab = await h.newPage();
       await tab.page.setViewport({ width: 1440, height: 900 });
       let slow = false;

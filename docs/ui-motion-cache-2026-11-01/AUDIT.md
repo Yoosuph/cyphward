@@ -59,7 +59,7 @@ grid and classes; the same component serves a cold deep link (route fallback) an
 |---|---|---|---|---|---|---|
 | `/` signed out | public landing, prerendered | unchanged | marketing reveal on `--motion-reveal` | none | — | — |
 | `/` signed in | `LoadingScreen` → `/overview` | unchanged | — | — | — | — |
-| `/overview` | outdated `OverviewSkeleton` | `OverviewSkeleton`: organisation-name header, score card, 4 KPI tiles, severity bar, two panels, recent-scans table | page enter; data fades | `overview`, `overview:domains` | 10 s poll, focus, online (kept) / SWR | panels 77 px off |
+| `/overview` | outdated `OverviewSkeleton` | `OverviewSkeleton`: organisation-name header, score card, 4 KPI tiles, severity bar, two panels, recent-scans table | page enter; data fades | `overview:domains` only; overview payload read fresh | 10 s poll, focus, online (kept) / SWR | panels 77 px off |
 | `/assets` | inline rows, fixed px widths | `AssetsSkeleton` on first load; `AppTableRows` on a filter change | page enter; rows fade once | `assets:{type}:{search}` | focus (30 s throttle) / SWR | px-width rows |
 | `/findings` | outdated full-page skeleton, also on any uncached filter change | `FindingsSkeleton` first load only; `FindingsListSkeleton` on a filter change (header and filters stay, focus kept) | page enter; cards fade once | `findings:{severity}:{category}:{search}` | focus / SWR | filter change swapped the whole page |
 | `/scans` | three grey bars | `ScansBodySkeleton` in Scans.css classes (summary, metrics, checks, history) | page enter | none: live progress (by design) | 3 s poll while a scan runs (kept) / mount | 437 px at 1440 |
@@ -74,7 +74,7 @@ grid and classes; the same component serves a cold deep link (route fallback) an
 | `/comply?section=incidents` | `LoadingPanel` | panel skeleton | — | `comply:incidents` | mount / SWR | — |
 | `/comply?section=packs` | `LoadingPanel` | panel skeleton | — | `comply:packs` | mount / SWR | — |
 | `/comply?section=documents` | `LoadingPanel` | panel skeleton | — | `comply:documents` | mount / SWR | — |
-| `/comply?section=reviewers` | "LOADING REVIEWER ACCESS…" | panel skeleton | — | `comply:reviewers` | mount / SWR | 193 px |
+| `/comply?section=reviewers` | "LOADING REVIEWER ACCESS…" | panel skeleton | — | none (reviewer grants and audit) | mount / fresh read | 193 px |
 | `/platform` (staff) | page painted with "Loading…" | `PlatformSkeleton` during the first health check | page enter | none (audited support reads) | mount | no skeleton |
 | `/reviews` (outside shell) | "LOADING…" text | `LoadingScreen` for the session check; card skeleton per organisation | — | none (time-boxed reviewer grants) | mount | — |
 | `/onboarding/*` (outside shell) | pulsing icon + text | `LoadingScreen` (same as the shell) | — | none | — | — |
@@ -90,19 +90,19 @@ dialogs (`ui/Dialog`, `ConfirmDialog`, `Modal`) keep their open/close animations
 | Route | Before | After: skeleton | Cache key (path + params) | Panels before → after (worst width) |
 |---|---|---|---|---|
 | sign-in, setup | `LoadingScreen` while the session is checked | unchanged | none (auth) | — |
-| `/` overview | generic panel | 8 KPI tiles, sign-ups chart, invoices, activity table | `/overview?{}` | 170 → 8 px |
-| `/analytics` | generic panel; charts "Loading…" | 2 KPI rows; chart areas in the chart's own box; count lines; a range change dims the current charts | `/analytics/summary?{range}`, `/analytics/timeseries?{range}` | 10 → 13 px |
-| `/organizations` | generic panel | table skeleton with the real column names + pager; a filter / page change keeps rows dimmed until the new ones arrive | `/organizations?{filters,offset,limit}` | 0 → 0 px |
-| `/organizations/:id` | generic panel | `DetailSkeleton` (summary, members, domains, billing, three wide tables) + subtitle placeholder | `/organizations/{id}?{}` | 453 → see table |
-| `/users` | generic panel | table skeleton | `/users?{…}` | 0 → 0 px |
-| `/users/:id` | generic panel | `DetailSkeleton` + subtitle and action placeholders | `/users/{id}?{}` | 484 → see table |
-| `/subscriptions` | generic panel | table skeleton + invoices panel placeholder | `/subscriptions?{…}` | 407 → 81 px |
-| `/scans` | generic panel | panel with table skeleton + pager; state chips dim the current rows | `/scans?{q,state,offset,limit}` | 0 → 0 px |
-| `/scans/:id` | generic panel | `DetailSkeleton` + subtitle placeholder | `/scans/{id}?{}` | 520 → see table |
+| `/` overview | generic panel | 8 KPI tiles, sign-ups chart, invoices, activity table | none (fresh read) | 170 → 8 px |
+| `/analytics` | generic panel; charts "Loading…" | 2 KPI rows; chart areas in the chart's own box; count lines; a range change dims the current charts | none (summary and timeseries include live scan state) | 10 → 13 px |
+| `/organizations` | generic panel | table skeleton with the real column names + pager; a filter / page change keeps rows dimmed until the new ones arrive | none (fresh read) | 0 → 0 px |
+| `/organizations/:id` | generic panel | `DetailSkeleton` (summary, members, domains, billing, three wide tables) + subtitle placeholder | none (fresh read) | 453 → see table |
+| `/users` | generic panel | table skeleton | none (fresh read) | 0 → 0 px |
+| `/users/:id` | generic panel | `DetailSkeleton` + subtitle and action placeholders | none (fresh read) | 484 → see table |
+| `/subscriptions` | generic panel | table skeleton + invoices panel placeholder | none (fresh read) | 407 → 81 px |
+| `/scans` | generic panel | panel with table skeleton + pager; state chips dim the current rows | none (fresh read) | 0 → 0 px |
+| `/scans/:id` | generic panel | `DetailSkeleton` + subtitle placeholder | none (fresh read) | 520 → see table |
 | `/newsletter` | generic panel | KPI row + drafts table | `newsletter:drafts` | 172 → 10 px |
 | `/newsletter/:id` | generic panel | summary, sections and preview panels + subtitle placeholder | `newsletter:drafts` | 555 → see table |
-| `/logs` | generic panel | table skeleton with the source's columns | `/logs?{source,q,offset,limit}` | 0 → 0 px |
-| `/system` | generic panel | API/database, scanner and scheduled-runs panels | `/system?{}` | 509 → see table |
+| `/logs` | generic panel | table skeleton with the source's columns | none (fresh read) | 0 → 0 px |
+| `/system` | generic panel | API/database, scanner and scheduled-runs panels | none (fresh read) | 509 → see table |
 
 Owner views revalidate on mount only: console reads are audited and count as session activity, so focus or
 interval refetching would write audit rows and keep an idle owner session alive (see `lib/notifications.ts`).
@@ -159,13 +159,12 @@ One store (`src/lib/queryCache.ts`), memory only, used by the customer app (thro
 with their own loaders) and the owner console (`useOwnerView`, the newsletter hook).
 
 **Keys.** Customer app: `app␀{user id}␀{organisation id}␀{key}`, with the page keys in the route table
-(`overview`, `overview:domains`, `assets:{type}:{search}`, `findings:{severity}:{category}:{search}`, `domains`,
+(`overview:domains`, `assets:{type}:{search}`, `findings:{severity}:{category}:{search}`, `domains`,
 `remediation:{status}`, `reports`, `settings`, `comply:overview`, `comply:questionnaire`, `comply:incidents`,
-`comply:packs`, `comply:documents`, `comply:reviewers`). Owner console: `owner␀{owner email}␀{path}?{params as
-JSON}` and `newsletter:drafts`. Nothing is read or written without a full scope.
+`comply:packs`, `comply:documents`). Owner console: `owner␀{owner email}␀newsletter:drafts` only. Every generic owner view loads fresh. Nothing is read or written without a full scope.
 
 **Policy: stale-while-revalidate.** A page seen before paints its last data at once and asks again in the
-background; a page never seen shows its skeleton. Customer list pages and compliance readiness also ask again when
+background; a page never seen shows its skeleton. Reads excluded below always show their skeleton on a revisit until a fresh response arrives. Customer list pages and compliance readiness also ask again when
 the tab regains focus (30 s throttle); Overview keeps its 10 s poll; Scans keeps its 3 s poll while a scan runs;
 pages with forms (Settings, compliance sections) and the owner console revalidate on mount only.
 
@@ -177,11 +176,11 @@ pages with forms (Settings, compliance sections) and the owner console revalidat
   clears its scope on sign-out and when its session ends (401).
 - Every request takes a ticket (scope + generation) when it **starts**; clearing bumps the generation, and a write
   whose scope or generation changed is dropped. A response in flight across a switch, sign-out or write is never
-  stored, and is never shown when the scope changed.
+  stored, and is never shown when the scope or generation changed. All cached-page loaders also check the latest request sequence and mounted state before changing data, errors or loading state. If only a write invalidated the active request, it retries with a fresh ticket after settling; superseded or unmounted requests do not retry.
 - The content area is keyed by organisation id, so no page state survives an organisation switch.
 
 **Never cached.** Write responses; auth, MFA, billing and invoices; live scan progress (Scans list and detail);
-platform support reads; reviewer-area reads; notification preferences and the bell. Nothing from the cache goes to
+the customer Overview payload (it includes live scan progress); platform support reads; reviewer-area reads and the customer Reviewer access grant/audit tab; notification preferences and the bell. Owner-console caching is restricted to the separate `newsletter:drafts` loader. All generic owner views load fresh: overview, analytics summary and timeseries, organizations (list and detail), users (list and detail), subscriptions, scans (list and detail), logs and system. These mixed payloads include billing, MFA/sessions, audits or live operational state, so a safe-looking route name is insufficient. Nothing from the cache goes to
 localStorage or sessionStorage (the test reads both after browsing and finds no cached data). What stays in Web
 Storage is unchanged: session tokens, the active organisation id, theme, sidebar state and similar UI flags.
 
@@ -201,7 +200,7 @@ Storage is unchanged: session tokens, the active organisation id, theme, sidebar
 
 Measured with `scripts/capture-motion-cache.mjs` (same harness and fixtures for both runs: "before" on untouched
 `main` 6438063, "after" on this branch), Vite dev server, headless Chromium, data held back 900 ms, phones emulated
-as touch devices. Raw data: `cls-before.json`, `cls-after.json`; screenshots of the main pages in the skeleton and
+as touch devices. The recorded before/after screenshots and numbers were captured for the original PR head `ce72b4b`; the review corrections below change cache/loader behavior, and the final route suite rechecks the same cold-load bounds. Raw data: `cls-before.json`, `cls-after.json`; screenshots of the main pages in the skeleton and
 loaded states at 1440 and 390: `before/`, `after/` (JPEG, all under 200 KB).
 
 Two numbers per cell: **CLS** (Chrome's cumulative layout shift for the whole load) / **panel offset** (for each
@@ -289,7 +288,7 @@ All on this branch, headless Chromium, fixtures only (nothing reaches a server).
 | `test:admin-phase1`, `test:admin-phase2`, `test:owner-logs`, `test:admin-newsletter`, `test:admin-delete-org` | pass |
 | `test:notifications`, `test:notifications-mobile` | pass |
 | `test:reviewer-ui`, `test:board-report-ui`, `test:datetime` (also in CI) | pass |
-| `test:ui-refine` | everything passes except three social links on the landing page at 30×30 px on phones (`SocialFloat`, from #70); identical on untouched `main` |
+| `test:ui-refine` | everything passes except three social links on the landing page at 30×30 px on phones (`SocialFloat`, from #70); on untouched `main`, the suite stops earlier at the stale Settings End-key assertion; the social-link failure is therefore not reached by that run |
 | `test:product-tour` | not run: it needs a real local backend on 127.0.0.1:5173 (demo sign-in); it fails the same way on `main` without one |
 
 Required list: 11 of 11 pass (`compliance-ui`, `scans-ui`, `score-ui`, `onboarding-ui`, `ux-ui`, `admin-phase1`,
@@ -300,7 +299,7 @@ path only, as before): it fails with four findings, including frames that showed
 
 Test files changed outside the new suite:
 - `check-compliance-page.mjs`: expected the incident form to say `UTC-04:00`; daylight saving ended in New York on
-  1 November 2026, so it failed on untouched `main` today. It now computes today's offset.
+  1 November 2026, so it failed on untouched `main` today. The label assertion now fixes the browser clock to 15 January 2026 and expects UTC-05:00; the clock is restored before the live incident/countdown checks.
 - `check-ui-refine.mjs`: expected End to land on the Authentication tab; Settings has had a fourth tab
   (Notifications) since the notifications work, so it failed on untouched `main`. It now expects Notifications.
 
@@ -324,3 +323,18 @@ Other notes:
   exists (an invitation accepted while signed in). A future switcher must go through `persistTenant` to inherit the
   cache clearing.
 - **CI.** CI runs `npm run build` and `test:datetime` only; the browser suites were run locally.
+
+## PR review corrections (2 November 2026)
+
+The original audit overestimated the owner cache exclusions. Only the separate newsletter loader retains owner caching. Analytics timeseries also includes today's queued/running counts and therefore loads fresh. The fresh-only views above are the implemented rules. Previous-filter rows are kept dimmed only while their replacement loads; a failed replacement removes those rows and shows the error. A failed same-key refresh can still show that same key's previous data. Settings profile fields retain unsaved edits while the mount refresh completes; saving resets that protection only if no newer edit occurred during the save.
+
+`test:cache-review` exercises real hooks and auth/API entry points in Chromium, including writes, focus throttling, organization switch, sign-out, idle sign-out, owner sign-out/401, sensitive view exclusions, reviewer grant reads, filter errors, overlapping responses, generation invalidation/retry and dirty Settings edits. It passes **56 checks**. The search-draft checks also cover typing while a filter read is pending: draft text does not cancel that submitted request. No production account or backend is used.
+
+Final validation:
+
+- `npm run build`: pass (TypeScript, Vite and prerender).
+- Full `test:motion-cache`: **907 checks, 93 route loads**, pass. After the final search-guard and analytics-cache corrections, the affected Assets, Findings and owner Analytics routes were rechecked: **81 cold-load checks across 9 loads**, pass. These corrections do not change skeleton markup or motion rules.
+- All 11 required browser suites pass: compliance, scans, score, onboarding, UX, admin phase 1, admin phase 2, owner logs, admin newsletter, admin delete-org and notifications. Notifications mobile, reviewer UI, board-report UI and the 17 datetime tests also pass.
+- **9 one-at-a-time mutations detected**, each failing its intended assertion: customer write invalidation; each of the two 30-second focus throttles; owner focus refresh; organization-change invalidation; sign-out invalidation; draft search in the Assets and Findings request identities; and enabling owner-view caching. Each source file was restored in `finally`. Results and exact assertion messages: `review-mutations.json`.
+- Astra reviewed the request-guard/retry and Settings-save behavior. Its search-draft finding was reproduced, fixed and regression-tested. Its analytics payload finding led to fresh reads for every generic owner view, including timeseries.
+- No production browser timing or real-device validation was added. The pre-existing social-link target-size issue from #70 remains a separate follow-up; `test:ui-refine` was not rerun during these review corrections.

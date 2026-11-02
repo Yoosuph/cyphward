@@ -67,10 +67,16 @@ export function readQueryCache<T>(key: string, space: CacheSpace = 'app'): { dat
   return store.get(full(scope, key)) as { data: T; at: number } | undefined;
 }
 
-/** Stores a read result if the scope and generation it started with are still current. Returns whether it did. */
+/** Whether a request still belongs to the current session, workspace and cache generation. */
+export function isCacheTicketCurrent(ticket: CacheTicket): boolean {
+  return !!ticket.scope && ticket.gen === generation
+    && ticket.scope === currentScope(ticket.scope.startsWith('owner\u0000') ? 'owner' : 'app');
+}
+
+/** Stores a read result only while its request ticket is current. */
 export function writeQueryCache<T>(key: string, value: T, ticket: CacheTicket): boolean {
-  if (!ticket.scope || ticket.gen !== generation || ticket.scope !== currentScope(ticket.scope.startsWith('owner') ? 'owner' : 'app')) return false;
-  store.set(full(ticket.scope, key), { data: value, at: Date.now() });
+  if (!isCacheTicketCurrent(ticket)) return false;
+  store.set(full(ticket.scope!, key), { data: value, at: Date.now() });
   return true;
 }
 
@@ -87,6 +93,34 @@ export function clearQueryCache(space?: CacheSpace): void {
 /** For tests and the audit: how many entries the cache holds. */
 export function queryCacheSize(): number {
   return store.size;
+}
+
+/**
+ * Guard every asynchronous state update, including errors/loading, against superseded requests.
+ * If only the cache generation changed, isLatest() permits a replacement read on settlement;
+ * isCurrent() must still pass before showing or storing any result.
+ */
+export function useRequestGuard(space: CacheSpace = 'app', key: string | null = null) {
+  const scope = currentScope(space);
+  const identity = JSON.stringify([space, scope, key]);
+  const latest = useRef({ identity, sequence: 0, mounted: true });
+  if (latest.current.identity !== identity) {
+    latest.current.identity = identity;
+    latest.current.sequence++;
+  }
+  useEffect(() => {
+    latest.current.mounted = true;
+    return () => { latest.current.mounted = false; latest.current.sequence++; };
+  }, []);
+  return useCallback(() => {
+    // A callback retained by an old view must not supersede the current view's request.
+    const sequence = latest.current.identity === identity && latest.current.mounted
+      ? ++latest.current.sequence : -1;
+    const ticket = cacheTicket(space);
+    const isLatest = () => latest.current.mounted && latest.current.identity === identity
+      && latest.current.sequence === sequence && !!scope && ticket.scope === scope && scope === currentScope(space);
+    return { ticket, isLatest, isCurrent: () => isLatest() && isCacheTicketCurrent(ticket) };
+  }, [identity, space, scope]);
 }
 
 export type CachedQuery<T> = {
@@ -109,55 +143,69 @@ export type CachedQuery<T> = {
 export function useCachedQuery<T>(
   key: string | null,
   fetcher: () => Promise<T>,
-  { space = 'app', revalidateOnFocus = space === 'app', focusThrottleMs = 30_000, pollMs, keepPrevious = false }: {
-    space?: CacheSpace; revalidateOnFocus?: boolean; focusThrottleMs?: number; pollMs?: number;
+  { space = 'app', revalidateOnFocus = space === 'app', focusThrottleMs = 30_000, pollMs, keepPrevious = false, cache = true }: {
+    /** False bypasses both cache reads and writes; request guards still apply. */
+    cache?: boolean; space?: CacheSpace; revalidateOnFocus?: boolean; focusThrottleMs?: number; pollMs?: number;
     /** On a key change with nothing cached (a filter or page change), keep the current rows until the new ones arrive. */
     keepPrevious?: boolean;
   } = {},
 ): CachedQuery<T> {
-  const initial = key ? readQueryCache<T>(key, space) : undefined;
+  const scope = currentScope(space);
+  const identity = JSON.stringify([space, scope, key, cache]);
+  const beginRequest = useRequestGuard(space, identity);
+  const initial = cache && key ? readQueryCache<T>(key, space) : undefined;
   const [data, setData] = useState<T | null>(initial ? initial.data : null);
   const [placeholder, setPlaceholder] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [fetching, setFetching] = useState<boolean>(!!key);
-  const latest = useRef<string | null>(key);
   const lastFetch = useRef(0);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
-  // A new key shows that key's cached data (or nothing) at once; never the previous key's rows unless asked to.
-  const shownKey = useRef(key);
-  if (shownKey.current !== key) {
-    shownKey.current = key;
-    const cached = key ? readQueryCache<T>(key, space) : undefined;
-    // Setting state during render is the documented way to reset derived state on a prop change.
-    if (cached) { setData(cached.data); setPlaceholder(false); }
-    else if (keepPrevious && data !== null) setPlaceholder(true);
-    else { setData(null); setPlaceholder(false); }
+  // Reset during render, so an old request cannot paint between a key change and the next effect.
+  const shown = useRef({ identity, scope });
+  const placeholderRef = useRef(false);
+  if (shown.current.identity !== identity) {
+    const sameScope = shown.current.scope === scope;
+    shown.current = { identity, scope };
+    const cached = cache && key ? readQueryCache<T>(key, space) : undefined;
+    const previous = !!key && sameScope && keepPrevious && data !== null && !cached;
+    placeholderRef.current = previous;
+    setData(cached ? cached.data : previous ? data : null);
+    setPlaceholder(previous);
     setError(null);
+    setFetching(!!key);
   }
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (): Promise<void> => {
     if (!key) return;
-    latest.current = key;
+    const { ticket, isCurrent, isLatest } = beginRequest();
+    if (!isCurrent()) return;
     lastFetch.current = Date.now();
-    const ticket = cacheTicket(space);
     setFetching(true);
     try {
       const value = await fetcherRef.current();
-      // Another account or organisation by now: never show or store it. (A write in between only stops the
-      // store: the response is still this workspace's, and the page reloads after its own writes.)
-      if (latest.current !== key || ticket.scope !== currentScope(space)) return;
-      writeQueryCache(key, value, ticket);
+      if (!isCurrent()) return;
+      if (cache) writeQueryCache(key, value, ticket);
       setData(value);
+      placeholderRef.current = false;
       setPlaceholder(false);
       setError(null);
     } catch (e) {
-      if (latest.current === key) setError(e);
+      if (!isCurrent()) return;
+      // Previous-filter rows are never evidence for a failed new-filter request.
+      if (placeholderRef.current) {
+        setData(null);
+        placeholderRef.current = false;
+        setPlaceholder(false);
+      }
+      setError(e);
     } finally {
-      if (latest.current === key) setFetching(false);
+      if (isCurrent()) setFetching(false);
+      // A write invalidated this response, but this is still the visible request: replace it with a fresh read.
+      else if (isLatest()) void run();
     }
-  }, [key, space]);
+  }, [key, beginRequest, cache]);
 
   useEffect(() => {
     void run();

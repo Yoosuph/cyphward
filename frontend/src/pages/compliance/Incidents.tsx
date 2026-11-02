@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../../lib/pageCache';
 import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Info, Pencil, Plus, ShieldAlert } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../../components/StatusChip';
@@ -276,16 +276,25 @@ export default function IncidentsTab({ canEdit }: { canEdit: boolean }) {
   const [open, setOpen] = useState<Open>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setError(null);
     try {
-      { const ticket = pageCacheTicket(); const fresh = await listIncidents(); writePageCache('comply:incidents', fresh, ticket); setData(fresh); }
+      const fresh = await listIncidents();
+      if (!isCurrent()) return;
+      writePageCache('comply:incidents', fresh, ticket);
+      setData(fresh);
       setGated(false);
     } catch (e) {
+      if (!isCurrent()) return;
       if (isGrowthGate(e)) setGated(true);
       else setError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {

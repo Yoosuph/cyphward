@@ -29,12 +29,12 @@ import type { OverviewData, Domain, ExecutiveSummary } from '../types';
 import { useToast } from '../components/Toast';
 import SetupChecklist from '../components/SetupChecklist';
 import { startTour, tourSeen } from '../lib/tour';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 
 export default function Overview() {
-  // Last-seen overview paints at once on a revisit; loadData refreshes it.
-  const [data, setData] = useState<OverviewData | null>(() => readPageCache<OverviewData>('overview') ?? null);
-  const [loading, setLoading] = useState(() => readPageCache('overview') === undefined);
+  // Includes live scan progress: always load this payload fresh on a revisit.
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const requestId = useRef(0);
@@ -90,15 +90,16 @@ export default function Overview() {
     return () => clearTimeout(id);
   }, [tourDue]);
 
+  const beginLoad = useRequestGuard();
   const loadData = useCallback(async () => {
     const id = ++requestId.current;
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     try {
       const [overview, domainResult] = await Promise.allSettled([getOverview(), getDomains()]);
-      if (id !== requestId.current) return;
+      if (id !== requestId.current || !isCurrent()) return;
       if (overview.status === 'fulfilled' && overview.value) {
         setData(overview.value);
-        writePageCache('overview', overview.value, ticket);
         setRefreshFailed(false);
         setLastRefreshed(new Date());
       } else {
@@ -112,11 +113,12 @@ export default function Overview() {
           ? current : domainResult.value.find(d => d.verification_status === 'verified')?.id || '');
       }
     } catch (e) {
-      if (id === requestId.current) setRefreshFailed(true);
+      if (id === requestId.current && isCurrent()) setRefreshFailed(true);
     } finally {
-      if (id === requestId.current) setLoading(false);
+      if (id === requestId.current && isCurrent()) setLoading(false);
+      else if (id === requestId.current && isLatest()) void loadData();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => {
     loadData();

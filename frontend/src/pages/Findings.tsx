@@ -23,7 +23,7 @@ import { writeGuard } from '../lib/suspension';
 import { useOrgSuspended } from '../lib/useOrgSuspended';
 import type { Finding, FindingSeverity, FindingStatus, FindingExplanation, RemediationGuide } from '../types';
 import { useToast } from '../components/Toast';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import { Skeleton, SkeletonText } from '../components/Skeleton';
 import { FindingsListSkeleton, FindingsSkeleton } from '../components/skeletons/RouteSkeleton';
 import Drawer from '../components/Drawer';
@@ -73,8 +73,11 @@ export default function Findings() {
 
   const toast = useToast();
 
+  // Search is a draft until submitted; typing must not cancel the active filter request.
+  const beginLoad = useRequestGuard('app', `findings:${selectedSeverity}:${selectedCategory}`);
   const loadFindings = async () => {
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     const cacheKey = `findings:${selectedSeverity}:${selectedCategory}:${search}`;
     const cached = readPageCache<FindingsCache>(cacheKey);
     if (cached) {
@@ -84,6 +87,7 @@ export default function Findings() {
     // Skeleton only when this view has nothing to show yet (not on a refresh).
     if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
     else if (cached) setLoading(false);
+    if (!cached && shownKey.current !== cacheKey) { setFindings([]); setCategories({}); setLoadError(null); }
     shownKey.current = cacheKey;
     try {
       const res = await getFindings({
@@ -91,6 +95,7 @@ export default function Findings() {
         category: selectedCategory !== 'all' ? selectedCategory : undefined,
         search: search || undefined,
       });
+      if (!isCurrent()) return;
       setFindings(res.findings);
       setCategories(res.categories);
       setLoadError(null);
@@ -100,10 +105,15 @@ export default function Findings() {
         if (updated) setActiveFinding(updated);
       }
     } catch (err) {
+      if (!isCurrent()) return;
       // Keep whatever is already on screen; with nothing to show, the list becomes an error state with a retry.
       setLoadError(err);
       toast('Could not load issues. Try again in a moment.');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void loadFindings();
+        return;
+      }
       setLoading(false);
       setEverLoaded(true);
     }

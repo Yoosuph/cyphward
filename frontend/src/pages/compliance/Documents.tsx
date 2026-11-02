@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { pageCacheTicket, readPageCache, writePageCache } from '../../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../../lib/pageCache';
 import { CompliancePanelSkeleton } from '../../components/skeletons/RouteSkeleton';
 import { Check, Copy, Download, FileText, Info, Sparkles } from 'lucide-react';
 import StatusChip, { type ChipLevel } from '../../components/StatusChip';
@@ -186,16 +186,25 @@ export default function DocumentsTab({ canEdit, zone }: { canEdit: boolean; zone
   const [viewing, setViewing] = useState<DocumentFull | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const beginLoad = useRequestGuard();
   const load = useCallback(async () => {
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     setError(null);
     try {
-      { const ticket = pageCacheTicket(); const fresh = await listDocuments(); writePageCache('comply:documents', fresh, ticket); setData(fresh); }
+      const fresh = await listDocuments();
+      if (!isCurrent()) return;
+      writePageCache('comply:documents', fresh, ticket);
+      setData(fresh);
       setGated(false);
     } catch (e) {
+      if (!isCurrent()) return;
       if (isGrowthGate(e)) setGated(true);
       else setError(errorText(e, 'Something went wrong on our side. Try again in a moment.'));
+    } finally {
+      if (!isCurrent() && isLatest()) void load();
     }
-  }, []);
+  }, [beginLoad]);
 
   useEffect(() => { void load(); }, [load]);
 

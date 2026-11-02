@@ -19,7 +19,7 @@ import {
 } from '../lib/api';
 import type { Finding } from '../types';
 import { useToast } from '../components/Toast';
-import { pageCacheTicket, readPageCache, writePageCache } from '../lib/pageCache';
+import { useRequestGuard, readPageCache, writePageCache } from '../lib/pageCache';
 import Modal from '../components/Modal';
 import StatusChip from '../components/StatusChip';
 import { PageHead } from '../components/ui';
@@ -71,26 +71,35 @@ export default function Remediation() {
   const [priority, setPriority] = useState('medium');
   const [creating, setCreating] = useState(false);
 
+  const beginLoad = useRequestGuard('app', `remediation:${statusFilter}`);
   const load = useCallback(async () => {
-    const ticket = pageCacheTicket();
+    const { ticket, isCurrent, isLatest } = beginLoad();
+    if (!isCurrent()) return;
     const cacheKey = `remediation:${statusFilter}`;
     const cached = readPageCache<RemediationTask[]>(cacheKey);
     if (cached) setTasks(cached);
     // Skeleton only when this view has nothing to show yet (not on a refresh).
     if (cached === undefined && shownKey.current !== cacheKey) setLoading(true);
     else if (cached) setLoading(false);
+    if (!cached && shownKey.current !== cacheKey) { setTasks([]); }
     shownKey.current = cacheKey;
     try {
       const res = await getRemediationTasks(statusFilter ? { status: statusFilter } : undefined);
+      if (!isCurrent()) return;
       setTasks(res.tasks);
       writePageCache(cacheKey, res.tasks, ticket);
     } catch (e: any) {
+      if (!isCurrent()) return;
       toast(e.message || 'Failed to load tasks');
     } finally {
+      if (!isCurrent()) {
+        if (isLatest()) void load();
+        return;
+      }
       setLoading(false);
       setEverLoaded(true);
     }
-  }, [statusFilter, toast]);
+  }, [statusFilter, toast, beginLoad]);
 
   useEffect(() => {
     load();
