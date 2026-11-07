@@ -180,6 +180,16 @@ def audit_download_link(org_id: str, actor: str, row: Dict[str, Any]) -> None:
                     "content_type": row["content_type"], "expires_in": ef.SIGNED_URL_SECONDS})
 
 
+def audit_preview(org_id: str, actor: str, row: Dict[str, Any]) -> None:
+    """Record that the bytes were sent to a signed-in member for the in-app preview. Called after the bytes were
+    read and before they are returned: if this fails, nothing is sent."""
+    with database.get_db() as conn:
+        with conn.transaction():
+            _audit(conn, org_id, actor, "compliance.evidence_file.preview_served", str(row["id"]),
+                   {"file_id": str(row["id"]), "question_key": row["question_key"], "size_bytes": int(row["size_bytes"]),
+                    "content_type": row["content_type"]})
+
+
 # ── Removal ───────────────────────────────────────────────────────────────────
 
 

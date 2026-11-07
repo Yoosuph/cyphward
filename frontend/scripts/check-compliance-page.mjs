@@ -495,7 +495,8 @@ try {
     assert.equal(fileEvents.filter((e) => e.method === "DELETE").length, 1, `${name}: one removal after the confirm`);
     assert.ok(await overflowOf() <= 0, `${name}: overflow with the attach area`);
     // Keyboard: the attach button is reachable and its label is plain text.
-    assert.ok(await page.evaluate((q) => [...document.querySelectorAll(`${q} button`)].some((b) => b.textContent.trim() === "ATTACH EVIDENCE" && b.tabIndex === 0), fq), `${name}: attach button is focusable`);
+    // The drop zone is itself the button (docs/evidence-preview-2026-11-07); its label leads with ATTACH EVIDENCE.
+    assert.ok(await page.evaluate((q) => { const b = document.querySelector(`${q} [data-testid="attach-dpo.designated"]`); return b?.tagName === "BUTTON" && b.textContent.trim().startsWith("ATTACH EVIDENCE") && b.tabIndex === 0; }, fq), `${name}: attach button is focusable`);
     await noVerdicts(`${name} evidence files`);
     fs.rmSync(tmp, { recursive: true, force: true });
     if (process.env.CYPHWARD_COMPLIANCE_SCREENSHOTS === "1") await page.screenshot({ path: `/tmp/compliance-files-${name}.png`, fullPage: true });
@@ -680,7 +681,7 @@ try {
       inputs: document.querySelectorAll('input[type="file"], [data-testid^="file-input-"]').length,
       attach: [...document.querySelectorAll("button")].some((b) => /ATTACH EVIDENCE|REMOVE/.test(b.textContent)),
     }));
-    assert.deepEqual(mf.buttons, ["DOWNLOAD"], `${name}: members can only download`);
+    assert.deepEqual(mf.buttons, ["PREVIEW", "DOWNLOAD"], `${name}: members can only preview and download`);
     assert.equal(mf.inputs, 0, `${name}: no file input for a member`);
     assert.equal(mf.attach, false, `${name}: no attach or remove for a member`);
     assert.ok(await clickExact("1. What applies to you", 'nav[aria-label="Question groups"]'));

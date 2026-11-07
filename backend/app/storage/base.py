@@ -16,7 +16,7 @@ class StorageNotConfigured(StorageError):
 
 
 class StorageObjectNotFound(StorageError):
-    """The object does not exist (a signed link cannot be made for it)."""
+    """The object does not exist (a signed link cannot be made for it, its bytes cannot be read)."""
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,11 @@ class Storage(Protocol):
 
     def create_signed_url(self, path: str, expires_in: int, download_name: str) -> str:
         """A short-lived URL that serves the object as an attachment named `download_name`."""
+
+    def get(self, path: str, max_bytes: int) -> bytes:
+        """The object's bytes, read through the service connection (never a public or signed URL).
+
+        Raises StorageObjectNotFound when it does not exist, StorageError when it is larger than `max_bytes`."""
 
     def delete(self, path: str) -> None:
         """Delete one object. A missing object is not an error."""

@@ -21,6 +21,10 @@ FILES = (
     "pages/compliance/Packs.tsx",
     "pages/compliance/Questionnaire.tsx",
     "pages/compliance/shared.tsx",
+    # Evidence files: the upload drop zone, its states and the preview dialog (docs/evidence-preview-2026-11-07).
+    "pages/compliance/EvidenceFiles.tsx",
+    "pages/compliance/EvidencePreview.tsx",
+    "pages/compliance/evidenceUpload.ts",
     "pages/Reports.tsx",
     "pages/Scans.tsx",
     "pages/Domains.tsx",

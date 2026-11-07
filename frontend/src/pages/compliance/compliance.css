@@ -53,3 +53,40 @@
  .compliance-tab-count { margin-left:auto; }
 }
 @media (prefers-reduced-motion: reduce) { .compliance-tab { transition: none; } }
+
+/* ── Evidence files: drop zone, upload progress and the preview dialog (docs/evidence-preview-2026-11-07) ── */
+.evf-drop { border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--inset); transition: border-color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease); }
+.evf-drop[data-state="dragover"] { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.evf-drop[data-state="uploading"] { border-style: solid; background: var(--raised); }
+.evf-drop[data-state="done"] { border-style: solid; border-color: var(--ok); }
+.evf-drop-button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; border-radius: 9px; text-align: left; color: var(--ink); background: transparent; cursor: pointer; }
+.evf-drop-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.evf-drop-icon { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); color: var(--accent); }
+.evf-drop[data-state="done"] .evf-drop-icon { color: var(--ok); border-color: var(--ok); }
+.evf-drop-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.evf-drop-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
+.evf-drop-hint { font-size: 11px; color: var(--soft); overflow-wrap: anywhere; }
+.evf-check path { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 0; animation: evfCheckDraw var(--motion-slow) var(--motion-ease-out) both; }
+@keyframes evfCheckDraw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+.evf-progress { display: grid; gap: 8px; padding: 10px 14px; }
+.evf-track { height: 6px; border-radius: 20px; background: var(--line); overflow: hidden; }
+.evf-track > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left center; transition: transform var(--motion-fast) linear; }
+.evf-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.evf-error > p { flex: 1 1 14rem; min-width: 0; }
+.evf-row-new { animation: evfRowIn var(--motion-enter) var(--motion-ease-out) both; }
+@keyframes evfRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.evf-preview-stage { min-width: 0; }
+.evf-preview-image { display: grid; place-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); }
+.evf-preview-image img { display: block; max-width: 100%; max-height: 65vh; max-height: 65dvh; width: auto; height: auto; object-fit: contain; }
+.evf-preview-pdf { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--inset); }
+.evf-preview-pdf object { display: block; width: 100%; height: 65vh; height: 65dvh; border: 0; }
+.evf-preview-pdf object > [data-testid="preview-pdf-fallback"] { border: 0; border-radius: 0; }
+@media (max-width: 640px) {
+ .evf-preview-image img { max-height: none; }
+ .evf-preview-pdf object { height: calc(100dvh - 260px); min-height: 280px; }
+ .evf-drop-button { min-height: 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+ .evf-drop, .evf-track > span { transition: none; }
+ .evf-check path, .evf-row-new { animation: none; }
+}

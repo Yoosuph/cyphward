@@ -1372,17 +1372,58 @@ export const getEvidenceFileLink = (id: string) =>
   apiFetch<{ url: string; expires_in: number; display_name: string }>(
     `/compliance/evidence-files/${encodeURIComponent(id)}/download`, { cache: 'no-store' }, true);
 
+/**
+ * The bytes of a PDF, PNG or JPG for the in-app preview, read through the API with the session (never from a storage
+ * URL). The Blob is typed from the file's validated content type, not from the response, so it cannot be sniffed as
+ * anything else. Nothing is cached: the caller makes a blob URL and revokes it when the preview closes.
+ */
+export async function getEvidenceFilePreview(id: string, contentType: string, signal?: AbortSignal): Promise<Blob> {
+  const send = async (token: string | null) => {
+    const orgId = getActiveOrgId();
+    return fetch(`${API_BASE}/compliance/evidence-files/${encodeURIComponent(id)}/content`, {
+      cache: 'no-store', credentials: 'same-origin', signal,
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(orgId ? { 'X-Organization-Id': orgId } : {}) },
+    });
+  };
+  let res = await send(await ensureFreshAccessToken());
+  if (res.status === 401 && getAccessTokenSync()) {
+    const rotated = await refreshSession(true);
+    if (rotated) res = await send(rotated.access_token);
+  }
+  if (!res.ok) {
+    const error: Error & { status?: number } = new Error(`preview ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+  return new Blob([await res.arrayBuffer()], { type: contentType });
+}
+
 export const removeEvidenceFile = (id: string) =>
   apiFetch<{ id: string; removed: boolean }>(`/compliance/evidence-files/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
 
-/** The file goes up as the raw request body (no multipart); XMLHttpRequest gives upload progress. */
+/** Thrown by uploadEvidenceFile when the person cancelled (the request was aborted). Not an error to show. */
+export class UploadCancelled extends Error {
+  readonly cancelled = true;
+  constructor() { super('The upload was cancelled.'); this.name = 'UploadCancelled'; }
+}
+
+/**
+ * The file goes up as the raw request body (no multipart); XMLHttpRequest gives real upload progress (fetch cannot).
+ * `signal` aborts the request: the promise then rejects with UploadCancelled. An abort after the last byte was sent
+ * may still be saved by the server, so callers reload the list after a cancel.
+ */
 export async function uploadEvidenceFile(
-  questionKey: string, file: File, onProgress: (fraction: number) => void,
+  questionKey: string, file: File, onProgress: (fraction: number) => void, signal?: AbortSignal,
 ): Promise<EvidenceFile> {
   const token = await ensureFreshAccessToken();
   const orgId = getActiveOrgId();
+  if (signal?.aborted) throw new UploadCancelled();
   return new Promise<EvidenceFile>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    xhr.onloadend = () => signal?.removeEventListener('abort', onAbort);
+    xhr.onabort = () => reject(new UploadCancelled());
     xhr.open('POST', `${API_BASE}/compliance/evidence-files?question_key=${encodeURIComponent(questionKey)}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
