@@ -3,6 +3,7 @@ import { Download, Eye, Paperclip, RefreshCw, Trash2, X } from 'lucide-react';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
 import { humanError } from '../../components/ui/StatePanels';
+import { Skeleton } from '../../components/ui/Skeleton';
 import {
   getEvidenceFileLink, removeEvidenceFile, uploadEvidenceFile, UploadCancelled,
   type EvidenceFile, type EvidenceFileList,
@@ -44,6 +45,16 @@ export function fileProblem(file: File, maxBytes = DEFAULT_MAX): string | null {
 function typeName(name: string): string {
   const dot = name.lastIndexOf('.');
   return TYPE_NAMES[dot > 0 ? name.slice(dot + 1).toLowerCase() : ''] ?? 'File';
+}
+
+/** The drop zone's space while the file list loads, so the questions below do not jump when it arrives. */
+export function EvidenceFilesReserve() {
+  return (
+    <div className="space-y-1.5 pt-1" aria-hidden="true" data-testid="files-reserve">
+      <div className="evf-drop-reserve"><Skeleton width="100%" height="100%" rounded="md" /></div>
+      <Skeleton width="62%" height={11} className="skeleton-text" />
+    </div>
+  );
 }
 
 type Upload =

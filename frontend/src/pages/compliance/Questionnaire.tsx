@@ -9,7 +9,7 @@ import {
   listEvidenceFiles, listOrgMembers, recordAttestation,
   type EvidenceFileList, type OrgMember, type Questionnaire as QuestionnaireData, type QuestionnaireAnswer, type QuestionnaireQuestion,
 } from '../../lib/api';
-import EvidenceFiles from './EvidenceFiles';
+import EvidenceFiles, { EvidenceFilesReserve } from './EvidenceFiles';
 import { FIELD_BOX, FIELD_LABEL, ReadOnlyNote, errorText, fmtDayZone } from './shared';
 
 /**
@@ -227,7 +227,8 @@ function AnswerForm({ q, zone, members, onDone, onCancel }: {
 
 function QuestionCard({ q, zone, canEdit, members, onSaved, fileInfo, onFilesChanged }: {
   q: QuestionnaireQuestion; zone: string; canEdit: boolean; members: OrgMember[]; onSaved: () => void;
-  fileInfo: EvidenceFileList | null; onFilesChanged: () => void;
+  /** undefined while the file list loads; null when it could not be loaded (the file area is then hidden). */
+  fileInfo: EvidenceFileList | null | undefined; onFilesChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const chip = STATE_CHIP[q.answer_state];
@@ -240,6 +241,7 @@ function QuestionCard({ q, zone, canEdit, members, onSaved, fileInfo, onFilesCha
       {q.evidences.length > 0 && <p className="text-[11px] mono text-soft break-words">Informs: {q.evidences.map(e => e.title).join(' · ')}</p>}
       <ToldUs q={q} zone={zone} />
       {fileInfo && <EvidenceFiles questionKey={q.key} info={fileInfo} zone={zone} canEdit={canEdit} onChanged={onFilesChanged} />}
+      {fileInfo === undefined && canEdit && <EvidenceFilesReserve />}
       {canEdit && !editing && (
         <button type="button" className="btn-mini touch-target" onClick={() => setEditing(true)}>
           <Pencil size={12} /> {q.current ? 'Update answer' : 'Answer'}
@@ -275,7 +277,7 @@ export default function QuestionnaireTab({ data, canEdit, onSaved }: {
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [stepKey, setStepKey] = useState('applicability');
-  const [fileInfo, setFileInfo] = useState<EvidenceFileList | null>(null);
+  const [fileInfo, setFileInfo] = useState<EvidenceFileList | null | undefined>(undefined);
   const steps = useMemo(() => buildSteps(data), [data]);
   const zone = resolveZone(data.display_timezone);
 
