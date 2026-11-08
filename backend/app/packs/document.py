@@ -155,7 +155,7 @@ def _capped(parts: List[str], limit: int) -> List[str]:
 
 def evidence_references(req: Dict[str, Any], attestations_by_q: Dict[str, Dict[str, Any]], v2: bool = False) -> str:
     items = evidence_items(req)
-    if not items:
+    if not items and not req.get("academy_records"):
         return "No evidence recorded."
     first_observed = next((i["source"] for i in items if i["source"] in OBSERVED_SOURCES), None)
     lines = []
@@ -165,6 +165,9 @@ def evidence_references(req: Dict[str, Any], attestations_by_q: Dict[str, Dict[s
                         else 2)
         # Every line leads with the source and the status /comply shows for it (its "Also on this requirement" line).
         lines.append(("Also: " if n else "") + f"{item['source_label']}: {item['status_label']}; " + "; ".join(parts))
+    # Academy completion counts frozen with the snapshot (training requirement only, informational: no status).
+    for record in (req.get("academy_records") or [])[:3]:
+        lines.append(f"Also: {record['source_label']} ({record['label']}): {flat(record['text'], v2)}"[:MAX_REFERENCE_CHARS])
     return "\n".join(lines)
 
 

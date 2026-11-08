@@ -67,7 +67,11 @@ FENCE_SQL = """
       (SELECT count(*) || ':' || coalesce(max(reviewed_at)::text, '') FROM compliance_practitioner_reviews WHERE org_id = %(o)s),
       (SELECT count(*) || ':' || coalesce(max(verified_at)::text, '') FROM compliance_clause_verifications WHERE org_id = %(o)s),
       (SELECT string_agg(id::text || verification_status || coalesce(revoked_at::text, ''), ',' ORDER BY id)
-         FROM domains WHERE org_id = %(o)s)
+         FROM domains WHERE org_id = %(o)s),
+      (SELECT count(*) || ':' || coalesce(max(assigned_at)::text, '') || ':' || count(removed_at)
+         FROM academy_assignments WHERE org_id = %(o)s),
+      (SELECT count(*) || ':' || coalesce(max(ce.issued_at)::text, '') FROM academy_certificates ce
+         JOIN academy_assignments a ON a.user_id = ce.user_id AND a.course_id = ce.course_id WHERE a.org_id = %(o)s)
     )) AS fence
 """
 
@@ -201,6 +205,12 @@ def _compliance(org_id: str, now: datetime) -> Dict[str, Any]:
             entry["practitioner_review"] = v["practitioner_review"]
         if v.get("clause_review"):
             entry["clause_review"] = v["clause_review"]
+        # Academy completion counts (training requirement): frozen only where they exist, so every other snapshot
+        # stays byte-identical to one made before the Academy existed.
+        if v.get("academy_records"):
+            entry["academy_records"] = [{k: r[k] for k in ("source", "source_label", "label", "course_title", "assigned",
+                                                            "completed", "window_months", "as_of", "text")}
+                                        for r in v["academy_records"]]
     attestations = []
     for key, row in sorted(ctx["answers"].items()):
         question = qn.question(key)

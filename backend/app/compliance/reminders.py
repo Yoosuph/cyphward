@@ -187,6 +187,21 @@ def _billing_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any])
                         cur=cur)
 
 
+def _academy_sweep(claim: Dict[str, Any], now: datetime, result: Dict[str, Any]) -> None:
+    """Assigned courses due within 3 days and not yet completed (academy/store.py DUE_SOON_SQL). Suspended and
+    deleted organisations are skipped, like their scheduled scans. One notification per assignment and due date."""
+    from backend.app.academy import certificate as academy_certificate, store as academy_store
+    for item in academy_store.due_soon(now.astimezone(timezone.utc).date()):
+        with database.get_db() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    lock_cron_claim(cur, claim)
+                    result["academy_due_notified"] += notifications.emit(
+                        "academy_course_due_soon", item["org_id"], key=f"academy_due:{item['id']}:{item['due_on']}",
+                        params={"course": item["title"], "due": academy_certificate.long_date(item["due_on"])},
+                        recipients=[item["user_id"]], cur=cur)
+
+
 def _claimant_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
@@ -280,7 +295,8 @@ def _claim_is_current(claim: Dict[str, Any]) -> bool:
 
 async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     result = {"due": 0, "reminded": 0, "emails_sent": 0, "email_failures": 0, "skipped": 0,
-              "dpo_reminded": 0, "dpo_skipped": 0, "email_muted": 0, "billing_notified": 0}
+              "dpo_reminded": 0, "dpo_skipped": 0, "email_muted": 0, "billing_notified": 0,
+              "academy_due_notified": 0}
     due = await asyncio.to_thread(_due, now)
     result["due"] = len(due)
     for item in due:
@@ -310,6 +326,7 @@ async def _sweep(claim: Dict[str, Any], now: datetime) -> Dict[str, Any]:
                 logger.warning("compliance reminder email failed for an organisation member", exc_info=True)
     await _dpo_sweep(claim, now, result)
     await asyncio.to_thread(_billing_sweep, claim, now, result)
+    await asyncio.to_thread(_academy_sweep, claim, now, result)
     # Catch-up for critical notification emails a restart left pending (services/notifications.py).
     result["notification_emails"] = await notifications.deliver_pending_emails()
     return result

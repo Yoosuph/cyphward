@@ -55,6 +55,7 @@ CORS_ORIGINS = [
     "https://cyphward.vercel.app",
     "https://app.cyphward.com",
     "https://auth.cyphward.com",
+    "https://academy.cyphward.com",
 ]
 
 # Owner console (admin.cyphward.com). Mutations must come from one of these

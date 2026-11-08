@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from backend.app.billing.subscriptions import resolve_plan
 from backend.app.compliance import attestation_store, attestations, browser_observation, mapping, practitioner
+from backend.app.academy import store as academy_store
 from backend.app.compliance.register import DISCLAIMER, REGISTER, requirement as register_requirement
 from backend.app.core.database import execute_one, execute_query
 
@@ -108,6 +109,9 @@ def _context(org_id: str) -> Dict[str, Any]:
                "answers": attestation_store.current_rows(org_id),
                # Practitioner notes and the per-organisation clause overlay (C6): labels only, never status.
                "reviews": practitioner.latest_reviews(org_id), "clauses": practitioner.latest_clauses(org_id)}
+    # Academy completions of assigned courses (academy/store.py): shown on the training requirement as tool evidence,
+    # informational only. They never change a status or the readiness counts.
+    context["academy"] = academy_store.training_records(org_id)
     if browser_observation.enabled():  # C2b: first-visit browser observations, kept apart from the static rows
         context["browser"] = browser_observation.latest_rows(execute_query, org_id, domain_ids)
     return context
@@ -162,6 +166,8 @@ def _requirement_view(req: Dict[str, Any], ctx: Dict[str, Any], now: Optional[da
         "sources": sources,
         "answers": [_answer_view(entry) for entry in (attested["answers"] if attested else [])],
         "domains": domains, "unlinked_finding_ids": result["unlinked_finding_ids"],
+        **({"academy_records": ctx["academy"]}
+           if req["key"] == academy_store.TRAINING_REQUIREMENT and ctx.get("academy") else {}),
     }
 
 

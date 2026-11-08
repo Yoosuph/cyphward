@@ -46,6 +46,8 @@ from backend.app.api import (
     billing,
     contact,
     newsletter,
+    academy,
+    owner_academy,
 )
 from backend.app.workflows.inngest_workflow import (
     inngest_client,
@@ -168,6 +170,8 @@ app.include_router(packs.router)
 app.include_router(billing.router)
 app.include_router(contact.router)
 app.include_router(newsletter.router)
+app.include_router(academy.router)
+app.include_router(owner_academy.router)
 
 # ---------------------------------------------------------------------------
 # Startup recovery for legacy unleased local work. New local/Core executions

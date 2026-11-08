@@ -32,6 +32,7 @@ CATEGORIES: Dict[str, str] = {
     "members": "Team members",
     "organisation": "Organisation status",
     "compliance": "Compliance reminders",
+    "learning": "Academy courses",
 }
 CATEGORY_HINTS: Dict[str, str] = {
     "scans": "A scan finished, did not finish, or found a new host.",
@@ -40,6 +41,7 @@ CATEGORY_HINTS: Dict[str, str] = {
     "members": "Someone was invited, joined or was removed.",
     "organisation": "Cyphward suspended this organisation or lifted the suspension.",
     "compliance": "A recorded answer expires within 30 days, or a report is due.",
+    "learning": "A course was assigned to you or is due within 3 days, or a member completed an assigned course.",
 }
 
 Render = Callable[[Dict[str, Any], int], Tuple[str, str]]
@@ -176,6 +178,33 @@ def _report_due(p: Dict[str, Any], n: int) -> Tuple[str, str]:
             "from the Packs area; it is supporting evidence, not a Compliance Audit Return.")
 
 
+def _course_assigned(p: Dict[str, Any], n: int) -> Tuple[str, str]:
+    course = p.get("course") or "a course"
+    if n > 1:
+        return f"{n} courses assigned to you", "Open My learning on Cyphward Academy to see them and their due dates."
+    due = f", due on {p['due']}" if p.get("due") else ""
+    return (f"Course assigned: {course}"[:200],
+            f"{p.get('org_name') or 'Your organisation'} assigned you {course}{due}. "
+            "Open My learning on Cyphward Academy to start.")
+
+
+def _course_due_soon(p: Dict[str, Any], n: int) -> Tuple[str, str]:
+    if n > 1:
+        return f"{n} assigned courses are due soon", "Open My learning on Cyphward Academy to finish them."
+    return (f"Due on {p.get('due') or 'its due date'}: {p.get('course') or 'an assigned course'}"[:200],
+            "This course is due within 3 days. Open My learning on Cyphward Academy to finish it.")
+
+
+def _course_completed(p: Dict[str, Any], n: int) -> Tuple[str, str]:
+    if n > 1:
+        return f"{n} assigned courses were completed", "Progress for each member is on the Training tab in Settings."
+    return (f"{p.get('name') or 'A member'} completed {p.get('course') or 'an assigned course'}"[:200],
+            "Progress for each member is on the Training tab in Settings.")
+
+
+# Learner links open the Academy (the customer app forwards /academy/... to academy.cyphward.com).
+ACADEMY_LINK = "/academy/my-learning"
+
 KINDS: Dict[str, Kind] = {
     "scan_completed": Kind("scans", "info", "all", False, "/scans", _scan_completed),
     "scan_failed": Kind("scans", "warning", "all", True, "/scans", _scan_failed),
@@ -197,6 +226,9 @@ KINDS: Dict[str, Kind] = {
     "attestation_expiring_30": Kind("compliance", "info", "admins", False, "/comply", _attestation(30)),
     "attestation_expiring_7": Kind("compliance", "warning", "admins", False, "/comply", _attestation(7)),
     "compliance_report_due": Kind("compliance", "info", "admins", False, "/comply", _report_due),
+    "academy_course_assigned": Kind("learning", "info", "all", False, ACADEMY_LINK, _course_assigned),
+    "academy_course_due_soon": Kind("learning", "warning", "all", False, ACADEMY_LINK, _course_due_soon),
+    "academy_course_completed": Kind("learning", "info", "admins", False, "/settings?tab=training", _course_completed),
 }
 
 # The finding kind for a severity; anything below high gets no "became critical or high" notification.

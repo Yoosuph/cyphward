@@ -24,6 +24,7 @@ _ACCOUNT = "personal account and sign-in: acts on the person, not on an organisa
 _WORKER = "scanner or browser worker protocol: machine credentials and a claimed job, no organisation session"
 _OWNER = "owner console: separate owner session; owner actions are never blocked by a suspension"
 _PUBLIC = "public form or newsletter flow: no organisation"
+_LEARNER = "the person's own Academy learning record (enrolment, lesson done, quiz attempt); no organisation record"
 
 # (method, path) -> reason. Reviewed; keep it short. Prefixes are deliberately not used.
 ALLOWED = {
@@ -59,7 +60,18 @@ ALLOWED = {
         "organizations/{org_id}/members/restore", "scans/{scan_id}/cancel", "users/{user_id}/sign-out",
         "notifications/read-all", "notifications/{notification_id}/read",
         # Delete organisation (docs/admin-delete-org): owner session + console Origin (test_admin_delete_org.py).
-        "organizations/{org_id}/delete", "organizations/{org_id}/restore", "organizations/{org_id}/purge")},
+        "organizations/{org_id}/delete", "organizations/{org_id}/restore", "organizations/{org_id}/purge",
+        # Academy course builder (docs/academy-phase1-2026-11-08): owner session + console Origin, owner-audited.
+        "academy/courses", "academy/courses/{course_id}/publish", "academy/courses/{course_id}/unpublish",
+        "academy/courses/{course_id}/delete", "academy/courses/{course_id}/reorder",
+        "academy/courses/{course_id}/modules", "academy/modules/{module_id}/remove",
+        "academy/modules/{module_id}/lessons", "academy/lessons/{lesson_id}/remove",
+        "academy/modules/{module_id}/quizzes", "academy/quizzes/{quiz_id}/remove")},
+    **{(m, f"/api/v1/owner/academy/{p}"): _OWNER for m, p in (
+        ("PATCH", "courses/{course_id}"), ("PATCH", "modules/{module_id}"), ("PATCH", "lessons/{lesson_id}"),
+        ("PUT", "quizzes/{quiz_id}"))},
+    **{("POST", f"/api/v1/academy/courses/{p}"): _LEARNER for p in (
+        "{slug}/enrol", "{slug}/lessons/{lesson_id}/complete", "{slug}/quizzes/{quiz_id}/attempts")},
     **{("POST", f"/api/v1/newsletter/{p}"): _PUBLIC for p in ("subscribe", "confirm", "unsubscribe")},
     ("POST", "/api/v1/newsletter/drafts"): "newsletter draft upload with the drafts key; no organisation",
     ("POST", "/api/v1/newsletter/drafts/{issue_id}/send"): "owner or newsletter staff send; no organisation",
@@ -125,6 +137,9 @@ def test_the_named_write_paths_are_gated():
         ("POST", "/api/v1/compliance/reviewer/requirements/{key}/clause-reference"),
         ("POST", "/api/v1/packs"), ("POST", "/api/v1/snapshots"), ("PUT", "/api/v1/snapshots/retention"),
         ("POST", "/api/v1/reports"), ("POST", "/api/v1/remediation/{task_id}/verify"),
+        # Academy assignments (owners and admins of an active organisation).
+        ("POST", "/api/v1/academy/org/assignments"), ("PATCH", "/api/v1/academy/org/assignments/{assignment_id}"),
+        ("DELETE", "/api/v1/academy/org/assignments/{assignment_id}"),
     ]:
         assert key in gated, key
 
@@ -175,7 +190,7 @@ def test_a_suspended_organisation_is_refused_on_every_gated_route(client, store,
         if not _refused(resp):
             leaks.append((method, path, resp.status_code, resp.text[:120]))
     assert not leaks, leaks
-    assert len(gated_routes()) == 34
+    assert len(gated_routes()) == 37
 
 
 def test_the_refusal_names_no_internal_detail(client, store, auth_headers):
