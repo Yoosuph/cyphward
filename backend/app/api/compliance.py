@@ -12,7 +12,7 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -201,14 +201,21 @@ def approve_document(document_id: UUID, org: Dict[str, Any] = Depends(require_ac
 
 # ── Evidence files (packet C6) ────────────────────────────────────────────────
 #
-# Growth plan only. Owner/admin upload and remove; any member lists and downloads. Bytes go to a private bucket;
-# a download is a 60-second signed link that forces a download, issued only after the database confirms the file
-# belongs to the caller's organisation. There is no inline preview and no public URL.
+# Growth plan only. Owner/admin upload and remove; any member lists, previews and downloads. Bytes go to a private
+# bucket; a download is a 60-second signed link that forces a download, issued only after the database confirms the
+# file belongs to the caller's organisation. There is no public URL and nothing is served inline from storage.
+#
+# Preview (PDF, PNG, JPG only): the API reads the bytes with the service connection and returns them to the signed-in
+# member as an attachment (no-store, nosniff, a sandboxing CSP). The app turns them into a blob URL in memory and shows
+# that; no storage URL ever reaches the page. Word files have no preview: they are only downloaded.
 
 logger = logging.getLogger("cyphward.evidence_files.api")
 MAX_UPLOADS_PER_ORG = 2           # of the process's slots, one organisation may hold this many
 ATTEMPTS_PER_HOUR = 60            # upload attempts per organisation per hour, refused ones included
 DOWNLOADS_PER_MINUTE = 30         # download links per user per organisation per minute
+PREVIEWS_PER_MINUTE = 30          # previews per user per organisation per minute
+PREVIEW_TYPES = {"application/pdf", "image/png", "image/jpeg"}
+PREVIEW_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'"
 MAX_CONCURRENT_UPLOADS = 4        # per process: at most this many request bodies (10 MB each) are held at once
 UPLOAD_SLOT_WAIT_SECONDS = 10.0
 UPLOAD_READ_SECONDS = 60.0         # a slow sender cannot hold an upload slot longer than this
@@ -381,6 +388,39 @@ def download_evidence_file(file_id: str, response: Response, org: Dict[str, Any]
     response.headers["Cache-Control"] = "no-store"
     return {"url": url, "expires_in": evidence_files.SIGNED_URL_SECONDS, "display_name": found["display_name"],
             "content_type": found["content_type"], "size_bytes": int(found["size_bytes"])}
+
+
+@router.get("/evidence-files/{file_id}/content")
+def preview_evidence_file(file_id: str, org: Dict[str, Any] = Depends(get_current_org)) -> Response:
+    """The file's bytes for the in-app preview (PDF, PNG and JPG only), as an attachment that is never cached."""
+    _require_growth(org)
+    org_id, actor = str(org["id"]), str(org["current_user_id"])
+    found = evidence_file_store.find_for_download(org_id, _file_id_or_404(file_id))
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    if found["content_type"] not in PREVIEW_TYPES:
+        raise HTTPException(status_code=415, detail="This type of file cannot be previewed. Download it instead.")
+    check_rate_limit(f"evidence-preview:{org_id}:{actor}", PREVIEWS_PER_MINUTE, 60)
+    storage = _storage_or_503()
+    try:
+        data = storage.get(found["storage_path"], evidence_files.MAX_BYTES)
+    except file_storage.StorageObjectNotFound:
+        raise HTTPException(status_code=404, detail="This file is no longer available.")
+    except file_storage.StorageError:
+        raise HTTPException(status_code=502, detail="The preview could not be loaded. Try again.")
+    kind = {"application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpeg"}[found["content_type"]]
+    try:
+        evidence_files.check_content(kind, data)  # the bytes still match the type they were stored as
+    except evidence_files.FileRejected:
+        raise HTTPException(status_code=502, detail="The preview could not be loaded. Try again.")
+    evidence_file_store.audit_preview(org_id, actor, found)  # if this fails, no bytes are returned
+    return Response(content=data, media_type=found["content_type"], headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(found['display_name'], safe='')}",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": PREVIEW_CSP,
+        "Cross-Origin-Resource-Policy": "same-origin",
+    })
 
 
 @router.delete("/evidence-files/{file_id}")

@@ -17,6 +17,7 @@ class MemoryStorage:
         self.fail_delete = False
         self.fail_delete_prefix = False
         self.fail_sign = False
+        self.fail_get = False
         self.put_delay = 0.0
         self.calls: List[Tuple[str, str]] = []
 
@@ -42,6 +43,18 @@ class MemoryStorage:
             self.signed.append({"path": path, "expires_in": expires_in, "download_name": download_name})
         return (f"https://storage.invalid/storage/v1/object/sign/evidence-files/{path}"
                 f"?token={token}&download={quote(download_name)}")
+
+    def get(self, path: str, max_bytes: int) -> bytes:
+        with self._lock:
+            self.calls.append(("get", path))
+            if self.fail_get:
+                raise StorageError("The storage service could not read the file.")
+            if path not in self.objects:
+                raise StorageObjectNotFound("The file is not in storage.")
+            data = self.objects[path][0]
+        if len(data) > max_bytes:
+            raise StorageError("The stored file is larger than expected.")
+        return data
 
     def delete(self, path: str) -> None:
         with self._lock:

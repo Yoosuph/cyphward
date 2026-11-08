@@ -61,6 +61,10 @@ def _download(world, org_id, uid, file_id):
     return world.client.get(f"{BASE}/{file_id}/download", headers=world.headers(uid, org_id))
 
 
+def _preview(world, org_id, uid, file_id):
+    return world.client.get(f"{BASE}/{file_id}/content", headers=world.headers(uid, org_id))
+
+
 def _remove(world, org_id, uid, file_id):
     return world.client.delete(f"{BASE}/{file_id}", headers=world.headers(uid, org_id))
 
@@ -280,6 +284,7 @@ def test_starter_gets_the_growth_plan_403_on_everything(world, fake):
     assert _upload(world, org_id, owner).status_code == 403
     assert world.client.get(BASE, headers=world.headers(owner, org_id)).status_code == 403
     assert _download(world, org_id, owner, fid).status_code == 403
+    assert _preview(world, org_id, owner, fid).status_code == 403
     assert _remove(world, org_id, owner, fid).status_code == 403
     assert fake.objects == {} and fake.calls == []
 
@@ -354,6 +359,72 @@ def test_a_storage_error_while_signing_is_a_clean_502_and_a_missing_object_a_404
     fake.fail_sign = False
     fake.objects.clear()
     assert _download(world, org_id, owner, file_id).status_code == 404
+
+
+# ── Preview bytes ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("name,data,ctype", [("scan.png", PNG, "image/png"), ("photo.jpg", JPEG, "image/jpeg"),
+                                             ("policy.pdf", PDF, "application/pdf")])
+def test_preview_returns_the_bytes_as_a_no_store_attachment_and_audits_it(world, team, fake, name, data, ctype):
+    org_id, owner, admin, member = team
+    file_id = _upload(world, org_id, owner, name=name, data=data).json()["id"]
+    resp = _preview(world, org_id, member, file_id)
+    assert resp.status_code == 200, resp.text
+    assert resp.content == data
+    assert resp.headers["content-type"] == ctype
+    assert resp.headers["content-disposition"].startswith("attachment;") and "inline" not in resp.headers["content-disposition"]
+    assert resp.headers["cache-control"] == "no-store" and resp.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in resp.headers["content-security-policy"] and resp.headers["cross-origin-resource-policy"] == "same-origin"
+    assert fake.signed == [], "a preview never creates a storage link"
+    assert fake.call_names("get") == [f"org/{org_id}/{file_id}"]
+    events = _audit(world, org_id, "compliance.evidence_file.preview_served")
+    assert len(events) == 1 and str(events[0]["user_id"]) == member and events[0]["metadata"]["file_id"] == file_id
+    assert name not in json.dumps(events[0]["metadata"])
+
+
+def test_preview_refuses_word_files_without_reading_them(world, team, fake):
+    org_id, owner, *_ = team
+    file_id = _upload(world, org_id, owner, name="Board minutes.docx", data=DOCX).json()["id"]
+    resp = _preview(world, org_id, owner, file_id)
+    assert resp.status_code == 415 and "Download it instead" in resp.json()["detail"]
+    assert fake.call_names("get") == [] and _audit(world, org_id, "compliance.evidence_file.preview_served") == []
+
+
+def test_preview_is_scoped_to_the_organisation_and_removed_files_are_gone(world, team, fake):
+    org_id, owner, *_ = team
+    other = world.make_org()
+    theirs = _upload(world, other, world.make_person(other, "owner")).json()["id"]
+    assert _preview(world, org_id, owner, theirs).status_code == 404
+    for bad in ("not-a-uuid", "../etc", str(uuid4())):
+        assert _preview(world, org_id, owner, bad).status_code == 404
+    mine = _upload(world, org_id, owner).json()["id"]
+    assert _remove(world, org_id, owner, mine).status_code == 200
+    assert _preview(world, org_id, owner, mine).status_code == 404
+    assert fake.call_names("get") == []
+
+
+def test_preview_storage_failures_are_clean_and_leave_no_audit_row(world, team, fake):
+    org_id, owner, *_ = team
+    file_id = _upload(world, org_id, owner, name="scan.png", data=PNG).json()["id"]
+    fake.fail_get = True
+    resp = _preview(world, org_id, owner, file_id)
+    assert resp.status_code == 502 and resp.json()["detail"] == "The preview could not be loaded. Try again."
+    fake.fail_get = False
+    path = f"org/{org_id}/{file_id}"
+    fake.objects[path] = (b"<html><script>alert(1)</script>", "image/png", time.time())
+    assert _preview(world, org_id, owner, file_id).status_code == 502, "bytes that no longer match the type are not sent"
+    fake.objects.clear()
+    assert _preview(world, org_id, owner, file_id).status_code == 404
+    assert _audit(world, org_id, "compliance.evidence_file.preview_served") == []
+
+
+def test_previews_are_rate_limited_per_user(world, team, fake, monkeypatch):
+    org_id, owner, admin, member = team
+    file_id = _upload(world, org_id, owner).json()["id"]
+    monkeypatch.setattr(api, "PREVIEWS_PER_MINUTE", 2)
+    assert [_preview(world, org_id, member, file_id).status_code for _i in range(3)] == [200, 200, 429]
+    assert _preview(world, org_id, admin, file_id).status_code == 200
 
 
 # ── Removal and reconcile ─────────────────────────────────────────────────────

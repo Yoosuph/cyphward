@@ -6,6 +6,9 @@ plus the HTTP status, never a response body or header.
 
 Signed URLs: the Storage service signs a path-scoped token (the key is not in it). The URL gets a `download`
 query parameter, which makes the service answer with `Content-Disposition: attachment`.
+
+Reading bytes (`get`, for the in-app preview): an authenticated object GET with the service role, streamed and cut
+off past `max_bytes`, so a larger-than-expected object is never held in memory whole.
 """
 import logging
 import os
@@ -85,6 +88,26 @@ class SupabaseStorage:
             relative = relative[len("/storage/v1"):]
         joiner = "&" if "?" in relative else "?"
         return f"{self._base}/storage/v1{relative}{joiner}download={quote(download_name, safe='')}"
+
+    def get(self, path: str, max_bytes: int) -> bytes:
+        try:
+            with self._client.stream("GET", f"/object/authenticated/{self._bucket}/{_enc(path)}") as response:
+                if response.status_code >= 400:
+                    logger.warning("storage GET answered %s", response.status_code)
+                    if response.status_code in (400, 404):
+                        # Storage answers 400 with an "object not found" body for a missing object in some versions.
+                        raise StorageObjectNotFound("The file is not in storage.")
+                    raise StorageError(f"The storage service answered {response.status_code}.")
+                chunks, total = [], 0
+                for chunk in response.iter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise StorageError("The stored file is larger than expected.")
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except httpx.HTTPError as exc:
+            logger.warning("storage GET failed (%s)", type(exc).__name__)
+            raise StorageError("The storage service could not be reached.") from None
 
     def delete(self, path: str) -> None:
         self._request("DELETE", f"/object/{self._bucket}", json={"prefixes": [path]}, ok_missing=True)

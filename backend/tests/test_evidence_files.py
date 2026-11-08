@@ -201,6 +201,16 @@ def test_fake_put_never_overwrites_and_signed_urls_force_download():
     assert fake.delete_prefix("org/a/") == 1 and fake.objects == {}
 
 
+def test_fake_get_returns_bytes_and_refuses_missing_or_oversize_objects():
+    fake = MemoryStorage()
+    fake.put("org/a/1", b"%PDF-1", "application/pdf")
+    assert fake.get("org/a/1", 100) == b"%PDF-1"
+    with pytest.raises(StorageObjectNotFound):
+        fake.get("org/a/missing", 100)
+    with pytest.raises(StorageError):
+        fake.get("org/a/1", 3)
+
+
 # ── Supabase REST implementation (mock transport) ──────────────────────────────
 
 KEY = "service-role-key-for-tests-only"
@@ -235,6 +245,39 @@ def test_signed_url_forces_download_and_contains_no_key():
     assert url == ("https://proj.example.test/storage/v1/object/sign/evidence-files/org/a/1"
                    "?token=tok123&download=Board%20minutes.docx")
     assert KEY not in url
+
+
+def test_get_reads_the_object_with_the_key_in_headers_only():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nrest")
+
+    assert _client(handler).get("org/a/1", 1024) == b"\x89PNG\r\n\x1a\nrest"
+    req = seen[0]
+    assert req.method == "GET" and req.url.path == "/storage/v1/object/authenticated/evidence-files/org/a/1"
+    assert req.headers["authorization"] == f"Bearer {KEY}" and KEY not in str(req.url)
+
+
+def test_get_stops_past_the_size_limit_and_maps_missing_and_errors(caplog):
+    with pytest.raises(StorageError) as err:
+        _client(lambda r: httpx.Response(200, content=b"x" * 2048)).get("org/a/1", 1024)
+    assert "larger" in str(err.value)
+    for status in (400, 404):
+        with pytest.raises(StorageObjectNotFound):
+            _client(lambda r, s=status: httpx.Response(s, json={"message": "not found"})).get("org/a/1", 1024)
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(StorageError) as err:
+        _client(lambda r: httpx.Response(500, text=f"boom {KEY}")).get("org/a/1", 1024)
+    assert KEY not in str(err.value) and "boom" not in str(err.value) and KEY not in caplog.text
+
+    def down(request):
+        raise httpx.ConnectError("no route to https://proj.example.test " + KEY)
+
+    with pytest.raises(StorageError) as err:
+        _client(down).get("org/a/1", 1024)
+    assert KEY not in str(err.value) and err.value.__cause__ is None
 
 
 def test_signed_url_accepts_a_full_prefix_from_newer_storage_versions():
@@ -341,7 +384,8 @@ NEW_FILES = ["backend/app/compliance/evidence_files.py", "backend/app/compliance
              "backend/app/storage/base.py", "backend/app/storage/memory.py", "backend/app/storage/supabase.py",
              "backend/app/storage/__init__.py", "supabase/migrations/20261019100000_compliance_evidence_files.sql",
              "backend/scripts/reconcile_evidence_files.py", "backend/tests/evidence_samples.py",
-             "frontend/src/pages/compliance/EvidenceFiles.tsx"]
+             "frontend/src/pages/compliance/EvidenceFiles.tsx", "frontend/src/pages/compliance/EvidencePreview.tsx",
+             "frontend/src/pages/compliance/evidenceUpload.ts"]
 
 
 def _evidence_api_section() -> str:
